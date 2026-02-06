@@ -1,10 +1,15 @@
+<?php
+// 1. SESSION START
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+// Check Login
+if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TeamChat - Messaging Interface</title>
-    <!-- Remix Icon for modern icons -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     
     <style>
@@ -33,32 +38,41 @@ body {
     background-color:var(--bg-body); 
     height:100vh; 
     width:100vw; 
-    display:flex; 
-    align-items:center; 
-    justify-content:center; 
     overflow:hidden; 
 }
+
+/* --- GLOBAL SIDEBAR INTEGRATION --- */
+#mainContent { 
+    margin-left: 95px; /* Primary Sidebar Width */
+    height: 100vh;
+    width: calc(100% - 95px);
+    transition: margin-left 0.3s ease, width 0.3s ease;
+    position: relative;
+}
+#mainContent.main-shifted {
+    margin-left: 315px; /* 95px + 220px */
+    width: calc(100% - 315px);
+}
+/* ---------------------------------- */
 
 .app-container { 
     width:100%; 
     height:100%; 
     max-width:1920px; 
-    /* Layout Changes: Gap and Padding for separation */
     display:flex; 
     gap: 20px; 
     padding: 20px;
-    background:transparent; /* Transparent to let body bg show through gaps */
-    box-shadow:none; /* Removed container shadow to emphasize separation */
+    background:transparent;
+    box-shadow:none;
     position:relative; 
 }
 
 .sidebar { 
     width:var(--sidebar-width); 
-    border:1px solid var(--border-color); /* Added border for distinct container look */
+    border:1px solid var(--border-color);
     display:flex; 
     flex-direction:column; 
     background-color:var(--bg-white); 
-    /* Radius Change */
     border-radius: 7px; 
     flex-shrink:0; 
     height:100%; 
@@ -77,7 +91,7 @@ body {
     border-bottom:1px solid var(--border-color); 
     background-color:var(--bg-white); 
     flex-shrink:0; 
-    border-radius: 7px 7px 7px 7px; /* Match parent radius */
+    border-radius: 7px 7px 7px 7px;
 }
 
 .sidebar-title { font-size:1.5rem; font-weight:800; color:var(--text-main); margin-bottom:20px; letter-spacing:-0.02em; }
@@ -120,10 +134,9 @@ body {
     z-index:10; 
     height:100%; 
     min-width:0; 
-    /* Layout Changes */
     border:1px solid var(--border-color);
     border-radius: 7px; 
-    overflow: hidden; /* Ensures content respects radius */
+    overflow: hidden; 
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
 }
 
@@ -185,10 +198,10 @@ body {
 #remoteInitials { font-size:8rem; color:#ffffff; font-weight:700; letter-spacing:4px; text-transform:uppercase; line-height: 1; }
 .call-avatar-text { color: rgba(255,255,255,0.7); font-size: 1.5rem; margin-top: 16px; }
 
-#remoteVideo { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:1; background:transparent; display:none; /* Hidden by default for audio calls */ }
+#remoteVideo { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:1; background:transparent; display:none; }
 .video-call-overlay.is-video #remoteVideo { display:block; }
 
-.local-video-wrapper { position:absolute; bottom:20px; right:20px; width:200px; height:150px; background:#333; border-radius:16px; overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,0.5); border:2px solid rgba(255,255,255,0.2); z-index:2001; transition:all 0.3s ease; display:none; /* Hidden by default for audio calls */ }
+.local-video-wrapper { position:absolute; bottom:20px; right:20px; width:200px; height:150px; background:#333; border-radius:16px; overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,0.5); border:2px solid rgba(255,255,255,0.2); z-index:2001; transition:all 0.3s ease; display:none; }
 .video-call-overlay.is-video .local-video-wrapper { display:block; }
 
 .local-video-wrapper:hover { transform:scale(1.05); }
@@ -241,6 +254,10 @@ body {
     .chat-area { width:100%; border-radius: 0; }
     .back-btn { display:flex !important; margin-right:12px; cursor:pointer; font-size:1.5rem; color:var(--text-main); background:#F3F4F6; width:36px; height:36px; border-radius:50%; align-items:center; justify-content:center; }
     .local-video-wrapper { width:120px; height:90px; bottom:120px; right:20px; }
+    
+    /* Mobile Adjustments for Main Content */
+    #mainContent { margin-left: 0; width: 100%; padding: 0; }
+    #mainContent.main-shifted { margin-left: 0; width: 100%; }
 }
 
 @media (min-width: 769px) {
@@ -250,131 +267,119 @@ body {
 </head>
 <body>
 
-    <div class="app-container">
-        <!-- Sidebar: Fixed Width, Separate Container -->
-        <aside class="sidebar" id="sidebar">
-            <!-- Header: Title + Search -->
-            <div class="sidebar-header">
-                <div class="sidebar-title">Chats</div>
-                <div class="search-box">
-                    <i class="ri-search-line"></i>
-                    <input type="text" placeholder="Search chats..." id="searchInput">
-                </div>
-            </div>
-            <!-- List: Users (Fills remaining height) -->
-            <div class="chat-list" id="chatList">
-                <!-- Chat items will be injected here by JS -->
-            </div>
-        </aside>
+    <?php include('sidebars.php'); ?>
 
-        <!-- Main Chat Area: Flexible Width, Separate Container -->
-        <main class="chat-area">
-            <header class="chat-top-bar">
-                <div class="user-profile-info">
-                    <i class="ri-arrow-left-line back-btn" id="backBtn"></i>
-                    <img src="" alt="User Avatar" class="user-avatar-large" id="currentChatAvatar">
-                    <div class="user-details">
-                        <h3 id="currentChatName">Select a chat</h3>
-                        <span id="currentChatStatus">Offline</span>
-                    </div>
-                </div>
-                <div class="action-icons">
-                    <!-- Voice Call Button (Triggers Audio Only) -->
-                    <i class="ri-phone-line action-icon" id="openVoiceCallBtn" title="Start Voice Call"></i>
-                    <!-- Video Call Button (Triggers Video) -->
-                    <i class="ri-vidicon-line action-icon" id="startVideoCallBtn" title="Start Video Call"></i>
-                    <i class="ri-more-2-fill action-icon"></i>
-                </div>
-            </header>
-
-            <div class="messages-wrapper" id="messagesWrapper">
-                <!-- Messages will be injected here -->
-            </div>
-
-            <footer class="input-wrapper">
-                <!-- Hidden file input -->
-                <input type="file" id="fileInput" hidden>
-                
-                <i class="ri-attachment-line attach-btn" id="attachBtn" title="Share File"></i>
-                <div class="message-input-container">
-                    <input type="text" class="message-input" id="messageInput" placeholder="Type a message..." autocomplete="off">
-                </div>
-                <button class="send-btn" id="sendBtn">
-                    <i class="ri-send-plane-fill"></i>
-                </button>
-            </footer>
-        </main>
-        
-        <!-- Video/Voice Call Overlay -->
-        <div class="video-call-overlay" id="videoCallOverlay">
-            <div class="call-header">
-                <div class="call-info">
-                    <h2 id="callUserName">User Name</h2>
-                    <p id="callTimer">00:00</p>
-                </div>
-                <div style="font-size: 1.5rem; cursor: pointer; background: rgba(255,255,255,0.1); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content:center;" id="minimizeCallBtn">
-                    <i class="ri-pushpin-line"></i>
-                </div>
-            </div>
-
-            <div class="video-container">
-                <!-- Placeholder (Avatar/Initials) - Visible for Voice Calls -->
-                <div class="remote-placeholder" id="remotePlaceholder">
-                    <div id="remoteInitials">AL</div>
-                    <div class="call-avatar-text" id="callAvatarText">Voice Call</div>
-                </div>
-                
-                <!-- Remote Video (Only visible for Video Calls) -->
-                <video id="remoteVideo" autoplay playsinline></video>
-                
-                <!-- Local Video (Only visible for Video Calls) -->
-                <div class="local-video-wrapper">
-                    <video id="localVideo" autoplay muted playsinline></video>
-                </div>
-                
-                <div class="toast" id="toastMsg">Link copied to clipboard</div>
-            </div>
-
-            <div class="call-controls">
-                <button class="control-btn" id="toggleMicBtn" title="Toggle Microphone">
-                    <i class="ri-mic-line"></i>
-                </button>
-                <!-- Camera Toggle - Hidden for Audio Calls via JS -->
-                <button class="control-btn" id="toggleCamBtn" title="Toggle Camera">
-                    <i class="ri-camera-line"></i>
-                </button>
-                <button class="control-btn" id="shareLinkBtn" title="Share Meeting Link">
-                    <i class="ri-share-forward-line"></i>
-                </button>
-                <button class="control-btn end-call" id="endCallBtn" title="End Call">
-                    <i class="ri-phone-end-line"></i>
-                </button>
-            </div>
-        </div>
-
-        <!-- Call Participants Modal -->
-        <div class="modal-overlay" id="confModal">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h3 id="modalTitle">Start Call</h3>
-                    <button class="close-modal-btn" id="closeConfModal"><i class="ri-close-line"></i></button>
-                </div>
-                <div class="modal-body">
-                    <div class="search-box conf-search-wrapper">
+    <main id="mainContent">
+        <div class="app-container">
+            <aside class="sidebar" id="sidebar">
+                <div class="sidebar-header">
+                    <div class="sidebar-title">Chats</div>
+                    <div class="search-box">
                         <i class="ri-search-line"></i>
-                        <input type="text" placeholder="Search users to add..." id="confSearchInput">
-                    </div>
-                    <div class="conf-contact-list" id="confContactList">
-                        <!-- Contacts injected here -->
+                        <input type="text" placeholder="Search chats..." id="searchInput">
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button class="btn-secondary" id="cancelConfBtn">Cancel</button>
-                    <button class="btn-primary" id="startConfBtn">Start Call</button>
+                <div class="chat-list" id="chatList">
+                    </div>
+            </aside>
+
+            <main class="chat-area">
+                <header class="chat-top-bar">
+                    <div class="user-profile-info">
+                        <i class="ri-arrow-left-line back-btn" id="backBtn"></i>
+                        <img src="" alt="User Avatar" class="user-avatar-large" id="currentChatAvatar">
+                        <div class="user-details">
+                            <h3 id="currentChatName">Select a chat</h3>
+                            <span id="currentChatStatus">Offline</span>
+                        </div>
+                    </div>
+                    <div class="action-icons">
+                        <i class="ri-phone-line action-icon" id="openVoiceCallBtn" title="Start Voice Call"></i>
+                        <i class="ri-vidicon-line action-icon" id="startVideoCallBtn" title="Start Video Call"></i>
+                        <i class="ri-more-2-fill action-icon"></i>
+                    </div>
+                </header>
+
+                <div class="messages-wrapper" id="messagesWrapper">
+                    </div>
+
+                <footer class="input-wrapper">
+                    <input type="file" id="fileInput" hidden>
+                    
+                    <i class="ri-attachment-line attach-btn" id="attachBtn" title="Share File"></i>
+                    <div class="message-input-container">
+                        <input type="text" class="message-input" id="messageInput" placeholder="Type a message..." autocomplete="off">
+                    </div>
+                    <button class="send-btn" id="sendBtn">
+                        <i class="ri-send-plane-fill"></i>
+                    </button>
+                </footer>
+            </main>
+            
+            <div class="video-call-overlay" id="videoCallOverlay">
+                <div class="call-header">
+                    <div class="call-info">
+                        <h2 id="callUserName">User Name</h2>
+                        <p id="callTimer">00:00</p>
+                    </div>
+                    <div style="font-size: 1.5rem; cursor: pointer; background: rgba(255,255,255,0.1); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content:center;" id="minimizeCallBtn">
+                        <i class="ri-pushpin-line"></i>
+                    </div>
+                </div>
+
+                <div class="video-container">
+                    <div class="remote-placeholder" id="remotePlaceholder">
+                        <div id="remoteInitials">AL</div>
+                        <div class="call-avatar-text" id="callAvatarText">Voice Call</div>
+                    </div>
+                    
+                    <video id="remoteVideo" autoplay playsinline></video>
+                    
+                    <div class="local-video-wrapper">
+                        <video id="localVideo" autoplay muted playsinline></video>
+                    </div>
+                    
+                    <div class="toast" id="toastMsg">Link copied to clipboard</div>
+                </div>
+
+                <div class="call-controls">
+                    <button class="control-btn" id="toggleMicBtn" title="Toggle Microphone">
+                        <i class="ri-mic-line"></i>
+                    </button>
+                    <button class="control-btn" id="toggleCamBtn" title="Toggle Camera">
+                        <i class="ri-camera-line"></i>
+                    </button>
+                    <button class="control-btn" id="shareLinkBtn" title="Share Meeting Link">
+                        <i class="ri-share-forward-line"></i>
+                    </button>
+                    <button class="control-btn end-call" id="endCallBtn" title="End Call">
+                        <i class="ri-phone-end-line"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="modal-overlay" id="confModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 id="modalTitle">Start Call</h3>
+                        <button class="close-modal-btn" id="closeConfModal"><i class="ri-close-line"></i></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="search-box conf-search-wrapper">
+                            <i class="ri-search-line"></i>
+                            <input type="text" placeholder="Search users to add..." id="confSearchInput">
+                        </div>
+                        <div class="conf-contact-list" id="confContactList">
+                            </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn-secondary" id="cancelConfBtn">Cancel</button>
+                        <button class="btn-primary" id="startConfBtn">Start Call</button>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
+    </main>
 
     <script>
         // --- Data Model ---

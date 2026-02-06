@@ -1,6 +1,8 @@
 <?php
+ob_start(); // <--- CRITICAL FIX: Buffers output so headers/sessions work anywhere
+
 // Determine which page to show based on URL parameter (default is dashboard)
- $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
+$page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -8,20 +10,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SmartHR - Ticket System</title>
-    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
         /* --- CSS VARIABLES & RESET --- */
         :root {
-            --sidebar-bg: #1e2436;      /* Dark Blue from Screenshot 1 */
-            --sidebar-active: #151b2b;   /* Darker for active state */
-            --sidebar-text: #aeb7c2;     /* Muted text for sidebar */
+            --sidebar-bg: #1e2436;      
+            --sidebar-active: #151b2b;   
+            --sidebar-text: #aeb7c2;     
             --sidebar-text-active: #ffffff;
-            --accent-color: #ff5b37;     /* Bright Blue */
-            --bg-body: #f4f6f9;          /* Light Gray Background */
+            --accent-color: #ff5b37;     
+            --bg-body: #f4f6f9;          
             --card-bg: #ffffff;
             --text-primary: #333333;
             --text-secondary: #777777;
@@ -156,133 +156,21 @@
         }
 
         /* ==============================
-           SIDEBAR STYLING (Screenshot 1)
-           ============================== */
-        .sidebar {
-            width: 260px;
-            background-color: var(--sidebar-bg);
-            color: var(--sidebar-text);
-            display: flex;
-            flex-direction: column;
-            transition: all 0.3s;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-        }
-
-        .sidebar-brand {
-            padding: 20px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: #fff;
-            font-size: 1.2rem;
-            font-weight: 600;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-
-        .sidebar-brand i {
-            color: var(--accent-color);
-            font-size: 1.4rem;
-        }
-
-        .user-profile {
-            padding: 25px 20px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            border-bottom: 1px solid rgba(255,255,255,0.05);
-        }
-
-        .user-profile img {
-            width: 45px;
-            height: 45px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 2px solid var(--accent-color);
-        }
-
-        .user-info h4 {
-            color: #fff;
-            font-size: 0.95rem;
-            font-weight: 500;
-        }
-
-        .user-info span {
-            font-size: 0.8rem;
-            color: #889bb3;
-        }
-
-        .nav-menu {
-            list-style: none;
-            padding: 15px 0;
-            flex: 1;
-            overflow-y: auto;
-        }
-
-        .nav-item {
-            position: relative;
-        }
-
-        .nav-link {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 12px 25px;
-            color: var(--sidebar-text);
-            text-decoration: none;
-            font-size: 0.9rem;
-            transition: 0.3s;
-            cursor: pointer;
-        }
-
-        .nav-link:hover {
-            color: #fff;
-            background-color: rgba(255,255,255,0.02);
-        }
-
-        .nav-link.active {
-            background-color: var(--sidebar-active);
-            color: #fff;
-            border-right: 4px solid var(--accent-color);
-        }
-
-        .nav-icon {
-            width: 25px;
-            margin-right: 10px;
-            text-align: center;
-        }
-
-        /* Submenu Styling */
-        .submenu {
-            list-style: none;
-            background-color: #161b28; /* Slightly darker than sidebar */
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.4s ease-out;
-        }
-
-        .submenu.open {
-            max-height: 300px;
-        }
-
-        .submenu .nav-link {
-            padding-left: 60px;
-            font-size: 0.85rem;
-        }
-
-        .rotate-arrow {
-            transition: transform 0.3s;
-        }
-        .rotate-arrow.rotated {
-            transform: rotate(180deg);
-        }
-
-        /* ==============================
            MAIN CONTENT AREA
            ============================== */
         .main-content {
             flex: 1;
             padding: 25px;
             overflow-y: auto;
+            /* Adjust margin for new sidebar */
+            margin-left: 95px; 
+            transition: margin-left 0.3s;
+        }
+        
+        /* When secondary sidebar opens (handled by sidebars.php JS), 
+           we need to push content. The class 'main-shifted' is added by sidebars.php script */
+        .main-content.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
         }
 
         .page-header {
@@ -375,7 +263,7 @@
         .stat-solved .stat-icon { background: #e8f5e9; color: #00c853; }
         .stat-pending .stat-icon { background: #f3e5f5; color: #9c27b0; }
 
-        /* Layout for Dashboard (Screenshot 2) */
+        /* Layout for Dashboard */
         .dashboard-grid {
             display: grid;
             grid-template-columns: 2fr 1fr;
@@ -571,77 +459,16 @@
 </head>
 <body>
 
-    <!-- SIDEBAR -->
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <i class="fa-solid fa-layer-group"></i>
-            <span>SmartHR</span>
-        </div>
+    <?php include 'sidebars.php'; ?>
 
-        <div class="user-profile">
-            <img src="https://ui-avatars.com/api/?name=Adrian+Herman&background=2962ff&color=fff" alt="User">
-            <div class="user-info">
-                <h4>Adrian Herman</h4>
-                <span>System Admin</span>
-            </div>
-        </div>
-
-        <ul class="nav-menu">
-            <!-- HOME / DASHBOARD -->
-            <li class="nav-item">
-                <a href="?view=dashboard" class="nav-link <?php echo $page == 'dashboard' ? 'active' : ''; ?>">
-                    <div style="display:flex; align-items:center;">
-                        <i class="fa-solid fa-house nav-icon"></i> Home
-                    </div>
-                </a>
-            </li>
-            
-            <!-- TICKETS DROPDOWN -->
-            <li class="nav-item">
-                <a href="#" onclick="toggleSubmenu(event)" class="nav-link">
-                    <div style="display:flex; align-items:center;">
-                        <i class="fa-solid fa-ticket nav-icon"></i> Tickets
-                    </div>
-                    <i class="fa-solid fa-chevron-down rotate-arrow"></i>
-                </a>
-                <ul class="submenu" id="ticketsSubmenu">
-                    <li><a href="?view=dashboard" class="nav-link <?php echo $page == 'dashboard' ? 'active' : ''; ?>">Ticket Dashboard</a></li>
-                    <li><a href="?view=details" class="nav-link <?php echo $page == 'details' ? 'active' : ''; ?>">Ticket Details</a></li>
-                    <li><a href="?view=automation" class="nav-link <?php echo $page == 'automation' ? 'active' : ''; ?>">Ticket Automation</a></li>
-                    <li><a href="?view=report" class="nav-link <?php echo $page == 'report' ? 'active' : ''; ?>">Ticket Report</a></li>
-                </ul>
-            </li>
-
-            
-            <li class="nav-item">
-                <a href="#" onclick="toggleSubmenu(event)" class="nav-link">
-                    <div style="display:flex; align-items:center;">
-                        <i class="fa-solid fa-users nav-icon"></i> Employees
-                    </div>
-                    <i class="fa-solid fa-chevron-down rotate-arrow"></i>
-                </a>
-                <ul class="submenu" id="employeesSubmenu">
-                    <li><a href="?view=employees" class="nav-link <?php echo $page == 'employees' ? 'active' : ''; ?>">Employee List</a></li>
-                    <li><a href="?view=departments" class="nav-link <?php echo $page == 'departments' ? 'active' : ''; ?>">Departments</a></li>
-                </ul>
-            </li>
-
-            
-            </li>
-        </ul>
-    </aside>
-
-    <!-- MAIN CONTENT -->
-    <main class="main-content">
+    <main class="main-content" id="mainContent">
         
         <?php if ($page == 'dashboard'): ?>
-        <!-- ==================== TICKET DASHBOARD ==================== -->
         <div class="page-header">
             <h2>Tickets</h2>
             <button class="btn btn-primary" onclick="openAddTicketModal()"><i class="fa-solid fa-plus"></i> Add Ticket</button>
         </div>
 
-        <!-- Stats Cards -->
         <div class="stats-container">
             <div class="stat-card stat-new">
                 <div class="stat-info">
@@ -681,9 +508,7 @@
             </div>
         </div>
 
-        <!-- Main Layout (List + Categories) -->
         <div class="dashboard-grid">
-            <!-- Left: Ticket List -->
             <div class="card">
                 <div class="card-header">
                     <h4 class="card-title">Ticket List</h4>
@@ -741,9 +566,7 @@
                 </div>
             </div>
 
-            <!-- Right: Sidebar Widgets -->
             <div class="right-widgets">
-                <!-- Categories -->
                 <div class="card">
                     <div class="card-header">
                         <h4 class="card-title">Ticket Categories</h4>
@@ -768,7 +591,6 @@
                     </ul>
                 </div>
 
-                <!-- Support Agents -->
                 <div class="card">
                     <div class="card-header">
                         <h4 class="card-title">Support Agents</h4>
@@ -785,14 +607,12 @@
         </div>
 
         <?php elseif ($page == 'details'): ?>
-        <!-- ==================== TICKET DETAILS ==================== -->
         <div class="page-header">
             <h2><a href="?view=dashboard" style="text-decoration:none; color:#777; margin-right:10px;"><i class="fa-solid fa-arrow-left"></i></a> Ticket Details</h2>
             <button class="btn btn-primary">Edit Ticket</button>
         </div>
 
         <div class="details-grid">
-            <!-- Conversation -->
             <div class="card">
                 <div class="card-header">
                     <div>
@@ -834,7 +654,6 @@
                 </div>
             </div>
 
-            <!-- Sidebar Info -->
             <div class="card">
                 <div class="card-header">
                     <h4 class="card-title">Ticket Details</h4>
@@ -869,7 +688,6 @@
         </div>
 
         <?php elseif ($page == 'automation'): ?>
-        <!-- ==================== TICKET AUTOMATION ==================== -->
         <div class="page-header">
             <h2>Ticket Automation</h2>
             <button class="btn btn-primary" onclick="openAddRuleModal()"><i class="fa-solid fa-plus"></i> Add New Rule</button>
@@ -935,13 +753,11 @@
         </div>
 
         <?php elseif ($page == 'report'): ?>
-        <!-- ==================== TICKET REPORT ==================== -->
         <div class="page-header">
             <h2>Ticket Report</h2>
             <button class="btn btn-primary"><i class="fa-solid fa-download"></i> Export</button>
         </div>
 
-        <!-- Report Stats -->
         <div class="stats-container">
             <div class="stat-card">
                 <div class="stat-info">
@@ -981,7 +797,6 @@
             </div>
         </div>
 
-        <!-- Chart Area -->
         <div class="card">
             <div class="card-header">
                 <h4 class="card-title">Ticket Categories Vs Priority</h4>
@@ -1010,7 +825,6 @@
             </div>
         </div>
 
-        <!-- Recent Reports List -->
         <div class="card">
             <div class="card-header">
                 <h4 class="card-title">Recent Ticket Reports</h4>
@@ -1057,7 +871,6 @@
 
     </main>
 
-    <!-- Add Ticket Modal -->
     <div class="modal" id="addTicketModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1114,7 +927,6 @@
         </div>
     </div>
 
-    <!-- Add New Rule Modal -->
     <div class="modal" id="addRuleModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1179,23 +991,7 @@
         </div>
     </div>
 
-    <!-- JavaScript for Sidebar Toggle -->
     <script>
-        function toggleSubmenu(event) {
-            event.preventDefault();
-            const submenu = event.currentTarget.nextElementSibling;
-            const arrow = event.currentTarget.querySelector('.rotate-arrow');
-            
-            if (submenu.style.maxHeight) {
-                submenu.style.maxHeight = null;
-                arrow.classList.remove('rotated');
-            } else {
-                submenu.style.maxHeight = submenu.scrollHeight + "px";
-                arrow.classList.add('rotated');
-            }
-        }
-        
-        // Add Ticket Modal Functions
         function openAddTicketModal() {
             document.getElementById('addTicketModal').classList.add('show');
         }
@@ -1214,7 +1010,6 @@
             const category = document.getElementById('ticketCategory').value;
             const priority = document.getElementById('ticketPriority').value;
             const description = document.getElementById('ticketDescription').value;
-            const assignee = document.getElementById('ticketAssignee').value;
             
             if (!subject || !category || !description) {
                 alert('Please fill in all required fields');

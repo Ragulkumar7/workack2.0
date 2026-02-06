@@ -13,7 +13,7 @@ $user_name = $_SESSION['username'] ?? 'User';
 $user_role = $_SESSION['role'] ?? 'Employee';
 $first_letter = strtoupper(substr($user_name, 0, 1));
 $current_path = basename($_SERVER['PHP_SELF']); 
-$current_view = $_GET['view'] ?? ''; // To track active sub-item in Attendance
+$current_view = $_GET['view'] ?? ''; // To track active sub-item in Attendance & Tasks
 
 // 2. DEFINE MENU DATA
 $sections = [
@@ -28,12 +28,12 @@ $sections = [
             ],
             [
                 'name' => 'Team Chat', 
-                'path' => 'chat.php', 
+                'path' => 'team_chat.php', 
                 'icon' => 'message-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee']
             ],
             
-            // --- UPDATED ATTENDANCE SECTION (With Sub-Items) ---
+            // --- ATTENDANCE SECTION ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
@@ -48,25 +48,36 @@ $sections = [
                     ['name' => 'WFH Request', 'path' => 'attendance.php?view=wfh', 'icon' => 'home']
                 ]
             ],
-            // ----------------------------------------------------
+
+            // --- NEW TASK MANAGEMENT MODULE ---
+            [
+                'name' => 'Task Management', 
+                'icon' => 'clipboard-check', 
+                'allowed' => ['Manager', 'Team Lead', 'HR', 'Employee', 'Digital Marketing', 'System Admin'],
+                'subItems' => [
+                    ['name' => 'My Tasks', 'path' => 'self_task.php', 'icon' => 'check-square'], // Linked to self_task.php
+                    ['name' => 'Team Tasks', 'path' => 'manager_task.php?view=team_tasks', 'icon' => 'users'],
+                ]
+            ],
+            // ----------------------------------
 
             [
-                'name' => 'Self Task', 
-                'path' => 'tasks.php', 
-                'icon' => 'check-square', 
-                'allowed' => ['Manager', 'System Admin', 'Employee']
-            ],
-            [
                 'name' => 'Announcement', 
-                'path' => 'announcement.php', 
+                'path' => 'announcement.php',
                 'icon' => 'megaphone', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
             [
                 'name' => 'Ticket Raise', 
-                'path' => 'tickets.php', 
+                'path' => 'ticketraise.php', 
                 'icon' => 'ticket', 
-                'allowed' => ['Manager', 'System Admin', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'Employee'],
+                'subItems' => [
+                    ['name' => 'Ticket Dashboard', 'path' => 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
+                    ['name' => 'Ticket Details', 'path' => 'ticketraise.php?view=details', 'icon' => 'file-text'],
+                    ['name' => 'Ticket Automation', 'path' => 'ticketraise.php?view=automation', 'icon' => 'zap'],
+                    ['name' => 'Ticket Report', 'path' => 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
+                ]
             ],
         ]
     ],
@@ -173,7 +184,13 @@ foreach ($sections as $section) {
                 // Check if a sub-item is currently active based on URL query param
                 if (isset($item['subItems'])) {
                     foreach($item['subItems'] as $sub) {
+                        // Special check for Task Management sub-items
                         if (strpos($sub['path'], $current_view) !== false && $current_view != '') {
+                            $isSubActive = true;
+                            break;
+                        }
+                        // Check for direct file match (like self_task.php)
+                        if (basename($sub['path']) == $current_path) {
                             $isSubActive = true;
                             break;
                         }

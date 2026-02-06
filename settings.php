@@ -1,5 +1,8 @@
 <?php
-// include('db_config.php');
+// 1. SESSION START
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+// Check Login
+if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -18,56 +21,25 @@
             --text-dark: #333333;
             --text-muted: #666666;
             --border-light: #e3e3e3;
-            /* Narrower Sidebar Width for Icon View */
-            --sidebar-width: 70px; 
         }
 
-        body { background-color: var(--bg-light); color: var(--text-dark); font-family: 'Inter', sans-serif; margin: 0; display: flex; }
+        body { background-color: var(--bg-light); color: var(--text-dark); font-family: 'Inter', sans-serif; margin: 0; display: block; overflow-x: hidden; }
         
-        /* ADJUSTED SIDEBAR: Matches image_599039.png */
-        .sidebar-wrapper { 
-            width: var(--sidebar-width); 
-            background: var(--white); 
-            height: 100vh; 
-            position: fixed; 
-            border-right: 1px solid var(--border-light); 
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding-top: 20px;
+        /* --- SIDEBAR INTEGRATION CSS --- */
+        #mainContent { 
+            margin-left: 95px; /* Primary Sidebar Width */
+            padding: 30px; 
+            transition: margin-left 0.3s ease;
+            width: calc(100% - 95px);
+            min-height: 100vh;
+            box-sizing: border-box;
         }
-
-        .sidebar-logo { margin-bottom: 30px; }
-        .sidebar-logo img { width: 40px; height: 40px; }
-
-        .sidebar-nav-icons { display: flex; flex-direction: column; gap: 25px; }
-        .sidebar-nav-icons a { 
-            color: var(--text-muted); 
-            font-size: 20px; 
-            position: relative; 
-            text-decoration: none; 
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
         }
-        
-        /* Green status dots from image */
-        .sidebar-nav-icons a::before {
-            content: '';
-            position: absolute;
-            top: -5px;
-            left: -5px;
-            width: 6px;
-            height: 6px;
-            background: #28a745;
-            border-radius: 50%;
-        }
+        /* --------------------------- */
 
-        .sidebar-nav-icons a.active { color: var(--primary-orange); }
-        .sidebar-nav-icons a.active-bg { background: #fff4f2; border-radius: 8px; padding: 10px; color: var(--primary-orange); }
-
-        .main-wrapper { margin-left: var(--sidebar-width); width: calc(100% - var(--sidebar-width)); padding: 30px; }
         .page-header { margin-bottom: 30px; }
         .page-header h1 { font-size: 24px; margin: 0; font-weight: 600; }
         .breadcrumb { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
@@ -121,7 +93,6 @@
         .grid-box-container { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 15px; }
         .setting-box { border: 1px solid var(--border-light); padding: 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
         .setting-box h5 { margin: 0; font-size: 15px; font-weight: 600; }
-        .theme-preview { width: 40px; height: 40px; border-radius: 50%; display: inline-block; cursor: pointer; margin-right: 10px; border: 2px solid #ddd; }
         .storage-box { border: 1px solid var(--border-light); padding: 20px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
         .backup-table { width: 100%; border-collapse: collapse; }
         .backup-table td, .backup-table th { padding: 12px; border-bottom: 1px solid var(--border-light); }
@@ -129,36 +100,24 @@
 </head>
 <body>
 
-    <div class="sidebar-wrapper">
-        <div class="sidebar-logo">
-            <img src="https://smarthr.dreamsguy.com/assets/img/logo.png" alt="Logo">
-        </div>
-        <div class="sidebar-nav-icons">
-            <a href="#" class="active"><i class="fas fa-home"></i></a>
-            <a href="#"><i class="fas fa-th-large"></i></a>
-            <a href="#"><i class="fas fa-user-friends"></i></a>
-            <a href="#"><i class="fas fa-clipboard-list"></i></a>
-            <a href="#"><i class="fas fa-users"></i></a>
-            <a href="#"><i class="fas fa-user-circle"></i></a>
-            <a href="#"><i class="fas fa-shopping-cart"></i></a>
-            <a href="#"><i class="fas fa-wallet"></i></a>
-            <a href="#"><i class="fas fa-file-alt"></i></a>
-            <a href="#" class="active-bg"><i class="fas fa-lock"></i></a>
-            <a href="#"><i class="fas fa-project-diagram"></i></a>
-        </div>
-    </div>
+    <?php include('sidebars.php'); ?>
 
-    <div class="main-wrapper">
+    <div id="mainContent">
         <div class="page-header">
             <h1>Settings</h1>
             <div class="breadcrumb" id="breadcrumb-text">Settings / General Settings / Profile Settings</div>
         </div>
 
         <div class="top-settings-nav">
-            <div class="top-nav-item active" onclick="showSection('profile', this)"><i class="fas fa-cog"></i> General Settings</div>
-            <div class="top-nav-item" onclick="showSection('email-templates', this)"><i class="fas fa-server"></i> System Settings</div>
-            
-            <div class="top-nav-item"><i class="fas fa-th"></i> Other Settings</div>
+            <div class="top-nav-item active" onclick="showSection('profile', this, 'General Settings')">
+                <i class="fas fa-cog"></i> General Settings
+            </div>
+            <div class="top-nav-item" onclick="showSection('email-templates', this, 'System Settings')">
+                <i class="fas fa-server"></i> System Settings
+            </div>
+            <div class="top-nav-item" onclick="showSection('storage', this, 'Other Settings')">
+                <i class="fas fa-th"></i> Other Settings
+            </div>
         </div>
 
         <div class="settings-container">
@@ -167,28 +126,27 @@
                     <span>General Settings</span><i class="fas fa-chevron-down" id="arrow-gen"></i>
                 </div>
                 <div class="submenu show" id="general-submenu">
-                    <div class="submenu-item active" onclick="showSection('profile', this)">» Profile Settings</div>
-                    <div class="submenu-item" onclick="showSection('security', this)">Security Settings</div>
-                    <div class="submenu-item" onclick="showSection('notifications', this)">Notifications</div>
+                    <div class="submenu-item active" onclick="showSection('profile', this, 'General Settings')">» Profile Settings</div>
+                    <div class="submenu-item" onclick="showSection('security', this, 'General Settings')">Security Settings</div>
+                    <div class="submenu-item" onclick="showSection('notifications', this, 'General Settings')">Notifications</div>
                 </div>
 
                 <div class="nav-link" onclick="toggleSub('system-submenu', 'arrow-sys')">
                     <span>System Settings</span><i class="fas fa-chevron-down" id="arrow-sys"></i>
                 </div>
                 <div class="submenu" id="system-submenu">
-                    <div class="submenu-item" onclick="showSection('email-templates', this)">Email Templates</div>
-                    <div class="submenu-item" onclick="showSection('sms-settings', this)">SMS Settings</div>
-                    <div class="submenu-item" onclick="showSection('otp-settings', this)">OTP Settings</div>
+                    <div class="submenu-item" onclick="showSection('email-templates', this, 'System Settings')">Email Templates</div>
+                    <div class="submenu-item" onclick="showSection('sms-settings', this, 'System Settings')">SMS Settings</div>
+                    <div class="submenu-item" onclick="showSection('otp-settings', this, 'System Settings')">OTP Settings</div>
                 </div>
 
                 <div class="nav-link" onclick="toggleSub('other-submenu', 'arrow-oth')">
                     <span>Other Settings</span><i class="fas fa-chevron-down" id="arrow-oth"></i>
                 </div>
                 <div class="submenu" id="other-submenu">
-                    <div class="submenu-item" onclick="showSection('storage', this)">Storage</div>
-                    <div class="submenu-item" onclick="showSection('theme', this)">Theme Settings</div>
-                    <div class="submenu-item" onclick="showSection('backup', this)">Backup</div>
-                    <div class="submenu-item" onclick="showSection('clear-cache', this)">Clear Cache</div>
+                    <div class="submenu-item" onclick="showSection('storage', this, 'Other Settings')">Storage</div>
+                    <div class="submenu-item" onclick="showSection('backup', this, 'Other Settings')">Backup</div>
+                    <div class="submenu-item" onclick="showSection('clear-cache', this, 'Other Settings')">Clear Cache</div>
                 </div>
             </aside>
 
@@ -278,24 +236,6 @@
                 <div style="text-align: right;"><button class="btn-save">Save OTP Config</button></div>
             </div>
 
-            <div id="theme-card" class="content-card">
-                <div class="card-title">Theme Settings</div>
-                <div class="input-group"><label>Theme Mode</label>
-                    <div style="display:flex; gap:20px;">
-                        <label><input type="radio" name="theme" checked> Light Mode</label>
-                        <label><input type="radio" name="theme"> Dark Mode</label>
-                    </div>
-                </div>
-                <div class="input-group"><label>Primary Theme Color</label>
-                    <div style="display:flex;">
-                        <div class="theme-preview" style="background:#ff5b37; border-color:#000;"></div>
-                        <div class="theme-preview" style="background:#2196f3;"></div>
-                        <div class="theme-preview" style="background:#4caf50;"></div>
-                    </div>
-                </div>
-                <button class="btn-save">Apply Theme</button>
-            </div>
-
             <div id="storage-card" class="content-card">
                 <div class="card-title">Storage Settings</div>
                 <div class="storage-box"><div><i class="fas fa-server"></i> Local Storage</div><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
@@ -325,17 +265,49 @@
     <script>
         function openModal(id) { document.getElementById(id).style.display = 'block'; }
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        
         function toggleSub(id, arrowId) { 
             document.getElementById(id).classList.toggle("show"); 
             document.getElementById(arrowId).style.transform = document.getElementById(id).classList.contains("show") ? "rotate(180deg)" : "rotate(0deg)";
         }
-        function showSection(sectionId, element) {
+
+        // Updated Function to Fix Breadcrumb Loop & Top Nav Selection
+        function showSection(sectionId, element, categoryName) {
+            // 1. Switch Content Cards
             document.querySelectorAll('.content-card').forEach(card => card.classList.remove('active'));
-            document.querySelectorAll('.submenu-item').forEach(item => { item.classList.remove('active'); item.innerText = item.innerText.replace('» ', ''); });
             document.getElementById(sectionId + '-card').classList.add('active');
-            element.classList.add('active'); element.innerText = '» ' + element.innerText;
-            document.getElementById('breadcrumb-text').innerText = 'Settings / ' + element.parentElement.previousElementSibling.innerText + ' / ' + element.innerText.replace('» ', '');
+
+            // 2. Sidebar Active State Logic
+            document.querySelectorAll('.submenu-item').forEach(item => { 
+                item.classList.remove('active'); 
+                item.innerText = item.innerText.replace('» ', ''); // Reset text
+            });
+
+            // If clicked element is a sidebar item (not top nav), highlight it
+            if (element.classList.contains('submenu-item')) {
+                element.classList.add('active'); 
+                element.innerText = '» ' + element.innerText; // Add arrow
+            }
+
+            // 3. Top Nav Active State
+            document.querySelectorAll('.top-nav-item').forEach(item => item.classList.remove('active'));
+            
+            // Simple logic to highlight top nav based on category
+            const topNavs = document.querySelectorAll('.top-nav-item');
+            if (categoryName === 'General Settings') topNavs[0].classList.add('active');
+            else if (categoryName === 'System Settings') topNavs[1].classList.add('active');
+            else if (categoryName === 'Other Settings') topNavs[2].classList.add('active');
+
+            // 4. Update Breadcrumb safely (No recursion)
+            // Use the button text (cleaned) for the last part
+            let sectionName = element.innerText.replace('» ', '').trim();
+            
+            // Fix: If clicking Top Nav "Other Settings", default to "Storage" in breadcrumb
+            if(sectionName === 'Other Settings') sectionName = 'Storage';
+
+            document.getElementById('breadcrumb-text').innerText = 'Settings / ' + categoryName + ' / ' + sectionName;
         }
+
         function previewImage(input) { if (input.files && input.files[0]) { var reader = new FileReader(); reader.onload = function(e) { document.getElementById('photo-preview').innerHTML = '<img src="' + e.target.result + '">'; }; reader.readAsDataURL(input.files[0]); } }
         window.onclick = function(event) { if (event.target.className === 'modal') { event.target.style.display = "none"; } }
         window.onload = function() { document.getElementById("arrow-gen").style.transform = "rotate(180deg)"; };

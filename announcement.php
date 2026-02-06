@@ -1,3 +1,9 @@
+<?php
+// 1. SESSION START
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+// Check Login
+if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -15,13 +21,24 @@
             --text-dark: #333333;
             --text-muted: #666666;
             --border-light: #e3e3e3;
-            --sidebar-width: 260px;
         }
 
-        body { background-color: var(--bg-light); color: var(--text-dark); font-family: 'Inter', sans-serif; margin: 0; display: flex; }
-        .sidebar-wrapper { width: var(--sidebar-width); background: var(--white); height: 100vh; position: fixed; border-right: 1px solid var(--border-light); z-index: 100; }
-        .main-wrapper { margin-left: var(--sidebar-width); width: calc(100% - var(--sidebar-width)); padding: 30px; }
+        body { background-color: var(--bg-light); color: var(--text-dark); font-family: 'Inter', sans-serif; margin: 0; overflow-x: hidden; }
         
+        /* --- SIDEBAR INTEGRATION CSS --- */
+        #mainContent { 
+            margin-left: 95px; /* Primary Sidebar Width */
+            padding: 30px; 
+            transition: margin-left 0.3s ease;
+            width: calc(100% - 95px);
+            min-height: 100vh;
+        }
+        #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+        /* --------------------------- */
+
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
         .page-header h1 { font-size: 24px; margin: 0; font-weight: 600; }
         .breadcrumb { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
@@ -49,7 +66,7 @@
         .action-btn:hover { color: var(--primary-orange); }
 
         /* Modals */
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
         .modal-content { background: white; margin: 5% auto; padding: 30px; border-radius: 8px; width: 600px; position: relative; }
         .modal-header { margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; display: flex; justify-content: space-between; }
         
@@ -61,9 +78,9 @@
 </head>
 <body>
 
-    <div class="sidebar-wrapper"></div>
+    <?php include('sidebars.php'); ?>
 
-    <div class="main-wrapper">
+    <div id="mainContent">
         <div class="page-header">
             <div>
                 <h1>Announcements</h1>
