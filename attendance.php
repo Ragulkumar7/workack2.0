@@ -31,15 +31,15 @@ $attendanceRecords = [
     <div id="reportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden">
             <div class="flex justify-between items-center p-6 border-b">
-                <h2 class="text-2xl font-bold">Attendance</h2>
+                <h2 class="text-2xl font-bold"><span id="modalEmployeeName"></span> Attendance</h2>
                 <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
             </div>
             <div class="p-8">
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 bg-slate-50 p-6 rounded-lg border">
-                    <div><p class="text-slate-500 text-sm">Date</p><p class="font-bold">15 Apr 2025</p></div>
-                    <div><p class="text-slate-500 text-sm">Punch in at</p><p class="font-bold">09:00 AM</p></div>
-                    <div><p class="text-slate-500 text-sm">Punch out at</p><p class="font-bold">06:45 PM</p></div>
-                    <div><p class="text-slate-500 text-sm">Status</p><p class="font-bold">Present</p></div>
+                    <div><p class="text-slate-500 text-sm">Date</p><p class="font-bold" id="modalDate">15 Apr 2025</p></div>
+                    <div><p class="text-slate-500 text-sm">Punch in at</p><p class="font-bold" id="modalPunchIn">09:00 AM</p></div>
+                    <div><p class="text-slate-500 text-sm">Punch out at</p><p class="font-bold" id="modalPunchOut">06:45 PM</p></div>
+                    <div><p class="text-slate-500 text-sm">Status</p><p class="font-bold" id="modalStatus">Present</p></div>
                 </div>
                 <div class="grid grid-cols-4 gap-4 mb-8">
                     <div><p class="text-slate-400 text-xs">Total Working hours</p><p class="text-xl font-bold">12h 36m</p></div>
@@ -73,7 +73,7 @@ $attendanceRecords = [
             <button class="bg-white border px-4 py-2 rounded text-sm text-slate-600 flex items-center gap-2">
                 <i class="fa-solid fa-file-export"></i> Export <i class="fa fa-chevron-down text-[10px]"></i>
             </button>
-            <button onclick="openModal()" class="bg-orange-500 text-white px-6 py-2 rounded flex items-center gap-2 shadow-sm font-medium">
+            <button onclick="openModal({name: '<?php echo $employeeName; ?>', date: '15 Apr 2025', in: '09:00 AM', out: '06:45 PM', status: 'Present'})" class="bg-orange-500 text-white px-6 py-2 rounded flex items-center gap-2 shadow-sm font-medium">
                 <i class="fa-regular fa-file-lines"></i> Report
             </button>
             <button class="bg-white border p-2 rounded text-slate-400"><i class="fa-solid fa-angles-up text-xs"></i></button>
@@ -202,7 +202,7 @@ $attendanceRecords = [
                 </thead>
                 <tbody class="divide-y">
                     <?php foreach ($attendanceRecords as $row): ?>
-                    <tr class="hover:bg-slate-50 transition">
+                    <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="openModal({name: '<?php echo $employeeName; ?>', date: '<?php echo $row['date']; ?>', in: '<?php echo $row['checkin']; ?>', out: '<?php echo $row['checkout']; ?>', status: '<?php echo $row['status']; ?>'})">
                         <td class="p-4 text-slate-500"><?php echo $row['date']; ?></td>
                         <td class="p-4 text-slate-500"><?php echo $row['checkin']; ?></td>
                         <td class="p-4">
@@ -230,7 +230,20 @@ $attendanceRecords = [
         const modal = document.getElementById('reportModal');
         let isPunchedOut = false;
 
-        function openModal() { modal.classList.add('modal-active'); document.body.style.overflow = 'hidden'; }
+        function openModal(data) { 
+            // Update modal with specific person's info
+            if(data) {
+                document.getElementById('modalEmployeeName').innerText = data.name;
+                document.getElementById('modalDate').innerText = data.date;
+                document.getElementById('modalPunchIn').innerText = data.in || '-';
+                document.getElementById('modalPunchOut').innerText = data.out || '-';
+                document.getElementById('modalStatus').innerText = data.status;
+            }
+
+            modal.classList.add('modal-active'); 
+            document.body.style.overflow = 'hidden'; 
+        }
+
         function closeModal() { modal.classList.remove('modal-active'); document.body.style.overflow = 'auto'; }
 
         function togglePunch() {
