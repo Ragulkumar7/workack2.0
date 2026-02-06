@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HRMS Executive Suite</title>
     
-    <!-- External Libraries (Chart.js for Charts, FontAwesome for Icons) -->
+    <!-- External Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
@@ -32,7 +32,7 @@
             color: var(--text-main);
             display: flex;
             height: 100vh;
-            overflow: hidden;
+            overflow: hidden; /* Prevent body scroll */
         }
 
         /* --- Sidebar --- */
@@ -87,13 +87,11 @@
         }
 
         .role-btn:hover { background: rgba(255,255,255,0.1); }
-        
         .role-btn.active {
             background: var(--primary);
             color: white;
             box-shadow: 0 4px 12px rgba(79, 70, 229, 0.4);
         }
-
         .role-btn i { margin-right: 10px; width: 20px; text-align: center; }
 
         /* --- Main Content --- */
@@ -101,7 +99,8 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            overflow: hidden; /* Prevents main container from scrolling */
+            overflow: hidden;
+            min-width: 0; /* Important for flex overflow prevention */
         }
 
         header {
@@ -134,44 +133,66 @@
         }
 
         .dashboard-scroll {
-            padding: 2rem;
-            overflow-y: auto; /* Vertical scroll enabled */
-            overflow-x: hidden; /* Horizontal scroll removed */
+            padding: 1.5rem;
+            overflow-y: auto;
             flex: 1;
-            height: 100%;
+            width: 100%;
         }
 
-        /* --- Dashboard Grid --- */
+        /* --- CEO Specific Layout (Your Requested Structure) --- */
+        .ceo-layout {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+            max-width: 100%;
+            width: 100%;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+        }
+
+        .charts-row {
+            display: grid;
+            grid-template-columns: 3fr 1fr; /* 3:1 Ratio as requested */
+            gap: 1.25rem;
+        }
+
+        /* --- General Card & Grid Styles (For CFO/Manager too) --- */
         .grid-container {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             grid-template-rows: auto auto;
             gap: 1.5rem;
             width: 100%;
-            margin: 0 auto;
         }
+        
+        .span-1 { grid-column: span 1; }
+        .span-2 { grid-column: span 2; }
+        .span-4 { grid-column: span 4; }
 
-        /* Card Styles */
         .card {
             background: var(--bg-card);
             border-radius: 12px;
-            padding: 1.5rem;
+            padding: 1.25rem;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             border: 1px solid var(--border);
             display: flex;
             flex-direction: column;
-            width: 100%;
+            min-width: 0; /* Prevents overflow */
         }
 
         .card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
         }
 
-        .card-title { font-size: 0.95rem; font-weight: 600; color: var(--secondary); }
-        .card-value { font-size: 1.8rem; font-weight: 700; color: var(--text-main); margin: 0.5rem 0; }
+        .card-title { font-size: 0.95rem; font-weight: 600; color: var(--secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-value { font-size: 1.9rem; font-weight: 700; color: var(--text-main); margin: 0.25rem 0 0.5rem 0; word-wrap: break-word;}
         
         .trend {
             font-size: 0.85rem;
@@ -182,27 +203,71 @@
         .trend.up { color: var(--success); }
         .trend.down { color: var(--danger); }
 
-        /* Grid Spans */
-        .span-1 { grid-column: span 1; }
-        .span-2 { grid-column: span 2; }
-        .span-3 { grid-column: span 3; }
-        .span-4 { grid-column: span 4; }
-
         /* Chart Containers */
         .chart-box {
             position: relative;
-            height: 300px;
+            height: 280px;
             width: 100%;
         }
-        
         .chart-box-sm {
-            height: 200px;
+            height: 240px;
             width: 100%;
         }
 
-        /* --- Tabs System (CEO Only) --- */
+        /* --- Tables --- */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            table-layout: auto;
+        }
+        .data-table th, .data-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table th {
+            font-weight: 600;
+            color: var(--secondary);
+            background: #f8fafc;
+            font-size: 0.85rem;
+        }
+        .data-table td { font-size: 0.9rem; }
+        .data-table tr:hover { background-color: #f8fafc; }
+        
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .bg-green { background: #dcfce7; color: #166534; }
+        .bg-red { background: #fee2e2; color: #991b1b; }
+        .bg-yellow { background: #fef3c7; color: #92400e; }
+        .bg-blue { background: #dbeafe; color: #1e40af; }
+
+        /* Buttons */
+        .btn-action {
+            padding: 0.5rem 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        .btn-action:hover { background-color: var(--primary-dark); }
+        .btn-export { background-color: #10b981; }
+        .btn-export:hover { background-color: #059669; }
+
+        /* --- Tabs --- */
         .tabs-container {
-            margin-top: 2rem;
+            margin-top: 1.5rem;
         }
         .section-header {
             font-size: 1.25rem;
@@ -244,7 +309,6 @@
         }
 
         .tab-btn:hover { color: var(--primary); }
-        
         .tab-btn.active {
             color: var(--primary);
             border-bottom-color: var(--primary);
@@ -255,53 +319,15 @@
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        /* Tables */
-        .data-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 1rem;
-            table-layout: fixed; /* Helps prevent horizontal expansion */
-        }
-        .data-table th { text-align: left; padding: 12px; color: var(--secondary); font-size: 0.8rem; border-bottom: 2px solid var(--border); background: #f8fafc; }
-        .data-table td { padding: 12px; font-size: 0.9rem; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .data-table tr:hover { background-color: #f8fafc; }
-        
-        .status-badge {
-            padding: 4px 10px;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            display: inline-block;
-        }
-        .bg-green { background: #dcfce7; color: #166534; }
-        .bg-red { background: #fee2e2; color: #991b1b; }
-        .bg-yellow { background: #fef3c7; color: #92400e; }
-        .bg-blue { background: #dbeafe; color: #1e40af; }
-
-        /* Action Button */
-        .btn-action {
-            padding: 0.5rem 1rem;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.85rem;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: background 0.2s;
-        }
-        .btn-action:hover { background-color: var(--primary-dark); }
-        .btn-export { background-color: #10b981; }
-        .btn-export:hover { background-color: #059669; }
-
         /* Responsive */
         @media (max-width: 1200px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+            .charts-row { grid-template-columns: 1fr; gap: 1rem; }
             .grid-container { grid-template-columns: repeat(2, 1fr); }
             .span-4, .span-3 { grid-column: span 2; }
         }
         @media (max-width: 768px) {
+            .stats-row { grid-template-columns: 1fr; }
             .grid-container { grid-template-columns: 1fr; }
             .span-1, .span-2, .span-3, .span-4 { grid-column: span 1; }
             .sidebar { display: none; }
@@ -347,10 +373,8 @@
         </header>
 
         <div class="dashboard-scroll">
-            <!-- Dynamic Grid Container -->
-            <div class="grid-container" id="dashboardGrid">
-                <!-- Content injected via JS -->
-            </div>
+            <!-- Content injected via JS -->
+            <div id="dashboardGrid"></div>
         </div>
     </main>
 
@@ -370,75 +394,19 @@
                     { title: "Net Profit", value: "-$19,881", trend: "-12.3%", up: false, icon: "fa-chart-line" },
                     { title: "Active Users", value: "800", trend: "+20.01%", up: true, icon: "fa-users" }
                 ],
-                charts: [
-                    { id: "ceoFinancialChart", type: "line", title: "Financial Performance (Revenue vs Expense)", span: "span-3" },
-                    { id: "ceoGrowthChart", type: "bar", title: "User Growth Rate", span: "span-1" }
-                ],
-                // CEO Tabs for Departmental Data
                 tabs: [
-                    { 
-                        id: 'accounts', 
-                        label: 'Accounts Team', 
-                        headers: ['Invoice ID', 'Client', 'Amount', 'Status', 'Date'],
-                        rows: [
-                            ["Inv-001", "Michael Walker", "$1,200.00", "Paid", "2023-10-01"],
-                            ["Inv-002", "Sarah Connor", "$3,450.00", "Pending", "2023-10-02"],
-                            ["Inv-003", "CyberDyne", "$12,000.00", "Overdue", "2023-09-28"],
-                            ["Inv-004", "Stark Ind", "$5,600.00", "Paid", "2023-10-05"]
-                        ]
-                    },
-                    { 
-                        id: 'sales', 
-                        label: 'Sales Team', 
-                        headers: ['Lead ID', 'Client Name', 'Deal Value', 'Stage', 'Sales Rep'],
-                        rows: [
-                            ["L-101", "Globex Corp", "$50,000", "Negotiation", "John Doe"],
-                            ["L-102", "Soylent Corp", "$15,000", "Proposal", "Jane Smith"],
-                            ["L-103", "Initech", "$8,500", "Qualified", "Mike Ross"],
-                            ["L-104", "Umbrella Corp", "$120,000", "Closed Won", "Harvey S."]
-                        ]
-                    },
-                    { 
-                        id: 'management', 
-                        label: 'Management / Projects', 
-                        headers: ['Project ID', 'Project Name', 'Manager', 'Progress', 'Deadline'],
-                        rows: [
-                            ["PRJ-101", "HRMS Migration", "David Chen", "85%", "2023-11-15"],
-                            ["PRJ-102", "Website Overhaul", "Sarah Lee", "40%", "2023-12-01"],
-                            ["PRJ-103", "Q4 Marketing", "Emily Blunt", "95%", "2023-10-30"]
-                        ]
-                    },
-                    { 
-                        id: 'leads', 
-                        label: 'Team Leads', 
-                        headers: ['Lead Name', 'Team Size', 'Daily Tasks', 'Avg Completion', 'Status'],
-                        rows: [
-                            ["Anthony Lewis", "12", "45/50", "90%", "Active"],
-                            ["Brian Villalobos", "8", "30/32", "94%", "Active"],
-                            ["Amanda Foster", "15", "20/50", "40%", "At Risk"]
-                        ]
-                    },
-                    { 
-                        id: 'hr', 
-                        label: 'HR & Employees', 
-                        headers: ['Emp ID', 'Name', 'Department', 'Join Date', 'Status'],
-                        rows: [
-                            ["E-001", "Alice Wonderland", "Engineering", "2021-05-12", "Active"],
-                            ["E-002", "Bob Builder", "Construction", "2022-01-10", "Active"],
-                            ["E-003", "Charlie Brown", "Marketing", "2023-03-15", "On Leave"],
-                            ["E-004", "Dora Explorer", "Research", "2023-09-01", "Probation"]
-                        ]
-                    },
-                    { 
-                        id: 'marketing', 
-                        label: 'Digital Marketing', 
-                        headers: ['Campaign', 'Channel', 'Budget Spent', 'ROI', 'Clicks'],
-                        rows: [
-                            ["Fall Sale", "Google Ads", "$2,500", "320%", "1,200"],
-                            ["Social Push", "LinkedIn", "$1,000", "150%", "850"],
-                            ["Email Blast", "Mailchimp", "$200", "450%", "2,100"]
-                        ]
-                    }
+                    { id: 'accounts', label: 'Accounts Team', headers: ['Invoice ID', 'Client', 'Amount', 'Status', 'Date'],
+                      rows: [["Inv-001", "Michael Walker", "$1,200.00", "Paid", "2023-10-01"], ["Inv-002", "Sarah Connor", "$3,450.00", "Pending", "2023-10-02"], ["Inv-003", "CyberDyne", "$12,000.00", "Overdue", "2023-09-28"], ["Inv-004", "Stark Ind", "$5,600.00", "Paid", "2023-10-05"], ["Inv-005", "Wayne Ent", "$8,900.00", "Paid", "2023-10-06"]] },
+                    { id: 'sales', label: 'Sales Team', headers: ['Lead ID', 'Client Name', 'Deal Value', 'Stage', 'Sales Rep'],
+                      rows: [["L-101", "Globex Corp", "$50,000", "Negotiation", "John Doe"], ["L-102", "Soylent Corp", "$15,000", "Proposal", "Jane Smith"], ["L-103", "Initech", "$8,500", "Qualified", "Mike Ross"], ["L-104", "Umbrella Corp", "$120,000", "Closed Won", "Harvey S."]] },
+                    { id: 'management', label: 'Management / Projects', headers: ['Project ID', 'Project Name', 'Manager', 'Progress', 'Deadline'],
+                      rows: [["PRJ-101", "HRMS Migration", "David Chen", "85%", "2023-11-15"], ["PRJ-102", "Website Overhaul", "Sarah Lee", "40%", "2023-12-01"], ["PRJ-103", "Q4 Marketing", "Emily Blunt", "95%", "2023-10-30"]] },
+                    { id: 'leads', label: 'Team Leads', headers: ['Lead Name', 'Team Size', 'Daily Tasks', 'Avg Completion', 'Status'],
+                      rows: [["Anthony Lewis", "12", "45/50", "90%", "Active"], ["Brian Villalobos", "8", "30/32", "94%", "Active"], ["Amanda Foster", "15", "20/50", "40%", "At Risk"]] },
+                    { id: 'hr', label: 'HR & Employees', headers: ['Emp ID', 'Name', 'Department', 'Join Date', 'Status'],
+                      rows: [["E-001", "Alice Wonderland", "Engineering", "2021-05-12", "Active"], ["E-002", "Bob Builder", "Construction", "2022-01-10", "Active"], ["E-003", "Charlie Brown", "Marketing", "2023-03-15", "On Leave"], ["E-004", "Dora Explorer", "Research", "2023-09-01", "Probation"]] },
+                    { id: 'marketing', label: 'Digital Marketing', headers: ['Campaign', 'Channel', 'Budget Spent', 'ROI', 'Clicks'],
+                      rows: [["Fall Sale", "Google Ads", "$2,500", "320%", "1,200"], ["Social Push", "LinkedIn", "$1,000", "150%", "850"], ["Email Blast", "Mailchimp", "$200", "450%", "2,100"]] }
                 ]
             },
             CFO: {
@@ -460,7 +428,7 @@
                 ]
             },
             MANAGER: {
-                title: "Management Dashboard",
+                title: "Management Reports",
                 subtitle: "Project Progress, Tasks, and Team Productivity",
                 user: "David Chen",
                 role: "Product Manager",
@@ -523,84 +491,51 @@
             Object.values(currentCharts).forEach(chart => chart.destroy());
             currentCharts = {};
 
-            // 3. Generate Stat Cards
-            data.cards.forEach(card => {
-                const cardHTML = `
-                    <div class="card span-1">
-                        <div class="card-header">
-                            <span class="card-title">${card.title}</span>
-                            <i class="fa-solid ${card.icon}" style="color: var(--secondary);"></i>
+            if (roleKey === 'CEO') {
+                // --- CEO SPECIFIC LAYOUT (YOUR REQUESTED STRUCTURE) ---
+                grid.className = 'ceo-layout';
+                
+                grid.innerHTML = `
+                    <div class="stats-row">
+                        ${data.cards.map(card => `
+                            <div class="card">
+                                <div class="card-header">
+                                    <span class="card-title">${card.title}</span>
+                                    <i class="fa-solid ${card.icon}" style="color: var(--secondary); font-size: 1.4rem;"></i>
+                                </div>
+                                <div class="card-value">${card.value}</div>
+                                <div class="trend ${card.up ? 'up' : 'down'}">
+                                    <i class="fa-solid ${card.up ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'}"></i>
+                                    ${card.trend}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="charts-row">
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">Financial Performance (Revenue vs Expense)</span>
+                                <button class="btn-action" style="padding:4px 8px; font-size:0.7rem;">Export</button>
+                            </div>
+                            <div class="chart-box"><canvas id="ceoFinancialChart"></canvas></div>
                         </div>
-                        <div class="card-value">${card.value}</div>
-                        <div class="trend ${card.up ? 'up' : 'down'}">
-                            <i class="fa-solid ${card.up ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'}"></i>
-                            ${card.trend}
+                        <div class="card">
+                            <div class="card-header">
+                                <span class="card-title">User Growth Rate</span>
+                                <button class="btn-action" style="padding:4px 8px; font-size:0.7rem;">Export</button>
+                            </div>
+                            <div class="chart-box-sm"><canvas id="ceoGrowthChart"></canvas></div>
                         </div>
                     </div>
-                `;
-                grid.innerHTML += cardHTML;
-            });
 
-            // 4. Generate Charts and Standard Tables
-            data.charts.forEach(item => {
-                let contentHTML = '';
-
-                if (item.type === 'table') {
-                    const rows = item.id.includes('cfo') ? tableData.cfo : tableData.manager;
-                    contentHTML = `
-                        <table class="data-table" id="${item.id}">
-                            <thead>
-                                <tr>
-                                    ${item.id.includes('cfo') ? '<th>Invoice ID</th><th>Client</th><th>Company</th><th>Amount</th><th>Status</th>' : '<th>Project ID</th><th>Project Name</th><th>Lead</th><th>Progress</th><th>Status</th>'}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${rows.map(row => `
-                                    <tr>
-                                        ${item.id.includes('cfo') 
-                                            ? `<td><b>${row.id}</b></td><td>${row.client}</td><td>${row.company}</td><td>${row.amount}</td>
-                                               <td><span class="status-badge ${getStatusColor(row.status)}">${row.status}</span></td>`
-                                            : `<td><b>${row.id}</b></td><td>${row.name}</td><td>${row.lead}</td><td>${row.progress}</td>
-                                               <td><span class="status-badge ${getStatusColor(row.status)}">${row.status}</span></td>`
-                                        }
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                        <div style="margin-top: 1rem; text-align: right;">
-                            <button class="btn-action btn-export" onclick="exportTableToCSV('${item.id}', '${item.title}.csv')">
-                                <i class="fa-solid fa-file-excel"></i> Export to Excel
-                            </button>
+                    <div class="tabs-container">
+                        <div class="section-header">Departmental Drill-Down</div>
+                        <div class="tabs-nav">
+                            ${data.tabs.map((tab, i) => `<button class="tab-btn ${i===0?'active':''}" onclick="openTab(event, '${tab.id}')">${tab.label}</button>`).join('')}
                         </div>
-                    `;
-                } else {
-                    contentHTML = `<div class="chart-box-${item.type === 'pie' || item.type === 'doughnut' ? 'sm' : ''}"><canvas id="${item.id}"></canvas></div>`;
-                }
-
-                const chartCardHTML = `
-                    <div class="card ${item.span}">
-                        <div class="card-header">
-                            <span class="card-title">${item.title}</span>
-                            ${item.type === 'table' ? '' : '<button class="btn-action" style="margin:0; padding: 4px 8px; font-size: 0.7rem;">Export</button>'}
-                        </div>
-                        ${contentHTML}
-                    </div>
-                `;
-                grid.innerHTML += chartCardHTML;
-            });
-
-            // 5. Generate CEO Specific Tabs (Only if CEO)
-            if (roleKey === 'CEO' && data.tabs) {
-                const tabsContainer = document.createElement('div');
-                tabsContainer.className = 'tabs-container';
-                tabsContainer.innerHTML = `
-                    <div class="section-header">Departmental Drill-Down</div>
-                    <div class="tabs-nav">
-                        ${data.tabs.map((tab, index) => `<button class="tab-btn ${index === 0 ? 'active' : ''}" onclick="openTab(event, '${tab.id}')">${tab.label}</button>`).join('')}
-                    </div>
-                    <div class="grid-container" style="grid-template-columns: 1fr; gap: 0;">
-                        ${data.tabs.map((tab, index) => `
-                            <div id="${tab.id}" class="tab-content ${index === 0 ? 'active' : ''}" style="grid-column: span 4;">
+                        ${data.tabs.map((tab, i) => `
+                            <div id="${tab.id}" class="tab-content ${i===0?'active':''}" style="display:${i===0?'block':'none'};">
                                 <div class="card">
                                     <div class="card-header">
                                         <span class="card-title">${tab.label} Data</span>
@@ -608,19 +543,11 @@
                                             <i class="fa-solid fa-file-excel"></i> Export Excel
                                         </button>
                                     </div>
-                                    <div style="overflow-x: auto;">
+                                    <div style="overflow-x: auto; max-height: 300px;">
                                         <table class="data-table" id="table-${tab.id}">
-                                            <thead>
-                                                <tr>
-                                                    ${tab.headers.map(h => `<th>${h}</th>`).join('')}
-                                                </tr>
-                                            </thead>
+                                            <thead><tr>${tab.headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
                                             <tbody>
-                                                ${tab.rows.map(row => `
-                                                    <tr>
-                                                        ${row.map(cell => `<td>${cell}</td>`).join('')}
-                                                    </tr>
-                                                `).join('')}
+                                                ${tab.rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}
                                             </tbody>
                                         </table>
                                     </div>
@@ -629,7 +556,75 @@
                         `).join('')}
                     </div>
                 `;
-                grid.appendChild(tabsContainer);
+            } else {
+                // --- CFO & MANAGER LAYOUT (Standard Grid) ---
+                grid.className = 'grid-container';
+
+                // 3. Generate Stat Cards
+                data.cards.forEach(card => {
+                    const cardHTML = `
+                        <div class="card span-1">
+                            <div class="card-header">
+                                <span class="card-title">${card.title}</span>
+                                <i class="fa-solid ${card.icon}" style="color: var(--secondary);"></i>
+                            </div>
+                            <div class="card-value">${card.value}</div>
+                            <div class="trend ${card.up ? 'up' : 'down'}">
+                                <i class="fa-solid ${card.up ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down'}"></i>
+                                ${card.trend}
+                            </div>
+                        </div>
+                    `;
+                    grid.innerHTML += cardHTML;
+                });
+
+                // 4. Generate Charts and Standard Tables
+                data.charts.forEach(item => {
+                    let contentHTML = '';
+
+                    if (item.type === 'table') {
+                        const rows = item.id.includes('cfo') ? tableData.cfo : tableData.manager;
+                        contentHTML = `
+                            <table class="data-table" id="${item.id}">
+                                <thead>
+                                    <tr>
+                                        ${item.id.includes('cfo') ? '<th>Invoice ID</th><th>Client</th><th>Company</th><th>Amount</th><th>Status</th>' : '<th>Project ID</th><th>Project Name</th><th>Lead</th><th>Progress</th><th>Status</th>'}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${rows.map(row => `
+                                        <tr>
+                                            ${item.id.includes('cfo') 
+                                                ? `<td><b>${row.id}</b></td><td>${row.client}</td><td>${row.company}</td><td>${row.amount}</td>
+                                                   <td><span class="status-badge ${getStatusColor(row.status)}">${row.status}</span></td>`
+                                                : `<td><b>${row.id}</b></td><td>${row.name}</td><td>${row.lead}</td><td>${row.progress}</td>
+                                                   <td><span class="status-badge ${getStatusColor(row.status)}">${row.status}</span></td>`
+                                            }
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                            <div style="margin-top: 1rem; text-align: right;">
+                                <button class="btn-action btn-export" onclick="exportTableToCSV('${item.id}', '${item.title}.csv')">
+                                    <i class="fa-solid fa-file-excel"></i> Export to Excel
+                                </button>
+                            </div>
+                        `;
+                    } else {
+                        contentHTML = `<div class="chart-box-${item.type === 'pie' || item.type === 'doughnut' ? 'sm' : ''}"><canvas id="${item.id}"></canvas></div>`;
+                    }
+
+                    const chartCardHTML = `
+                        <div class="card ${item.span}">
+                            <div class="card-header">
+                                <span class="card-title">${item.title}</span>
+                                ${item.type === 'table' ? '' : '<button class="btn-action" style="margin:0; padding: 4px 8px; font-size: 0.7rem;">Export</button>'}
+                            </div>
+                            ${contentHTML}
+                        </div>
+                    `;
+                    grid.innerHTML += chartCardHTML;
+                });
             }
 
             // 6. Initialize Charts (Wait for DOM)
