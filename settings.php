@@ -18,18 +18,62 @@
             --text-dark: #333333;
             --text-muted: #666666;
             --border-light: #e3e3e3;
-            --sidebar-width: 260px;
+            /* Narrower Sidebar Width for Icon View */
+            --sidebar-width: 70px; 
         }
 
         body { background-color: var(--bg-light); color: var(--text-dark); font-family: 'Inter', sans-serif; margin: 0; display: flex; }
-        .sidebar-wrapper { width: var(--sidebar-width); background: var(--white); height: 100vh; position: fixed; border-right: 1px solid var(--border-light); z-index: 100; }
+        
+        /* ADJUSTED SIDEBAR: Matches image_599039.png */
+        .sidebar-wrapper { 
+            width: var(--sidebar-width); 
+            background: var(--white); 
+            height: 100vh; 
+            position: fixed; 
+            border-right: 1px solid var(--border-light); 
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 20px;
+        }
+
+        .sidebar-logo { margin-bottom: 30px; }
+        .sidebar-logo img { width: 40px; height: 40px; }
+
+        .sidebar-nav-icons { display: flex; flex-direction: column; gap: 25px; }
+        .sidebar-nav-icons a { 
+            color: var(--text-muted); 
+            font-size: 20px; 
+            position: relative; 
+            text-decoration: none; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        /* Green status dots from image */
+        .sidebar-nav-icons a::before {
+            content: '';
+            position: absolute;
+            top: -5px;
+            left: -5px;
+            width: 6px;
+            height: 6px;
+            background: #28a745;
+            border-radius: 50%;
+        }
+
+        .sidebar-nav-icons a.active { color: var(--primary-orange); }
+        .sidebar-nav-icons a.active-bg { background: #fff4f2; border-radius: 8px; padding: 10px; color: var(--primary-orange); }
+
         .main-wrapper { margin-left: var(--sidebar-width); width: calc(100% - var(--sidebar-width)); padding: 30px; }
         .page-header { margin-bottom: 30px; }
         .page-header h1 { font-size: 24px; margin: 0; font-weight: 600; }
         .breadcrumb { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
 
         .top-settings-nav { display: flex; background: var(--white); padding: 0 15px; border-radius: 8px; border: 1px solid var(--border-light); margin-bottom: 30px; overflow-x: auto; }
-        .top-nav-item { padding: 15px 20px; text-decoration: none; color: var(--text-muted); font-size: 14px; font-weight: 500; white-space: nowrap; border-bottom: 3px solid transparent; }
+        .top-nav-item { padding: 15px 20px; text-decoration: none; color: var(--text-muted); font-size: 14px; font-weight: 500; white-space: nowrap; border-bottom: 3px solid transparent; cursor: pointer; }
         .top-nav-item.active { color: var(--primary-orange); border-bottom: 3px solid var(--primary-orange); }
 
         .settings-container { display: grid; grid-template-columns: 280px 1fr; gap: 30px; }
@@ -59,8 +103,10 @@
         .security-item { border-bottom: 1px solid var(--border-light); padding: 20px 0; display: flex; justify-content: space-between; align-items: center; }
         .btn-action { padding: 8px 16px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border-light); background: white; }
         .btn-black { background: #111; color: white; border: none; }
+        
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
         .modal-content { background: white; margin: 10% auto; padding: 30px; border-radius: 8px; width: 450px; position: relative; }
+        
         .switch { position: relative; display: inline-block; width: 40px; height: 20px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px; }
@@ -72,17 +118,35 @@
         .notif-table th { text-align: left; padding: 15px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--border-light); background: #fafafa; }
         .notif-table td { padding: 15px; border-bottom: 1px solid var(--border-light); font-size: 14px; }
 
-        /* Other Settings Boxes */
+        .grid-box-container { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 15px; }
+        .setting-box { border: 1px solid var(--border-light); padding: 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .setting-box h5 { margin: 0; font-size: 15px; font-weight: 600; }
+        .theme-preview { width: 40px; height: 40px; border-radius: 50%; display: inline-block; cursor: pointer; margin-right: 10px; border: 2px solid #ddd; }
         .storage-box { border: 1px solid var(--border-light); padding: 20px; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
         .backup-table { width: 100%; border-collapse: collapse; }
         .backup-table td, .backup-table th { padding: 12px; border-bottom: 1px solid var(--border-light); }
-        .system-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .system-box { border: 1px solid var(--border-light); padding: 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
     </style>
 </head>
 <body>
 
-    <div class="sidebar-wrapper"></div>
+    <div class="sidebar-wrapper">
+        <div class="sidebar-logo">
+            <img src="https://smarthr.dreamsguy.com/assets/img/logo.png" alt="Logo">
+        </div>
+        <div class="sidebar-nav-icons">
+            <a href="#" class="active"><i class="fas fa-home"></i></a>
+            <a href="#"><i class="fas fa-th-large"></i></a>
+            <a href="#"><i class="fas fa-user-friends"></i></a>
+            <a href="#"><i class="fas fa-clipboard-list"></i></a>
+            <a href="#"><i class="fas fa-users"></i></a>
+            <a href="#"><i class="fas fa-user-circle"></i></a>
+            <a href="#"><i class="fas fa-shopping-cart"></i></a>
+            <a href="#"><i class="fas fa-wallet"></i></a>
+            <a href="#"><i class="fas fa-file-alt"></i></a>
+            <a href="#" class="active-bg"><i class="fas fa-lock"></i></a>
+            <a href="#"><i class="fas fa-project-diagram"></i></a>
+        </div>
+    </div>
 
     <div class="main-wrapper">
         <div class="page-header">
@@ -91,10 +155,10 @@
         </div>
 
         <div class="top-settings-nav">
-            <a href="#" class="top-nav-item active"><i class="fas fa-cog"></i> General Settings</a>
-            <a href="#" class="top-nav-item"><i class="fas fa-server"></i> System Settings</a>
-            <a href="#" class="top-nav-item"><i class="fas fa-wallet"></i> Financial Settings</a>
-            <a href="#" class="top-nav-item"><i class="fas fa-th"></i> Other Settings</a>
+            <div class="top-nav-item active" onclick="showSection('profile', this)"><i class="fas fa-cog"></i> General Settings</div>
+            <div class="top-nav-item" onclick="showSection('email-templates', this)"><i class="fas fa-server"></i> System Settings</div>
+            
+            <div class="top-nav-item"><i class="fas fa-th"></i> Other Settings</div>
         </div>
 
         <div class="settings-container">
@@ -156,10 +220,7 @@
                         <div class="input-group"><label>City</label><input type="text" placeholder="Select City"></div>
                         <div class="input-group"><label>Postal Code</label><input type="text" placeholder="Enter Postal Code"></div>
                     </div>
-                    <div style="text-align: right; margin-top: 30px;">
-                        <button type="button" class="btn-cancel">Cancel</button>
-                        <button type="submit" class="btn-save">Save Changes</button>
-                    </div>
+                    <div style="text-align: right; margin-top: 30px;"><button type="submit" class="btn-save">Save Changes</button></div>
                 </form>
             </div>
 
@@ -184,46 +245,82 @@
                 </table>
             </div>
 
+            <div id="email-templates-card" class="content-card">
+                <div style="display:flex; justify-content:space-between; align-items:center;" class="card-title">
+                    <span>Email Templates</span>
+                    <button class="btn-save" style="padding:8px 15px; font-size:12px;">+ Add Template</button>
+                </div>
+                <div class="grid-box-container">
+                    <div class="setting-box"><h5>Email Verification</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
+                    <div class="setting-box"><h5>Welcome Email</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
+                    <div class="setting-box"><h5>Leave Request</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
+                    <div class="setting-box"><h5>Performance Review</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
+                    <div class="setting-box"><h5>Training Session</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
+                    <div class="setting-box"><h5>Password Reset</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
+                </div>
+            </div>
+
+            <div id="sms-settings-card" class="content-card">
+                <div class="card-title">SMS Settings</div>
+                <div class="grid-box-container">
+                    <div class="setting-box"><h5>Nexmo</h5><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
+                    <div class="setting-box"><h5>2Factor</h5><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
+                    <div class="setting-box"><h5>Twilio</h5><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
+                </div>
+            </div>
+
             <div id="otp-settings-card" class="content-card">
                 <div class="card-title">OTP Settings</div>
                 <div class="form-grid" style="grid-template-columns: 1fr;">
                     <div class="input-group"><label>OTP Type</label><select><option>SMS OTP</option><option>Email OTP</option></select></div>
                     <div class="input-group"><label>OTP Digit Limit</label><select><option>4 Digits</option><option>6 Digits</option></select></div>
-                    <div class="input-group"><label>OTP Expire Time</label><select><option>5 Minutes</option><option>10 Minutes</option></select></div>
                 </div>
-                <div style="text-align: right;"><button class="btn-save">Save</button></div>
+                <div style="text-align: right;"><button class="btn-save">Save OTP Config</button></div>
+            </div>
+
+            <div id="theme-card" class="content-card">
+                <div class="card-title">Theme Settings</div>
+                <div class="input-group"><label>Theme Mode</label>
+                    <div style="display:flex; gap:20px;">
+                        <label><input type="radio" name="theme" checked> Light Mode</label>
+                        <label><input type="radio" name="theme"> Dark Mode</label>
+                    </div>
+                </div>
+                <div class="input-group"><label>Primary Theme Color</label>
+                    <div style="display:flex;">
+                        <div class="theme-preview" style="background:#ff5b37; border-color:#000;"></div>
+                        <div class="theme-preview" style="background:#2196f3;"></div>
+                        <div class="theme-preview" style="background:#4caf50;"></div>
+                    </div>
+                </div>
+                <button class="btn-save">Apply Theme</button>
             </div>
 
             <div id="storage-card" class="content-card">
                 <div class="card-title">Storage Settings</div>
                 <div class="storage-box"><div><i class="fas fa-server"></i> Local Storage</div><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
-                <div class="storage-box"><div><i class="fab fa-aws"></i> AWS</div><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
+                <div class="storage-box"><div><i class="fab fa-aws"></i> AWS S3</div><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
             </div>
 
             <div id="backup-card" class="content-card">
-                <div class="card-title" style="display:flex; justify-content:space-between;">Backup <span><button class="btn-save" style="font-size:12px;">Generate Backup</button></span></div>
+                <div class="card-title" style="display:flex; justify-content:space-between;">Database Backup <span><button class="btn-save" style="font-size:12px;">Generate Now</button></span></div>
                 <table class="backup-table">
-                    <thead><tr><th>File Name</th><th>Date</th><th align="right">Action</th></tr></thead>
-                    <tbody>
-                        <tr><td>Transaction_Logs_2024.txt</td><td>11 Sep 2024</td><td align="right"><i class="fas fa-download"></i></td></tr>
-                    </tbody>
+                    <thead><tr><th>File Name</th><th>Size</th><th>Date</th><th align="right">Action</th></tr></thead>
+                    <tbody><tr><td>db_backup_2024.sql</td><td>2.4 MB</td><td>11 Sep 2024</td><td align="right"><i class="fas fa-download"></i></td></tr></tbody>
                 </table>
             </div>
 
             <div id="clear-cache-card" class="content-card">
                 <div class="card-title">Clear Cache</div>
-                <p style="background:#fff4f2; padding:15px; border-radius:6px; color:#ff5b37; font-size:14px;"><i class="fas fa-info-circle"></i> Clearing the cache may improve performance but will remove temporary files and cached data.</p>
-                <div style="text-align: right; margin-top: 20px;"><button class="btn-cancel">Cancel</button><button class="btn-save">Clear Cache</button></div>
+                <p style="background:#fff4f2; padding:15px; border-radius:6px; color:#ff5b37; font-size:14px;"><i class="fas fa-info-circle"></i> This will clear all temporary sessions.</p>
+                <div style="text-align: right; margin-top: 20px;"><button class="btn-save">Clear All Cache</button></div>
             </div>
         </div>
     </div>
 
-    <div id="passwordModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Change Password</h3><span class="close-modal" onclick="closeModal('passwordModal')">&times;</span></div><div class="input-group"><label>Old Password</label><input type="password"></div><div class="input-group"><label>New Password</label><input type="password"></div><div style="text-align:right;"><button class="btn-save">Update</button></div></div></div>
-    <div id="enableModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Enable 2FA</h3><span class="close-modal" onclick="closeModal('enableModal')">&times;</span></div><p>Verification method:</p><select><option>SMS</option></select><div style="text-align:right; margin-top:20px;"><button class="btn-save">Enable</button></div></div></div>
-    <div id="changeModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Change Phone</h3><span class="close-modal" onclick="closeModal('changeModal')">&times;</span></div><input type="text" placeholder="New Phone"><button class="btn-save" style="margin-top:10px;">Send OTP</button></div></div>
-    <div id="manageModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Device Management</h3><span class="close-modal" onclick="closeModal('manageModal')">&times;</span></div><p>Chrome on Windows - Tamil Nadu, India</p></div></div>
-    <div id="viewModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Account Activity</h3><span class="close-modal" onclick="closeModal('viewModal')">&times;</span></div><p>Logged in at 10:00 AM</p></div></div>
-    <div id="deactivateModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Deactivate?</h3><span class="close-modal" onclick="closeModal('deactivateModal')">&times;</span></div><p>Sure you want to deactivate?</p><div style="text-align:right;"><button class="btn-save">Yes</button></div></div></div>
+    <div id="passwordModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Change Password</h3><span onclick="closeModal('passwordModal')" class="close-modal">&times;</span></div><input type="password" placeholder="Old Password" style="margin-bottom:10px;"><input type="password" placeholder="New Password"><button class="btn-save" style="margin-top:20px;">Update</button></div></div>
+    <div id="enableModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Enable 2FA</h3><span onclick="closeModal('enableModal')" class="close-modal">&times;</span></div><button class="btn-save">Enable</button></div></div>
+    <div id="changeModal" class="modal"><div class="modal-content"><div class="modal-header"><h3>Change Phone</h3><span onclick="closeModal('changeModal')" class="close-modal">&times;</span></div><input type="text" placeholder="New Number"><button class="btn-save" style="margin-top:20px;">Verify</button></div></div>
 
     <script>
         function openModal(id) { document.getElementById(id).style.display = 'block'; }
