@@ -8,6 +8,17 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 // 2. VIEW LOGIC
 $view = isset($_GET['view']) ? $_GET['view'] : 'admin_dashboard';
 $user_name = $_SESSION['username'] ?? "User";
+
+// Data for Employee View
+$employeeName = $user_name;
+$currentDateRange = "01/31/2026 - 02/06/2026";
+$attendanceRecords = [
+    ["date" => "02 Sep 2024", "checkin" => "09:12 AM", "status" => "Present", "checkout" => "09:17 PM", "break" => "14 Min", "late" => "12 Min", "overtime" => "-", "production" => "8.35Hrs", "color" => "green"],
+    ["date" => "06 Jul 2024", "checkin" => "09:00 AM", "status" => "Present", "checkout" => "07:13 PM", "break" => "32 Min", "late" => "-", "overtime" => "75 Min", "production" => "9.15 Hrs", "color" => "blue"],
+    ["date" => "10 Dec 2024", "checkin" => "-", "status" => "Absent", "checkout" => "-", "break" => "-", "late" => "-", "overtime" => "-", "production" => "0.00 Hrs", "color" => "red"],
+    ["date" => "12 Apr 2024", "checkin" => "09:00 AM", "status" => "Present", "checkout" => "06:43 PM", "break" => "23 Min", "late" => "-", "overtime" => "10 Min", "production" => "8.22 Hrs", "color" => "green"],
+    ["date" => "14 Jan 2024", "checkin" => "09:32 AM", "status" => "Present", "checkout" => "06:45 PM", "break" => "30 Min", "late" => "32 Min", "overtime" => "20 Min", "production" => "8.55 Hrs", "color" => "green"]
+];
 ?>
 
 <!DOCTYPE html>
@@ -16,34 +27,32 @@ $user_name = $_SESSION['username'] ?? "User";
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HRMS - <?php echo ucwords(str_replace('_', ' ', $view)); ?></title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
         :root { --primary-orange: #ff5e3a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
         body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
         
-        /* CONTENT LAYOUT - Managed by sidebars.php CSS logic */
         #mainContent { 
-            margin-left: 95px; /* Primary Sidebar Width */
+            margin-left: 95px; 
             padding: 25px 35px; 
             transition: margin-left 0.3s ease;
             width: calc(100% - 95px);
         }
         #mainContent.main-shifted {
-            margin-left: 315px; /* 95 + 220 */
+            margin-left: 315px; 
             width: calc(100% - 315px);
         }
 
-        /* Card & Table Styles */
         .card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); margin-bottom: 20px; background: #fff; }
         .table thead th { background: #f9fafb; padding: 15px; border-bottom: 1px solid var(--border-color); color: #4a5568; font-weight: 600; }
         .table tbody td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
         .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; margin-right: 10px; }
         
-        /* Status Badges */
         .status-pill { padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
         .bg-present { background: #e6fffa; color: #38a169; }
         .bg-absent { background: #fff5f5; color: #e53e3e; }
@@ -51,22 +60,56 @@ $user_name = $_SESSION['username'] ?? "User";
         .prod-btn { color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
         .btn-orange { background: var(--primary-orange); color: white; border: none; border-radius: 6px; padding: 8px 16px; font-weight: 600; }
         
-        /* Remove Bootstrap Container Constraints if any */
-        .container-fluid { padding: 0; }
+        .modal-active { display: flex !important; }
     </style>
 </head>
 <body class="bg-slate-50">
 
     <?php include('sidebars.php'); ?>
 
+    <div id="reportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[9999] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden">
+            <div class="flex justify-between items-center p-6 border-b">
+                <h2 class="text-2xl font-bold"><span id="modalEmployeeName"></span> Attendance</h2>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="p-8">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 bg-slate-50 p-6 rounded-lg border">
+                    <div><p class="text-slate-500 text-sm">Date</p><p class="font-bold" id="modalDate">15 Apr 2025</p></div>
+                    <div><p class="text-slate-500 text-sm">Punch in at</p><p class="font-bold" id="modalPunchIn">09:00 AM</p></div>
+                    <div><p class="text-slate-500 text-sm">Punch out at</p><p class="font-bold" id="modalPunchOut">06:45 PM</p></div>
+                    <div><p class="text-slate-500 text-sm">Status</p><p class="font-bold" id="modalStatus">Present</p></div>
+                </div>
+                <div class="grid grid-cols-4 gap-4 mb-8">
+                    <div><p class="text-slate-400 text-xs">Total Working hours</p><p class="text-xl font-bold">12h 36m</p></div>
+                    <div><p class="text-slate-400 text-xs">Productive Hours</p><p class="text-xl font-bold text-emerald-500">08h 36m</p></div>
+                    <div><p class="text-slate-400 text-xs">Break hours</p><p class="text-xl font-bold text-amber-500">22m 15s</p></div>
+                    <div><p class="text-slate-400 text-xs">Overtime</p><p class="text-xl font-bold text-blue-500">02h 15m</p></div>
+                </div>
+                <div class="h-8 w-full bg-slate-100 rounded-full flex overflow-hidden mb-4">
+                    <div style="width: 15%"></div>
+                    <div class="h-full bg-emerald-500" style="width: 15%"></div>
+                    <div class="h-full bg-amber-400 mx-1" style="width: 5%"></div>
+                    <div class="h-full bg-emerald-500" style="width: 30%"></div>
+                    <div class="h-full bg-amber-400 mx-1" style="width: 10%"></div>
+                    <div class="h-full bg-blue-500" style="width: 10%"></div>
+                </div>
+                <div class="flex justify-between text-[10px] text-slate-400 px-1">
+                    <span>06:00</span><span>09:00</span><span>12:00</span><span>03:00</span><span>06:00</span><span>09:00</span><span>11:00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <main id="mainContent">
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <div><h4 class="fw-bold mb-0"><?php echo ucwords(str_replace('_', ' ', $view)); ?></h4></div>
+            <div><h4 class="fw-bold mb-0 text-dark"><?php echo ucwords(str_replace('_', ' ', $view)); ?></h4></div>
             <div class="d-flex gap-2">
                 <button class="btn btn-light border btn-sm" onclick="validateAction('Export')"><i class="fa-solid fa-download"></i> Export</button>
-                <button class="btn btn-orange btn-sm shadow-sm" onclick="handleGlobalAdd('<?php echo $view; ?>')">
+                <button class="btn btn-orange btn-sm shadow-sm" onclick="<?php echo ($view == 'attendance_employee') ? "openModal({name: '$employeeName', date: '15 Apr 2025', in: '09:00 AM', out: '06:45 PM', status: 'Present'})" : "handleGlobalAdd('$view')"; ?>">
                     <?php 
-                        if($view == 'timesheets') echo "+ Add Today's Work";
+                        if($view == 'attendance_employee') echo "<i class='fa-regular fa-file-lines'></i> Report";
+                        elseif($view == 'timesheets') echo "+ Add Today's Work";
                         elseif($view == 'overtime') echo "+ Add Overtime";
                         elseif($view == 'shift_swap') echo "+ Add New Request";
                         else echo "+ Add Request";
@@ -112,7 +155,7 @@ $user_name = $_SESSION['username'] ?? "User";
                     <div class="col p-3">Absent<h4>12</h4><span class="badge bg-danger-subtle text-danger">-19%</span></div>
                 </div>
             </div>
-            <div class="card p-0">
+            <div class="card p-0 overflow-hidden">
                 <table class="table mb-0">
                     <thead><tr><th>Employee</th><th>Status</th><th>Check In</th><th>Check Out</th><th>Break</th><th>Late</th><th>Production Hours</th><th>Action</th></tr></thead>
                     <tbody>
@@ -130,29 +173,101 @@ $user_name = $_SESSION['username'] ?? "User";
             </div>
 
         <?php elseif ($view == 'attendance_employee'): ?>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <div class="card p-4 text-center">
-                        <p class="text-muted">Good Morning, <?php echo $user_name; ?></p><h5 class="fw-bold"><?php echo date('H:i A, d M Y'); ?></h5>
-                        <img src="https://i.pravatar.cc/100?img=12" class="rounded-circle mx-auto my-3 border border-4 border-success p-1">
-                        <div class="badge bg-orange mb-3 p-2 w-100">Production : 3.45 hrs</div>
-                        <button class="btn btn-dark w-100 fw-bold" id="punchBtn" onclick="togglePunch()">Punch Out</button>
+            <div class="grid grid-cols-12 gap-6 mb-8">
+                <div class="col-span-12 lg:col-span-3 card p-6 text-center">
+                    <p class="text-slate-500 text-sm">Good Morning, <?php echo $employeeName; ?></p>
+                    <h2 class="text-xl font-bold mt-1 mb-4"><?php echo date('H:i A, d M Y'); ?></h2>
+                    <div class="relative inline-block mb-6">
+                        <div class="w-32 h-32 rounded-full border-[6px] border-emerald-500 p-1 mx-auto">
+                            <img src="https://i.pravatar.cc/150?u=adrian" alt="Profile" class="rounded-full w-full h-full object-cover">
+                        </div>
                     </div>
+                    <div id="statusTag" class="bg-orange-500 text-white py-2 px-4 rounded-md mb-4 text-sm font-medium">Production : 3.45 hrs</div>
+                    <p class="text-slate-600 text-sm mb-6 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-fingerprint text-orange-500"></i> <span id="punchText">Punch In at 10.00 AM</span>
+                    </p>
+                    <button id="punchBtn" onclick="togglePunch()" class="w-full bg-[#111827] text-white py-3 rounded-md font-bold transition-all">Punch Out</button>
                 </div>
-                <div class="col-md-8">
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6"><div class="card p-3">Total Hours Today<h4 class="fw-bold">8.36 / 9</h4><div class="text-success small">↑ 5% This Week</div></div></div>
-                        <div class="col-md-6"><div class="card p-3">Total Hours Week<h4 class="fw-bold">10 / 40</h4><div class="text-success small">↑ 7% Last Week</div></div></div>
+
+                <div class="col-span-12 lg:col-span-9 flex flex-col gap-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <div class="card p-5">
+                            <div class="bg-orange-100 text-orange-600 w-8 h-8 flex items-center justify-center rounded mb-3"><i class="fa-regular fa-clock"></i></div>
+                            <div class="text-2xl font-bold">8.36 <span class="text-slate-400 font-normal">/ 9</span></div>
+                            <p class="text-slate-400 text-xs mt-1">Total Hours Today</p>
+                            <div class="mt-4 text-emerald-500 text-xs font-bold flex items-center gap-1"><i class="fa fa-arrow-up text-[10px]"></i> 5% This Week</div>
+                        </div>
+                        <div class="card p-5">
+                            <div class="bg-slate-900 text-white w-8 h-8 flex items-center justify-center rounded mb-3"><i class="fa-solid fa-stopwatch"></i></div>
+                            <div class="text-2xl font-bold">10 <span class="text-slate-400 font-normal">/ 40</span></div>
+                            <p class="text-slate-400 text-xs mt-1">Total Hours Week</p>
+                            <div class="mt-4 text-emerald-500 text-xs font-bold flex items-center gap-1"><i class="fa fa-arrow-up text-[10px]"></i> 7% Last Week</div>
+                        </div>
+                        <div class="card p-5">
+                            <div class="bg-blue-100 text-blue-600 w-8 h-8 flex items-center justify-center rounded mb-3"><i class="fa-regular fa-calendar-check"></i></div>
+                            <div class="text-2xl font-bold">75 <span class="text-slate-400 font-normal">/ 98</span></div>
+                            <p class="text-slate-400 text-xs mt-1">Total Hours Month</p>
+                            <div class="mt-4 text-red-500 text-xs font-bold flex items-center gap-1"><i class="fa fa-arrow-down text-[10px]"></i> 8% Last Month</div>
+                        </div>
+                        <div class="card p-5 relative overflow-hidden">
+                            <div class="bg-pink-100 text-pink-600 w-8 h-8 flex items-center justify-center rounded mb-3"><i class="fa-solid fa-clock-rotate-left"></i></div>
+                            <div class="text-2xl font-bold">16 <span class="text-slate-400 font-normal">/ 28</span></div>
+                            <p class="text-slate-400 text-xs mt-1">Overtime this...</p>
+                            <div class="mt-4 text-red-500 text-xs font-bold flex items-center gap-1"><i class="fa fa-arrow-down text-[10px]"></i> 6% Last Month</div>
+                        </div>
                     </div>
-                    <div class="card p-4">
-                        <div class="d-flex justify-content-between mb-2"><span>Productive: 08h 36m</span><span>Break: 22m 15s</span></div>
-                        <div class="progress" style="height: 12px;"><div class="progress-bar bg-success" style="width: 75%"></div><div class="progress-bar bg-warning" style="width: 25%"></div></div>
+                    <div class="card p-6">
+                        <div class="grid grid-cols-4 gap-4 mb-6 text-center lg:text-left">
+                            <div><p class="text-[11px] text-slate-400">Total Working hours</p><h3 class="text-2xl font-bold">12h 36m</h3></div>
+                            <div><p class="text-[11px] text-slate-400">Productive Hours</p><h3 class="text-2xl font-bold">08h 36m</h3></div>
+                            <div><p class="text-[11px] text-slate-400">Break hours</p><h3 class="text-2xl font-bold">22m 15s</h3></div>
+                            <div><p class="text-[11px] text-slate-400">Overtime</p><h3 class="text-2xl font-bold">02h 15m</h3></div>
+                        </div>
+                        <div class="h-10 w-full bg-slate-50 rounded-full flex overflow-hidden mb-4 border border-slate-100">
+                            <div style="width: 12%"></div><div class="h-full bg-emerald-500" style="width: 10%"></div><div class="h-full bg-amber-400" style="width: 3%"></div>
+                            <div class="h-full bg-emerald-500" style="width: 20%"></div><div class="h-full bg-amber-400" style="width: 10%"></div>
+                            <div class="h-full bg-emerald-500" style="width: 12%"></div><div class="h-full bg-amber-400" style="width: 3%"></div>
+                            <div class="h-full bg-blue-500" style="width: 4%"></div>
+                        </div>
+                        <div class="flex justify-between text-[11px] text-slate-400 font-medium px-1 uppercase">
+                            <span>06:00</span><span>08:00</span><span>10:00</span><span>12:00</span><span>02:00</span><span>04:00</span><span>06:00</span><span>08:00</span><span>10:00</span>
+                        </div>
                     </div>
                 </div>
             </div>
 
+            <div class="card overflow-hidden">
+                <div class="p-4 border-b bg-white flex justify-between items-center">
+                    <h3 class="text-lg font-bold">Recent History</h3>
+                    <div class="border rounded px-3 py-2 text-sm flex items-center gap-2 text-slate-600">
+                        <i class="fa-regular fa-calendar-days text-orange-500"></i><span class="font-medium"><?php echo $currentDateRange; ?></span>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-slate-50 text-slate-600 font-semibold border-b">
+                            <tr><th class="p-4">Date</th><th class="p-4">Check In</th><th class="p-4">Status</th><th class="p-4">Check Out</th><th class="p-4">Break</th><th class="p-4">Late</th><th class="p-4">Overtime</th><th class="p-4">Production</th></tr>
+                        </thead>
+                        <tbody class="divide-y">
+                            <?php foreach ($attendanceRecords as $row): ?>
+                            <tr class="hover:bg-slate-50 transition cursor-pointer" onclick="openModal({name: '<?php echo $employeeName; ?>', date: '<?php echo $row['date']; ?>', in: '<?php echo $row['checkin']; ?>', out: '<?php echo $row['checkout']; ?>', status: '<?php echo $row['status']; ?>'})">
+                                <td class="p-4 text-slate-500"><?php echo $row['date']; ?></td>
+                                <td class="p-4 text-slate-500"><?php echo $row['checkin']; ?></td>
+                                <td class="p-4"><span class="<?php echo ($row['status'] == 'Present') ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'; ?> px-3 py-1 rounded-full text-xs font-bold"><?php echo $row['status']; ?></span></td>
+                                <td class="p-4 text-slate-500"><?php echo $row['checkout']; ?></td>
+                                <td class="p-4 text-slate-500"><?php echo $row['break']; ?></td>
+                                <td class="p-4 text-slate-500"><?php echo $row['late']; ?></td>
+                                <td class="p-4 text-slate-500"><?php echo $row['overtime']; ?></td>
+                                <td class="p-4"><span class="bg-emerald-500 text-white px-3 py-1.5 rounded text-xs font-bold"><i class="fa fa-clock mr-1"></i><?php echo $row['production']; ?></span></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
         <?php elseif ($view == 'schedule_timing'): ?>
-            <div class="card p-0">
+            <div class="card p-0 overflow-hidden">
                 <div class="p-3 border-bottom fw-bold">Schedule Timing List</div>
                 <table class="table mb-0">
                     <thead><tr><th>Name</th><th>Job Title</th><th>User Available Timings</th><th>Action</th></tr></thead>
@@ -160,7 +275,7 @@ $user_name = $_SESSION['username'] ?? "User";
                         <?php for($i=1; $i<=6; $i++): ?>
                         <tr>
                             <td><img src="https://i.pravatar.cc/30?img=<?php echo $i; ?>" class="avatar-img"> Staff Member <?php echo $i; ?></td>
-                            <td>Accountant</td><td class="small">11-03-2020 - 11:00 AM-12:00 PM<br>12-03-2020 - 10:00 AM-11:00 AM</td>
+                            <td>Accountant</td><td class="small">11-03-2026 - 11:00 AM-12:00 PM<br>12-03-2026 - 10:00 AM-11:00 AM</td>
                             <td><button class="btn btn-dark btn-sm" onclick="validateAction('Schedule')">Schedule Timing</button></td>
                         </tr>
                         <?php endfor; ?>
@@ -169,7 +284,7 @@ $user_name = $_SESSION['username'] ?? "User";
             </div>
 
         <?php elseif ($view == 'shift_swap'): ?>
-            <div class="card p-0">
+            <div class="card p-0 overflow-hidden">
                 <table class="table mb-0">
                     <thead><tr><th>Emp ID</th><th>Name</th><th>Designation</th><th>Current Shift</th><th>Requested Shift</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
@@ -193,14 +308,14 @@ $user_name = $_SESSION['username'] ?? "User";
                 <div class="col-md-3"><div class="card p-3">Pending Request<h4 class="fw-bold">23</h4></div></div>
                 <div class="col-md-3"><div class="card p-3">Rejected<h4 class="fw-bold">5</h4></div></div>
             </div>
-            <div class="card p-0">
+            <div class="card p-0 overflow-hidden">
                 <table class="table mb-0">
                     <thead><tr><th>Employee</th><th>Date</th><th>Overtime Hours</th><th>Project</th><th>Approved By</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
                         <?php for($i=1; $i<=6; $i++): ?>
                         <tr>
                             <td><img src="https://i.pravatar.cc/30?img=<?php echo $i+15; ?>" class="avatar-img"> Employee <?php echo $i; ?></td>
-                            <td>14 Jan 2024</td><td><?php echo rand(10,50); ?></td><td>Project <?php echo $i; ?></td>
+                            <td>14 Jan 2026</td><td><?php echo rand(10,50); ?></td><td>Project <?php echo $i; ?></td>
                             <td>Manager X</td><td><span class="status-pill bg-present">Accepted</span></td>
                             <td><button class="btn btn-sm text-danger" onclick="validateAction('Delete')"><i class="fa-solid fa-trash"></i></button></td>
                         </tr>
@@ -210,8 +325,8 @@ $user_name = $_SESSION['username'] ?? "User";
             </div>
 
         <?php elseif ($view == 'wfh'): ?>
-            <div class="card p-0">
-                <div class="p-3 border-bottom fw-bold">Employee List</div>
+            <div class="card p-0 overflow-hidden">
+                <div class="p-3 border-bottom fw-bold">WFH Request List</div>
                 <table class="table mb-0">
                     <thead><tr><th>Emp ID</th><th>Name</th><th>Designation</th><th>Reason</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
@@ -228,14 +343,14 @@ $user_name = $_SESSION['username'] ?? "User";
             </div>
 
         <?php elseif ($view == 'timesheets'): ?>
-            <div class="card p-0">
+            <div class="card p-0 overflow-hidden">
                 <table class="table mb-0">
                     <thead><tr><th>Employee</th><th>Date</th><th>Project</th><th>Assigned Hours</th><th>Worked Hours</th><th>Action</th></tr></thead>
                     <tbody>
                         <?php for($i=1; $i<=6; $i++): ?>
                         <tr>
                             <td><img src="https://i.pravatar.cc/30?img=<?php echo $i; ?>" class="avatar-img"> User <?php echo $i; ?></td>
-                            <td>14 Jan 2024</td><td>Project Beta</td><td>40</td><td><?php echo rand(10,40); ?></td>
+                            <td>14 Jan 2026</td><td>Project Beta</td><td>40</td><td><?php echo rand(10,40); ?></td>
                             <td><button class="btn btn-sm" onclick="validateAction('Edit Entry')"><i class="fa-solid fa-edit"></i></button></td>
                         </tr>
                         <?php endfor; ?>
@@ -246,28 +361,67 @@ $user_name = $_SESSION['username'] ?? "User";
     </main>
 
     <script>
+        const modal = document.getElementById('reportModal');
+        let isPunchedOut = false;
+
+        function openModal(data) { 
+            if(data) {
+                document.getElementById('modalEmployeeName').innerText = data.name;
+                document.getElementById('modalDate').innerText = data.date;
+                document.getElementById('modalPunchIn').innerText = data.in || '-';
+                document.getElementById('modalPunchOut').innerText = data.out || '-';
+                document.getElementById('modalStatus').innerText = data.status;
+            }
+            modal.classList.add('modal-active'); 
+            document.body.style.overflow = 'hidden'; 
+        }
+
+        function closeModal() { 
+            modal.classList.remove('modal-active'); 
+            document.body.style.overflow = 'auto'; 
+        }
+
+        function togglePunch() {
+            const btn = document.getElementById('punchBtn');
+            const statusTag = document.getElementById('statusTag');
+            const punchText = document.getElementById('punchText');
+            
+            if (!isPunchedOut) {
+                if(confirm("Confirm Punch Out?")) {
+                    btn.innerText = "Punch In";
+                    btn.classList.replace('bg-[#111827]', 'bg-emerald-600');
+                    statusTag.innerText = "Shift Ended";
+                    statusTag.classList.replace('bg-orange-500', 'bg-slate-400');
+                    punchText.innerText = "Punch Out at 06:45 PM";
+                    isPunchedOut = true;
+                    alert("Punched Out Successfully.");
+                }
+            } else {
+                if(confirm("Confirm Punch In?")) {
+                    btn.innerText = "Punch Out";
+                    btn.classList.replace('bg-emerald-600', 'bg-[#111827]');
+                    statusTag.innerText = "Production : 3.45 hrs";
+                    statusTag.classList.replace('bg-slate-400', 'bg-orange-500');
+                    punchText.innerText = "Punch In at 10.00 AM";
+                    isPunchedOut = false;
+                    alert("Punched In Successfully.");
+                }
+            }
+        }
+
         function validateAction(type) {
             if(confirm(`Are you sure you want to ${type} this entry?`)) {
                 alert(`${type} successful!`);
             }
         }
-        function togglePunch() {
-            const btn = document.getElementById('punchBtn');
-            if(btn.innerText === "Punch Out") {
-                if(confirm("Confirm Punch Out?")) {
-                    btn.innerText = "Punch In"; btn.className = "btn btn-success w-100 fw-bold"; alert("Punched Out Successfully.");
-                }
-            } else {
-                if(confirm("Confirm Punch In?")) {
-                    btn.innerText = "Punch Out"; btn.className = "btn btn-dark w-100 fw-bold"; alert("Punched In Successfully.");
-                }
-            }
-        }
+
         function handleGlobalAdd(view) {
             let name = view.replace('_', ' ');
             let input = prompt(`Enter details for new ${name}:`);
             if(input) { alert("Entry added successfully to " + name); }
         }
+
+        window.onclick = (e) => { if (e.target == modal) closeModal(); }
     </script>
 </body>
 </html>
