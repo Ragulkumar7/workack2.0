@@ -476,7 +476,7 @@ $attendanceRecords = [
                     </div>
                 </div>
                 <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm">
+                    <table class="w-full text-left text-sm" id="attendanceTable">
                         <thead class="bg-slate-50 text-slate-600 font-semibold border-b">
                             <tr><th class="p-4">Date</th><th class="p-4">Check In</th><th class="p-4">Status</th><th class="p-4">Check Out</th><th class="p-4">Break</th><th class="p-4">Late</th><th class="p-4">Overtime</th><th class="p-4">Production</th></tr>
                         </thead>
@@ -606,17 +606,28 @@ $attendanceRecords = [
             toast.style.display = 'block';
             setTimeout(() => { toast.style.display = 'none'; }, 3000);
 
-            // 2. Generate and download file
-            const data = "HRMS Report\nGenerated on: " + new PHP_SESSION_NONE + "\nUser: <?php echo $user_name; ?>\nView: <?php echo $view; ?>\n\nThis is a sample report file.";
-            const blob = new Blob([data], { type: 'text/plain' });
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.setAttribute('hidden', '');
-            a.setAttribute('href', url);
-            a.setAttribute('download', 'HRMS_Report.txt');
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            // 2. CSV Generation logic
+            let csv = [];
+            // CSV Header
+            csv.push("Date,Check In,Status,Check Out,Break,Late,Overtime,Production");
+            
+            // Add existing static PHP data to CSV
+            const records = <?php echo json_encode($attendanceRecords); ?>;
+            records.forEach(row => {
+                csv.push(`${row.date},${row.checkin},${row.status},${row.checkout},${row.break},${row.late},${row.overtime},${row.production}`);
+            });
+
+            // 3. Download the file as .csv (opens in Excel)
+            const csvString = csv.join("\n");
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "Attendance_Report.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
 
         function openModal(data) { 
@@ -635,45 +646,14 @@ $attendanceRecords = [
             document.body.style.overflow = 'auto'; 
         }
 
-        function openTimesheetModal() {
-            tsModal.classList.add('modal-active');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeTimesheetModal() {
-            tsModal.classList.remove('modal-active');
-            document.body.style.overflow = 'auto';
-        }
-
-        function openSwapModal() {
-            swapModal.classList.add('modal-active');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeSwapModal() {
-            swapModal.classList.remove('modal-active');
-            document.body.style.overflow = 'auto';
-        }
-
-        function openOvertimeModal() {
-            overtimeModal.classList.add('modal-active');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeOvertimeModal() {
-            overtimeModal.classList.remove('modal-active');
-            document.body.style.overflow = 'auto';
-        }
-
-        function openWFHModal() {
-            wfhModal.classList.add('modal-active');
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeWFHModal() {
-            wfhModal.classList.remove('modal-active');
-            document.body.style.overflow = 'auto';
-        }
+        function openTimesheetModal() { tsModal.classList.add('modal-active'); document.body.style.overflow = 'hidden'; }
+        function closeTimesheetModal() { tsModal.classList.remove('modal-active'); document.body.style.overflow = 'auto'; }
+        function openSwapModal() { swapModal.classList.add('modal-active'); document.body.style.overflow = 'hidden'; }
+        function closeSwapModal() { swapModal.classList.remove('modal-active'); document.body.style.overflow = 'auto'; }
+        function openOvertimeModal() { overtimeModal.classList.add('modal-active'); document.body.style.overflow = 'hidden'; }
+        function closeOvertimeModal() { overtimeModal.classList.remove('modal-active'); document.body.style.overflow = 'auto'; }
+        function openWFHModal() { wfhModal.classList.add('modal-active'); document.body.style.overflow = 'hidden'; }
+        function closeWFHModal() { wfhModal.classList.remove('modal-active'); document.body.style.overflow = 'auto'; }
 
         function togglePunch() {
             const btn = document.getElementById('punchBtn');
