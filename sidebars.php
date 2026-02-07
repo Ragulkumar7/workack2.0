@@ -20,12 +20,21 @@ $sections = [
     [
         'label' => 'Main',
         'items' => [
+            // --- DASHBOARD (Role Based Routing) ---
             [
                 'name' => 'Dashboard', 
                 'path' => 'dashboard.php', 
                 'icon' => 'layout-dashboard', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee'] 
+                'allowed' => ['Manager', 'System Admin', 'HR'] // Managers go here
             ],
+            [
+                'name' => 'Dashboard', 
+                'path' => 'employee_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['Employee'] // Employees go here
+            ],
+            // -------------------------------------
+
             [
                 'name' => 'Team Chat', 
                 'path' => 'team_chat.php', 
@@ -45,21 +54,48 @@ $sections = [
                     ['name' => 'Schedule Timing', 'path' => 'attendance.php?view=schedule_timing', 'icon' => 'calendar-days'],
                     ['name' => 'Shift Swap', 'path' => 'attendance.php?view=shift_swap', 'icon' => 'arrow-left-right'],
                     ['name' => 'Overtime', 'path' => 'attendance.php?view=overtime', 'icon' => 'hourglass'],
-                    ['name' => 'WFH Request', 'path' => 'attendance.php?view=wfh', 'icon' => 'home']
+                    ['name' => 'WFH Request', 'path' => 'attendance.php?view=wfh', 'icon' => 'home'],
+                    ['name' => 'Leave Management', 'path' => 'leave_management.php', 'icon' => 'calendar-off']
                 ]
             ],
 
             // --- NEW TASK MANAGEMENT MODULE ---
             [
                 'name' => 'Task Management', 
+                //'path' => 'manager_tasks.php', 
                 'icon' => 'clipboard-check', 
                 'allowed' => ['Manager', 'Team Lead', 'HR', 'Employee', 'Digital Marketing', 'System Admin'],
                 'subItems' => [
-                    ['name' => 'My Tasks', 'path' => 'self_task.php', 'icon' => 'check-square'], // Linked to self_task.php
+                    ['name' => 'My Tasks', 'path' => 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => 'manager_task.php?view=team_tasks', 'icon' => 'users'],
                 ]
             ],
             // ----------------------------------
+
+            // --- NEW SECTIONS (Projects, Clients, Performance) ---
+            [
+                'name' => 'Projects', 
+                'path' => './manager/manager_projects.php', 
+                'icon' => 'layers', 
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee']
+            ],
+            [
+                'name' => 'Clients', 
+                'path' => 'clients.php', 
+                'icon' => 'users', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
+            ],
+            [
+                'name' => 'Performance', 
+                'path' => './manager/performance.php', 
+                'icon' => 'trending-up', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee'],
+                'subItems' => [
+                    ['name' => 'Performance Indicator', 'path' => 'performance.php?view=indicator', 'icon' => 'target'],
+                    ['name' => 'Performance Review', 'path' => 'performance.php?view=review', 'icon' => 'file-text'],
+                ]
+            ],
+            // ----------------------------------------------------
 
             [
                 'name' => 'Announcement', 
@@ -86,7 +122,7 @@ $sections = [
         'items' => [
             [
                 'name' => 'Reports', 
-                'path' => 'reports.php', 
+                'path' => './manager_reports.php', 
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
