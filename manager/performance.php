@@ -1,4 +1,7 @@
 <?php
+ob_start(); // Fix: Buffer output to prevent "Headers already sent" error
+session_start(); // Fix: Start session before any HTML output
+
 // Handle page view routing
 $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
 ?>
@@ -35,35 +38,18 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
         body { background-color: var(--bg-body); display: flex; height: 100vh; overflow: hidden; color: var(--text-primary); }
 
-        /* ==============================
-           SIDEBAR STYLING
-           ============================== */
-        .sidebar { width: 260px; background-color: var(--sidebar-bg); border-right: 1px solid #eee; display: flex; flex-direction: column; z-index: 100; flex-shrink: 0; }
-        .sidebar-brand { padding: 20px; display: flex; align-items: center; gap: 12px; }
-        .sidebar-brand img { width: 35px; }
-        .sidebar-brand span { font-size: 1.4rem; font-weight: 700; color: #333; }
-        
-        .welcome-text { padding: 10px 20px; font-size: 0.9rem; font-weight: 600; color: #1f2d3d; }
-        .user-profile-card { margin: 10px 20px 20px; padding: 20px; background: #f8f9fa; border-radius: 12px; text-align: center; }
-        .user-profile-card img { width: 60px; height: 60px; border-radius: 50%; margin-bottom: 10px; border: 3px solid #fff; }
-        .user-profile-card h4 { font-size: 0.95rem; color: #333; margin-bottom: 2px; }
-        .user-profile-card span { font-size: 0.8rem; color: #888; }
-
-        .nav-menu { list-style: none; flex: 1; overflow-y: auto; padding: 0 10px; }
-        .menu-label { padding: 10px 15px; font-size: 0.75rem; text-transform: uppercase; color: #999; font-weight: 600; }
-        .nav-link { display: flex; align-items: center; justify-content: space-between; padding: 12px 15px; color: var(--sidebar-text); text-decoration: none; font-size: 0.9rem; border-radius: 8px; transition: 0.3s; cursor: pointer; }
-        .nav-link:hover { color: var(--accent-color); background-color: #fff4f0; }
-        .nav-link.active { background-color: #f1f1f1; color: var(--accent-color); font-weight: 500; }
-        .nav-icon { width: 25px; margin-right: 10px; text-align: center; }
-
-        .submenu { list-style: none; max-height: 0; overflow: hidden; transition: max-height 0.3s ease-in-out; }
-        .submenu.open { max-height: 500px; }
-        .submenu .nav-link { padding-left: 50px; font-size: 0.85rem; }
-        .rotate-arrow { transition: transform 0.3s; font-size: 0.7rem; }
-        .rotate-arrow.rotated { transform: rotate(180deg); }
-
         /* --- MAIN CONTENT --- */
-        .main-content { flex: 1; padding: 25px; overflow-y: auto; }
+        .main-content { 
+            flex: 1; 
+            padding: 25px; 
+            overflow-y: auto; 
+            margin-left: 95px; /* Matches primary sidebar width */
+            transition: margin-left 0.3s;
+        }
+        
+        /* Class handled by sidebar JS */
+        .main-content.main-shifted { margin-left: 315px; }
+
         .page-header { margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
         .breadcrumb { font-size: 0.8rem; color: #888; margin-bottom: 5px; }
         
@@ -92,7 +78,7 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
         .action-icons i { margin-left: 10px; cursor: pointer; color: #888; }
         .action-icons i:hover { color: var(--accent-color); }
 
-        /* --- Performance Review Styles (Badges & Inputs) --- */
+        /* --- Performance Review Styles --- */
         .grade-span .badge { margin: 2px; padding: 8px 12px; font-weight: normal; border-radius: 4px; display: inline-block; font-size: 0.75rem; }
         .bg-inverse-danger { background: rgba(234, 84, 85, 0.1); color: #ea5455; }
         .bg-inverse-warning { background: rgba(255, 159, 67, 0.1); color: #ff9f43; }
@@ -100,7 +86,6 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
         .bg-inverse-purple { background: rgba(115, 103, 240, 0.1); color: #7367f0; }
         .bg-inverse-success { background: rgba(40, 199, 111, 0.1); color: #28c76f; }
         
-        /* Grid helpers for Review Page & Modal */
         .row { display: flex; flex-wrap: wrap; margin-right: -10px; margin-left: -10px; }
         .col-md-3 { flex: 0 0 25%; max-width: 25%; padding: 0 10px; box-sizing: border-box; }
         .col-md-4 { flex: 0 0 33.333333%; max-width: 33.333333%; padding: 0 10px; box-sizing: border-box; }
@@ -110,16 +95,13 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
         .mb-2 { margin-bottom: 0.5rem; }
         .p-0 { padding: 0 !important; }
         
-        /* Review Table Specifics */
         .review-table th, .review-table td { border: 1px solid #eee; text-align: center; vertical-align: middle; }
         .review-table th { background: #f8f9fa; }
         .review-table input { text-align: center; }
 
         /* --- MODAL --- */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: flex-start; padding-top: 50px; overflow-y: auto; }
-        /* Centered modal for messages */
         .modal-overlay.centered { align-items: center; padding-top: 0; }
-        
         .modal-content { background: #fff; width: 700px; border-radius: 8px; padding: 25px; box-shadow: 0 5px 15px rgba(0,0,0,0.2); position: relative; margin-bottom: 50px; }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
         .modal-header h3 { font-size: 1.2rem; font-weight: 600; margin: 0; }
@@ -130,37 +112,9 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
 </head>
 <body>
 
-    <aside class="sidebar">
-        <div class="sidebar-brand">
-            <img src="https://smarthr.dreamstechnologies.com/html/template/assets/img/logo.png" alt="Logo">
-            <span>SmartHR</span>
-        </div>
-        <div class="welcome-text">Welcome to SmartHR</div>
-        <div class="user-profile-card">
-            <img src="https://smarthr.dreamstechnologies.com/html/template/assets/img/profiles/avatar-02.jpg" alt="User">
-            <h4>Adrian Herman</h4>
-            <span>System Admin</span>
-        </div>
-        <div class="menu-label">HRM</div>
-        <ul class="nav-menu">
-            <li><a href="?view=dashboard" class="nav-link"><i class="fa-solid fa-gauge nav-icon"></i> Dashboard</a></li>
-            
-            <li>
-                <a href="#" onclick="toggleSubmenu(event)" class="nav-link active">
-                    <span><i class="fa-solid fa-chart-line nav-icon"></i> Performance</span>
-                    <i class="fa-solid fa-chevron-down rotate-arrow rotated"></i>
-                </a>
-                <ul class="submenu open">
-                    <li><a href="?view=performance-indicator" class="nav-link <?php echo $page=='performance-indicator'?'active':'';?>">Performance Indicator</a></li>
-                    <li><a href="?view=performance-review" class="nav-link <?php echo $page=='performance-review'?'active':'';?>">Performance Review</a></li>
-                </ul>
-            </li>
+    <?php include '../sidebars.php'; ?>
 
-            <li><a href="?view=tickets" class="nav-link"><i class="fa-solid fa-ticket nav-icon"></i> Tickets</a></li>
-        </ul>
-    </aside>
-
-    <main class="main-content">
+    <main class="main-content" id="mainContent">
         
         <?php if ($page == 'dashboard'): ?>
             <div class="page-header">
@@ -170,7 +124,7 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
                 <p>Welcome to the Performance Dashboard.</p>
             </div>
 
-        <?php elseif ($page == 'performance-indicator'): ?>
+        <?php elseif ($page == 'indicator'): ?>
             <div class="breadcrumb">Performance > Performance Indicator</div>
             <div class="page-header">
                 <h2>Performance Indicator</h2>
@@ -197,7 +151,7 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
                             <td class="cell-dept">Designing</td>
                             <td>
                                 <div class="profile-cell">
-                                    <img src="https://i.pravatar.cc/150?u=1" alt="admin">
+                                    <img src="https://ui-avatars.com/api/?name=Doglas+Martini&background=random" alt="admin">
                                     <div><strong>Doglas Martini</strong><br><small>Manager</small></div>
                                 </div>
                             </td>
@@ -212,7 +166,7 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
                 </table>
             </div>
 
-        <?php elseif ($page == 'performance-review'): ?>
+        <?php elseif ($page == 'review'): ?>
             <div class="breadcrumb">Performance > Performance Review</div>
             <div class="page-header">
                 <h2>Performance Review</h2>
@@ -560,19 +514,11 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
 
     <script>
         let editingRow = null; 
-        let rowToDelete = null; // Track row to be deleted
-
-        // Sidebar Toggle
-        function toggleSubmenu(e) {
-            e.preventDefault();
-            e.currentTarget.nextElementSibling.classList.toggle('open');
-            e.currentTarget.querySelector('.rotate-arrow').classList.toggle('rotated');
-        }
+        let rowToDelete = null;
 
         // Modal Logic
         function openModal(id, mode) { 
             const modal = document.getElementById(id);
-            // Handle add/edit modal specific logic
             if (id === 'addModal') {
                 const title = document.getElementById('modalTitle');
                 const btn = document.getElementById('saveBtn');
@@ -597,7 +543,6 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
             modal.style.display = 'flex'; 
         }
 
-        // Helper to open message modal
         function openMessageModal(msg) {
             document.getElementById('msgText').innerText = msg;
             document.getElementById('messageModal').style.display = 'flex';
@@ -609,7 +554,6 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
             if(id === 'deleteConfirmModal') rowToDelete = null;
         }
 
-        // Indicator Table Logic (Create & Update)
         function addIndicator() {
             const desig = document.getElementById('newDesignation').value;
             const status = document.getElementById('newStatus').value;
@@ -617,7 +561,6 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
             if(!desig) return openMessageModal("Please select a Designation");
             
             if(editingRow) {
-                // Update Existing Row
                 editingRow.querySelector('.cell-desig').innerText = desig;
                 const statusBadge = editingRow.querySelector('.status-badge');
                 statusBadge.innerText = status;
@@ -630,7 +573,6 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
 
                 openMessageModal("Indicator Updated Successfully!");
             } else {
-                // Create New Row
                 let dept = "Development"; 
                 if(desig.includes("Designer")) dept = "Designing";
                 if(desig.includes("Engineer")) dept = "DevOps";
@@ -643,8 +585,8 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
                         <td class="cell-dept">${dept}</td>
                         <td>
                             <div class="profile-cell">
-                                <img src="https://i.pravatar.cc/150?u=9">
-                                <div><strong>Adrian Herman</strong><br><small>System Admin</small></div>
+                                <img src="https://ui-avatars.com/api/?name=User&background=random">
+                                <div><strong>System Admin</strong><br><small>Manager</small></div>
                             </div>
                         </td>
                         <td>${new Date().toLocaleDateString('en-GB', {day:'numeric', month:'short', year:'numeric'})}</td>
@@ -661,13 +603,11 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
             closeModal('addModal');
         }
 
-        // Delete Row Logic - Step 1: Open Modal
         function deleteRow(icon) {
             rowToDelete = icon.closest("tr");
             openModal('deleteConfirmModal');
         }
 
-        // Delete Row Logic - Step 2: Confirm Action
         function confirmDelete() {
             if (rowToDelete) {
                 rowToDelete.remove();
@@ -676,13 +616,12 @@ $page = isset($_GET['view']) ? $_GET['view'] : 'dashboard';
             closeModal('deleteConfirmModal');
         }
 
-        // Edit Row Function
         function editRow(icon) {
             editingRow = icon.closest("tr");
             openModal('addModal', 'edit');
         }
 
-        // --- PERFORMANCE REVIEW CALCULATION LOGIC ---
+        // --- CALCULATION LOGIC ---
         function calcProf(input) {
             let row = input.closest('tr');
             let weight = parseFloat(row.querySelector('.weight-prof').value) || 0;
