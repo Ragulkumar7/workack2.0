@@ -38,7 +38,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                 session_regenerate_id(true);
 
                 // Redirect to dashboard
-                header("Location: dashboard.php");
+                header("Location: employee/employee_dashboard.php");
                 exit();
             } else {
                 $error_message = "Invalid password. Please try again.";
