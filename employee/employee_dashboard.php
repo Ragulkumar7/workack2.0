@@ -24,13 +24,27 @@
         
         .meeting-timeline { position: relative; }
         .meeting-timeline::before { content: ''; position: absolute; left: 74px; top: 0; bottom: 0; width: 1px; background: #e2e8f0; border-style: dashed; }
+
+        /* --- SIDEBAR LAYOUT FIX --- */
+        #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px); /* Prevent Overflow */
+            transition: margin-left 0.3s ease, width 0.3s ease;
+        }
+        /* When Secondary Sidebar Opens */
+        #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
     </style>
 </head>
 <body class="bg-slate-50">
 
+    <?php include '../sidebars.php'; ?>
+
     <div class="min-h-screen">
         
-        <main class="w-full p-4 md:p-8">
+        <main id="mainContent" class="p-4 md:p-8">
 
             <?php
             // Configuration & Data
