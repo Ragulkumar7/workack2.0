@@ -15,25 +15,22 @@ $first_letter = strtoupper(substr($user_name, 0, 1));
 $current_path = basename($_SERVER['PHP_SELF']); 
 $current_view = $_GET['view'] ?? ''; 
 
-// --- FIX: DETECT FOLDER LEVEL (Robust) ---
-// We check the folder name. If we are in 'manager' OR 'employee', we use '../' to go back to root.
-// We use strtolower to ensure 'Employee' and 'employee' both work.
+// --- DETECT FOLDER LEVEL ---
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
-// I ADDED 'tl' TO THIS CHECK:
+// Handle paths for Manager, Employee, and TL folders
 if ($current_dir == 'manager' || $current_dir == 'employee' || $current_dir == 'tl') {
     $base = '../';
 } else {
     $base = '';
 }
-// ------------------------------------------------------------------
 
 // 2. DEFINE MENU DATA
 $sections = [
     [
         'label' => 'Main',
         'items' => [
-            // --- 1. DASHBOARD (Role Based) ---
+            // --- DASHBOARD ---
             [
                 'name' => 'Dashboard', 
                 'path' => $base . 'dashboard.php', 
@@ -48,31 +45,28 @@ $sections = [
             ],
             [
                 'name' => 'Dashboard', 
-                // Fix: Point to the employee folder explicitly
                 'path' => $base . 'employee/employee_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Employee'] 
             ],
 
-            // --- TEAM CHAT (Common) ---
+            // --- TEAM CHAT ---
             [
                 'name' => 'Team Chat', 
-                // Fix: Assuming team_chat.php is in the ROOT folder
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader', 'Employee']
             ],
 
-            // --- 3. EMPLOYEE DETAILS (Employee Only) ---
+            // --- EMPLOYEE DETAILS (Employee Only) ---
             [
                 'name' => 'Employee Details',
-                // Fix: Corrected filename to 'employee_details.php' and added 'employee/' folder
                 'path' => $base . 'employee/employee_details.php', 
                 'icon' => 'user-circle', 
                 'allowed' => ['Employee']
             ],
             
-            // --- 2. ATTENDANCE (Manager View) ---
+            // --- ATTENDANCE (Manager View) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
@@ -88,49 +82,60 @@ $sections = [
                 ]
             ],
 
-            // --- 2. ATTENDANCE (Employee View - Specific Modules) ---
+            // --- ATTENDANCE (Team Lead View - NEW) ---
+            [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['Team Lead', 'Team Leader'],
+                'subItems' => [
+                    // Common punching page for themselves
+                    ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    // New page for viewing their team
+                    ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
+                    // Common Employee requests
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
+                ]
+            ],
+
+            // --- ATTENDANCE (Employee View) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
                 'allowed' => ['Employee'],
                 'subItems' => [
-                    // emp_attendance.php is in ROOT
-                    ['name' => 'Attendance Info', 'path' => $base . 'emp_attendance.php?view=my_attendance', 'icon' => 'user'],
-                    // leave_request.php is in 'employee' folder
+                    ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
-                    // work_from_home.php is in 'employee' folder (Corrected from wfh_request.php)
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
                 ]
             ],
 
-            // --- 3. TASK MANAGEMENT (Manager View) ---
+            // --- TASK MANAGEMENT ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
-                'allowed' => ['Manager', 'Team Lead', 'HR', 'System Admin'],
+                'allowed' => ['Manager', 'Team Lead', 'Team Leader', 'HR', 'System Admin'],
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
                 ]
             ],
-
-            [
-                'name' => 'Employee', 
-                'path' => $base . 'manager/employee_management.php', 
-                'icon' => 'users', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
-            ],
-
-            // --- 3. TASK MANAGEMENT (Employee View - Specific Modules) ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
                 'allowed' => ['Employee'],
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    // task_tl.php is in 'employee' folder
-                    ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
+                    ['name' => 'Task Board', 'path' => $base . 'TL/task_tl.php', 'icon' => 'kanban'],
                 ]
+            ],
+
+            // --- EMPLOYEE MGMT (Manager/TL) ---
+            [
+                'name' => 'Employee', 
+                'path' => $base . 'manager/employee_management.php', 
+                'icon' => 'users', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead', 'Team Leader']
             ],
 
             // --- PROJECTS (Common) ---
@@ -138,7 +143,14 @@ $sections = [
                 'name' => 'Projects', 
                 'path' => $base . 'manager/manager_projects.php', 
                 'icon' => 'layers', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead']
+                'allowed' => ['Manager', 'System Admin']
+            ],
+             // tl projects
+             [
+                'name' => 'Projects', 
+                'path' => $base . 'TL/tl_projects.php', 
+                'icon' => 'layers', 
+                'allowed' => ['Team Lead']
             ],
 
             // --- CLIENTS (Manager Only) ---
@@ -149,28 +161,29 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- PERFORMANCE (Common) ---
+            // --- PERFORMANCE (Common including TL) ---
             [
                 'name' => 'Performance', 
                 'path' => $base . 'manager/performance.php', 
                 'icon' => 'trending-up', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee'],
+                // Added Team Lead here
+                'allowed' => ['Manager', 'System Admin', 'HR'],
                 'subItems' => [
                     ['name' => 'Performance Indicator', 'path' => $base . 'manager/performance.php?view=indicator', 'icon' => 'target'],
                     ['name' => 'Performance Review', 'path' => $base . 'manager/performance.php?view=review', 'icon' => 'file-text'],
                 ]
             ],
 
-            // --- 4. RESIGNATION (Employee Only) ---
+            // --- RESIGNATION (Common including TL) ---
             [
                 'name' => 'Resignation', 
-                // resignation.php is in 'employee' folder
                 'path' => $base . 'employee/resignation.php', 
                 'icon' => 'user-x', 
-                'allowed' => ['Employee']
+                // Added Team Lead here
+                'allowed' => ['Employee', 'Team Lead', 'Team Leader']
             ],
 
-            // --- 5. TERMINATION (Manager Only) ---
+            // --- TERMINATION (Manager Only) ---
             [
                 'name' => 'Termination', 
                 'path' => $base . 'manager/termination.php', 
@@ -178,32 +191,35 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- ANNOUNCEMENT (Common) ---
+            // --- ANNOUNCEMENT (Manager - Full Access) ---
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- TICKET RAISE (Common) ---
+            // --- ANNOUNCEMENT (Employee/TL - Read Only) ---
+            [
+                'name' => 'Announcement', 
+                'path' => $base . 'view_announcements.php',
+                'icon' => 'megaphone', 
+                'allowed' => ['Employee', 'Team Lead', 'Team Leader']
+            ],
+
+            // --- TICKET RAISE (Common including TL) ---
             [
                 'name' => 'Ticket Raise', 
                 'path' => $base . 'ticketraise.php', 
                 'icon' => 'ticket', 
-                'allowed' => ['Manager', 'System Admin', 'Employee'],
+                // Added Team Lead here
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader'],
                 'subItems' => [
                     ['name' => 'Ticket Dashboard', 'path' => $base . 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
                     ['name' => 'Ticket Details', 'path' => $base . 'ticketraise.php?view=details', 'icon' => 'file-text'],
                     ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], 
                     ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
                 ]
-            ],
-            [
-                'name' => 'Resignation', 
-                'path' => $base . 'resignation.php', 
-                'icon' => 'file-bar-chart', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
             ],
         ]
     ],
@@ -217,17 +233,26 @@ $sections = [
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
+
+            [
+                'name' => 'Reports', 
+                'path' => $base . 'TL/tl_reports.php', 
+                'icon' => 'file-bar-chart', 
+                'allowed' => ['Team Lead']
+            ],
+            // --- HELP & SUPPORT (Common including TL) ---
             [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader']
             ],
+            // --- SETTINGS (Common including TL) ---
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader']
             ],
         ]
     ]
@@ -358,6 +383,8 @@ foreach ($sections as $section) {
             if(main) main.classList.add('main-shifted');
             container.innerHTML = `<div class="back-btn" onclick="closeSubMenu()"><i data-lucide="chevron-left" style="width: 16px; height: 16px; margin-right: 8px;"></i>Back</div><h3 style="font-size:14px; font-weight:700; margin-bottom:15px; padding-left:10px;">${item.name}</h3>`;
             item.subItems.forEach(sub => {
+                // Filter out sub-items that might not be allowed for this user if we add logic later
+                // For now, PHP filters the main blocks.
                 container.innerHTML += `<a href="${sub.path}" class="sub-item"><i data-lucide="${sub.icon || 'circle'}" class="sub-icon"></i><span style="flex:1">${sub.name}</span><i data-lucide="chevron-right" style="width:12px; height:12px; color:#a1a1aa"></i></a>`;
             });
             lucide.createIcons();
