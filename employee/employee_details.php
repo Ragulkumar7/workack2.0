@@ -89,10 +89,10 @@
 <div class="container py-5">
     <div class="row mb-4 align-items-center">
         <div class="col-6">
-            <h5 class="fw-bold mb-0 text-dark"><i class="fas fa-arrow-left me-2"></i> Employee Details</h5>
+            <h5 class="fw-bold mb-0 text-dark"> Employee Details</h5>
         </div>
         <div class="col-6 text-end d-flex justify-content-end gap-2">
-            <button class="btn-bank-stat" data-bs-toggle="modal" data-bs-target="#bankDetailsModal">
+            <button class="btn-bank-stat" data-bs-toggle="modal" data-bs-target="#bankStatutoryModal">
                 <i class="far fa-plus-square me-2"></i> Bank & Statutory
             </button>
             <button class="btn-collapse"><i class="fas fa-angles-up"></i></button>
@@ -169,7 +169,7 @@
                 foreach($sections as $title => $html) {
                     $collapseId = "collapseMain" . $count;
                     $targetModal = "#editEmployeeModal";
-                    if ($title == "Bank Information") { $targetModal = "#bankDetailsModal"; }
+                    if ($title == "Bank Information") { $targetModal = "#bankStatutoryModal"; }
                     else if ($title == "Family Information") { $targetModal = "#familyDetailsModal"; }
                     else if ($title == "Education Details") { $targetModal = "#educationDetailsModal"; }
                     else if ($title == "Experience") { $targetModal = "#experienceDetailsModal"; }
@@ -195,16 +195,7 @@
                         <div class="row g-3"><div class="col-md-6"><div class="project-card"><div class="d-flex align-items-center mb-3"><div class="project-icon bg-primary"><i class="fab fa-connectdevelop"></i></div><div><h6 class="fw-bold mb-0">World Health</h6><div class="project-meta">8 tasks <span>●</span> 15 Completed</div></div></div><hr class="opacity-25"><div class="d-flex justify-content-between align-items-center mt-3"><div><div class="project-deadline-label">Deadline</div><div class="fw-bold">31 July 2025</div></div><div class="text-end"><div class="project-deadline-label">Project Lead</div><div class="d-flex align-items-center"><img src="https://via.placeholder.com/30" class="project-lead-img"><span class="fw-bold">Leona</span></div></div></div></div></div></div>
                     </div>
                     <div class="tab-pane fade" id="assets-view" role="tabpanel">
-                        <div class="asset-card">
-                            <div class="asset-info-left d-flex align-items-center gap-3">
-                                <div class="asset-img-box"><img src="https://via.placeholder.com/40" alt="Icon"></div>
-                                <div><div class="asset-main-title">Dell Laptop - #343556656</div><span class="asset-sub-id">AST - 001</span><span class="emergency-dot mx-1">●</span><span class="asset-assign-date">Assigned on 22 Nov, 2022</span></div>
-                            </div>
-                            <div class="d-flex align-items-center gap-4">
-                                <div><span class="assignee-label">Assigned by</span><span class="assignee-name">Andrew Symon</span></div>
-                                <i class="fas fa-ellipsis-v text-muted" style="cursor: pointer;"></i>
-                            </div>
-                        </div>
+                        <div class="asset-card"><div class="d-flex align-items-center gap-3"><div class="asset-img-box"><img src="https://via.placeholder.com/40"></div><div><div class="asset-main-title">Dell Laptop - #343556656</div><span class="asset-sub-id">AST - 001</span><span class="emergency-dot">●</span><span class="asset-assign-date">Assigned on 22 Nov, 2022</span></div></div><div class="d-flex align-items-center gap-4"><div><span class="assignee-label">Assigned by</span><span class="assignee-name">Andrew Symon</span></div><i class="fas fa-ellipsis-v text-muted"></i></div></div>
                     </div>
                 </div>
             </div>
@@ -212,100 +203,68 @@
     </div>
 </div>
 
-<div class="modal fade" id="bankDetailsModal" tabindex="-1">
+<div class="modal fade" id="bankStatutoryModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow">
             <div class="modal-header border-bottom-0 pt-4 px-4"><h5 class="modal-title fw-bold">Bank & Statutory</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body px-4">
+            <div class="modal-body px-4 pb-4">
                 <div class="stat-section-title">Basic Salary Information</div>
                 <div class="row g-3 mb-4">
-                    <div class="col-md-4"><label class="form-label fw-600 small">Salary basis <span class="required">*</span></label><select class="form-select bg-light border-0 py-2"><option>Select</option></select></div>
-                    <div class="col-md-4"><label class="form-label fw-600 small">Salary amount</label><div class="input-group"><span class="input-group-text bg-light border-0">$</span><input type="text" class="form-control bg-light border-0 py-2"></div></div>
+                    <div class="col-md-4"><label class="form-label fw-600 small">Salary basis *</label><select class="form-select bg-light border-0 py-2"><option>Select</option></select></div>
+                    <div class="col-md-4"><label class="form-label fw-600 small">Salary basis</label><div class="input-group"><span class="input-group-text bg-light border-0">$</span><input type="text" class="form-control bg-light border-0 py-2"></div></div>
                     <div class="col-md-4"><label class="form-label fw-600 small">Payment type</label><select class="form-select bg-light border-0 py-2"><option>Select</option></select></div>
                 </div>
                 <div class="stat-section-title">PF Information</div>
                 <div class="row g-3 mb-4">
-                    <div class="col-md-4"><label class="form-label fw-600 small">PF contribution <span class="required">*</span></label><select class="form-select bg-light border-0 py-2"><option>Select</option></select></div>
+                    <div class="col-md-4"><label class="form-label fw-600 small">PF contribution *</label><select class="form-select bg-light border-0 py-2"><option>Select</option></select></div>
                     <div class="col-md-4"><label class="form-label fw-600 small">PF No</label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-4"><label class="form-label fw-600 small">Total rate</label><input type="text" class="form-control bg-light border-0 py-2"></div>
+                    <div class="col-md-4"><label class="form-label fw-600 small">Employee PF rate</label><input type="text" class="form-control bg-light border-0 py-2"></div>
                 </div>
                 <div class="stat-section-title">ESI Information</div>
                 <div class="row g-3">
-                    <div class="col-md-4"><label class="form-label fw-600 small">ESI contribution <span class="required">*</span></label><select class="form-select bg-light border-0 py-2"><option>Select</option></select></div>
+                    <div class="col-md-4"><label class="form-label fw-600 small">ESI contribution *</label><select class="form-select bg-light border-0 py-2"><option>Select</option></select></div>
                     <div class="col-md-4"><label class="form-label fw-600 small">ESI Number</label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-4"><label class="form-label fw-600 small">Total rate</label><input type="text" class="form-control bg-light border-0 py-2"></div>
+                    <div class="col-md-4"><label class="form-label fw-600 small">Employee ESI rate *</label><input type="text" class="form-control bg-light border-0 py-2"></div>
                 </div>
             </div>
-            <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 me-2 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
+            <div class="modal-footer border-0 p-4 pt-0"><button type="button" class="btn btn-light px-4 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
         </div>
     </div>
 </div>
 
 <div class="modal fade" id="familyDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header border-bottom-0 pt-4 px-4"><h5 class="modal-title fw-bold">Family Information</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body px-4">
-                <div class="row g-4">
-                    <div class="col-12"><label class="form-label fw-600 small">Name <span class="required">*</span></label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-12"><label class="form-label fw-600 small">Relationship</label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-12"><label class="form-label fw-600 small">Date of Birth <span class="required">*</span></label><div class="input-group"><input type="text" class="form-control bg-light border-0 py-2" placeholder="dd/mm/yyyy"><span class="input-group-text bg-light border-0"><i class="far fa-calendar-alt"></i></span></div></div>
-                </div>
-            </div>
-            <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 me-2 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
-        </div>
-    </div>
+    <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content border-0 shadow">
+        <div class="modal-header border-bottom-0 pt-4 px-4"><h5 class="modal-title fw-bold">Family Information</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body px-4 pb-4"><div class="row g-4"><div class="col-12"><label class="form-label fw-600 small">Name *</label><input type="text" class="form-control bg-light border-0 py-2"></div><div class="col-12"><label class="form-label fw-600 small">Relationship</label><input type="text" class="form-control bg-light border-0 py-2"></div><div class="col-12"><label class="form-label fw-600 small">Date of Birth *</label><input type="text" class="form-control bg-light border-0 py-2" placeholder="dd/mm/yyyy"></div></div></div>
+        <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
+    </div></div>
 </div>
 
 <div class="modal fade" id="educationDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header border-bottom-0 pt-4 px-4"><h5 class="modal-title fw-bold">Education Information</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body px-4">
-                <div class="row g-3">
-                    <div class="col-md-6"><label class="form-label fw-600 small">Institution Name <span class="required">*</span></label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">Course <span class="required">*</span></label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">Start Date <span class="required">*</span></label><div class="input-group"><input type="text" class="form-control bg-light border-0 py-2" placeholder="dd/mm/yyyy"><span class="input-group-text bg-light border-0"><i class="far fa-calendar-alt"></i></span></div></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">End Date <span class="required">*</span></label><div class="input-group"><input type="text" class="form-control bg-light border-0 py-2" placeholder="dd/mm/yyyy"><span class="input-group-text bg-light border-0"><i class="far fa-calendar-alt"></i></span></div></div>
-                </div>
-            </div>
-            <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 me-2 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
-        </div>
-    </div>
+    <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content border-0 shadow">
+        <div class="modal-header border-bottom-0 pt-4 px-4"><h5 class="modal-title fw-bold">Education Information</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body px-4 pb-4"><div class="row g-3"><div class="col-md-6"><label class="form-label fw-600 small">Institution Name *</label><input type="text" class="form-control bg-light border-0 py-2"></div><div class="col-md-6"><label class="form-label fw-600 small">Course *</label><input type="text" class="form-control bg-light border-0 py-2"></div></div></div>
+        <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
+    </div></div>
 </div>
 
 <div class="modal fade" id="experienceDetailsModal" tabindex="-1">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content border-0 shadow">
-            <div class="modal-header border-bottom-0 pt-4 px-4"><h5 class="modal-title fw-bold">Company Information</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body px-4">
-                <div class="row g-3">
-                    <div class="col-md-6"><label class="form-label fw-600 small">Previous Company Name <span class="required">*</span></label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">Designation <span class="required">*</span></label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">Start Date <span class="required">*</span></label><div class="input-group"><input type="text" class="form-control bg-light border-0 py-2" placeholder="dd/mm/yyyy"><span class="input-group-text bg-light border-0"><i class="far fa-calendar-alt"></i></span></div></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">End Date <span class="required">*</span></label><div class="input-group"><input type="text" class="form-control bg-light border-0 py-2" placeholder="dd/mm/yyyy"><span class="input-group-text bg-light border-0"><i class="far fa-calendar-alt"></i></span></div></div>
-                </div>
-            </div>
-            <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 me-2 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
-        </div>
-    </div>
+    <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content border-0 shadow">
+        <div class="modal-header border-bottom-0 pt-4 px-4"><h5 class="modal-title fw-bold">Company Information</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body px-4 pb-4"><div class="row g-3"><div class="col-md-6"><label class="form-label fw-600 small">Previous Company Name *</label><input type="text" class="form-control bg-light border-0 py-2"></div><div class="col-md-6"><label class="form-label fw-600 small">Designation *</label><input type="text" class="form-control bg-light border-0 py-2"></div></div></div>
+        <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
+    </div></div>
 </div>
 
 <div class="modal fade" id="editEmployeeModal" tabindex="-1">
     <div class="modal-dialog modal-lg modal-dialog-centered">
         <div class="modal-content border-0 shadow">
             <div class="modal-header border-bottom-0 pt-4 px-4 d-flex justify-content-between align-items-center"><h5 class="modal-title fw-bold">Edit Employee</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-            <div class="modal-body px-4">
+            <div class="modal-body px-4 pb-4">
                 <div class="upload-section"><img src="https://via.placeholder.com/80" class="upload-circle"><div><h6 class="fw-bold mb-1">Upload Profile Image</h6><button class="btn-upload">Upload</button></div></div>
-                <div class="row g-3">
-                    <div class="col-md-6"><label class="form-label fw-600 small">First Name <span class="required">*</span></label><input type="text" class="form-control bg-light border-0 py-2" value="Anthony"></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">Last Name</label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">Email <span class="required">*</span></label><input type="text" class="form-control bg-light border-0 py-2"></div>
-                    <div class="col-md-6"><label class="form-label fw-600 small">Birthday<span class="required">*</span></label><div class="input-group"><input type="text" class="form-control bg-light border-0 py-2"><span class="input-group-text bg-light border-0"><i class="far fa-calendar-alt"></i></span></div></div>
-                    <div class="col-12"><label class="form-label fw-600 small">About Employee <span class="required">*</span></label><textarea class="form-control bg-light border-0" rows="3"></textarea></div>
-                </div>
+                <div class="row g-3"><div class="col-md-6"><label class="form-label fw-600 small">First Name *</label><input type="text" class="form-control bg-light border-0 py-2" value="Anthony"></div><div class="col-md-6"><label class="form-label fw-600 small">Last Name</label><input type="text" class="form-control bg-light border-0 py-2"></div><div class="col-md-6"><label class="form-label fw-600 small">Email *</label><input type="text" class="form-control bg-light border-0 py-2"></div><div class="col-md-6"><label class="form-label fw-600 small">Birthday *</label><input type="text" class="form-control bg-light border-0 py-2" placeholder="dd/mm/yyyy"></div><div class="col-12"><label class="form-label fw-600 small">About Employee *</label><textarea class="form-control bg-light border-0" rows="3"></textarea></div></div>
             </div>
-            <div class="modal-footer border-0 p-4"><button type="button" class="btn btn-light px-4 me-2 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
+            <div class="modal-footer border-0 p-4 pt-0"><button type="button" class="btn btn-light px-4 border" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn-save">Save</button></div>
         </div>
     </div>
 </div>
