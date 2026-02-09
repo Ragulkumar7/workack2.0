@@ -15,9 +15,17 @@ $first_letter = strtoupper(substr($user_name, 0, 1));
 $current_path = basename($_SERVER['PHP_SELF']); 
 $current_view = $_GET['view'] ?? ''; 
 
-// --- FIX: DETECT FOLDER LEVEL (To prevent double folder pathing) ---
-$current_dir = basename(dirname($_SERVER['PHP_SELF']));
-$base = ($current_dir == 'manager') ? '../' : ''; 
+// --- FIX: DETECT FOLDER LEVEL (Robust) ---
+// We check the folder name. If we are in 'manager' OR 'employee', we use '../' to go back to root.
+// We use strtolower to ensure 'Employee' and 'employee' both work.
+$current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
+
+// CHECK FOR BOTH FOLDERS HERE:
+if ($current_dir == 'manager' || $current_dir == 'employee') {
+    $base = '../';
+} else {
+    $base = '';
+}
 // ------------------------------------------------------------------
 
 // 2. DEFINE MENU DATA
@@ -34,6 +42,7 @@ $sections = [
             ],
             [
                 'name' => 'Dashboard', 
+                // Fix: Point to the employee folder explicitly
                 'path' => $base . 'employee/employee_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Employee'] 
@@ -42,6 +51,7 @@ $sections = [
             // --- TEAM CHAT (Common) ---
             [
                 'name' => 'Team Chat', 
+                // Fix: Assuming team_chat.php is in the ROOT folder
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee']
@@ -50,8 +60,9 @@ $sections = [
             // --- 3. EMPLOYEE DETAILS (Employee Only) ---
             [
                 'name' => 'Employee Details',
-                'path' => $base . 'employee_deets.php', // Assuming filename
-                'icon' => 'user-circle',
+                // Fix: Corrected filename to 'employee_details.php' and added 'employee/' folder
+                'path' => $base . 'employee/employee_details.php', 
+                'icon' => 'user-circle', 
                 'allowed' => ['Employee']
             ],
             
@@ -78,19 +89,22 @@ $sections = [
                 'icon' => 'calendar-check', 
                 'allowed' => ['Employee'],
                 'subItems' => [
+                    // emp_attendance.php is in ROOT
                     ['name' => 'Attendance Info', 'path' => $base . 'emp_attendance.php?view=my_attendance', 'icon' => 'user'],
-                    ['name' => 'Leave Request', 'path' => $base . 'leave_request.php', 'icon' => 'calendar-plus'],
-                    ['name' => 'WFH Request', 'path' => $base . 'wfh_request.php', 'icon' => 'home']
+                    // leave_request.php is in 'employee' folder
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    // work_from_home.php is in 'employee' folder (Corrected from wfh_request.php)
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
                 ]
             ],
 
             // --- 3. TASK MANAGEMENT (Manager View) ---
             [
-                'name' => './Task Management', 
+                'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
                 'allowed' => ['Manager', 'Team Lead', 'HR', 'System Admin'],
                 'subItems' => [
-                    ['name' => 'My Tasks', 'path' => $base . '/self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => $base . 'manager/manager_task.php?view=team_tasks', 'icon' => 'users'],
                 ]
             ],
@@ -102,7 +116,8 @@ $sections = [
                 'allowed' => ['Employee'],
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Task Board', 'path' => $base . 'task_tl.php', 'icon' => 'kanban'],
+                    // task_tl.php is in 'employee' folder
+                    ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
                 ]
             ],
 
@@ -134,18 +149,11 @@ $sections = [
                 ]
             ],
 
-            // --- CLIENTS MODULE ---
-            [
-                'name' => 'Clients', 
-                'path' => $base . 'manager/clients.php', 
-                'icon' => 'users', 
-                'allowed' => ['Manager', 'System Admin']
-            ],
-
             // --- 4. RESIGNATION (Employee Only) ---
             [
                 'name' => 'Resignation', 
-                'path' => $base . 'resignation.php', 
+                // resignation.php is in 'employee' folder
+                'path' => $base . 'employee/resignation.php', 
                 'icon' => 'user-x', 
                 'allowed' => ['Employee']
             ],
@@ -175,7 +183,7 @@ $sections = [
                 'subItems' => [
                     ['name' => 'Ticket Dashboard', 'path' => $base . 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
                     ['name' => 'Ticket Details', 'path' => $base . 'ticketraise.php?view=details', 'icon' => 'file-text'],
-                    ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], // Hidden for emp if logic applies
+                    ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], 
                     ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
                 ]
             ],
@@ -184,7 +192,7 @@ $sections = [
     [
         'label' => 'Support & Tools',
         'items' => [
-            // --- REPORTS (Common but maybe different views inside) ---
+            // --- REPORTS ---
             [
                 'name' => 'Reports', 
                 'path' => $base . 'manager/manager_reports.php', 
@@ -193,7 +201,7 @@ $sections = [
             ],
             [
                 'name' => 'Help & Support', 
-                'path' => $base . 'support.php', 
+                'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Employee']
             ],
