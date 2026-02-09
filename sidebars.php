@@ -105,8 +105,15 @@ $sections = [
                 'allowed' => ['Manager', 'Team Lead', 'HR', 'System Admin'],
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Team Tasks', 'path' => $base . 'manager/manager_task.php?view=team_tasks', 'icon' => 'users'],
+                    ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
                 ]
+            ],
+
+            [
+                'name' => 'Employee Management', 
+                'path' => $base . 'manager/employee_management.php', 
+                'icon' => 'users', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
             ],
 
             // --- 3. TASK MANAGEMENT (Employee View - Specific Modules) ---
