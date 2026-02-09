@@ -1,3 +1,6 @@
+<?php 
+include '../sidebars.php'; 
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
