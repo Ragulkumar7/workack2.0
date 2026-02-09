@@ -1,195 +1,300 @@
+<?php
+// attendance_admin.php
+
+// 1. SESSION START
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
+
+// 2. MOCK DATA FOR EXPORT (Since this is now a standalone admin page)
+// In a real app, this would come from the database based on the table view.
+$exportData = [];
+for($i=1; $i<=6; $i++) {
+    $exportData[] = [
+        "employee" => "User $i",
+        "status" => "Present",
+        "checkin" => "09:00 AM",
+        "checkout" => "06:".rand(10,59)." PM",
+        "break" => "20 Min",
+        "late" => "1$i Min",
+        "production" => "8.55 Hrs"
+    ];
+}
+?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workack HRMS | Attendance & Leave Admin</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>HRMS - Attendance Admin</title>
     
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
     <style>
-        :root {
-            --bg-light: #f7f7f7;
-            --white: #ffffff;
-            --primary-orange: #ff5b37; 
-            --text-dark: #333333;
-            --text-muted: #666666;
-            --border-light: #e3e3e3;
-            --sidebar-width: 260px;
+        :root { --primary-orange: #ff5e3a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
+        body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
+        
+        #mainContent { 
+            margin-left: 95px; 
+            padding: 25px 35px; 
+            transition: margin-left 0.3s ease;
+            width: calc(100% - 95px);
+        }
+        #mainContent.main-shifted {
+            margin-left: 315px; 
+            width: calc(100% - 315px);
         }
 
-        body { background-color: var(--bg-light); color: var(--text-dark); font-family: 'Inter', sans-serif; margin: 0; }
-        .sidebar-wrapper { width: var(--sidebar-width); background: var(--white); height: 100vh; position: fixed; border-right: 1px solid var(--border-light); z-index: 100; }
-        .main-wrapper { margin-left: var(--sidebar-width); padding: 25px; }
-        
-        /* Stats Grid Styles */
-        .card { background: #fff; border: 1px solid #e3e3e3; border-radius: 8px; margin-bottom: 24px; box-shadow: none; }
-        .details-today-grid .col { border-right: 1px solid var(--border-light); padding: 15px 20px; }
-        .details-today-grid .col:last-child { border-right: none; }
-        .badge-success { background-color: #e6fdf0; color: #10b981; border: none; }
-        .badge-danger { background-color: #fef2f2; color: #ef4444; border: none; }
-
-        /* Two-Column Grid matching Notice Board */
-        .admin-grid { display: grid; grid-template-columns: 1fr 380px; gap: 25px; align-items: start; }
-
-        /* Datatable Styles */
-        .table thead th { background-color: #f9fafb; font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; padding: 12px 20px; }
-        .table tbody td { vertical-align: middle; padding: 15px 20px; border-bottom: 1px solid var(--border-light); font-size: 14px; }
+        .card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); margin-bottom: 20px; background: #fff; }
+        .table thead th { background: #f9fafb; padding: 15px; border-bottom: 1px solid var(--border-color); color: #4a5568; font-weight: 600; }
+        .table tbody td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
         .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; margin-right: 10px; }
+        
+        .status-pill { padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+        .bg-present { background: #e6fffa; color: #38a169; }
+        .bg-absent { background: #fff5f5; color: #e53e3e; }
+        .prod-btn { color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+        
+        .modal-active { display: flex !important; }
 
-        /* Sidebar Styles (Notice Board Style) */
-        .side-card { background: var(--white); border: 1px solid var(--border-light); border-radius: 12px; padding: 25px; position: sticky; top: 25px; }
-        .side-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; border-bottom: 3px solid var(--primary-orange); display: inline-block; padding-bottom: 5px; }
-        .request-item { display: flex; gap: 15px; padding: 12px; border-radius: 10px; cursor: pointer; transition: 0.3s; margin-bottom: 10px; border: 1px solid transparent; background: #fafafa; }
-        .request-item:hover { background: #fff8f6; border-color: #ffe0d8; }
-        .request-item.active { background: #fff1f0; border-color: var(--primary-orange); border-left: 5px solid var(--primary-orange); }
-        .date-box { width: 50px; height: 50px; background: var(--white); border: 1px solid var(--border-light); border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 14px; }
-        .date-box span { font-size: 9px; text-transform: uppercase; color: var(--primary-orange); }
+        /* Notification Toast Styling */
+        #exportToast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            z-index: 10000; display: none; background: #38a169; color: white;
+            padding: 12px 24px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            font-weight: 600; animation: fadeInOut 3s ease-in-out forwards;
+        }
 
-        /* Modal / Icons */
-        .input-icon-group { position: relative; }
-        .input-icon-group .ti { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: #9ca3af; }
-        .btn-orange { background-color: var(--primary-orange); color: white; font-weight: 600; border: none; padding: 10px 25px; border-radius: 6px; }
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translate(-50%, -20px); }
+            15% { opacity: 1; transform: translate(-50%, 0); }
+            85% { opacity: 1; transform: translate(-50%, 0); }
+            100% { opacity: 0; transform: translate(-50%, -20px); }
+        }
     </style>
 </head>
-<body>
+<body class="bg-slate-50">
 
-    <div class="sidebar-wrapper"></div>
+    <div id="exportToast"><i class="fa-solid fa-circle-check mr-2"></i> Report Downloaded</div>
 
-    <div class="main-wrapper">
+    <?php include('sidebars.php'); ?>
+
+    <div id="reportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[9999] hidden items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden">
+            <div class="flex justify-between items-center p-6 border-b">
+                <h2 class="text-2xl font-bold">Attendance Details</h2>
+                <button onclick="closeModal()" class="bg-slate-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-slate-600 transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="p-8">
+                <div class="mb-6">
+                    <h3 class="text-xl font-bold text-slate-800" id="modalEmpName">User Name</h3>
+                    <p class="text-slate-500 text-sm">Full Day Attendance Report</p>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 bg-slate-50 p-6 rounded-lg border border-slate-100">
+                    <div><p class="text-slate-500 text-sm mb-1">Date</p><p class="font-bold text-lg" id="modalDate">15 Apr 2025</p></div>
+                    <div><p class="text-slate-500 text-sm mb-1">Punch in at</p><p class="font-bold text-lg" id="modalPunchIn">09:00 AM</p></div>
+                    <div><p class="text-slate-500 text-sm mb-1">Punch out at</p><p class="font-bold text-lg" id="modalPunchOut">06:45 PM</p></div>
+                    <div><p class="text-slate-500 text-sm mb-1">Status</p><p class="font-bold text-lg" id="modalStatus">Present</p></div>
+                </div>
+
+                <div class="grid grid-cols-4 gap-4 mb-8">
+                    <div>
+                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-slate-200"></span> Total Hours</p>
+                        <p class="text-3xl font-bold text-slate-800">12h 36m</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Productive</p>
+                        <p class="text-3xl font-bold text-slate-800">08h 36m</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-amber-400"></span> Break</p>
+                        <p class="text-3xl font-bold text-slate-800">22m 15s</p>
+                    </div>
+                    <div>
+                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Overtime</p>
+                        <p class="text-3xl font-bold text-slate-800">02h 15m</p>
+                    </div>
+                </div>
+
+                <div class="h-10 w-full bg-slate-50 rounded-full flex overflow-hidden mb-4 border border-slate-100 p-1">
+                    <div style="width: 15%"></div>
+                    <div class="h-full bg-emerald-500 rounded-lg" style="width: 12%"></div>
+                    <div class="h-full bg-amber-400 rounded-lg mx-1" style="width: 4%"></div>
+                    <div class="h-full bg-emerald-500 rounded-lg" style="width: 20%"></div>
+                    <div class="h-full bg-amber-400 rounded-lg mx-1" style="width: 10%"></div>
+                    <div class="h-full bg-emerald-500 rounded-lg" style="width: 15%"></div>
+                    <div class="h-full bg-amber-400 rounded-lg mx-1" style="width: 4%"></div>
+                    <div class="h-full bg-blue-500 rounded-lg" style="width: 3%"></div>
+                    <div class="h-full bg-blue-500 rounded-lg ml-1" style="width: 3%"></div>
+                </div>
+                
+                <div class="flex justify-between text-[11px] text-slate-400 font-medium px-1 uppercase">
+                    <span>06:00</span><span>08:00</span><span>10:00</span><span>12:00</span><span>02:00</span><span>04:00</span><span>06:00</span><span>08:00</span><span>10:00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <main id="mainContent">
         
-        <div class="d-md-flex align-items-center justify-content-between mb-4">
-            <div>
-                <h2 class="mb-1" style="font-weight:700;">Attendance Admin</h2>
-                <nav class="small"><ol class="breadcrumb mb-0"><li class="breadcrumb-item">Attendance</li><li class="breadcrumb-item active">Attendance Admin</li></ol></nav>
-            </div>
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div><h4 class="fw-bold mb-0 text-dark">Attendance Admin</h4></div>
             <div class="d-flex gap-2">
-                <button class="btn btn-white border btn-sm"><i class="ti ti-file-export"></i> Export</button>
-                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#attendance_report"><i class="ti ti-file-analytics"></i> Report</button>
+                <button class="btn btn-light border btn-sm" onclick="triggerExport()"><i class="fa-solid fa-download"></i> Export CSV</button>
             </div>
         </div>
 
-        <div class="card border-0 shadow-none mb-4">
-            <div class="card-body">
-                <div class="row align-items-center mb-4">
-                    <div class="col-md-5"><h4>Attendance Details Today</h4><p class="text-muted fs-13">Data from the 800+ total employees</p></div>
-                    <div class="col-md-7 text-md-end"><h6>Total Absentees today <span class="badge bg-primary rounded-circle ms-2">+1</span></h6></div>
+        <div class="card mb-4 text-center">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                <div class="text-start">
+                    <h6 class="fw-bold mb-0">Attendance Details Today</h6>
+                    <small class="text-muted">Data from 800+ total employees</small>
                 </div>
-                <div class="border rounded details-today-grid">
-                    <div class="row gx-0 text-center">
-                        <div class="col"><span class="fw-medium d-block mb-1 fs-14">Present</span><h5>250</h5><span class="badge badge-success fs-10">+1%</span></div>
-                        <div class="col"><span class="fw-medium d-block mb-1 fs-14">Late Login</span><h5>45</h5><span class="badge badge-danger fs-10">-1%</span></div>
-                        <div class="col"><span class="fw-medium d-block mb-1 fs-14">Uninformed</span><h5>15</h5><span class="badge badge-danger fs-10">-12%</span></div>
-                        <div class="col"><span class="fw-medium d-block mb-1 fs-14">Permission</span><h5>03</h5><span class="badge badge-success fs-10">+1%</span></div>
-                        <div class="col"><span class="fw-medium d-block mb-1 fs-14">Absent</span><h5>12</h5><span class="badge badge-danger fs-10">-19%</span></div>
-                    </div>
+                <div class="small fw-bold">
+                    Total Absenties today 
+                    <img src="https://i.pravatar.cc/25?img=1" class="rounded-circle ms-1">
+                    <span class="badge bg-danger rounded-circle">+1</span>
+                </div>
+            </div>
+            <div class="row g-0">
+                <div class="col border-end p-3">
+                    <div class="text-muted small mb-1">Present</div>
+                    <h4 class="mb-0 fw-bold">250</h4>
+                    <span class="badge bg-success-subtle text-success mt-1">+1%</span>
+                </div>
+                <div class="col border-end p-3">
+                    <div class="text-muted small mb-1">Late Login</div>
+                    <h4 class="mb-0 fw-bold">45</h4>
+                    <span class="badge bg-danger-subtle text-danger mt-1">-1%</span>
+                </div>
+                <div class="col border-end p-3">
+                    <div class="text-muted small mb-1">Uninformed</div>
+                    <h4 class="mb-0 fw-bold">15</h4>
+                    <span class="badge bg-danger-subtle text-danger mt-1">-12%</span>
+                </div>
+                <div class="col border-end p-3">
+                    <div class="text-muted small mb-1">Permission</div>
+                    <h4 class="mb-0 fw-bold">03</h4>
+                    <span class="badge bg-success-subtle text-success mt-1">+1%</span>
+                </div>
+                <div class="col p-3">
+                    <div class="text-muted small mb-1">Absent</div>
+                    <h4 class="mb-0 fw-bold">12</h4>
+                    <span class="badge bg-danger-subtle text-danger mt-1">-19%</span>
                 </div>
             </div>
         </div>
 
-        <div class="admin-grid">
-            <div class="card mb-0">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Daily Logs</h5>
-                    <div class="d-flex gap-2">
-                        <input type="text" class="form-control form-control-sm" placeholder="Search..." style="width:180px;">
-                    </div>
-                </div>
-                <div class="table-responsive">
-                    <table class="table mb-0">
-                        <thead>
-                            <tr>
-                                <th>Employee</th>
-                                <th>Status</th>
-                                <th>Check In</th>
-                                <th>Check Out</th>
-                                <th>Break</th>
-                                <th>Production</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div class="date-box me-2" style="width:32px; height:32px; border-radius:50%; background:#eee;">AL</div>
-                                        <div><strong class="fs-13">Anthony Lewis</strong><br><small class="text-muted">UI/UX Team</small></div>
+        <div class="card p-0 overflow-hidden">
+            <div class="table-responsive">
+                <table class="table mb-0 table-hover">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Status</th>
+                            <th>Check In</th>
+                            <th>Check Out</th>
+                            <th>Break</th>
+                            <th>Late</th>
+                            <th>Production Hours</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php for($i=1; $i<=6; $i++): 
+                            $checkOutTime = "06:" . rand(10,59) . " PM";
+                            $lateMins = "1" . $i . " Min";
+                        ?>
+                        <tr>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <img src="https://i.pravatar.cc/30?img=<?php echo $i+10; ?>" class="avatar-img">
+                                    <div>
+                                        <div class="fw-bold text-dark">User <?php echo $i; ?></div>
+                                        <small class="text-muted">Developer</small>
                                     </div>
-                                </td>
-                                <td><span class="badge badge-success-transparent">● Present</span></td>
-                                <td>09:00 AM</td>
-                                <td>06:45 PM</td>
-                                <td>30 Min</td>
-                                <td><span class="badge bg-success text-white">8.55 Hrs</span></td>
-                                <td class="text-end">
-                                    <button class="btn btn-icon text-muted" data-bs-toggle="modal" data-bs-target="#edit_attendance"><i class="ti ti-edit"></i></button>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            <aside>
-                <div class="side-card">
-                    <div class="side-title">Pending Applications</div>
-                    
-                    <div class="request-item active" onclick="alert('Review John Doe Leave')">
-                        <div class="date-box">08<span>Feb</span></div>
-                        <div class="news-text"><h4 class="mb-1">John Doe</h4><p>Sick Leave - 3 Days</p></div>
-                    </div>
-
-                    <div class="request-item" onclick="alert('Review Emily Davis Leave')">
-                        <div class="date-box">12<span>Feb</span></div>
-                        <div class="news-text"><h4 class="mb-1">Emily Davis</h4><p>Casual Leave - 1 Day</p></div>
-                    </div>
-
-                    <div class="mt-4 p-3 border rounded bg-light">
-                        <p class="small fw-bold mb-2">Review Selected:</p>
-                        <div class="d-flex gap-2">
-                            <button class="btn btn-success btn-sm flex-fill fw-bold" onclick="confirm('Approve?')">Approve</button>
-                            <button class="btn btn-danger btn-sm flex-fill fw-bold" onclick="confirm('Decline?')">Decline</button>
-                        </div>
-                    </div>
-                </div>
-            </aside>
-        </div>
-    </div>
-
-    <div class="modal fade" id="edit_attendance" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header"><h4 class="modal-title">Edit Attendance</h4><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                <form>
-                    <div class="modal-body">
-                        <div class="row g-3">
-                            <div class="col-12"><label class="form-label fw-semibold">Date</label>
-                                <div class="input-icon-group"><input type="text" class="form-control" value="15 Apr 2025"><i class="ti ti-calendar"></i></div>
-                            </div>
-                            <div class="col-md-6"><label class="form-label fw-semibold">Check In</label>
-                                <div class="input-icon-group"><input type="text" class="form-control" value="09:00 AM"><i class="ti ti-clock"></i></div>
-                            </div>
-                            <div class="col-md-6"><label class="form-label fw-semibold">Check Out</label>
-                                <div class="input-icon-group"><input type="text" class="form-control" value="18:45 PM"><i class="ti ti-clock"></i></div>
-                            </div>
-                            <div class="col-md-6"><label class="form-label fw-semibold">Break</label><input type="text" class="form-control" value="30 Min"></div>
-                            <div class="col-md-6"><label class="form-label fw-semibold">Late</label><input type="text" class="form-control" value="32 Min"></div>
-                            <div class="col-12"><label class="form-label fw-semibold">Production Hours</label>
-                                <div class="input-icon-group"><input type="text" class="form-control" value="08:55 AM"><i class="ti ti-clock"></i></div>
-                            </div>
-                            <div class="col-12"><label class="form-label fw-semibold">Status</label><select class="form-select"><option selected>Present</option><option>Absent</option></select></div>
-                        </div>
-                    </div>
-                    <div class="modal-footer border-0">
-                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-                        <button type="submit" class="btn btn-orange">Save Changes</button>
-                    </div>
-                </form>
+                                </div>
+                            </td>
+                            <td><span class="status-pill bg-present">● Present</span></td>
+                            <td>09:00 AM</td>
+                            <td><?php echo $checkOutTime; ?></td>
+                            <td>20 Min</td>
+                            <td><?php echo $lateMins; ?></td>
+                            <td><span class="prod-btn bg-success">8.55 Hrs</span></td>
+                            <td>
+                                <button class="btn btn-sm btn-light text-primary border" 
+                                        onclick="openModal({name: 'User <?php echo $i; ?>', date: '<?php echo date('d M Y'); ?>', in: '09:00 AM', out: '<?php echo $checkOutTime; ?>', status: 'Present'})">
+                                    <i class="fa-solid fa-file-lines me-1"></i> Report
+                                </button>
+                            </td>
+                        </tr>
+                        <?php endfor; ?>
+                    </tbody>
+                </table>
             </div>
         </div>
-    </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    </main>
+
+    <script>
+        const modal = document.getElementById('reportModal');
+        const toast = document.getElementById('exportToast');
+
+        // CSV Export Logic
+        function triggerExport() {
+            // 1. Show Toast
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+
+            // 2. Generate CSV from PHP Data
+            let csv = [];
+            csv.push("Employee,Status,Check In,Check Out,Break,Late,Production");
+            
+            const records = <?php echo json_encode($exportData); ?>;
+            records.forEach(row => {
+                csv.push(`${row.employee},${row.status},${row.checkin},${row.checkout},${row.break},${row.late},${row.production}`);
+            });
+
+            // 3. Download
+            const csvString = csv.join("\n");
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "Admin_Attendance_Report.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Modal Logic
+        function openModal(data) { 
+            if(data) {
+                document.getElementById('modalEmpName').innerText = data.name;
+                document.getElementById('modalDate').innerText = data.date;
+                document.getElementById('modalPunchIn').innerText = data.in || '-';
+                document.getElementById('modalPunchOut').innerText = data.out || '-';
+                document.getElementById('modalStatus').innerText = data.status;
+            }
+            modal.classList.add('modal-active'); 
+            document.body.style.overflow = 'hidden'; 
+        }
+
+        function closeModal() { 
+            modal.classList.remove('modal-active'); 
+            document.body.style.overflow = 'auto'; 
+        }
+
+        window.onclick = (e) => { 
+            if (e.target == modal) closeModal(); 
+        }
+    </script>
 </body>
 </html>
