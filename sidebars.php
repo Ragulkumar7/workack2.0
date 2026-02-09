@@ -145,6 +145,13 @@ $sections = [
                 'icon' => 'layers', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader']
             ],
+             // tl projects
+             [
+                'name' => 'Projects', 
+                'path' => $base . 'TL/tl_projects.php', 
+                'icon' => 'layers', 
+                'allowed' => ['Team Lead']
+            ],
 
             // --- CLIENTS (Manager Only) ---
             [
