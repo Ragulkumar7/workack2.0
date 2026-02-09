@@ -51,9 +51,11 @@
         .modal-header { padding: 20px 25px; border-bottom: 1px solid #eee; background: #fafafa; display: flex; justify-content: space-between; align-items: center; }
         .modal-body { padding: 25px; }
 
-        .input-group { margin-bottom: 18px; }
+        .input-group { margin-bottom: 18px; position: relative; }
         label { display: block; font-size: 13px; margin-bottom: 8px; font-weight: 600; }
         input, select, textarea { width: 100%; padding: 11px; border: 1px solid var(--border-light); border-radius: 6px; font-size: 14px; box-sizing: border-box; }
+        
+        .search-icon { position: absolute; right: 12px; top: 36px; color: #aaa; pointer-events: none; }
     </style>
 </head>
 <body>
@@ -121,15 +123,20 @@
                         <label>Sub-Task Title</label>
                         <input type="text" id="subTitle" placeholder="e.g., UI Login Screen" required>
                     </div>
+                    
                     <div class="input-group">
                         <label>Assign Team Member</label>
-                        <select id="empName" required>
-                            <option value="">Select Employee</option>
-                            <option value="Suresh Babu">Suresh Babu</option>
-                            <option value="Karthik">Karthik</option>
-                            <option value="Anitha">Anitha</option>
-                        </select>
+                        <input type="text" id="empSearch" placeholder="Search employee" list="employeeList" required>
+                        <i class="fas fa-search search-icon"></i>
+                        <datalist id="employeeList">
+                            <option value="Suresh Babu">
+                            <option value="Karthik">
+                            <option value="Anitha">
+                            <option value="Ramesh">
+                            <option value="Priya">
+                        </datalist>
                     </div>
+
                     <div style="display:flex; gap:15px;">
                         <div class="input-group" style="flex:1;"><label>Sub-Deadline</label><input type="date" id="subDate" required></div>
                         <div class="input-group" style="flex:1;"><label>Priority</label>
@@ -174,24 +181,20 @@
         function openModal(id) { document.getElementById(id).style.display = 'block'; }
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-        // Logic to Mark Complete
         function markComplete(rowId) {
             document.getElementById('proofRowId').value = rowId;
             openModal('proofModal');
         }
 
-        // Logic to Submit Proof and Update Status
         document.getElementById('proofForm').onsubmit = function(e) {
             e.preventDefault();
             let rowId = document.getElementById('proofRowId').value;
             let proof = document.getElementById('workProof').value;
 
-            // Reflect in Table
             let row = document.getElementById(rowId);
             row.querySelector('.st-status').innerHTML = '<span class="status-badge completed">Completed</span>';
             row.style.backgroundColor = '#f6ffed';
             
-            // Hide "Mark Finished" button and replace with checkmark
             row.querySelector('.btn-complete').style.display = 'none';
             row.querySelector('td:last-child').innerHTML = '<i class="fas fa-check-circle" style="color:#52c41a; font-size:18px;"></i> Verified';
 
@@ -203,7 +206,7 @@
             document.getElementById('modalHeading').innerText = "Edit Sub-Task";
             document.getElementById('editSubRowId').value = rowId;
             document.getElementById('subTitle').value = document.querySelector(`#${rowId} .st-title`).innerText;
-            document.getElementById('empName').value = document.querySelector(`#${rowId} .st-name`).innerText;
+            document.getElementById('empSearch').value = document.querySelector(`#${rowId} .st-name`).innerText;
             document.getElementById('subDate').value = "2026-02-08"; 
             openModal('splitTaskModal');
         }
@@ -216,11 +219,16 @@
 
         document.getElementById('splitForm').onsubmit = function(e) {
             e.preventDefault();
-            alert("Sub-task Assigned Successfully to " + document.getElementById('empName').value);
+            alert("Sub-task Assigned Successfully to " + document.getElementById('empSearch').value);
             closeModal('splitTaskModal');
         }
 
-        window.onclick = function(event) { if (event.target.className === 'modal') { closeModal('splitTaskModal'); closeModal('proofModal'); } }
+        window.onclick = function(event) { 
+            if (event.target.className === 'modal') { 
+                closeModal('splitTaskModal'); 
+                closeModal('proofModal'); 
+            } 
+        }
     </script>
 </body>
 </html>
