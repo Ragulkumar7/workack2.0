@@ -78,13 +78,12 @@ $sections = [
                 'icon' => 'calendar-check', 
                 'allowed' => ['Manager', 'System Admin', 'HR'],
                 'subItems' => [
-                    ['name' => 'Attendance (Admin)', 'path' => $base . 'attendance.php?view=attendance_admin', 'icon' => 'user-check'],
-                    ['name' => 'Attendance (Emp)', 'path' => $base . 'attendance.php?view=attendance_employee', 'icon' => 'user'],
-                    ['name' => 'Timesheets', 'path' => $base . 'attendance.php?view=timesheets', 'icon' => 'clock'],
-                    ['name' => 'Schedule Timing', 'path' => $base . 'attendance.php?view=schedule_timing', 'icon' => 'calendar-days'],
-                    ['name' => 'Shift Swap', 'path' => $base . 'attendance.php?view=shift_swap', 'icon' => 'arrow-left-right'],
-                    ['name' => 'Overtime', 'path' => $base . 'attendance.php?view=overtime', 'icon' => 'hourglass'],
-                    ['name' => 'WFH Request', 'path' => $base . 'attendance.php?view=wfh', 'icon' => 'home'],
+                    ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
+                    ['name' => 'Attendance (Emp)', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'shift_swap.php', 'icon' => 'arrow-left-right'],
+                    ['name' => 'Overtime', 'path' => $base . 'overtime_management.php', 'icon' => 'hourglass'],
+                    ['name' => 'WFH Request', 'path' => $base . 'wfh_request.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_management.php', 'icon' => 'calendar-off']
                 ]
             ],
