@@ -1,3 +1,7 @@
+<?php 
+// This MUST be the first thing in the file
+include('../sidebars.php'); 
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -32,12 +36,14 @@
         
         /* Main Content Adjustments */
         .main-content {
-            flex-grow: 1;
-            padding: 2rem;
-            background-color: #f7f7f7;
-            overflow-x: hidden;
-            width: 100%;
-        }
+    flex-grow: 1;
+    margin-left: 95px; /* Matches the sidebar width */
+    width: calc(100% - 95px);
+    padding: 2rem;
+    background-color: #f7f7f7;
+    overflow-x: hidden;
+    transition: all 0.3s ease;
+}
 
         .client-table th {
             text-align: left;
