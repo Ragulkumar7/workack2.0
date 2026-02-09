@@ -215,7 +215,7 @@ $sections = [
                 'name' => 'Reports', 
                 'path' => $base . 'manager/manager_reports.php', 
                 'icon' => 'file-bar-chart', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'HR']
             ],
             [
                 'name' => 'Help & Support', 
