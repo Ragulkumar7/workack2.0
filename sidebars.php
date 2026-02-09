@@ -20,8 +20,8 @@ $current_view = $_GET['view'] ?? '';
 // We use strtolower to ensure 'Employee' and 'employee' both work.
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
-// CHECK FOR BOTH FOLDERS HERE:
-if ($current_dir == 'manager' || $current_dir == 'employee' || $current_dir == 'TL') {
+// I ADDED 'tl' TO THIS CHECK:
+if ($current_dir == 'manager' || $current_dir == 'employee' || $current_dir == 'tl') {
     $base = '../';
 } else {
     $base = '';
@@ -44,7 +44,7 @@ $sections = [
                 'name' => 'Dashboard', 
                 'path' => $base . 'TL/tl_dashboard.php', 
                 'icon' => 'layout-dashboard', 
-                'allowed' => ['Team Lead'] 
+                'allowed' => ['Team Lead', 'Team Leader'] 
             ],
             [
                 'name' => 'Dashboard', 

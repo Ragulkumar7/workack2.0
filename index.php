@@ -1,8 +1,7 @@
 <?php
 // index.php
 
-// 1. Include your DB connection (Adjust path if your file is in a folder like 'includes/')
-// Since you provided the code for db_connect.php, ensure this path points to it correctly.
+// 1. Include your DB connection
 require_once './include/db_connect.php';
 
 $error_message = "";
@@ -13,7 +12,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
     $pass_input = $_POST['password'];
     $role_input = $_POST['role'];
 
-    // 2. MySQLi Prepared Statement (Replaces the old PDO code)
+    // 2. MySQLi Prepared Statement
     $sql = "SELECT id, username, password, role FROM users WHERE username = ? AND role = ?";
     
     if ($stmt = mysqli_prepare($conn, $sql)) {
@@ -37,9 +36,37 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                 // Regenerate session ID for security
                 session_regenerate_id(true);
 
-                // Redirect to dashboard
-                header("Location: employee/employee_dashboard.php");
+                // --- FIX: DYNAMIC REDIRECT BASED ON ROLE ---
+                switch ($row['role']) {
+                    case 'Manager':
+                    case 'System Admin':
+                    case 'HR':
+                        // Managers go to the main root dashboard
+                        header("Location: dashboard.php");
+                        break;
+                    
+                    case 'Team Lead':
+                    case 'Team Leader': 
+                        // Team Leads go to the TL folder
+                        header("Location: TL/tl_dashboard.php");
+                        break;
+
+                    case 'Employee':
+                    case 'Sales':             // Group other roles to employee dashboard if needed
+                    case 'Accounts':
+                    case 'Digital Marketing':
+                        // Employees go to the employee folder
+                        header("Location: employee/employee_dashboard.php");
+                        break;
+
+                    default:
+                        // Fallback for any undefined roles
+                        header("Location: employee/employee_dashboard.php");
+                        break;
+                }
+                // -------------------------------------------
                 exit();
+
             } else {
                 $error_message = "Invalid password. Please try again.";
             }
