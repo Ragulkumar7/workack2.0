@@ -126,7 +126,7 @@ $sections = [
                 'allowed' => ['Employee'],
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
+                    ['name' => 'Task Board', 'path' => $base . 'TL/task_tl.php', 'icon' => 'kanban'],
                 ]
             ],
 
@@ -143,7 +143,14 @@ $sections = [
                 'name' => 'Projects', 
                 'path' => $base . 'manager/manager_projects.php', 
                 'icon' => 'layers', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin']
+            ],
+             // tl projects
+             [
+                'name' => 'Projects', 
+                'path' => $base . 'TL/tl_projects.php', 
+                'icon' => 'layers', 
+                'allowed' => ['Team Lead']
             ],
 
             // --- CLIENTS (Manager Only) ---
@@ -160,7 +167,7 @@ $sections = [
                 'path' => $base . 'manager/performance.php', 
                 'icon' => 'trending-up', 
                 // Added Team Lead here
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader'],
+                'allowed' => ['Manager', 'System Admin', 'HR'],
                 'subItems' => [
                     ['name' => 'Performance Indicator', 'path' => $base . 'manager/performance.php?view=indicator', 'icon' => 'target'],
                     ['name' => 'Performance Review', 'path' => $base . 'manager/performance.php?view=review', 'icon' => 'file-text'],
@@ -184,12 +191,20 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- ANNOUNCEMENT (Common) ---
+            // --- ANNOUNCEMENT (Manager - Full Access) ---
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin', 'HR']
+            ],
+
+            // --- ANNOUNCEMENT (Employee/TL - Read Only) ---
+            [
+                'name' => 'Announcement', 
+                'path' => $base . 'view_announcements.php',
+                'icon' => 'megaphone', 
+                'allowed' => ['Employee', 'Team Lead', 'Team Leader']
             ],
 
             // --- TICKET RAISE (Common including TL) ---
@@ -217,6 +232,13 @@ $sections = [
                 'path' => $base . 'manager/manager_reports.php', 
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
+            ],
+
+            [
+                'name' => 'Reports', 
+                'path' => $base . 'TL/tl_reports.php', 
+                'icon' => 'file-bar-chart', 
+                'allowed' => ['Team Lead']
             ],
             // --- HELP & SUPPORT (Common including TL) ---
             [
