@@ -12,6 +12,15 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
+// --- STRICT ROLE CHECK (MANAGER ONLY) ---
+// Employee ya irundha, avangala Employee Dashboard ku redirect panniduvom.
+// Only Manager, System Admin, HR can stay here.
+$allowed_roles = ['Manager', 'System Admin', 'HR'];
+if (!in_array($_SESSION['role'], $allowed_roles)) {
+    header("Location: employee_dashboard.php");
+    exit();
+}
+
 // 2. DYNAMIC SESSION DATA
 $logged_in_user = $_SESSION['username'];
 $logged_in_role = $_SESSION['role'];

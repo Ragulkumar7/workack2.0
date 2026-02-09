@@ -13,106 +13,185 @@ $user_name = $_SESSION['username'] ?? 'User';
 $user_role = $_SESSION['role'] ?? 'Employee';
 $first_letter = strtoupper(substr($user_name, 0, 1));
 $current_path = basename($_SERVER['PHP_SELF']); 
-$current_view = $_GET['view'] ?? ''; // To track active sub-item in Attendance & Tasks
+$current_view = $_GET['view'] ?? ''; 
+
+// --- FIX: DETECT FOLDER LEVEL (Robust) ---
+// We check the folder name. If we are in 'manager' OR 'employee', we use '../' to go back to root.
+// We use strtolower to ensure 'Employee' and 'employee' both work.
+$current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
+
+// CHECK FOR BOTH FOLDERS HERE:
+if ($current_dir == 'manager' || $current_dir == 'employee') {
+    $base = '../';
+} else {
+    $base = '';
+}
+// ------------------------------------------------------------------
 
 // 2. DEFINE MENU DATA
 $sections = [
     [
         'label' => 'Main',
         'items' => [
-            // --- DASHBOARD (Role Based Routing) ---
+            // --- 1. DASHBOARD (Role Based) ---
             [
                 'name' => 'Dashboard', 
-                'path' => 'dashboard.php', 
+                'path' => $base . 'dashboard.php', 
                 'icon' => 'layout-dashboard', 
-                'allowed' => ['Manager', 'System Admin', 'HR'] // Managers go here
+                'allowed' => ['Manager', 'System Admin', 'HR'] 
             ],
             [
                 'name' => 'Dashboard', 
-                'path' => 'employee_dashboard.php', 
+                // Fix: Point to the employee folder explicitly
+                'path' => $base . 'employee/employee_dashboard.php', 
                 'icon' => 'layout-dashboard', 
-                'allowed' => ['Employee'] // Employees go here
+                'allowed' => ['Employee'] 
             ],
-            // -------------------------------------
 
+            // --- TEAM CHAT (Common) ---
             [
                 'name' => 'Team Chat', 
-                'path' => 'team_chat.php', 
+                // Fix: Assuming team_chat.php is in the ROOT folder
+                'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee']
             ],
+
+            // --- 3. EMPLOYEE DETAILS (Employee Only) ---
+            [
+                'name' => 'Employee Details',
+                // Fix: Corrected filename to 'employee_details.php' and added 'employee/' folder
+                'path' => $base . 'employee/employee_details.php', 
+                'icon' => 'user-circle', 
+                'allowed' => ['Employee']
+            ],
             
-            // --- ATTENDANCE SECTION ---
+            // --- 2. ATTENDANCE (Manager View) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee'],
+                'allowed' => ['Manager', 'System Admin', 'HR'],
                 'subItems' => [
-                    ['name' => 'Attendance (Admin)', 'path' => 'attendance.php?view=attendance_admin', 'icon' => 'user-check'],
-                    ['name' => 'Attendance (Emp)', 'path' => 'attendance.php?view=attendance_employee', 'icon' => 'user'],
-                    ['name' => 'Timesheets', 'path' => 'attendance.php?view=timesheets', 'icon' => 'clock'],
-                    ['name' => 'Schedule Timing', 'path' => 'attendance.php?view=schedule_timing', 'icon' => 'calendar-days'],
-                    ['name' => 'Shift Swap', 'path' => 'attendance.php?view=shift_swap', 'icon' => 'arrow-left-right'],
-                    ['name' => 'Overtime', 'path' => 'attendance.php?view=overtime', 'icon' => 'hourglass'],
-                    ['name' => 'WFH Request', 'path' => 'attendance.php?view=wfh', 'icon' => 'home'],
-                    ['name' => 'Leave Management', 'path' => 'leave_management.php', 'icon' => 'calendar-off']
+                    ['name' => 'Attendance (Admin)', 'path' => $base . 'attendance.php?view=attendance_admin', 'icon' => 'user-check'],
+                    ['name' => 'Attendance (Emp)', 'path' => $base . 'attendance.php?view=attendance_employee', 'icon' => 'user'],
+                    ['name' => 'Timesheets', 'path' => $base . 'attendance.php?view=timesheets', 'icon' => 'clock'],
+                    ['name' => 'Schedule Timing', 'path' => $base . 'attendance.php?view=schedule_timing', 'icon' => 'calendar-days'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'attendance.php?view=shift_swap', 'icon' => 'arrow-left-right'],
+                    ['name' => 'Overtime', 'path' => $base . 'attendance.php?view=overtime', 'icon' => 'hourglass'],
+                    ['name' => 'WFH Request', 'path' => $base . 'attendance.php?view=wfh', 'icon' => 'home'],
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_management.php', 'icon' => 'calendar-off']
                 ]
             ],
 
-            // --- NEW TASK MANAGEMENT MODULE ---
+            // --- 2. ATTENDANCE (Employee View - Specific Modules) ---
+            [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['Employee'],
+                'subItems' => [
+                    // emp_attendance.php is in ROOT
+                    ['name' => 'Attendance Info', 'path' => $base . 'emp_attendance.php?view=my_attendance', 'icon' => 'user'],
+                    // leave_request.php is in 'employee' folder
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    // work_from_home.php is in 'employee' folder (Corrected from wfh_request.php)
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
+                ]
+            ],
+
+            // --- 3. TASK MANAGEMENT (Manager View) ---
             [
                 'name' => 'Task Management', 
-                //'path' => 'manager_tasks.php', 
                 'icon' => 'clipboard-check', 
-                'allowed' => ['Manager', 'Team Lead', 'HR', 'Employee', 'Digital Marketing', 'System Admin'],
+                'allowed' => ['Manager', 'Team Lead', 'HR', 'System Admin'],
                 'subItems' => [
-                    ['name' => 'My Tasks', 'path' => 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Team Tasks', 'path' => 'manager_task.php?view=team_tasks', 'icon' => 'users'],
+                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
                 ]
             ],
-            // ----------------------------------
 
-            // --- NEW SECTIONS (Projects, Clients, Performance) ---
             [
-                'name' => 'Projects', 
-                'path' => './manager/manager_projects.php', 
-                'icon' => 'layers', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee']
-            ],
-            [
-                'name' => 'Clients', 
-                'path' => 'clients.php', 
+                'name' => 'Employee Management', 
+                'path' => $base . 'manager/employee_management.php', 
                 'icon' => 'users', 
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
             ],
+
+            // --- 3. TASK MANAGEMENT (Employee View - Specific Modules) ---
+            [
+                'name' => 'Task Management', 
+                'icon' => 'clipboard-check', 
+                'allowed' => ['Employee'],
+                'subItems' => [
+                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    // task_tl.php is in 'employee' folder
+                    ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
+                ]
+            ],
+
+            // --- PROJECTS (Common) ---
+            [
+                'name' => 'Projects', 
+                'path' => $base . 'manager/manager_projects.php', 
+                'icon' => 'layers', 
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee']
+            ],
+
+            // --- CLIENTS (Manager Only) ---
+            [
+                'name' => 'Clients', 
+                'path' => $base . 'manager/client.php', 
+                'icon' => 'users', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
+            ],
+
+            // --- PERFORMANCE (Common) ---
             [
                 'name' => 'Performance', 
-                'path' => './manager/performance.php', 
+                'path' => $base . 'manager/performance.php', 
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Employee'],
                 'subItems' => [
-                    ['name' => 'Performance Indicator', 'path' => 'performance.php?view=indicator', 'icon' => 'target'],
-                    ['name' => 'Performance Review', 'path' => 'performance.php?view=review', 'icon' => 'file-text'],
+                    ['name' => 'Performance Indicator', 'path' => $base . 'manager/performance.php?view=indicator', 'icon' => 'target'],
+                    ['name' => 'Performance Review', 'path' => $base . 'manager/performance.php?view=review', 'icon' => 'file-text'],
                 ]
             ],
-            // ----------------------------------------------------
 
+            // --- 4. RESIGNATION (Employee Only) ---
             [
-                'name' => 'Announcement', 
-                'path' => 'announcement.php',
-                'icon' => 'megaphone', 
+                'name' => 'Resignation', 
+                // resignation.php is in 'employee' folder
+                'path' => $base . 'employee/resignation.php', 
+                'icon' => 'user-x', 
+                'allowed' => ['Employee']
+            ],
+
+            // --- 5. TERMINATION (Manager Only) ---
+            [
+                'name' => 'Termination', 
+                'path' => $base . 'manager/termination.php', 
+                'icon' => 'user-minus', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
+
+            // --- ANNOUNCEMENT (Common) ---
+            [
+                'name' => 'Announcement', 
+                'path' => $base . 'announcement.php',
+                'icon' => 'megaphone', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
+            ],
+
+            // --- TICKET RAISE (Common) ---
             [
                 'name' => 'Ticket Raise', 
-                'path' => 'ticketraise.php', 
+                'path' => $base . 'ticketraise.php', 
                 'icon' => 'ticket', 
                 'allowed' => ['Manager', 'System Admin', 'Employee'],
                 'subItems' => [
-                    ['name' => 'Ticket Dashboard', 'path' => 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
-                    ['name' => 'Ticket Details', 'path' => 'ticketraise.php?view=details', 'icon' => 'file-text'],
-                    ['name' => 'Ticket Automation', 'path' => 'ticketraise.php?view=automation', 'icon' => 'zap'],
-                    ['name' => 'Ticket Report', 'path' => 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
+                    ['name' => 'Ticket Dashboard', 'path' => $base . 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
+                    ['name' => 'Ticket Details', 'path' => $base . 'ticketraise.php?view=details', 'icon' => 'file-text'],
+                    ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], 
+                    ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
                 ]
             ],
         ]
@@ -120,21 +199,22 @@ $sections = [
     [
         'label' => 'Support & Tools',
         'items' => [
+            // --- REPORTS ---
             [
                 'name' => 'Reports', 
-                'path' => './manager_reports.php', 
+                'path' => $base . 'manager/manager_reports.php', 
                 'icon' => 'file-bar-chart', 
-                'allowed' => ['Manager', 'System Admin', 'HR']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
             ],
             [
                 'name' => 'Help & Support', 
-                'path' => 'support.php', 
+                'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Employee']
             ],
             [
                 'name' => 'Settings', 
-                'path' => 'settings.php', 
+                'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
             ],
@@ -212,7 +292,7 @@ foreach ($sections as $section) {
 
 <aside class="sidebar-primary">
     <div class="nav-inner">
-        <div style="padding-bottom: 20px; flex-shrink: 0;"><img src="assets/logo.png" style="height: 40px; width: auto; border-radius: 8px;"></div>
+        <div style="padding-bottom: 20px; flex-shrink: 0;"><img src="<?= $base ?>assets/logo.png" style="height: 40px; width: auto; border-radius: 8px;"></div>
         <?php foreach ($activeSections as $section): ?>
             <?php foreach ($section['items'] as $item): 
                 $itemPath = $item['path'] ?? '#';
@@ -232,7 +312,7 @@ foreach ($sections as $section) {
                         }
                     }
                 }
-                $isActive = ($current_path == $itemPath || $isSubActive);
+                $isActive = ($current_path == basename($itemPath) || $isSubActive);
             ?>
                 <a href="javascript:void(0)" class="nav-item <?= $isActive ? 'active' : '' ?>" onclick='handleNavClick(<?= json_encode($item) ?>, this)'>
                     <i data-lucide="<?= $item['icon'] ?>"></i>
@@ -246,7 +326,7 @@ foreach ($sections as $section) {
         <div style="width: 42px; height: 42px; background: #16636B; color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 16px; margin-bottom: 8px;"><?= $first_letter ?></div>
         <div style="font-size: 11px; font-weight: 600; color: #18181b; text-align: center; max-width: 80px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"><?= htmlspecialchars($user_name) ?></div>
         <div style="font-size: 9px; color: var(--text-muted); text-align: center;"><?= htmlspecialchars($user_role) ?></div>
-        <a href="logout.php" class="logout-link"><i data-lucide="log-out" style="width: 12px; height: 12px;"></i> Logout</a>
+        <a href="<?= $base ?>logout.php" class="logout-link"><i data-lucide="log-out" style="width: 12px; height: 12px;"></i> Logout</a>
     </div>
 </aside>
 

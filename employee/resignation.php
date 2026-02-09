@@ -12,8 +12,8 @@ include '../sidebars.php';
 
     <style>
         :root {
-            --primary: #ed3f65ff;
-            --primary-dark: #e2244dff;
+            --primary: #1b5a5a;
+            --primary-dark: #1b5a5a;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;

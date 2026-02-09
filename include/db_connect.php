@@ -2,9 +2,9 @@
 // db_connect.php
 
 // --- DATABASE CONFIGURATION ---
-$host = "82.197.82.27"; 
+$host = "srv1507.hstgr.io"; 
 $user = "u957189082_workack";
-$pass = "Workack@2026";
+$pass = "Work$2026";
 $db   = "u957189082_workack";
 
 // Establish Connection
