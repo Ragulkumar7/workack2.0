@@ -145,6 +145,13 @@ $sections = [
                 'icon' => 'layers', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader']
             ],
+             // tl projects
+             [
+                'name' => 'Projects', 
+                'path' => $base . 'TL/tl_projects.php', 
+                'icon' => 'layers', 
+                'allowed' => ['Team Lead']
+            ],
 
             // --- CLIENTS (Manager Only) ---
             [
@@ -217,6 +224,13 @@ $sections = [
                 'path' => $base . 'manager/manager_reports.php', 
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
+            ],
+
+            [
+                'name' => 'Reports', 
+                'path' => $base . 'TL/tl_reports.php', 
+                'icon' => 'file-bar-chart', 
+                'allowed' => ['Team Lead']
             ],
             // --- HELP & SUPPORT (Common including TL) ---
             [
