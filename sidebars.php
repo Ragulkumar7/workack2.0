@@ -218,6 +218,13 @@ $sections = [
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
+
+            [
+                'name' => 'Reports', 
+                'path' => $base . 'TL/tl_reports.php', 
+                'icon' => 'file-bar-chart', 
+                'allowed' => ['Team Lead']
+            ],
             // --- HELP & SUPPORT (Common including TL) ---
             [
                 'name' => 'Help & Support', 
