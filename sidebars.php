@@ -138,9 +138,16 @@ $sections = [
             // --- EMPLOYEE MGMT ---
             [
                 'name' => 'Employee', 
-                'path' => $base . 'manager/employee_management.php', 
+                'path' => $base . 'employee_management.php', 
                 'icon' => 'users', 
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead', 'Team Leader']
+            ],
+            // --- ATS CHECKER (New Feature) ---
+            [
+                'name' => 'ATS Checker', 
+                'path' => $base . 'ats_check.php', 
+                'icon' => 'file-search',  // Make sure you use a valid Lucide icon name, or use 'search'
+                'allowed' => ['HR'] // Accounts-க்கும் வேணும்னா சேர்த்துக்கோங்க
             ],
 
             // --- PROJECTS (Common) ---
