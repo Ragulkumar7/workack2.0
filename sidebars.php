@@ -26,11 +26,12 @@ if ($current_dir == 'manager' || $current_dir == 'employee' || $current_dir == '
 }
 
 // 2. DEFINE MENU DATA
+// 2. DEFINE MENU DATA
 $sections = [
     [
         'label' => 'Main',
         'items' => [
-            // --- DASHBOARD ---
+            // --- DASHBOARDS ---
             [
                 'name' => 'Dashboard', 
                 'path' => $base . 'dashboard.php', 
@@ -49,13 +50,20 @@ $sections = [
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Employee'] 
             ],
+            // NEW: Accounts Dashboard
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'accounts_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['Accounts', 'Accountant'] 
+            ],
 
-            // --- TEAM CHAT ---
+            // --- TEAM CHAT (Common) ---
             [
                 'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader', 'Employee', 'Accounts', 'Accountant']
             ],
 
             // --- EMPLOYEE DETAILS (Employee Only) ---
@@ -82,17 +90,14 @@ $sections = [
                 ]
             ],
 
-            // --- ATTENDANCE (Team Lead View - NEW) ---
+            // --- ATTENDANCE (Team Lead View) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
                 'allowed' => ['Team Lead', 'Team Leader'],
                 'subItems' => [
-                    // Common punching page for themselves
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
-                    // New page for viewing their team
                     ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
-                    // Common Employee requests
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
                 ]
@@ -130,7 +135,7 @@ $sections = [
                 ]
             ],
 
-            // --- EMPLOYEE MGMT (Manager/TL) ---
+            // --- EMPLOYEE MGMT ---
             [
                 'name' => 'Employee', 
                 'path' => $base . 'manager/employee_management.php', 
@@ -145,15 +150,14 @@ $sections = [
                 'icon' => 'layers', 
                 'allowed' => ['Manager', 'System Admin']
             ],
-             // tl projects
-             [
+            [
                 'name' => 'Projects', 
                 'path' => $base . 'TL/tl_projects.php', 
                 'icon' => 'layers', 
                 'allowed' => ['Team Lead']
             ],
 
-            // --- CLIENTS (Manager Only) ---
+            // --- CLIENTS ---
             [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
@@ -161,12 +165,11 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- PERFORMANCE (Common including TL) ---
+            // --- PERFORMANCE ---
             [
                 'name' => 'Performance', 
                 'path' => $base . 'manager/performance.php', 
                 'icon' => 'trending-up', 
-                // Added Team Lead here
                 'allowed' => ['Manager', 'System Admin', 'HR'],
                 'subItems' => [
                     ['name' => 'Performance Indicator', 'path' => $base . 'manager/performance.php?view=indicator', 'icon' => 'target'],
@@ -174,16 +177,15 @@ $sections = [
                 ]
             ],
 
-            // --- RESIGNATION (Common including TL) ---
+            // --- RESIGNATION ---
             [
                 'name' => 'Resignation', 
                 'path' => $base . 'employee/resignation.php', 
                 'icon' => 'user-x', 
-                // Added Team Lead here
                 'allowed' => ['Employee', 'Team Lead', 'Team Leader']
             ],
 
-            // --- TERMINATION (Manager Only) ---
+            // --- TERMINATION ---
             [
                 'name' => 'Termination', 
                 'path' => $base . 'manager/termination.php', 
@@ -199,21 +201,20 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- ANNOUNCEMENT (Employee/TL - Read Only) ---
+            // --- ANNOUNCEMENT (Read Only - Added Accounts) ---
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['Employee', 'Team Lead', 'Team Leader', 'Accounts', 'Accountant']
             ],
 
-            // --- TICKET RAISE (Common including TL) ---
+            // --- TICKET RAISE (Added Accounts) ---
             [
                 'name' => 'Ticket Raise', 
                 'path' => $base . 'ticketraise.php', 
                 'icon' => 'ticket', 
-                // Added Team Lead here
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader'],
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader', 'Accounts', 'Accountant'],
                 'subItems' => [
                     ['name' => 'Ticket Dashboard', 'path' => $base . 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
                     ['name' => 'Ticket Details', 'path' => $base . 'ticketraise.php?view=details', 'icon' => 'file-text'],
@@ -223,6 +224,42 @@ $sections = [
             ],
         ]
     ],
+
+    // --- NEW SECTION: FINANCE & PAYROLL (Accounts Only) ---
+    [
+        'label' => 'Finance & Payroll',
+        'items' => [
+            [
+                'name' => 'Budgets', 
+                'path' => $base . 'budgets.php', 
+                'icon' => 'pie-chart', 
+                'allowed' => ['Accounts', 'Accountant', 'Manager', 'System Admin']
+            ],
+            [
+                'name' => 'Budget Expenses', 
+                'path' => $base . 'budget_expenses.php', 
+                'icon' => 'trending-down', 
+                'allowed' => ['Accounts', 'Accountant', 'Manager', 'System Admin']
+            ],
+            [
+                'name' => 'Budget Revenues', 
+                'path' => $base . 'budget_revenues.php', 
+                'icon' => 'trending-up', 
+                'allowed' => ['Accounts', 'Accountant', 'Manager', 'System Admin']
+            ],
+            [
+                'name' => 'Payroll', 
+                'icon' => 'dollar-sign', 
+                'allowed' => ['Accounts', 'Accountant', 'Manager', 'System Admin'],
+                'subItems' => [
+                    ['name' => 'Employee Salary', 'path' => $base . 'payroll_salary.php', 'icon' => 'banknote'],
+                    ['name' => 'Payslip', 'path' => $base . 'payslip.php', 'icon' => 'file-text'],
+                    ['name' => 'Payroll Items', 'path' => $base . 'payroll_items.php', 'icon' => 'list']
+                ]
+            ]
+        ]
+    ],
+
     [
         'label' => 'Support & Tools',
         'items' => [
@@ -233,26 +270,25 @@ $sections = [
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
-
             [
                 'name' => 'Reports', 
                 'path' => $base . 'TL/tl_reports.php', 
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Team Lead']
             ],
-            // --- HELP & SUPPORT (Common including TL) ---
+            // --- HELP & SUPPORT (Added Accounts) ---
             [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader', 'Accounts', 'Accountant']
             ],
-            // --- SETTINGS (Common including TL) ---
+            // --- SETTINGS (Added Accounts) ---
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader', 'Accounts', 'Accountant']
             ],
         ]
     ]
