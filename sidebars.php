@@ -110,7 +110,7 @@ $sections = [
             ],
 
             [
-                'name' => 'Employee Management', 
+                'name' => 'Employee', 
                 'path' => $base . 'manager/employee_management.php', 
                 'icon' => 'users', 
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
