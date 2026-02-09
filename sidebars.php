@@ -147,7 +147,7 @@ $sections = [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
                 'icon' => 'users', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
+                'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
             // --- PERFORMANCE (Common) ---
@@ -199,6 +199,12 @@ $sections = [
                     ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], 
                     ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
                 ]
+            ],
+            [
+                'name' => 'Resignation', 
+                'path' => $base . 'resignation.php', 
+                'icon' => 'file-bar-chart', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee']
             ],
         ]
     ],
