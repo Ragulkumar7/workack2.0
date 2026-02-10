@@ -165,6 +165,13 @@ $sections = [
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager', 'System Admin', 'HR'],
             ],
+            // --- ATS BULK SCREENER (New) ---
+            [
+                'name' => 'ATS Screener', 
+                'path' => $base . 'ats_check.php', 
+                'icon' => 'file-search',  // Make sure 'file-search' is a valid Lucide icon, else use 'search'
+                'allowed' => ['HR']
+            ],
 
             // --- RESIGNATION ---
             [
