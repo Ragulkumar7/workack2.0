@@ -133,7 +133,7 @@ $sections = [
             // --- EMPLOYEE MGMT (Manager/TL) ---
             [
                 'name' => 'Employee', 
-                'path' => $base . 'manager/employee_management.php', 
+                'path' => $base . 'employee_management.php', 
                 'icon' => 'users', 
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead', 'Team Leader']
             ],
