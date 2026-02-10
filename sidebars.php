@@ -176,7 +176,7 @@ $sections = [
             // --- TERMINATION (Manager Only) ---
             [
                 'name' => 'Termination', 
-                'path' => $base . 'manager/termination.php', 
+                'path' => $base . 'termination.php', 
                 'icon' => 'user-minus', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
