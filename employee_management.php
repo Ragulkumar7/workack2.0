@@ -16,31 +16,43 @@ if (!isset($_SESSION['user_id'])) {
     // exit(); 
 }
 
-// 4. MOCK DATA
+// 4. MOCK DATA (Updated with Bank & Statutory Details)
 $employees = [
     [
         "id" => "EMP-001", "first_name" => "Anthony", "last_name" => "Lewis", 
         "email" => "anthony@example.com", "phone" => "(123) 4567 890", 
         "designation" => "Team Lead", "dept" => "Finance", "company" => "Abac Company",
-        "join_date" => "2024-09-12", "status" => "Active", "img" => "11"
+        "join_date" => "2024-09-12", "status" => "Active", "img" => "11",
+        "emp_type" => "Permanent",
+        "pan" => "ABCDE1234F", "pf_no" => "PF101010", "esi_no" => "ESI202020",
+        "bank_name" => "HDFC Bank", "account_no" => "1234567890", "ifsc" => "HDFC000123"
     ],
     [
         "id" => "EMP-002", "first_name" => "Brian", "last_name" => "Villalobos", 
         "email" => "brian@example.com", "phone" => "(179) 7382 829", 
         "designation" => "Senior Developer", "dept" => "Development", "company" => "Abac Company",
-        "join_date" => "2024-10-24", "status" => "Active", "img" => "12"
+        "join_date" => "2024-10-24", "status" => "Active", "img" => "12",
+        "emp_type" => "Contract",
+        "pan" => "FGHIJ5678K", "pf_no" => "PF303030", "esi_no" => "ESI404040",
+        "bank_name" => "SBI", "account_no" => "0987654321", "ifsc" => "SBIN000456"
     ],
     [
         "id" => "EMP-003", "first_name" => "Harvey", "last_name" => "Smith", 
         "email" => "harvey@example.com", "phone" => "(782) 8291 920", 
         "designation" => "Team Lead", "dept" => "Sales", "company" => "Abac Company",
-        "join_date" => "2025-02-15", "status" => "Inactive", "img" => "13"
+        "join_date" => "2025-02-15", "status" => "Inactive", "img" => "13",
+        "emp_type" => "Permanent",
+        "pan" => "", "pf_no" => "", "esi_no" => "",
+        "bank_name" => "", "account_no" => "", "ifsc" => ""
     ],
     [
         "id" => "EMP-004", "first_name" => "Stephan", "last_name" => "Peralt", 
         "email" => "stephan@example.com", "phone" => "(929) 1022 222", 
         "designation" => "Android Developer", "dept" => "Development", "company" => "Abac Company",
-        "join_date" => "2025-03-01", "status" => "Active", "img" => "14"
+        "join_date" => "2025-03-01", "status" => "Active", "img" => "14",
+        "emp_type" => "Intern",
+        "pan" => "", "pf_no" => "", "esi_no" => "",
+        "bank_name" => "", "account_no" => "", "ifsc" => ""
     ],
 ];
 ?>
@@ -190,7 +202,7 @@ $employees = [
         }
         .modal-overlay.active { display: flex; }
         .modal-box { 
-            background: white; width: 800px; max-width: 95%; max-height: 90vh; overflow-y: auto;
+            background: white; width: 850px; max-width: 95%; max-height: 90vh; overflow-y: auto;
             border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); 
         }
         .modal-header { 
@@ -200,7 +212,7 @@ $employees = [
         .modal-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: #1e293b; }
         .modal-header span { color: #6b7280; font-weight: 400; font-size: 14px; margin-left: 10px; }
         
-        .modal-tabs { padding: 0 24px; border-bottom: 1px solid var(--border); display: flex; gap: 20px; }
+        .modal-tabs { padding: 0 24px; border-bottom: 1px solid var(--border); display: flex; gap: 20px; position: sticky; top: 0; background: white; z-index: 10; }
         .tab-item { padding: 15px 0; font-size: 14px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; }
         .tab-item.active { color: var(--primary); border-bottom-color: var(--primary); }
 
@@ -229,10 +241,20 @@ $employees = [
         .password-group { position: relative; }
         .password-toggle { position: absolute; right: 12px; top: 38px; color: #9ca3af; cursor: pointer; width: 16px; }
 
+        .form-section-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin: 25px 0 15px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+
         .modal-footer { 
             padding: 16px 24px; border-top: 1px solid var(--border); 
             display: flex; justify-content: flex-end; gap: 12px; 
         }
+
+        /* PERMISSIONS TABLE */
+        .perm-table { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        .perm-table th { background: #f9fafb; padding: 12px; text-align: center; font-size: 12px; border-bottom: 1px solid var(--border); font-weight: 600; }
+        .perm-table th:first-child { text-align: left; padding-left: 20px; }
+        .perm-table td { padding: 10px; text-align: center; border-bottom: 1px solid #f3f4f6; }
+        .perm-table td:first-child { text-align: left; padding-left: 20px; font-weight: 500; color: var(--text-main); }
+        .role-check { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
 
         /* Responsive */
         @media (max-width: 768px) {
@@ -396,92 +418,122 @@ $employees = [
             </div>
             
             <div class="modal-tabs">
-                <div class="tab-item active">Basic Information</div>
-                <div class="tab-item">Permissions</div>
+                <div class="tab-item active" onclick="switchTab(this, 'tab-basic')">Basic Information</div>
+                <div class="tab-item" onclick="switchTab(this, 'tab-bank')">Statutory & Bank</div>
+                <div class="tab-item" onclick="switchTab(this, 'tab-permissions')">Permissions</div>
             </div>
             
             <div class="modal-body">
-                <div class="img-upload-area">
-                    <div class="preview-circle" id="imgPreview">
-                        <i data-lucide="image" style="width:24px;"></i>
-                    </div>
-                    <div>
-                        <h5 style="margin:0 0 5px; font-size:14px;">Upload Profile Image</h5>
-                        <p style="margin:0 0 10px; font-size:12px; color:#9ca3af;">Image should be below 4 mb</p>
-                        <div style="display:flex; gap:10px;">
-                            <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;">Upload</button>
-                            <button class="btn" style="padding:6px 12px; font-size:12px;">Cancel</button>
-                        </div>
-                    </div>
-                </div>
-
                 <form id="empForm">
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label>First Name <span>*</span></label>
-                            <input type="text" class="form-control" id="fName">
+                    
+                    <div id="tab-basic" class="tab-content">
+                        <div class="img-upload-area">
+                            <div class="preview-circle" id="imgPreview">
+                                <i data-lucide="image" style="width:24px;"></i>
+                            </div>
+                            <div>
+                                <h5 style="margin:0 0 5px; font-size:14px;">Upload Profile Image</h5>
+                                <p style="margin:0 0 10px; font-size:12px; color:#9ca3af;">Image should be below 4 mb</p>
+                                <div style="display:flex; gap:10px;">
+                                    <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;">Upload</button>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label>Last Name</label>
-                            <input type="text" class="form-control" id="lName">
-                        </div>
-                        <div class="form-group">
-                            <label>Employee ID <span>*</span></label>
-                            <input type="text" class="form-control" id="empId">
-                        </div>
-                        <div class="form-group">
-                            <label>Joining Date <span>*</span></label>
-                            <input type="date" class="form-control" id="joinDate">
-                        </div>
-                        <div class="form-group">
-                            <label>Username <span>*</span></label>
-                            <input type="text" class="form-control" id="uName">
-                        </div>
-                        <div class="form-group">
-                            <label>Email <span>*</span></label>
-                            <input type="email" class="form-control" id="email">
-                        </div>
-                        <div class="form-group password-group">
-                            <label>Password <span>*</span></label>
-                            <input type="password" class="form-control" id="pwd">
-                            <i data-lucide="eye-off" class="password-toggle"></i>
-                        </div>
-                        <div class="form-group password-group">
-                            <label>Confirm Password <span>*</span></label>
-                            <input type="password" class="form-control">
-                            <i data-lucide="eye-off" class="password-toggle"></i>
-                        </div>
-                        <div class="form-group">
-                            <label>Phone Number <span>*</span></label>
-                            <input type="text" class="form-control" id="phone">
-                        </div>
-                        <div class="form-group">
-                            <label>Company <span>*</span></label>
-                            <input type="text" class="form-control" id="company">
-                        </div>
-                        <div class="form-group">
-                            <label>Department</label>
-                            <select class="form-control" id="dept">
-                                <option value="">Select</option>
-                                <option value="Development">Development</option>
-                                <option value="Sales">Sales</option>
-                                <option value="Finance">Finance</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Designation</label>
-                            <select class="form-control" id="desig">
-                                <option value="">Select</option>
-                                <option value="Team Lead">Team Lead</option>
-                                <option value="Senior Developer">Senior Developer</option>
-                                <option value="Android Developer">Android Developer</option>
-                            </select>
+
+                        <div class="form-grid">
+                            <div class="form-group"><label>First Name <span>*</span></label><input type="text" class="form-control" id="fName"></div>
+                            <div class="form-group"><label>Last Name</label><input type="text" class="form-control" id="lName"></div>
+                            <div class="form-group"><label>Employee ID <span>*</span></label><input type="text" class="form-control" id="empId"></div>
+                            <div class="form-group"><label>Joining Date <span>*</span></label><input type="date" class="form-control" id="joinDate"></div>
+                            <div class="form-group"><label>Username <span>*</span></label><input type="text" class="form-control" id="uName"></div>
+                            <div class="form-group"><label>Email <span>*</span></label><input type="email" class="form-control" id="email"></div>
+                            <div class="form-group password-group"><label>Password <span>*</span></label><input type="password" class="form-control" id="pwd"><i data-lucide="eye-off" class="password-toggle"></i></div>
+                            <div class="form-group password-group"><label>Confirm Password <span>*</span></label><input type="password" class="form-control"><i data-lucide="eye-off" class="password-toggle"></i></div>
+                            <div class="form-group"><label>Phone Number <span>*</span></label><input type="text" class="form-control" id="phone"></div>
+                            <div class="form-group"><label>Company <span>*</span></label><input type="text" class="form-control" id="company"></div>
+                            <div class="form-group">
+                                <label>Department</label>
+                                <select class="form-control" id="dept">
+                                    <option value="">Select</option>
+                                    <option value="Development">Development</option>
+                                    <option value="Sales">Sales</option>
+                                    <option value="Finance">Finance</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Designation</label>
+                                <select class="form-control" id="desig">
+                                    <option value="">Select</option>
+                                    <option value="Team Lead">Team Lead</option>
+                                    <option value="Senior Developer">Senior Developer</option>
+                                    <option value="Android Developer">Android Developer</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Employment Type <span>*</span></label>
+                                <select class="form-control" id="empType">
+                                    <option value="Permanent">Permanent</option>
+                                    <option value="Contract">Contract</option>
+                                    <option value="Intern">Intern</option>
+                                    <option value="Freelance">Freelance</option>
+                                </select>
+                            </div>
                         </div>
                     </div>
-                    <div class="form-group" style="margin-top:20px;">
-                        <label>About <span>*</span></label>
-                        <textarea class="form-control" rows="3" id="about"></textarea>
+
+                    <div id="tab-bank" class="tab-content" style="display:none;">
+                        <h4 class="form-section-title">Statutory Details</h4>
+                        <div class="form-grid">
+                            <div class="form-group"><label>PAN Card No.</label><input type="text" class="form-control" id="panNo" placeholder="ABCDE1234F"></div>
+                            <div class="form-group"><label>PF Account No.</label><input type="text" class="form-control" id="pfNo" placeholder="PF12345678"></div>
+                            <div class="form-group"><label>ESI Number</label><input type="text" class="form-control" id="esiNo" placeholder="ESI987654"></div>
+                        </div>
+
+                        <h4 class="form-section-title">Bank Details</h4>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Bank Name</label><input type="text" class="form-control" id="bankName" placeholder="e.g. HDFC Bank"></div>
+                            <div class="form-group"><label>Bank Account No.</label><input type="text" class="form-control" id="accNo" placeholder="1234567890"></div>
+                            <div class="form-group"><label>IFSC Code</label><input type="text" class="form-control" id="ifsc" placeholder="HDFC0001234"></div>
+                        </div>
                     </div>
+
+                    <div id="tab-permissions" class="tab-content" style="display:none;">
+                        <h4 class="form-section-title">Module Access Control</h4>
+                        <p style="font-size:13px; color:#6b7280; margin-bottom:15px;">Define which modules this employee can access and their privilege level.</p>
+                        
+                        <div style="border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                            <table class="perm-table">
+                                <thead>
+                                    <tr>
+                                        <th>Module</th>
+                                        <th>Read</th>
+                                        <th>Write</th>
+                                        <th>Create</th>
+                                        <th>Delete</th>
+                                        <th>Import</th>
+                                        <th>Export</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php 
+                                    $modules = ['Employee', 'Holidays', 'Leaves', 'Events', 'Chat', 'Jobs', 'Payroll', 'Reports', 'Settings'];
+                                    foreach($modules as $mod): 
+                                    ?>
+                                    <tr>
+                                        <td><?= $mod ?></td>
+                                        <td><input type="checkbox" class="role-check" checked></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
                 </form>
             </div>
             
@@ -500,9 +552,12 @@ $employees = [
             document.getElementById('modalTitle').innerText = "Add New Employee";
             document.getElementById('modalIdDisplay').innerText = "";
             document.getElementById('saveBtn').innerText = "Save";
-            document.getElementById('empForm').reset(); // Clear form
+            document.getElementById('empForm').reset();
             document.getElementById('imgPreview').innerHTML = '<i data-lucide="image" style="width:24px;"></i>';
-            lucide.createIcons(); // Re-render icons
+            
+            // Switch to first tab
+            const tabs = document.querySelectorAll('.tab-item');
+            switchTab(tabs[0], 'tab-basic');
             
             toggleModalDisplay(true);
         }
@@ -513,7 +568,11 @@ $employees = [
             document.getElementById('modalIdDisplay').innerText = "Employee ID : " + empData.id;
             document.getElementById('saveBtn').innerText = "Update";
 
-            // Fill Fields
+            // Switch to first tab
+            const tabs = document.querySelectorAll('.tab-item');
+            switchTab(tabs[0], 'tab-basic');
+
+            // Fill Fields - Basic
             document.getElementById('fName').value = empData.first_name;
             document.getElementById('lName').value = empData.last_name;
             document.getElementById('empId').value = empData.id;
@@ -522,12 +581,19 @@ $employees = [
             document.getElementById('email').value = empData.email;
             document.getElementById('phone').value = empData.phone;
             document.getElementById('company').value = empData.company || 'Abac Company';
-            
-            // Set Selects
             document.getElementById('dept').value = empData.dept;
             document.getElementById('desig').value = empData.designation;
+            document.getElementById('empType').value = empData.emp_type || 'Permanent';
 
-            // Image Preview (Mock)
+            // Fill Fields - Bank & Statutory (Mock Data support)
+            document.getElementById('panNo').value = empData.pan || '';
+            document.getElementById('bankName').value = empData.bank_name || '';
+            document.getElementById('accNo').value = empData.account_no || '';
+            document.getElementById('ifsc').value = empData.ifsc || '';
+            document.getElementById('pfNo').value = empData.pf_no || '';
+            document.getElementById('esiNo').value = empData.esi_no || '';
+
+            // Image Preview
             document.getElementById('imgPreview').innerHTML = `<img src="https://i.pravatar.cc/150?img=${empData.img}" style="width:100%; height:100%; border-radius:50%;">`;
 
             toggleModalDisplay(true);
@@ -544,7 +610,19 @@ $employees = [
             toggleModalDisplay(false);
         }
 
-        // 4. VIEW SWITCHER
+        // 4. TAB SWITCHER
+        function switchTab(element, contentId) {
+            // Remove active class from all tabs
+            document.querySelectorAll('.tab-item').forEach(t => t.classList.remove('active'));
+            // Hide all contents
+            document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
+            
+            // Activate current
+            element.classList.add('active');
+            document.getElementById(contentId).style.display = 'block';
+        }
+
+        // 5. VIEW SWITCHER
         function switchView(view) {
             const listBtn = document.getElementById('btnList');
             const gridBtn = document.getElementById('btnGrid');
