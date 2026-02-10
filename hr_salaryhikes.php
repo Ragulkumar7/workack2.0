@@ -11,6 +11,13 @@
         body { font-family: 'Inter', sans-serif; background-color: #f8f9fa; }
         .bg-darkteal { background-color: #0d5c63; }
         .hover-darkteal:hover { background-color: #0a494f; }
+        .text-darkteal { color: #0d5c63; }
+        .bg-orange-primary { background-color: #f26522; }
+        .hover-orange-primary:hover { background-color: #d9541a; }
+        
+        /* Modal & Dropdown Utilities */
+        .hidden-element { display: none; }
+        .dropdown-shadow { box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
     </style>
 </head>
 <body class="text-gray-700">
@@ -55,10 +62,25 @@
                 </nav>
             </div>
             <div class="flex items-center gap-3">
-                <button class="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">
-                    <i class="fa-solid fa-file-export"></i> Export <i class="fa-solid fa-chevron-down text-[10px]"></i>
-                </button>
-                <button class="flex items-center gap-2 bg-darkteal hover-darkteal text-white px-5 py-2 rounded-lg text-sm font-medium transition-all shadow-md">
+                <div class="relative">
+                    <button onclick="toggleElement('exportDropdown')" class="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50">
+                        <i class="fa-solid fa-file-export"></i> Export <i class="fa-solid fa-chevron-down text-[10px] ml-1"></i>
+                    </button>
+                    <div id="exportDropdown" class="hidden-element absolute right-0 mt-2 w-48 bg-white border border-gray-100 rounded-xl dropdown-shadow z-50 overflow-hidden">
+                        <div class="py-1">
+                            <button class="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                <i class="fa-solid fa-file-pdf text-gray-600"></i>
+                                <span class="font-medium">Export as PDF</span>
+                            </button>
+                            <button class="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-50">
+                                <i class="fa-solid fa-file-excel text-gray-600"></i>
+                                <span class="font-medium">Export as Excel</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="toggleElement('salaryModal')" class="flex items-center gap-2 bg-darkteal hover-darkteal text-white px-5 py-2 rounded-lg text-sm font-medium transition-all shadow-md">
                     <i class="fa-solid fa-circle-plus"></i> Add Salary
                 </button>
                 <button class="p-2 border rounded-lg bg-white text-gray-400"><i class="fa-solid fa-chevron-up"></i></button>
@@ -69,30 +91,63 @@
             <div class="p-5 border-b flex flex-wrap items-center justify-between gap-4">
                 <h3 class="font-semibold text-gray-800">Employee Salary List</h3>
                 <div class="flex flex-wrap items-center gap-3">
-                    <div class="flex items-center gap-2 border rounded-lg px-3 py-2 bg-gray-50 text-sm">
-                        <i class="fa-regular fa-calendar text-gray-400"></i>
-                        <span>02/03/2026 - 02/09/2026</span>
+                    <div class="relative">
+                        <button onclick="toggleElement('datePickerDropdown')" class="flex items-center gap-2 border border-gray-200 rounded-lg px-3 py-2 bg-white text-sm hover:bg-gray-50">
+                            <i class="fa-regular fa-calendar text-gray-400"></i>
+                            <span class="text-gray-600">02/04/2026 - 02/10/2026</span>
+                        </button>
+                        <div id="datePickerDropdown" class="hidden-element absolute left-0 mt-2 w-48 bg-white border border-gray-100 rounded-xl dropdown-shadow z-50 py-1 overflow-hidden">
+                            <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Today</button>
+                            <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Yesterday</button>
+                            <button class="w-full text-left px-4 py-2 text-sm text-white bg-orange-primary font-medium">Last 7 Days</button>
+                            <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Last 30 Days</button>
+                            <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">This Year</button>
+                            <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Next Year</button>
+                            <div class="border-t border-gray-100 mt-1 pt-1">
+                                <button class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Custom Range</button>
+                            </div>
+                        </div>
                     </div>
-                    <select class="border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
-                        <option>Designation</option>
-                    </select>
-                    <select class="border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
-                        <option>Sort By: Last 7 Days</option>
-                    </select>
+                    
+                    <div class="relative">
+                        <button onclick="toggleElement('designationDropdown')" class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white flex items-center gap-2">
+                            Designation <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                        </button>
+                        <div id="designationDropdown" class="hidden-element absolute left-0 mt-2 w-48 bg-white border border-gray-100 rounded-xl dropdown-shadow z-50 py-2">
+                            <button class="w-full text-left px-5 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Finance</button>
+                            <button class="w-full text-left px-5 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Developer</button>
+                            <button class="w-full text-left px-5 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Executive</button>
+                            <button class="w-full text-left px-5 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Manager</button>
+                        </div>
+                    </div>
+
+                    <div class="relative">
+                        <button onclick="toggleElement('sortDropdown')" class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white flex items-center gap-2 min-w-[180px] justify-between">
+                            <span>Sort By : Last 7 Days</span>
+                            <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                        </button>
+                        <div id="sortDropdown" class="hidden-element absolute right-0 mt-2 w-56 bg-white border border-gray-100 rounded-xl dropdown-shadow z-50 py-2">
+                            <button class="w-full text-left px-6 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Recently Added</button>
+                            <button class="w-full text-left px-6 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Ascending</button>
+                            <button class="w-full text-left px-6 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Descending</button>
+                            <button class="w-full text-left px-6 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50">Last Month</button>
+                            <button class="w-full text-left px-6 py-2.5 text-[15px] text-gray-700 hover:bg-gray-50 font-medium">Last 7 Days</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div class="px-5 py-4 flex items-center justify-between bg-white">
                 <div class="text-sm text-gray-500">
                     Row Per Page 
-                    <select class="mx-1 border rounded px-1 py-1 focus:outline-none">
+                    <select class="mx-1 border border-gray-200 rounded px-1 py-1 focus:outline-none">
                         <option>10</option>
                         <option>25</option>
                     </select>
                     Entries
                 </div>
                 <div class="relative">
-                    <input type="text" placeholder="Search" class="border border-gray-200 rounded-lg py-1.5 pl-3 pr-8 text-sm focus:outline-none">
+                    <input type="text" placeholder="Search" class="border border-gray-200 rounded-lg py-1.5 pl-3 pr-8 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500">
                 </div>
             </div>
 
@@ -101,13 +156,13 @@
                     <thead class="bg-gray-50 text-gray-600 font-medium border-y">
                         <tr>
                             <th class="px-5 py-4 w-10"><input type="checkbox" class="rounded text-teal-600"></th>
-                            <th class="px-4 py-4">Emp ID <i class="fa-solid fa-sort ml-1 opacity-30"></i></th>
-                            <th class="px-4 py-4">Name <i class="fa-solid fa-sort ml-1 opacity-30"></i></th>
-                            <th class="px-4 py-4">Email <i class="fa-solid fa-sort ml-1 opacity-30"></i></th>
-                            <th class="px-4 py-4">Phone <i class="fa-solid fa-sort ml-1 opacity-30"></i></th>
-                            <th class="px-4 py-4">Designation <i class="fa-solid fa-sort ml-1 opacity-30"></i></th>
-                            <th class="px-4 py-4 text-nowrap">Joining Date <i class="fa-solid fa-sort ml-1 opacity-30"></i></th>
-                            <th class="px-4 py-4">Salary <i class="fa-solid fa-sort ml-1 opacity-30"></i></th>
+                            <th class="px-4 py-4">Emp ID <i class="fa-solid fa-sort ml-1 opacity-30 text-[10px]"></i></th>
+                            <th class="px-4 py-4">Name <i class="fa-solid fa-sort ml-1 opacity-30 text-[10px]"></i></th>
+                            <th class="px-4 py-4">Email <i class="fa-solid fa-sort ml-1 opacity-30 text-[10px]"></i></th>
+                            <th class="px-4 py-4">Phone <i class="fa-solid fa-sort ml-1 opacity-30 text-[10px]"></i></th>
+                            <th class="px-4 py-4">Designation <i class="fa-solid fa-sort ml-1 opacity-30 text-[10px]"></i></th>
+                            <th class="px-4 py-4 text-nowrap">Joining Date <i class="fa-solid fa-sort ml-1 opacity-30 text-[10px]"></i></th>
+                            <th class="px-4 py-4">Salary <i class="fa-solid fa-sort ml-1 opacity-30 text-[10px]"></i></th>
                             <th class="px-4 py-4 text-center">Payslip</th>
                         </tr>
                     </thead>
@@ -137,7 +192,7 @@
                             <td class="px-4 py-4 text-gray-500"><?= $emp['email'] ?></td>
                             <td class="px-4 py-4 text-gray-500"><?= $emp['phone'] ?></td>
                             <td class="px-4 py-4">
-                                <select class="border rounded-md px-2 py-1 text-xs focus:outline-none">
+                                <select class="border border-gray-200 rounded-md px-2 py-1 text-xs focus:outline-none">
                                     <option <?= $emp['desig'] == 'Finance' ? 'selected' : '' ?>>Finance</option>
                                     <option <?= $emp['desig'] == 'Developer' ? 'selected' : '' ?>>Developer</option>
                                     <option <?= $emp['desig'] == 'Executive' ? 'selected' : '' ?>>Executive</option>
@@ -159,9 +214,108 @@
         </div>
     </main>
 
-    <div class="fixed right-0 top-1/2 transform -translate-y-1/2 bg-darkteal p-2 rounded-l-md cursor-pointer text-white shadow-lg">
-        <i class="fa-solid fa-gear animate-spin-slow"></i>
+    <div id="salaryModal" class="hidden-element fixed inset-0 z-[100] overflow-y-auto">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm" onclick="toggleElement('salaryModal')"></div>
+        <div class="flex min-h-full items-center justify-center p-4">
+            <div class="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden">
+                <div class="px-6 py-5 border-b flex items-center justify-between">
+                    <h2 class="text-xl font-bold text-[#1f2937]">Add Employee Salary</h2>
+                    <button onclick="toggleElement('salaryModal')" class="text-gray-400 hover:text-gray-600 transition-colors">
+                        <i class="fa-solid fa-circle-xmark text-2xl"></i>
+                    </button>
+                </div>
+
+                <form class="p-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 mb-8">
+                        <div>
+                            <label class="block text-[15px] font-semibold text-gray-700 mb-2.5">Employee Name</label>
+                            <div class="relative">
+                                <select class="w-full border border-gray-200 rounded-lg px-4 py-3 bg-white focus:ring-1 focus:ring-teal-500 outline-none appearance-none text-gray-500">
+                                    <option>Select</option>
+                                </select>
+                                <i class="fa-solid fa-chevron-down absolute right-4 top-4 text-gray-400 text-xs"></i>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[15px] font-semibold text-gray-700 mb-2.5">Net Salary</label>
+                            <input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-3 focus:ring-1 focus:ring-teal-500 outline-none">
+                        </div>
+                    </div>
+
+                    <div class="mb-8">
+                        <div class="flex items-center justify-between mb-5">
+                            <h3 class="font-bold text-gray-800 text-lg">Earnings</h3>
+                            <button type="button" class="text-orange-500 font-bold text-[15px] flex items-center gap-1 hover:opacity-80">
+                                <i class="fa-solid fa-plus text-xs"></i> Add New
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-4">
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Basic</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">DA(40%)</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">HRA(15%)</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Conveyance</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Allowance</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Medical Allowance</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Others</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-10">
+                        <div class="flex items-center justify-between mb-5">
+                            <h3 class="font-bold text-gray-800 text-lg">Deductions</h3>
+                            <button type="button" class="text-orange-500 font-bold text-[15px] flex items-center gap-1 hover:opacity-80">
+                                <i class="fa-solid fa-plus text-xs"></i> Add New
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-5 gap-y-4">
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">TDS</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">ESI</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">PF</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Leave</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Prof.Tax</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Labour Welfare</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                            <div><label class="text-[15px] font-semibold text-gray-700 mb-2 block">Others</label><input type="text" class="w-full border border-gray-200 rounded-lg px-4 py-2.5 outline-none focus:border-teal-500"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-center gap-4 mb-4">
+                        <button type="button" onclick="toggleElement('salaryModal')" class="px-8 py-3 border border-gray-200 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 transition-colors min-w-[140px]">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-8 py-3 bg-orange-primary hover-orange-primary text-white rounded-lg text-sm font-bold shadow-sm transition-all min-w-[200px]">
+                            Add Employee Salary
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
 
+    <script>
+        function toggleElement(id) {
+            const el = document.getElementById(id);
+            const isHidden = el.classList.contains('hidden-element');
+            
+            // Close other dropdowns first if opening a new one
+            if(id.includes('Dropdown') && isHidden) {
+                document.querySelectorAll('[id$="Dropdown"]').forEach(d => {
+                    if (d.id !== id) d.classList.add('hidden-element');
+                });
+            }
+
+            el.classList.toggle('hidden-element');
+            
+            if (id === 'salaryModal') {
+                document.body.style.overflow = el.classList.contains('hidden-element') ? 'auto' : 'hidden';
+            }
+        }
+
+        // Close dropdowns when clicking outside
+        window.onclick = function(event) {
+            if (!event.target.closest('.relative')) {
+                document.querySelectorAll('[id$="Dropdown"]').forEach(d => d.classList.add('hidden-element'));
+            }
+        }
+    </script>
 </body>
 </html>
