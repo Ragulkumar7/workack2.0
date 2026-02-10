@@ -155,18 +155,15 @@ $sections = [
             ],
 
             // --- PERFORMANCE (Common including TL) ---
+           // --- PERFORMANCE (Common including TL) ---
             [
                 'name' => 'Performance', 
-                'path' => $base . 'manager/performance.php', 
+                // Link updated to the new List Page
+                'path' => $base . 'performance_list.php', 
                 'icon' => 'trending-up', 
-                // Added Team Lead here
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader'],
-                'subItems' => [
-                    ['name' => 'Performance Indicator', 'path' => $base . 'manager/performance.php?view=indicator', 'icon' => 'target'],
-                    ['name' => 'Performance Review', 'path' => $base . 'manager/performance.php?view=review', 'icon' => 'file-text'],
-                ]
+                'allowed' => ['Manager', 'System Admin', 'HR'],
+                // Sub-items removed as the main link now handles the flow
             ],
-
             // --- RESIGNATION (Common including TL) ---
             [
                 'name' => 'Resignation', 
@@ -205,6 +202,18 @@ $sections = [
                     ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], 
                     ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
                 ]
+            ],
+        ]
+    ],
+    // --- FINANCE (HR ONLY) ---
+    [
+        'label' => 'Finance',
+        'items' => [
+            [
+                'name' => 'Salary Hike', 
+                'path' => $base . 'payroll_salary.php', 
+                'icon' => 'banknote', 
+                'allowed' => ['HR'] // HR-க்கு மட்டுமே இது தெரியும்
             ],
         ]
     ],
