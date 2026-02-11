@@ -17,8 +17,9 @@ include '../header.php';
         
         /* Sidebar & Info Cards */
         .profile-card, .info-card { border: none; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; background: #fff; }
-        .profile-header-bg { background: linear-gradient(45deg, #f59e0b, #fbbf24); height: 120px; position: relative; }
-        .profile-img-container { text-align: center; margin-top: -50px; }
+        
+        /* Removed .profile-header-bg styles to remove yellow box */
+        .profile-img-container { text-align: center; margin-top: 20px; } /* Adjusted margin for better spacing without header bg */
         .profile-img { width: 100px; height: 100px; border-radius: 50%; border: 4px solid #fff; background: #eee; object-fit: cover; }
         
         .badge-dev { background: #e2e8f0; color: #475569; border-radius: 5px; font-size: 0.85rem; padding: 4px 12px; font-weight: 500;}
@@ -60,28 +61,28 @@ include '../header.php';
         .project-card, .asset-card { border: 1px solid #eef2f6; border-radius: 12px; padding: 20px; margin-bottom: 15px; }
         .project-icon { width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: white; margin-right: 15px; }
         .project-meta { font-size: 0.85rem; color: #64748b; margin-top: 5px; }
-        .project-meta span { color: #f97316; margin: 0 5px; }
+        .project-meta span { color: #006064; margin: 0 5px; }
         .project-deadline-label { font-size: 0.85rem; color: #94a3b8; margin-bottom: 5px; }
         .project-lead-img { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; margin-right: 8px; }
 
         .asset-card { display: flex; align-items: center; justify-content: space-between; padding: 15px; }
         .asset-img-box { width: 60px; height: 60px; border-radius: 50%; background: #fcd34d; display: flex; align-items: center; justify-content: center; }
         .asset-main-title { font-weight: 700; color: #1e293b; font-size: 1rem; }
-        .asset-sub-id { font-size: 0.85rem; color: #f97316; font-weight: 600; }
+        .asset-sub-id { font-size: 0.85rem; color: #006064; font-weight: 600; }
         .assignee-label { font-size: 0.8rem; color: #94a3b8; display: block; }
         .assignee-name { font-size: 0.9rem; font-weight: 600; color: #1e293b; display: block; }
 
-        /* Buttons & Components */
-        .btn-edit { background-color: #0f172a; color: white; border-radius: 8px; padding: 10px 18px; border: none; font-weight: 500; }
-        .btn-message { background-color: #f97316; color: white; border-radius: 8px; padding: 10px 18px; border: none; font-weight: 500; }
-        .btn-save { background-color: #f97316; color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; }
-        .btn-bank-stat { background-color: #f97316; color: white; border-radius: 8px; padding: 10px 20px; border: none; font-weight: 600; font-size: 0.95rem; }
+        /* Buttons & Components - Changed to Dark Teal */
+        .btn-edit { background-color: #006064; color: white; border-radius: 8px; padding: 10px 18px; border: none; font-weight: 500; }
+        .btn-message { background-color: #006064; color: white; border-radius: 8px; padding: 10px 18px; border: none; font-weight: 500; }
+        .btn-save { background-color: #006064; color: white; border: none; padding: 10px 24px; border-radius: 6px; font-weight: 600; }
+        .btn-bank-stat { background-color: #006064; color: white; border-radius: 8px; padding: 10px 20px; border: none; font-weight: 600; font-size: 0.95rem; }
         .btn-collapse { background: white; border: 1px solid #e2e8f0; border-radius: 8px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: #64748b; }
         
         /* Modal specific */
         .upload-section { background-color: #f8fafc; border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
         .upload-circle { width: 80px; height: 80px; border-radius: 50%; background: #eee; }
-        .btn-upload { background-color: #f97316; color: white; border: none; padding: 6px 16px; border-radius: 6px; font-size: 0.9rem; }
+        .btn-upload { background-color: #006064; color: white; border: none; padding: 6px 16px; border-radius: 6px; font-size: 0.9rem; }
         .btn-cancel-small { background: white; border: 1px solid #e2e8f0; color: #64748b; padding: 6px 16px; border-radius: 6px; font-size: 0.9rem; }
         .input-group-text { background: transparent; border-left: none; cursor: pointer; color: #64748b; }
         .stat-section-title { font-weight: 700; color: #1e293b; margin: 25px 0 15px 0; font-size: 1.1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px; }
@@ -106,7 +107,6 @@ include '../header.php';
     <div class="row">
         <div class="col-lg-4">
             <div class="profile-card p-0">
-                <div class="profile-header-bg"></div>
                 <div class="profile-img-container">
                     <img src="https://via.placeholder.com/100" class="profile-img" alt="Stephan Peralt">
                 </div>
