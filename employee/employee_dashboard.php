@@ -161,7 +161,7 @@
                             <div><p class="text-gray-400 text-xs">Worked Days</p><p class="font-bold text-lg">240</p></div>
                             <div><p class="text-gray-400 text-xs">Loss of Pay</p><p class="font-bold text-lg text-red-500">2</p></div>
                         </div>
-                        <button class="w-full bg-teal-custom text-white py-3 rounded-xl font-bold text-xs uppercase tracking-widest">Apply New Leave</button>
+                        <button onclick="window.location.href='leave_request.php'" class="w-full bg-teal-custom text-white py-3 rounded-xl font-bold text-xs uppercase tracking-widest">Apply New Leave</button>
                     </div>
                 </div>
 
