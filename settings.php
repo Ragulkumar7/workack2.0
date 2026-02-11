@@ -103,6 +103,8 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
     <?php include('sidebars.php'); ?>
 
     <div id="mainContent">
+            <?php include 'header.php'; ?>
+
         <div class="page-header">
             <h1>Settings</h1>
             <div class="breadcrumb" id="breadcrumb-text">Settings / General Settings / Profile Settings</div>

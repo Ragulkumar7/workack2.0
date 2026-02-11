@@ -216,7 +216,8 @@ $kb_categories = [
     <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
 
     <div class="main-content" id="mainContent">
-        
+            <?php include 'header.php'; ?>
+
         <div class="page-header">
             <div>
                 <h1>Help & Support</h1>

@@ -60,7 +60,8 @@ $timesheets = [
     <?php include('sidebars.php'); ?>
 
     <main id="mainContent">
-        
+            <?php include 'header.php'; ?>
+
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
                 <h4 class="fw-bold mb-0 text-dark">Timesheets</h4>

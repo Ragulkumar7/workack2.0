@@ -36,6 +36,8 @@ include('../sidebars.php');
 ?>
 
 <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
     :root {
         /* Layout Variables */
         --primary-width: 95px;
@@ -44,24 +46,25 @@ include('../sidebars.php');
         /* Brand Colors */
         --brand-color: #1b5a5a;
         --brand-hover: #134242;
-        --brand-light: #e8f1f1;
-        --bg-body: #f8f9fa;
-        --text-dark: #2c3e50;
+        --bg-body: #f3f4f6;
+        --text-main: #344767;
+        --text-secondary: #7b809a;
+        --border-color: #e2e8f0;
     }
 
     body {
         background-color: var(--bg-body);
-        font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        font-family: 'Inter', 'Segoe UI', sans-serif;
+        color: var(--text-main);
         overflow-x: hidden;
     }
 
-    /* --- DYNAMIC CONTENT CONTAINER --- */
+    /* --- LAYOUT CONTAINER --- */
     #mainContent {
         margin-left: var(--primary-width);
         transition: margin-left 0.3s ease;
         padding: 30px;
         min-height: 100vh;
-        width: auto;
     }
 
     #mainContent.main-shifted {
@@ -75,219 +78,261 @@ include('../sidebars.php');
         }
     }
 
-    /* --- ACCORDION & CARD STYLING --- */
-    .section-card {
+    /* --- HEADER STYLES --- */
+    .page-header {
+        margin-bottom: 25px;
+    }
+    .ticket-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--text-main);
+    }
+    .ticket-meta {
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+    }
+    .btn-back {
         background: #fff;
-        border: 1px solid #e0e0e0;
+        border: 1px solid var(--border-color);
+        padding: 8px 16px;
         border-radius: 8px;
-        margin-bottom: 20px;
-        overflow: hidden;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.02);
-    }
-
-    .section-header {
-        background: #fff;
-        padding: 15px 20px;
-        cursor: pointer;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid transparent;
+        color: var(--text-secondary);
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 0.9rem;
         transition: all 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .btn-back:hover {
+        background: #f8fafc;
+        color: var(--text-main);
     }
 
-    .section-header:hover {
-        background-color: #fcfcfc;
+    /* --- TAB NAVIGATION (The "Drill-Down" Look) --- */
+    .tabs-container {
+        display: flex;
+        gap: 30px;
+        border-bottom: 1px solid #e0e0e0;
+        margin-bottom: 0; /* Connected to card */
+        padding-left: 10px;
     }
 
-    .section-header.active {
-        background-color: var(--brand-light);
-        border-bottom: 1px solid #dceaea;
+    .tab-item {
+        padding: 12px 5px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+        cursor: pointer;
+        position: relative;
+        transition: color 0.3s;
+    }
+
+    .tab-item:hover {
         color: var(--brand-color);
     }
 
-    .section-title {
-        font-weight: 600;
-        font-size: 1.05rem;
-        margin: 0;
-        display: flex;
-        align-items: center;
+    .tab-item.active {
+        color: var(--brand-color);
     }
 
-    .section-body {
-        padding: 25px;
-        display: none; /* Hidden by default */
+    /* The blue active indicator bar */
+    .tab-item.active::after {
+        content: '';
+        position: absolute;
+        bottom: -1px;
+        left: 0;
+        width: 100%;
+        height: 3px;
+        background-color: var(--brand-color);
+        border-radius: 3px 3px 0 0;
+    }
+
+    /* --- CONTENT CARD --- */
+    .content-card {
         background: #fff;
-        border-top: 1px solid #f0f0f0;
+        border-radius: 12px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        padding: 30px;
+        min-height: 400px;
+        margin-top: 20px; /* Space between tabs and content */
+        border: 1px solid rgba(0,0,0,0.04);
     }
 
-    /* Open state for JS toggle */
-    .section-body.show {
+    .tab-pane {
+        display: none;
+        animation: fadeIn 0.3s ease-in-out;
+    }
+    .tab-pane.active {
         display: block;
-        animation: slideDown 0.3s ease-out;
     }
 
-    @keyframes slideDown {
-        from { opacity: 0; transform: translateY(-10px); }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(5px); }
         to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Form & UI Elements */
-    .btn-brand {
-        background-color: var(--brand-color);
-        border-color: var(--brand-color);
-        color: #fff;
-        padding: 10px 30px;
-        font-weight: 600;
-        border-radius: 6px;
-    }
-    .btn-brand:hover {
-        background-color: var(--brand-hover);
-        color: #fff;
-    }
-
+    /* --- CONTENT STYLING --- */
     .info-label {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         text-transform: uppercase;
-        color: #6c757d;
+        color: var(--text-secondary);
         font-weight: 700;
-        margin-bottom: 5px;
+        margin-bottom: 6px;
         letter-spacing: 0.5px;
     }
-
-    .info-data {
+    .info-value {
         font-size: 1rem;
-        color: #212529;
         font-weight: 500;
-    }
-
-    .category-crumb {
-        background: #f8f9fa;
-        padding: 10px 15px;
-        border-radius: 6px;
-        display: inline-flex;
-        align-items: center;
-        width: 100%;
-        border: 1px solid #dee2e6;
+        color: var(--text-main);
+        margin-bottom: 20px;
     }
     
-    .admin-alert {
-        background-color: #fff3cd;
-        border: 1px solid #ffecb5;
-        color: #664d03;
-        padding: 15px;
-        border-radius: 6px;
-        margin-top: 15px;
-        display: flex;
-        align-items: start;
+    .category-crumb {
+        display: inline-flex;
+        align-items: center;
+        background: #f8fafc;
+        padding: 10px 15px;
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        color: var(--text-secondary);
+        font-size: 0.9rem;
     }
 
-    .toggle-icon {
-        transition: transform 0.3s;
+    .admin-alert {
+        background-color: #fff8e1;
+        border-left: 4px solid #f59e0b;
+        padding: 15px;
+        border-radius: 4px;
+        color: #92400e;
+        display: flex;
+        gap: 10px;
+        align-items: center;
     }
-    .section-header.active .toggle-icon {
-        transform: rotate(180deg);
+
+    /* Form Styles */
+    .form-label {
+        font-weight: 600;
+        color: var(--text-main);
+        font-size: 0.9rem;
+        margin-bottom: 8px;
+    }
+    .form-control, .form-select {
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-size: 0.95rem;
+    }
+    .form-control:focus, .form-select:focus {
+        border-color: var(--brand-color);
+        box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1);
+        outline: none;
+    }
+
+    .btn-brand {
+        background-color: var(--brand-color);
+        color: #fff;
+        border: none;
+        padding: 12px 30px;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .btn-brand:hover {
+        background-color: #134242;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(27, 90, 90, 0.2);
     }
 </style>
 
 <div id="mainContent">
-    <div class="container-fluid p-0">
+    <div class="container-fluid p-0" style="max-width: 1400px;">
         
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex justify-content-between align-items-center page-header">
             <div>
-                <h3 class="fw-bold mb-1" style="color: var(--text-dark);">Work Order #<?php echo $ticket_id; ?></h3>
-                <span class="text-muted">Raised on <?php echo $date_raised; ?></span>
+                <h1 class="ticket-title">Work Order #<?php echo $ticket_id; ?></h1>
+                <div class="ticket-meta">Raised on <?php echo $date_raised; ?></div>
             </div>
-            <a href="it_exec_ticket_list.php" class="btn btn-outline-secondary btn-sm d-flex align-items-center" style="height: 38px;">
-                <i data-lucide="arrow-left" style="width: 16px; margin-right: 5px;"></i> Back to List
+            <a href="it_exec_ticket_list.php" class="btn-back">
+                <i data-lucide="arrow-left" style="width: 18px;"></i> Back to List
             </a>
         </div>
 
         <form action="submit_resolution.php" method="POST">
             <input type="hidden" name="ticket_id" value="<?php echo $ticket_id; ?>">
 
-            <div class="section-card">
-                <div class="section-header" onclick="toggleSection('requesterProfile', this)">
-                    <div class="section-title">
-                        <i data-lucide="user" style="width: 20px; margin-right: 10px; color: var(--brand-color);"></i>
-                        Requester Profile
-                    </div>
-                    <i data-lucide="chevron-down" class="toggle-icon"></i>
-                </div>
-                <div id="requesterProfile" class="section-body">
+            <div class="tabs-container">
+                <div class="tab-item active" onclick="switchTab('tab-requester', this)">Requester Profile</div>
+                <div class="tab-item" onclick="switchTab('tab-issue', this)">Issue Specification</div>
+                <div class="tab-item" onclick="switchTab('tab-resolution', this)">Technician Resolution Console</div>
+            </div>
+
+            <div class="content-card">
+                
+                <div id="tab-requester" class="tab-pane active">
+                    <h5 class="mb-4 fw-bold text-dark border-bottom pb-2">User Information</h5>
                     <div class="row">
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-4">
                             <div class="info-label">Name</div>
-                            <div class="info-data"><?php echo $raised_by; ?></div>
+                            <div class="info-value"><?php echo $raised_by; ?></div>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-4">
                             <div class="info-label">Role</div>
-                            <div class="info-data"><?php echo $designation; ?></div>
+                            <div class="info-value"><?php echo $designation; ?></div>
                         </div>
-                        <div class="col-md-4 mb-3">
+                        <div class="col-md-4">
                             <div class="info-label">Department</div>
-                            <div class="info-data"><?php echo $department; ?></div>
+                            <div class="info-value"><?php echo $department; ?></div>
                         </div>
                         <div class="col-md-12">
                             <div class="info-label">Contact / Extension</div>
-                            <div class="info-data text-muted">Not Provided</div>
+                            <div class="info-value text-muted">Not Provided</div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="section-card">
-                <div class="section-header" onclick="toggleSection('issueDetails', this)">
-                    <div class="section-title">
-                        <i data-lucide="alert-circle" style="width: 20px; margin-right: 10px; color: var(--brand-color);"></i>
-                        Issue Specification
-                    </div>
-                    <i data-lucide="chevron-down" class="toggle-icon"></i>
-                </div>
-                <div id="issueDetails" class="section-body">
-                    <div class="row">
-                        <div class="col-md-12 mb-4">
-                            <div class="info-label">Category Path</div>
-                            <div class="category-crumb">
-                                <span><?php echo $main_category; ?></span>
-                                <i data-lucide="chevron-right" style="width: 14px; margin: 0 10px; color: #adb5bd;"></i>
-                                <span><?php echo $sub_category_1; ?></span>
-                                <i data-lucide="chevron-right" style="width: 14px; margin: 0 10px; color: #adb5bd;"></i>
-                                <span class="text-danger fw-bold"><?php echo $sub_category_2; ?></span>
-                            </div>
-                        </div>
-                        <div class="col-md-12 mb-3">
-                            <div class="info-label">Problem Description</div>
-                            <div class="p-3 bg-light border rounded text-dark">
-                                <?php echo $issue_description; ?>
-                            </div>
-                        </div>
-                        <div class="col-md-12">
-                            <div class="admin-alert">
-                                <i data-lucide="bell" style="width: 18px; margin-right: 8px; margin-top: 2px;"></i>
-                                <div>
-                                    <strong>Admin Instruction:</strong><br>
-                                    <?php echo $admin_note; ?>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="section-card" style="border-top: 4px solid var(--brand-color);">
-                <div class="section-header active" onclick="toggleSection('techConsole', this)">
-                    <div class="section-title">
-                        <i data-lucide="tool" style="width: 20px; margin-right: 10px; color: var(--brand-color);"></i>
-                        Technician Resolution Console
-                    </div>
-                    <i data-lucide="chevron-down" class="toggle-icon"></i>
-                </div>
-                <div id="techConsole" class="section-body show">
+                <div id="tab-issue" class="tab-pane">
+                    <h5 class="mb-4 fw-bold text-dark border-bottom pb-2">Problem Details</h5>
                     
+                    <div class="mb-4">
+                        <div class="info-label mb-2">Category Path</div>
+                        <div class="category-crumb">
+                            <span><?php echo $main_category; ?></span>
+                            <i data-lucide="chevron-right" style="width: 14px; margin: 0 10px;"></i>
+                            <span><?php echo $sub_category_1; ?></span>
+                            <i data-lucide="chevron-right" style="width: 14px; margin: 0 10px;"></i>
+                            <span class="text-danger fw-bold"><?php echo $sub_category_2; ?></span>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="info-label mb-2">Description</div>
+                        <div class="p-3 bg-light border rounded" style="line-height: 1.6;">
+                            <?php echo $issue_description; ?>
+                        </div>
+                    </div>
+
+                    <div class="admin-alert">
+                        <i data-lucide="bell" style="width: 20px;"></i>
+                        <div>
+                            <strong>Admin Instruction:</strong> <?php echo $admin_note; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-resolution" class="tab-pane">
+                    <div class="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
+                        <h5 class="mb-0 fw-bold text-dark">Action Area</h5>
+                        <span class="badge bg-warning text-dark px-3 py-2 rounded-pill">Status: Pending Action</span>
+                    </div>
+
                     <div class="row mb-4">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">Update Status <span class="text-danger">*</span></label>
+                            <label class="form-label">Update Status <span class="text-danger">*</span></label>
                             <select class="form-select" name="status" required>
                                 <option value="in_progress" selected>In Progress</option>
                                 <option value="waiting_parts">Waiting for Parts</option>
@@ -296,12 +341,12 @@ include('../sidebars.php');
                             </select>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold">Priority</label>
-                            <input type="text" class="form-control bg-light" value="<?php echo $priority; ?>" readonly>
+                            <label class="form-label">Priority</label>
+                            <input type="text" class="form-control" value="<?php echo $priority; ?>" readonly style="background-color: #f8f9fa;">
                         </div>
                     </div>
 
-                    <h6 class="text-muted fw-bold text-uppercase mb-3" style="font-size: 0.75rem; letter-spacing: 1px;">Technical Details</h6>
+                    <h6 class="text-uppercase text-muted fw-bold mb-3" style="font-size: 0.8rem;">Technical Details</h6>
                     
                     <div class="mb-3">
                         <label class="form-label">Root Cause Analysis</label>
@@ -313,16 +358,16 @@ include('../sidebars.php');
                         <textarea class="form-control" name="solution" rows="4" required placeholder="Describe steps taken to resolve..."></textarea>
                     </div>
 
-                    <div class="p-3 mb-4 rounded" style="background-color: #f0f7f7; border: 1px dashed var(--brand-color);">
-                        <label class="fw-bold mb-2" style="color: var(--brand-color); font-size: 0.9rem;">
-                            <i data-lucide="package" style="width: 14px; margin-right: 5px;"></i>Inventory Usage (Optional)
+                    <div class="p-4 mb-4 rounded" style="background-color: #f1f8f8; border: 1px dashed var(--brand-color);">
+                        <label class="fw-bold mb-3" style="color: var(--brand-color); display:flex; align-items:center; gap:8px;">
+                            <i data-lucide="package" style="width: 16px;"></i> Inventory Usage (Optional)
                         </label>
-                        <div class="row g-2">
+                        <div class="row g-3">
                             <div class="col-md-7">
-                                <input type="text" class="form-control" name="part_name" placeholder="Item Name">
+                                <input type="text" class="form-control bg-white" name="part_name" placeholder="Item Name">
                             </div>
                             <div class="col-md-5">
-                                <input type="text" class="form-control" name="part_serial" placeholder="Serial No.">
+                                <input type="text" class="form-control bg-white" name="part_serial" placeholder="Serial No.">
                             </div>
                         </div>
                     </div>
@@ -338,14 +383,14 @@ include('../sidebars.php');
                         </div>
                     </div>
 
-                    <div class="text-end">
-                        <button type="submit" class="btn btn-brand btn-lg">
-                            <i data-lucide="check-circle" style="width: 18px; margin-right: 5px;"></i> Update Ticket
+                    <div class="text-end pt-3 border-top">
+                        <button type="submit" class="btn-brand">
+                            <i data-lucide="check-circle" style="width: 18px;"></i> Update Ticket
                         </button>
                     </div>
                 </div>
-            </div>
 
+            </div>
         </form>
 
     </div>
@@ -354,22 +399,22 @@ include('../sidebars.php');
 <script>
     lucide.createIcons();
 
-    function toggleSection(id, header) {
-        // Toggle the body visibility
-        const body = document.getElementById(id);
-        body.classList.toggle('show');
-        
-        // Toggle active styling on header
-        header.classList.toggle('active');
-        
-        // Optional: Close other sections if you want 'Accordion' style (only one open at a time)
-        // To enable this, uncomment the lines below:
-        /*
-        const allBodies = document.querySelectorAll('.section-body');
-        const allHeaders = document.querySelectorAll('.section-header');
-        allBodies.forEach(el => { if(el.id !== id) el.classList.remove('show'); });
-        allHeaders.forEach(el => { if(el !== header) el.classList.remove('active'); });
-        */
+    function switchTab(tabId, element) {
+        // 1. Hide all tab panes
+        document.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.classList.remove('active');
+        });
+
+        // 2. Remove active class from all tabs
+        document.querySelectorAll('.tab-item').forEach(item => {
+            item.classList.remove('active');
+        });
+
+        // 3. Show selected pane
+        document.getElementById(tabId).classList.add('active');
+
+        // 4. Set active class on clicked tab
+        element.classList.add('active');
     }
 </script>
 

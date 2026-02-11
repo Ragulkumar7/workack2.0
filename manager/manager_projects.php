@@ -413,7 +413,7 @@ $projects_data = [
     <?php include '../sidebars.php'; ?>
 
     <main class="main-content" id="mainContent">
-        
+      <?php include '../header.php'; ?>
         <div class="page-header">
             <div class="page-title">
                 <h3>Projects</h3>
