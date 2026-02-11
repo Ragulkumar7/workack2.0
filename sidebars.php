@@ -15,11 +15,11 @@ $first_letter = strtoupper(substr($user_name, 0, 1));
 $current_path = basename($_SERVER['PHP_SELF']); 
 $current_view = $_GET['view'] ?? ''; 
 
-// --- DETECT FOLDER LEVEL ---
+// --- FIX: UPDATED FOLDER DETECTION ---
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
-// Added 'accounts' to the array so paths work correctly from inside that folder
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts'])) {
+// Added 'itadmin', 'it_executive', and 'it_executive' to ensure paths go up one level correctly.
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive'])) {
     $base = '../';
 } else {
     $base = '';
@@ -41,7 +41,7 @@ $sections = [
                 'name' => 'Dashboard', 
                 'path' => $base . 'TL/tl_dashboard.php', 
                 'icon' => 'layout-dashboard', 
-                'allowed' => ['Team Lead', 'Team Leader'] 
+                'allowed' => ['Team Lead'] 
             ],
             [
                 'name' => 'Dashboard', 
@@ -49,12 +49,23 @@ $sections = [
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Employee'] 
             ],
-            // NEW: Accounts Dashboard
             [
                 'name' => 'Dashboard', 
                 'path' => $base . 'Accounts/Accounts_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Accounts'] 
+            ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'ITadmin/ITadmin_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['IT Admin'] 
+            ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'IT_Executive/ITexecutive_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['IT Executive'] 
             ],
 
             // --- TEAM CHAT (Common) ---
@@ -62,7 +73,7 @@ $sections = [
                 'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader', 'Employee', 'Accounts']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive']
             ],
 
             // --- EMPLOYEE DETAILS ---
@@ -93,7 +104,7 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Team Lead', 'Team Leader'],
+                'allowed' => ['Team Lead'],
                 'subItems' => [
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
@@ -114,7 +125,7 @@ $sections = [
                 ]
             ],
 
-            // --- TASK MANAGEMENT (Manager, Admin, HR, IT) ---
+           // --- TASK MANAGEMENT (Manager, Admin, HR, IT) ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
@@ -152,7 +163,7 @@ $sections = [
                 'name' => 'Employee', 
                 'path' => $base . 'employee_management.php', 
                 'icon' => 'users', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
             ],
 
             // --- PROJECTS ---
@@ -160,7 +171,7 @@ $sections = [
                 'name' => 'Projects', 
                 'path' => $base . 'manager/manager_projects.php', 
                 'icon' => 'layers', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead']
             ],
 
             // --- CLIENTS ---
@@ -178,11 +189,12 @@ $sections = [
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager', 'System Admin', 'HR'],
             ],
-            // --- ATS BULK SCREENER (New) ---
+            
+            // --- ATS BULK SCREENER ---
             [
                 'name' => 'ATS Screener', 
                 'path' => $base . 'ats_check.php', 
-                'icon' => 'file-search',  // Make sure 'file-search' is a valid Lucide icon, else use 'search'
+                'icon' => 'file-search',
                 'allowed' => ['HR']
             ],
 
@@ -194,23 +206,21 @@ $sections = [
                 'allowed' => ['System Admin', 'HR']
             ],
 
-            // --- ANNOUNCEMENT (Common + Accounts) ---
-            // --- ANNOUNCEMENT (Manager, HR, Admin, Accounts - Full Access) ---
+            // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
                 'allowed' => ['Manager', 'System Admin']
             ],
-
-            // --- ANNOUNCEMENT (Employee & TL - View Only) ---
             [
                 'name' => 'Announcement', 
-                'path' => $base . 'view_announcements.php', // Employee & TL-க்கு மட்டும் இந்த பக்கம் வரும்
+                'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts','Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['HR', 'Accounts','Employee', 'Team Lead', 'IT Admin', 'It_Executive']
             ],
-            // --- TICKET RAISE (Common + Accounts) ---
+
+            // --- TICKET RAISE ---
             [
                 'name' => 'Ticket Raise', 
                 'path' => $base . 'ticketraise.php', 
@@ -223,16 +233,35 @@ $sections = [
                     ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
                 ]
             ],
-
-            // ticket raise employee, mnager, hr, tl
             [
                 'name' => 'Ticket Raise', 
                 'path' => $base . 'ticketraise_form.php', 
                 'icon' => 'ticket', 
                 'allowed' => ['Manager', 'HR', 'Employee', 'Team Lead', 'Accounts'],
                 'subItems' => [
-                    ['name' => 'Raise New Ticket', 'path' => $base . 'ticketraise_form.php', 'icon' => 'plus-circle', 'allowed' => ['Manager', 'HR', 'Team Lead', 'Employee', 'Accounts']],   
+                    ['name' => 'Raise New Ticket', 'path' => $base . 'ticketraise_form.php', 'icon' => 'plus-circle'],   
                 ]
+            ],
+            
+            // --- IT TICKET MANAGEMENT (Corrected folder paths) ---
+            [
+                'name' => 'Manage Tickets', 
+                'path' => $base . 'ITadmin/manage_tickets.php', 
+                'icon' => 'clipboard-list', 
+                'allowed' => ['IT Admin']
+            ],
+            [
+                'name' => 'View Ticket', 
+                'path' => $base . 'ITadmin/view_ticket_details.php', 
+                'icon' => 'eye', 
+                'allowed' => ['IT Admin']
+            ],
+            // --- IT EXECUTIVE ---
+            [
+                'name' => 'Ticket Actions', 
+                'path' => $base . 'IT_Executive/it_exec_ticket_action.php', 
+                'icon' => 'file-check-2', // Represents taking action on a file/ticket
+                'allowed' => ['IT Executive']
             ],
         ]
     ],
@@ -250,7 +279,7 @@ $sections = [
         ]
     ],
 
-    // --- ACCOUNTS (NEW SECTION) ---
+    // --- ACCOUNTS ---
     [
         'label' => 'Accounts',
         'items' => [
@@ -296,26 +325,23 @@ $sections = [
     [
         'label' => 'Support & Tools',
         'items' => [
-            // --- REPORTS ---
             [
                 'name' => 'Reports', 
                 'path' => $base . 'manager/manager_reports.php', 
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
-            // --- HELP & SUPPORT (Common + Accounts) ---
             [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader', 'Accounts']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'It_Executive', 'Accounts']
             ],
-            // --- SETTINGS (Common + Accounts) ---
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader', 'Accounts']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead','IT Admin', 'It_Executive', 'Accounts']
             ],
         ]
     ]
@@ -343,7 +369,6 @@ foreach ($sections as $section) {
         --border-color: #e4e4e7;
         --text-muted: #71717a;
     }
-    /* PRIMARY SIDEBAR */
     .sidebar-primary {
         width: var(--primary-sidebar-width); 
         height: 100vh;
@@ -362,7 +387,6 @@ foreach ($sections as $section) {
     .nav-item:hover, .nav-item.active { color: #16636B; background: #eefcfd; border-right: 3px solid #16636B; }
     .nav-item span { font-size: 10px; margin-top: 5px; font-weight: 500; text-align: center; padding: 0 4px; }
 
-    /* SECONDARY SIDEBAR */
     .sidebar-secondary {
         width: var(--secondary-sidebar-width); height: 100vh; background: #fff;
         border-right: 1px solid var(--border-color); position: fixed;
@@ -396,15 +420,12 @@ foreach ($sections as $section) {
             <?php foreach ($section['items'] as $item): 
                 $itemPath = $item['path'] ?? '#';
                 $isSubActive = false;
-                // Check if a sub-item is currently active based on URL query param
                 if (isset($item['subItems'])) {
                     foreach($item['subItems'] as $sub) {
-                        // Special check for Task Management sub-items
                         if (strpos($sub['path'], $current_view) !== false && $current_view != '') {
                             $isSubActive = true;
                             break;
                         }
-                        // Check for direct file match
                         if (basename($sub['path']) == $current_path) {
                             $isSubActive = true;
                             break;

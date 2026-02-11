@@ -39,6 +39,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                 // --- FIX: DYNAMIC REDIRECT BASED ON ROLE ---
                 switch ($row['role']) {
                     case 'Manager':
+                        header("Location: dashboard.php");
+                        break;
                     case 'System Admin':
                     case 'HR':
                         // Managers go to the main root dashboard
@@ -46,14 +48,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         break;
                     
                     case 'Team Lead':
-                    case 'Team Leader': 
                         // Team Leads go to the TL folder
                         header("Location: TL/tl_dashboard.php");
                         break;
 
                     case 'Employee':
+                        header("Location: employee/employee_dashboard.php");
+                        break;
                     case 'Sales':             // Group other roles to employee dashboard if needed
                     case 'Accounts':
+                        // Accounts go to the Accounts folder
+                        header("Location: Accounts/Accounts_dashboard.php");
+                        break;
+                    case 'IT Admin':
+                        // IT Admin go to the IT Admin folder
+                        header("Location: ITadmin/ITadmin_dashboard.php");
+                        break;
+                    case 'IT Executive':
+                        // IT Executive go to the IT Executive folder
+                        header("Location: IT_Executive/ITExecutive_dashboard.php");
+                        break;
+
+
                     case 'Digital Marketing':
                         // Employees go to the employee folder
                         header("Location: employee/employee_dashboard.php");
