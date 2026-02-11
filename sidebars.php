@@ -210,12 +210,23 @@ $sections = [
                 'name' => 'Ticket Raise', 
                 'path' => $base . 'ticketraise.php', 
                 'icon' => 'ticket', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader', 'Accounts'],
+                'allowed' => ['System Admin'],
                 'subItems' => [
                     ['name' => 'Ticket Dashboard', 'path' => $base . 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
                     ['name' => 'Ticket Details', 'path' => $base . 'ticketraise.php?view=details', 'icon' => 'file-text'],
                     ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], 
                     ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
+                ]
+            ],
+
+            // ticket raise employee, mnager, hr, tl
+            [
+                'name' => 'Ticket Raise', 
+                'path' => $base . 'ticketraise_form.php', 
+                'icon' => 'ticket', 
+                'allowed' => ['Manager', 'HR', 'Employee', 'Team Lead', 'Accounts'],
+                'subItems' => [
+                    ['name' => 'Raise New Ticket', 'path' => $base . 'ticketraise_form.php', 'icon' => 'plus-circle', 'allowed' => ['Manager', 'HR', 'Team Lead', 'Employee', 'Accounts']],   
                 ]
             ],
         ]
