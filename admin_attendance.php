@@ -81,6 +81,7 @@ for($i=1; $i<=6; $i++) {
     <div id="exportToast"><i class="fa-solid fa-circle-check mr-2"></i> Report Downloaded</div>
 
     <?php include('sidebars.php'); ?>
+    <?php include('header.php'); ?>
 
     <div id="reportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[9999] hidden items-center justify-center p-4">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden">

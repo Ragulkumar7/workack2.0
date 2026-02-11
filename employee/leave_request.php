@@ -253,9 +253,10 @@ if (!isset($_SESSION['user_id'])) {
 
     <?php 
     if (file_exists($sidebarPath)) { include($sidebarPath); } 
+
     else { echo "<div style='background:red; color:white; padding:10px;'>Error: sidebars.php not found!</div>"; } 
     ?>
-
+    <?php include '../header.php'; ?> 
     <div class="main-content" id="mainContent">
         
         <div class="page-header">
