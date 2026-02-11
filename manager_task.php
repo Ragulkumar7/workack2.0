@@ -79,6 +79,7 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 <body>
 
     <?php include('sidebars.php'); ?>
+        <?php include 'header.php'; ?>
 
     <div id="mainContent">
         <div class="page-header">

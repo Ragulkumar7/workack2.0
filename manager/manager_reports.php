@@ -197,6 +197,7 @@
 <body>
 
 <div id="mainContent">
+        <?php include '../header.php'; ?>
 
     <header>
         <div class="page-title">
