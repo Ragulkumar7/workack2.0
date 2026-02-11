@@ -28,7 +28,7 @@ $timesheets = [
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
-        :root { --primary-orange: #ff5e3a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
+        :root { --primary-orange: #1b5a5a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
         body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
         
         #mainContent { 

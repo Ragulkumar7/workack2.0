@@ -189,11 +189,19 @@ $sections = [
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager', 'System Admin', 'HR'],
             ],
+
+            // --- PRODUCTIVITY MONITOR (HR & Manager) ---
+            [
+                'name' => 'Productivity', 
+                'path' => $base . 'productivity_monitor.php', 
+                'icon' => 'activity', 
+                'allowed' => ['Manager', 'System Admin', 'HR'] 
+            ],
             
             // --- ATS BULK SCREENER ---
             [
                 'name' => 'ATS Screener', 
-                'path' => $base . 'ats_check.php', 
+                'path' => $base . 'HR/ats_check.php', 
                 'icon' => 'file-search',
                 'allowed' => ['HR']
             ],
