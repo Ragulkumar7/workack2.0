@@ -143,6 +143,7 @@ $user_name = $_SESSION['username'] ?? 'User';
 <body>
 
 <div id="mainContent">
+    <?php include 'header.php'; ?>
     
     <div class="flex justify-between items-center px-8 py-6 bg-white border-b border-gray-200">
         <div>

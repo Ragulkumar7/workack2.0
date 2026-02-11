@@ -173,14 +173,6 @@ $sections = [
                 'allowed' => ['HR']
             ],
 
-            // --- RESIGNATION ---
-            [
-                'name' => 'Resignation', 
-                'path' => $base . 'employee/resignation.php', 
-                'icon' => 'user-x', 
-                'allowed' => ['Employee', 'Team Lead', 'Team Leader']
-            ],
-
             // --- TERMINATION ---
             [
                 'name' => 'Termination', 

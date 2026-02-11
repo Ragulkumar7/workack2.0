@@ -233,7 +233,8 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
     <?php include('sidebars.php'); ?>
 
     <div id="mainContent">
-        
+            <?php include 'header.php'; ?>
+
         <div class="page-header">
             <h1>Announcement</h1>
             <div class="breadcrumb">Dashboard / Company Updates</div>

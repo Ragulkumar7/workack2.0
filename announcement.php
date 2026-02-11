@@ -59,10 +59,9 @@ if (!isset($_SESSION['user_id'])) {
 <body class="text-slate-600">
 
     <?php include('sidebars.php'); ?>
-    <?php include('header.php'); ?>
 
     <div id="mainContent">
-        
+    <?php include 'header.php'; ?>
         <div class="flex justify-between items-center mb-8">
             <div>
                 <h1 class="text-2xl font-bold text-slate-800">Announcements</h1>

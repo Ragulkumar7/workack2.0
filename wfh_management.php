@@ -194,6 +194,7 @@ if (!isset($_SESSION['user_id'])) {
 
     <div class="main-content" id="mainContent">
         
+        
         <div class="page-header">
             <div>
                 <h1>Work From Home Management</h1>

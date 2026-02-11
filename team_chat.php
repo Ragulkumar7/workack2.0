@@ -14,8 +14,8 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
     
     <style>
 :root { 
-    --primary-color: #d13d3dff; 
-    --primary-hover: #cf5f5fff; 
+    --primary-color:  #1b5a5a;
+    --primary-hover: #144d4d;
     --bg-body: #f0f2f5fe; 
     --bg-white: #fffffff6; 
     --text-main: #111827; 
@@ -48,6 +48,9 @@ body {
     width: calc(100% - 95px);
     transition: margin-left 0.3s ease, width 0.3s ease;
     position: relative;
+    /* Updated for Header Integration */
+    display: flex;
+    flex-direction: column;
 }
 #mainContent.main-shifted {
     margin-left: 315px; /* 95px + 220px */
@@ -57,7 +60,10 @@ body {
 
 .app-container { 
     width:100%; 
-    height:100%; 
+    /* Updated dimensions to fill remaining space below header */
+    flex: 1;
+    height: 0; /* Important for flex child scrolling */
+    min-height: 0;
     max-width:1920px; 
     display:flex; 
     gap: 20px; 
@@ -248,7 +254,7 @@ body {
 .btn-secondary:hover { background-color:#F3F4F6; color:var(--text-main); }
 
 @media (max-width: 768px) {
-    .app-container { position:relative; padding: 0; gap: 0; }
+    .app-container { position:relative; padding: 0; gap: 0; height: calc(100vh - 56px); }
     .sidebar { position:absolute; z-index:50; height:100%; width:100%; transform:translateX(0); border-radius: 0; }
     .sidebar.hidden { transform:translateX(-100%); }
     .chat-area { width:100%; border-radius: 0; }
@@ -270,6 +276,7 @@ body {
     <?php include('sidebars.php'); ?>
 
     <main id="mainContent">
+        <?php include('header.php'); ?>
         <div class="app-container">
             <aside class="sidebar" id="sidebar">
                 <div class="sidebar-header">
