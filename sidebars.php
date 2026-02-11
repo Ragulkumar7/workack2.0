@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $user_name = $_SESSION['username'] ?? 'User';
-$user_role = $_SESSION['role'] ?? 'Employee';
+$user_role = isset($_SESSION['role']) ? trim($_SESSION['role']) : 'Employee'; 
 $first_letter = strtoupper(substr($user_name, 0, 1));
 $current_path = basename($_SERVER['PHP_SELF']); 
 $current_view = $_GET['view'] ?? ''; 
@@ -18,8 +18,8 @@ $current_view = $_GET['view'] ?? '';
 // --- DETECT FOLDER LEVEL ---
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
-// Handle paths for Manager, Employee, and TL folders
-if ($current_dir == 'manager' || $current_dir == 'employee' || $current_dir == 'tl') {
+// Added 'accounts' to the array so paths work correctly from inside that folder
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts'])) {
     $base = '../';
 } else {
     $base = '';
@@ -30,7 +30,7 @@ $sections = [
     [
         'label' => 'Main',
         'items' => [
-            // --- DASHBOARD ---
+            // --- DASHBOARDS ---
             [
                 'name' => 'Dashboard', 
                 'path' => $base . 'dashboard.php', 
@@ -49,16 +49,23 @@ $sections = [
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Employee'] 
             ],
+            // NEW: Accounts Dashboard
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'Accounts/Accounts_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['Accounts'] 
+            ],
 
-            // --- TEAM CHAT ---
+            // --- TEAM CHAT (Common) ---
             [
                 'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader', 'Employee']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader', 'Employee', 'Accounts']
             ],
 
-            // --- EMPLOYEE DETAILS (Employee Only) ---
+            // --- EMPLOYEE DETAILS ---
             [
                 'name' => 'Employee Details',
                 'path' => $base . 'employee/employee_details.php', 
@@ -66,7 +73,7 @@ $sections = [
                 'allowed' => ['Employee']
             ],
             
-            // --- ATTENDANCE (Manager View) ---
+            // --- ATTENDANCE (Manager) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
@@ -82,23 +89,20 @@ $sections = [
                 ]
             ],
 
-            // --- ATTENDANCE (Team Lead View - NEW) ---
+            // --- ATTENDANCE (TL) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
                 'allowed' => ['Team Lead', 'Team Leader'],
                 'subItems' => [
-                    // Common punching page for themselves
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
-                    // New page for viewing their team
                     ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
-                    // Common Employee requests
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
                 ]
             ],
 
-            // --- ATTENDANCE (Employee View) ---
+            // --- ATTENDANCE (Employee) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
@@ -130,7 +134,7 @@ $sections = [
                 ]
             ],
 
-            // --- EMPLOYEE MGMT (Manager/TL) ---
+            // --- EMPLOYEE MGMT ---
             [
                 'name' => 'Employee', 
                 'path' => $base . 'employee_management.php', 
@@ -138,7 +142,7 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead', 'Team Leader']
             ],
 
-            // --- PROJECTS (Common) ---
+            // --- PROJECTS ---
             [
                 'name' => 'Projects', 
                 'path' => $base . 'manager/manager_projects.php', 
@@ -146,7 +150,7 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Team Leader']
             ],
 
-            // --- CLIENTS (Manager Only) ---
+            // --- CLIENTS ---
             [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
@@ -154,26 +158,30 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- PERFORMANCE (Common including TL) ---
-           // --- PERFORMANCE (Common including TL) ---
+            // --- PERFORMANCE ---
             [
                 'name' => 'Performance', 
-                // Link updated to the new List Page
                 'path' => $base . 'performance_list.php', 
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager', 'System Admin', 'HR'],
-                // Sub-items removed as the main link now handles the flow
             ],
-            // --- RESIGNATION (Common including TL) ---
+            // --- ATS BULK SCREENER (New) ---
+            [
+                'name' => 'ATS Screener', 
+                'path' => $base . 'ats_check.php', 
+                'icon' => 'file-search',  // Make sure 'file-search' is a valid Lucide icon, else use 'search'
+                'allowed' => ['HR']
+            ],
+
+            // --- RESIGNATION ---
             [
                 'name' => 'Resignation', 
                 'path' => $base . 'employee/resignation.php', 
                 'icon' => 'user-x', 
-                // Added Team Lead here
                 'allowed' => ['Employee', 'Team Lead', 'Team Leader']
             ],
 
-            // --- TERMINATION (Manager Only) ---
+            // --- TERMINATION ---
             [
                 'name' => 'Termination', 
                 'path' => $base . 'manager/termination.php', 
@@ -181,21 +189,28 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- ANNOUNCEMENT (Common) ---
+            // --- ANNOUNCEMENT (Common + Accounts) ---
+            // --- ANNOUNCEMENT (Manager, HR, Admin, Accounts - Full Access) ---
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin']
             ],
 
-            // --- TICKET RAISE (Common including TL) ---
+            // --- ANNOUNCEMENT (Employee & TL - View Only) ---
+            [
+                'name' => 'Announcement', 
+                'path' => $base . 'view_announcements.php', // Employee & TL-க்கு மட்டும் இந்த பக்கம் வரும்
+                'icon' => 'megaphone', 
+                'allowed' => ['HR', 'Accounts','Employee', 'Team Lead', 'Team Leader']
+            ],
+            // --- TICKET RAISE (Common + Accounts) ---
             [
                 'name' => 'Ticket Raise', 
                 'path' => $base . 'ticketraise.php', 
                 'icon' => 'ticket', 
-                // Added Team Lead here
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader'],
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader', 'Accounts'],
                 'subItems' => [
                     ['name' => 'Ticket Dashboard', 'path' => $base . 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
                     ['name' => 'Ticket Details', 'path' => $base . 'ticketraise.php?view=details', 'icon' => 'file-text'],
@@ -205,6 +220,7 @@ $sections = [
             ],
         ]
     ],
+
     // --- FINANCE (HR ONLY) ---
     [
         'label' => 'Finance',
@@ -213,10 +229,54 @@ $sections = [
                 'name' => 'Salary Hike', 
                 'path' => $base . 'payroll_salary.php', 
                 'icon' => 'banknote', 
-                'allowed' => ['HR'] // HR-க்கு மட்டுமே இது தெரியும்
+                'allowed' => ['HR'] 
             ],
         ]
     ],
+
+    // --- ACCOUNTS (NEW SECTION) ---
+    [
+        'label' => 'Accounts',
+        'items' => [
+            [
+                'name' => 'Invoices', 
+                'path' => $base . 'Accounts/new_invoice.php', 
+                'icon' => 'file-text', 
+                'allowed' => ['Accounts'] 
+            ],
+            [
+                'name' => 'Purchase Orders', 
+                'path' => $base . 'Accounts/purchase_order.php', 
+                'icon' => 'shopping-cart', 
+                'allowed' => ['Accounts'] 
+            ],
+            [
+                'name' => 'General Ledger', 
+                'path' => $base . 'Accounts/ledger.php', 
+                'icon' => 'book', 
+                'allowed' => ['Accounts'] 
+            ],
+            [
+                'name' => 'Masters', 
+                'path' => $base . 'Accounts/masters.php', 
+                'icon' => 'landmark', 
+                'allowed' => ['Accounts'] 
+            ],
+            [
+                'name' => 'Reports', 
+                'path' => $base . 'Accounts/accounts_reports.php', 
+                'icon' => 'pie-chart', 
+                'allowed' => ['Accounts'] 
+            ],
+            [
+                'name' => 'Payslip', 
+                'path' => $base . 'Accounts/payslip.php', 
+                'icon' => 'banknote', 
+                'allowed' => ['Accounts'] 
+            ],
+        ]
+    ],
+
     [
         'label' => 'Support & Tools',
         'items' => [
@@ -227,19 +287,19 @@ $sections = [
                 'icon' => 'file-bar-chart', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
-            // --- HELP & SUPPORT (Common including TL) ---
+            // --- HELP & SUPPORT (Common + Accounts) ---
             [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'Team Leader', 'Accounts']
             ],
-            // --- SETTINGS (Common including TL) ---
+            // --- SETTINGS (Common + Accounts) ---
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Team Leader', 'Accounts']
             ],
         ]
     ]
@@ -328,7 +388,7 @@ foreach ($sections as $section) {
                             $isSubActive = true;
                             break;
                         }
-                        // Check for direct file match (like self_task.php)
+                        // Check for direct file match
                         if (basename($sub['path']) == $current_path) {
                             $isSubActive = true;
                             break;
@@ -370,8 +430,6 @@ foreach ($sections as $section) {
             if(main) main.classList.add('main-shifted');
             container.innerHTML = `<div class="back-btn" onclick="closeSubMenu()"><i data-lucide="chevron-left" style="width: 16px; height: 16px; margin-right: 8px;"></i>Back</div><h3 style="font-size:14px; font-weight:700; margin-bottom:15px; padding-left:10px;">${item.name}</h3>`;
             item.subItems.forEach(sub => {
-                // Filter out sub-items that might not be allowed for this user if we add logic later
-                // For now, PHP filters the main blocks.
                 container.innerHTML += `<a href="${sub.path}" class="sub-item"><i data-lucide="${sub.icon || 'circle'}" class="sub-icon"></i><span style="flex:1">${sub.name}</span><i data-lucide="chevron-right" style="width:12px; height:12px; color:#a1a1aa"></i></a>`;
             });
             lucide.createIcons();
