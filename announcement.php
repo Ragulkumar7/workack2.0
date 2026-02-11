@@ -59,6 +59,7 @@ if (!isset($_SESSION['user_id'])) {
 <body class="text-slate-600">
 
     <?php include('sidebars.php'); ?>
+    <?php include('header.php'); ?>
 
     <div id="mainContent">
         

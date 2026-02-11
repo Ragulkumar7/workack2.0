@@ -39,8 +39,10 @@
     </style>
 </head>
 <body class="bg-slate-50">
+    
 
     <?php include '../sidebars.php'; ?>
+    <?php include '../header.php'; ?>
 
     <div class="min-h-screen">
         

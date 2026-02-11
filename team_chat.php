@@ -268,6 +268,7 @@ body {
 <body>
 
     <?php include('sidebars.php'); ?>
+    <?php include 'header.php'; ?>
 
     <main id="mainContent">
         <div class="app-container">
