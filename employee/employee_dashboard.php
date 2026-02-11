@@ -523,15 +523,11 @@
                         </div>
                     </div>
                 </div>
-
             </div>
-
             <div class="fixed right-0 top-1/2 -translate-y-1/2 bg-teal-custom text-white p-2 rounded-l-lg shadow-xl cursor-pointer">
                 <i class="fa-solid fa-gear"></i>
             </div>
-            
         </main>
     </div>
-
 </body>
 </html>
