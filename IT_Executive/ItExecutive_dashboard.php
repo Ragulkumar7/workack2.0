@@ -1,173 +1,324 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IT Admin Dashboard - HRMS</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-    </style>
-</head>
-<body class="bg-[#f8fafc] text-slate-700">
+<?php
+// -------------------------------------------------------------------------
+// PAGE: IT Executive Dashboard (Executive Overview Style)
+// -------------------------------------------------------------------------
+ob_start(); 
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-    <main class="p-8">
-        <div class="flex flex-wrap justify-between items-center mb-8 gap-4">
+// -------------------------------------------------------------------------
+// 1. MOCK DATA
+// -------------------------------------------------------------------------
+$exec_name = "John Doe";
+$current_date = date('d M, Y');
+
+// Stats Data
+$pending_count = 5;
+$inprogress_count = 2;
+$completed_today = 4;
+$total_tickets = $pending_count + $inprogress_count + $completed_today;
+
+// High Priority Tasks
+$priority_tasks = [
+    ['id' => 'IT-2026-901', 'issue' => 'Server Connectivity Failure', 'dept' => 'Finance', 'time' => '10 mins ago'],
+    ['id' => 'IT-2026-899', 'issue' => 'CEO Laptop Crash', 'dept' => 'Management', 'time' => '1 hour ago']
+];
+
+// Recent Tickets
+$recent_tickets = [
+    ['id' => 'IT-2026-884', 'issue' => 'Blue Screen Error', 'raised_by' => 'Priya (HR)', 'status' => 'In Progress', 'priority' => 'High'],
+    ['id' => 'IT-2026-880', 'issue' => 'Printer Jam', 'raised_by' => 'Rahul (Sales)', 'status' => 'Pending', 'priority' => 'Medium'],
+    ['id' => 'IT-2026-875', 'issue' => 'Outlook not syncing', 'raised_by' => 'Sarah (Ops)', 'status' => 'Pending', 'priority' => 'Low'],
+    ['id' => 'IT-2026-870', 'issue' => 'Install PowerBI', 'raised_by' => 'Vikram (Data)', 'status' => 'Resolved', 'priority' => 'Medium']
+];
+
+include('../header.php'); 
+include('../sidebars.php'); 
+?>
+
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    :root {
+        --primary-width: 95px;
+        --secondary-width: 220px;
+        --brand-color: #1b5a5a;
+        --text-main: #344767;
+        --text-muted: #7b809a;
+        --bg-body: #f8fafc;
+        --card-bg: #ffffff;
+        --border: #e2e8f0;
+        --pending: #f59e0b;
+        --progress: #3b82f6;
+        --completed: #10b981;
+        --neutral: #64748b;
+    }
+
+    body {
+        background-color: var(--bg-body);
+        font-family: 'Inter', sans-serif;
+        color: var(--text-main);
+        overflow-x: hidden;
+    }
+
+    /* --- LAYOUT --- */
+    #mainContent {
+        margin-left: var(--primary-width);
+        transition: margin-left 0.3s ease;
+        padding: 30px;
+        min-height: 100vh;
+    }
+    #mainContent.main-shifted { margin-left: calc(var(--primary-width) + var(--secondary-width)); }
+    
+    .dashboard-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        width: 100%;
+    }
+
+    @media (max-width: 991px) {
+        #mainContent, #mainContent.main-shifted { margin-left: 0; padding: 20px; }
+    }
+
+    /* --- HEADER --- */
+    .page-header {
+        margin-bottom: 30px;
+    }
+    .header-title {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 4px;
+    }
+    .header-sub {
+        font-size: 0.95rem;
+        color: var(--text-muted);
+    }
+
+    /* ────────────────────────────────────────────────
+       IMPROVED STATUS CARDS (like modern dashboard style)
+    ──────────────────────────────────────────────── */
+    .status-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2.5rem;
+    }
+
+    .status-card {
+        background: var(--card-bg);
+        border-radius: 12px;
+        padding: 1.75rem 1.5rem;
+        border: 1px solid var(--border);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+        transition: all 0.2s ease;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .status-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+    }
+
+    .card-header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+
+    .card-label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-muted);
+    }
+
+    .card-icon {
+        font-size: 1.5rem;
+        color: var(--neutral);
+    }
+
+    .card-number {
+        font-size: 2.5rem;
+        font-weight: 700;
+        line-height: 1;
+        margin-bottom: 0.5rem;
+        color: #1e293b;
+    }
+
+    .card-trend {
+        font-size: 0.875rem;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 0.375rem;
+    }
+
+    .trend-up { color: var(--completed); }
+    .trend-down { color: #ef4444; }
+    .trend-neutral { color: var(--neutral); }
+
+    /* Status-specific colors */
+    .card-pending .card-number   { color: var(--pending); }
+    .card-progress .card-number  { color: var(--progress); }
+    .card-completed .card-number { color: var(--completed); }
+    .card-total .card-number     { color: var(--brand-color); }
+
+    /* --- PRIORITY ALERT & TABLE (unchanged) --- */
+    .priority-section {
+        background: #fff;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        margin-bottom: 24px;
+    }
+    .priority-title { font-weight: 600; color: #b91c1c; margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
+    
+    .priority-item {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 12px 16px; background: #fef2f2; border: 1px solid #fee2e2;
+        border-radius: 8px; margin-bottom: 8px;
+    }
+
+    .table-container {
+        background: #fff;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .table-title { font-weight: 600; color: #334155; margin-bottom: 20px; }
+
+    .custom-table th { background: #f8fafc; color: #64748b; font-size: 0.75rem; text-transform: uppercase; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; }
+    .custom-table td { padding: 14px 16px; vertical-align: middle; border-bottom: 1px solid #f1f5f9; color: #334155; font-size: 0.9rem; }
+    
+    .badge-status { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; }
+    .st-pending { background: #fff7ed; color: #c2410c; }
+    .st-progress { background: #eff6ff; color: #1d4ed8; }
+    .st-resolved { background: #ecfdf5; color: #047857; }
+
+    .btn-action { color: #1b5a5a; background: rgba(27, 90, 90, 0.08); padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; text-decoration: none; }
+</style>
+
+<div id="mainContent">
+    <div class="dashboard-container">
+        
+        <div class="page-header d-flex justify-content-between align-items-center">
             <div>
-                <h1 class="text-3xl font-bold text-[#1e293b]">IT Admin Dashbaord</h1>
-                <nav class="flex items-center gap-2 text-sm text-slate-400 mt-1">
-                    <i class="fa-solid fa-house text-xs"></i>
-                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
-                    <span>Dashboard</span>
-                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
-                    <span class="text-slate-600 font-medium">IT Admin Dashbaord</span>
-                </nav>
+                <h1 class="header-title">Executive Overview</h1>
+                <div class="header-sub">Snapshot of assigned tickets and performance</div>
             </div>
-
-            <div class="flex items-center gap-3">
-                <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-4 py-2 shadow-sm">
-                    <div class="bg-emerald-500 p-1.5 rounded text-white text-[10px]"><i class="fa-solid fa-link"></i></div>
-                    <span class="text-sm font-medium">Active Users <span class="font-bold ml-1">248</span></span>
-                </div>
-                <div class="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-4 py-2 shadow-sm">
-                    <div class="bg-red-500 p-1.5 rounded text-white text-[10px]"><i class="fa-solid fa-circle-info"></i></div>
-                    <span class="text-sm font-medium">Security Alerts <span class="font-bold ml-1 text-red-600">3</span></span>
-                </div>
-                <div class="flex bg-white border border-slate-200 p-1 rounded-lg shadow-sm">
-                    <button class="bg-[#f97316] text-white px-4 py-1.5 rounded-md text-sm font-semibold shadow-sm">Production</button>
-                    <button class="text-slate-500 px-4 py-1.5 text-sm font-medium hover:bg-slate-50 rounded-md">Staging</button>
-                    <button class="text-slate-500 px-4 py-1.5 text-sm font-medium hover:bg-slate-50 rounded-md">Development</button>
-                </div>
-                <button class="bg-white border border-slate-200 p-2 rounded-lg text-slate-400 hover:text-slate-600 shadow-sm">
-                    <i class="fa-solid fa-chevron-up"></i>
-                </button>
+            <div style="font-size:0.9rem; color:#64748b; font-weight:500;">
+                <i data-lucide="calendar" style="width:14px; margin-right:5px;"></i> <?php echo $current_date; ?>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <?php 
-            $metrics = [
-                ['label' => 'HRMS System Uptime', 'value' => '99.9%', 'sub' => 'Last 30 days', 'icon' => 'fa-clock-rotate-left', 'color' => 'text-orange-500'],
-                ['label' => 'API Status', 'value' => 'Healthy', 'sub' => 'All operational', 'icon' => 'fa-share-nodes', 'color' => 'text-emerald-500'],
-                ['label' => 'Open IT Tickets', 'value' => '18', 'sub' => '5 high priority', 'icon' => 'fa-ticket-simple', 'color' => 'text-slate-800'],
-                ['label' => 'Background Jobs', 'value' => 'Running', 'sub' => '12/12 jobs healthy', 'icon' => 'fa-briefcase', 'color' => 'text-slate-800']
-            ];
-            foreach($metrics as $m): ?>
-            <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm relative overflow-hidden group hover:shadow-md transition">
-                <p class="text-slate-400 text-sm font-medium"><?php echo $m['label']; ?></p>
-                <h3 class="text-3xl font-bold mt-2 <?php echo $m['color']; ?>"><?php echo $m['value']; ?></h3>
-                <p class="text-xs text-slate-400 mt-1"><?php echo $m['sub']; ?></p>
-                <div class="absolute top-6 right-6 w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 group-hover:text-slate-500 transition">
-                    <i class="fa-solid <?php echo $m['icon']; ?>"></i>
+        <!-- Updated Status Cards Grid -->
+        <div class="status-grid">
+
+            <div class="status-card card-total">
+                <div class="card-header-row">
+                    <span class="card-label">Total Assigned</span>
+                    <i data-lucide="layers" class="card-icon"></i>
+                </div>
+                <div class="card-number"><?php echo $total_tickets; ?></div>
+                <div class="card-trend trend-neutral">
+                    <i data-lucide="minus" style="width:14px;"></i> No new items
+                </div>
+            </div>
+
+            <div class="status-card card-pending">
+                <div class="card-header-row">
+                    <span class="card-label">Pending Tasks</span>
+                    <i data-lucide="clock" class="card-icon"></i>
+                </div>
+                <div class="card-number"><?php echo $pending_count; ?></div>
+                <div class="card-trend trend-down">
+                    <i data-lucide="trending-up" style="width:14px;"></i> +<?php echo rand(2,8); ?>% this week
+                </div>
+            </div>
+
+            <div class="status-card card-progress">
+                <div class="card-header-row">
+                    <span class="card-label">In Progress</span>
+                    <i data-lucide="loader-2" class="card-icon"></i>
+                </div>
+                <div class="card-number"><?php echo $inprogress_count; ?></div>
+                <div class="card-trend trend-neutral">
+                    <i data-lucide="activity" style="width:14px;"></i> Active now
+                </div>
+            </div>
+
+            <div class="status-card card-completed">
+                <div class="card-header-row">
+                    <span class="card-label">Completed Today</span>
+                    <i data-lucide="check-circle" class="card-icon"></i>
+                </div>
+                <div class="card-number"><?php echo $completed_today; ?></div>
+                <div class="card-trend trend-up">
+                    <i data-lucide="trending-up" style="width:14px;"></i> +<?php echo rand(10,25); ?>%
+                </div>
+            </div>
+
+        </div>
+
+        <?php if(!empty($priority_tasks)): ?>
+        <div class="priority-section">
+            <div class="priority-title"><i data-lucide="alert-triangle" style="width:18px;"></i> High Priority Attention</div>
+            <?php foreach($priority_tasks as $ptask): ?>
+            <div class="priority-item">
+                <div>
+                    <div style="font-weight:600; color:#1f2937; font-size:0.95rem;"><?php echo $ptask['issue']; ?></div>
+                    <div style="font-size:0.85rem; color:#6b7280;"><?php echo $ptask['dept']; ?></div>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                    <span style="font-size:0.85rem; color:#dc2626; font-weight:600;"><?php echo $ptask['time']; ?></span>
+                    <a href="it_exec_ticket_action.php?id=<?php echo $ptask['id']; ?>" class="btn-action" style="color:#dc2626; background:#fee2e2;">Fix Now</a>
                 </div>
             </div>
             <?php endforeach; ?>
         </div>
+        <?php endif; ?>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div class="lg:col-span-2 space-y-8">
-                <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                    <div class="flex justify-between items-center mb-8">
-                        <h3 class="font-bold text-lg flex items-center gap-2">
-                            <i class="fa-solid fa-database text-orange-500 text-sm"></i> Storage Usage By Module (GB)
-                        </h3>
-                        <div class="flex bg-slate-100 p-1 rounded-lg text-[10px] font-bold">
-                            <span class="px-2 py-1 text-slate-400 uppercase">1D</span>
-                            <span class="px-2 py-1 text-slate-400 uppercase">7D</span>
-                            <span class="px-2 py-1 text-slate-400 uppercase">1M</span>
-                            <span class="px-1.5 py-1 bg-[#1e293b] text-white rounded uppercase">1Y</span>
-                        </div>
-                    </div>
-                    
-                    <div class="h-64 flex items-end justify-between gap-4 px-4 pb-2">
-                        <?php 
-                        $storage = [['HR', 280, 'bg-[#2a5d67]'], ['Payroll', 260, 'bg-[#2a5d67]'], ['Attendance', 140, 'bg-[#f47e4d]'], ['Recruitment', 68, 'bg-[#2a5d67]'], ['Leaves', 120, 'bg-[#2a5d67]'], ['Document', 260, 'bg-[#2a5d67]']];
-                        foreach($storage as $s): ?>
-                        <div class="flex-1 flex flex-col items-center group">
-                            <div class="w-full bg-slate-50 rounded-t-lg relative h-48">
-                                <div class="<?php echo $s[2]; ?> absolute bottom-0 w-full rounded-t-lg transition-all duration-500 flex items-end justify-center pb-2" style="height: <?php echo ($s[1]/320)*100; ?>%">
-                                    <span class="text-[10px] text-white font-bold opacity-0 group-hover:opacity-100 transition"><?php echo $s[1]; ?> GB</span>
-                                </div>
-                            </div>
-                            <span class="text-xs text-slate-400 mt-3 font-medium"><?php echo $s[0]; ?></span>
-                        </div>
+        <div class="table-container">
+            <div class="table-title">My Assigned Tickets</div>
+            <div class="table-responsive">
+                <table class="table custom-table mb-0">
+                    <thead>
+                        <tr>
+                            <th>Ticket ID</th>
+                            <th>Issue</th>
+                            <th>Status</th>
+                            <th class="text-end">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($recent_tickets as $ticket): ?>
+                        <tr>
+                            <td style="font-weight:600; color:var(--brand-color);"><?php echo $ticket['id']; ?></td>
+                            <td><?php echo $ticket['issue']; ?></td>
+                            <td>
+                                <?php 
+                                    $statusClass = 'st-pending';
+                                    if($ticket['status'] == 'In Progress') $statusClass = 'st-progress';
+                                    if($ticket['status'] == 'Resolved') $statusClass = 'st-resolved';
+                                ?>
+                                <span class="badge-status <?php echo $statusClass; ?>"><?php echo $ticket['status']; ?></span>
+                            </td>
+                            <td class="text-end">
+                                <a href="it_exec_ticket_action.php?id=<?php echo $ticket['id']; ?>" class="btn-action">Open</a>
+                            </td>
+                        </tr>
                         <?php endforeach; ?>
-                    </div>
-                </div>
-
-                <div class="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-                    <div class="p-6 border-b flex justify-between items-center">
-                        <h3 class="text-lg font-bold text-slate-800">Recent Employee Tickets</h3>
-                        <button class="text-sm text-blue-600 font-medium hover:underline">View All</button>
-                    </div>
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-left">
-                            <thead class="bg-slate-50 border-b">
-                                <tr>
-                                    <th class="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Ticket ID</th>
-                                    <th class="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Submitted By</th>
-                                    <th class="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Issue Type</th>
-                                    <th class="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Priority</th>
-                                    <th class="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-6 py-4 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Last Update</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100 text-sm">
-                                <tr class="hover:bg-slate-50 transition">
-                                    <td class="px-6 py-4 font-medium text-blue-600">TKT-2024-05-001</td>
-                                    <td class="px-6 py-4 font-semibold">Jane Doe</td>
-                                    <td class="px-6 py-4">Hardware</td>
-                                    <td class="px-6 py-4"><span class="px-2 py-1 bg-orange-100 text-orange-600 rounded text-[10px] font-bold">Medium</span></td>
-                                    <td class="px-6 py-4"><span class="px-2 py-1 bg-green-100 text-green-600 rounded text-[10px] font-bold">Open</span></td>
-                                    <td class="px-6 py-4 text-slate-400 text-right">2 hours ago</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            <div class="space-y-8">
-                <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                    <h3 class="font-bold text-slate-800 flex items-center gap-2 mb-4">
-                        <i class="fa-solid fa-shield-halved text-orange-500 text-sm"></i> MFA Enabled Users
-                    </h3>
-                    <div class="flex justify-between items-end mb-4">
-                        <p class="text-xs text-slate-400 font-medium">2,168 out of 2,436 users</p>
-                        <span class="text-2xl font-bold text-slate-800">89%</span>
-                    </div>
-                    <div class="flex gap-1.5">
-                        <?php for($i=0; $i<15; $i++): ?>
-                            <div class="h-3 w-3 rounded-full <?php echo $i < 12 ? 'bg-orange-500' : 'bg-slate-100'; ?>"></div>
-                        <?php endfor; ?>
-                    </div>
-                </div>
-
-                <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-                    <h3 class="font-bold text-slate-800 flex items-center gap-2 mb-6">
-                        <i class="fa-solid fa-bolt text-orange-500 text-sm"></i> Quick IT Actions
-                    </h3>
-                    <div class="grid grid-cols-2 gap-y-8">
-                        <?php 
-                        $actions = [
-                            ['Restart HRMS Services', 'fa-arrows-rotate'], ['Sync Biometric', 'fa-fingerprint'],
-                            ['Clear System Cache', 'fa-database'], ['Schedule Maintenance', 'fa-calendar-day']
-                        ];
-                        foreach($actions as $a): ?>
-                        <div class="flex flex-col items-center text-center group cursor-pointer">
-                            <div class="w-12 h-12 bg-[#1e293b] text-white rounded-full flex items-center justify-center mb-3 group-hover:bg-orange-500 transition shadow-lg shadow-slate-200">
-                                <i class="fa-solid <?php echo $a[1]; ?> text-sm"></i>
-                            </div>
-                            <span class="text-[11px] font-semibold text-slate-600 px-2"><?php echo $a[0]; ?></span>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
+                    </tbody>
+                </table>
             </div>
         </div>
-    </main>
 
-</body>
-</html>
+    </div>
+</div>
+
+<script>
+    lucide.createIcons();
+</script>
+
+<?php ob_end_flush(); ?>
