@@ -114,16 +114,29 @@ $sections = [
                 ]
             ],
 
-            // --- TASK MANAGEMENT ---
+            // --- TASK MANAGEMENT (Manager, Admin, HR, IT) ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
-                'allowed' => ['Manager', 'Team Lead', 'Team Leader', 'HR', 'System Admin'],
+                'allowed' => ['Manager', 'System Admin', 'HR', 'IT'], // TL Removed here
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
                 ]
             ],
+
+            // --- TASK MANAGEMENT (Team Lead - Updated Path) ---
+            [
+                'name' => 'Task Management', 
+                'icon' => 'clipboard-check', 
+                'allowed' => ['Team Lead', 'Team Leader'], // Only TL
+                'subItems' => [
+                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'Team Tasks', 'path' => $base . 'TL/task_tl.php', 'icon' => 'users'], // New Path for TL
+                ]
+            ],
+
+            // --- TASK MANAGEMENT (Employee) ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 

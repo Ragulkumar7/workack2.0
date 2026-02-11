@@ -1,47 +1,26 @@
 <?php
-session_start();
-// include 'db_connect.php'; 
+// accounts_dashboard.php
 
-// Mock data for dashboard (aggregated from other files' mocks)
-$kpi = [
-    'total_income' => 1250000,
-    'total_expense' => 450000,
-    'net_profit' => 800000,
-    'pending_invoices' => 125000,
-    'active_employees' => 24,
-    'total_clients' => 12
-];
-
-$chart_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-$chart_income = [200000, 450000, 300000, 500000, 400000, 600000];
-$chart_expense = [100000, 150000, 120000, 200000, 180000, 250000];
-
-$recent_invoices = [
-    ['no' => 'INV-001', 'client' => 'Facebook', 'date' => '2026-01-20', 'total' => 47200, 'status' => 'Paid'],
-    ['no' => 'INV-002', 'client' => 'Neoera', 'date' => '2026-02-02', 'total' => 11800, 'status' => 'Unpaid'],
-];
-
-$recent_pos = [
-    ['no' => 'PO-001', 'vendor' => 'Dell Computers', 'date' => '2026-01-10', 'grand' => 120000],
-    ['no' => 'PO-002', 'vendor' => 'Stationery World', 'date' => '2026-02-01', 'grand' => 5000],
-];
-
-$recent_ledger = [
-    ['date' => '2026-02-10', 'type' => 'Income', 'party' => 'Facebook India', 'desc' => 'Milestone 1', 'amount' => 500000, 'mode' => 'Credit'],
-    ['date' => '2026-02-09', 'type' => 'Expense', 'party' => 'Office Rent', 'desc' => 'Feb Rent', 'amount' => 45000, 'mode' => 'Debit'],
-];
-
-$recent_expenses = [
-    ['date' => '30-Jan-2026', 'item' => 'Ink Cartridge', 'category' => 'Supplies', 'amount' => 550],
-];
-
-$recent_payslips = [
-    ['id' => 'IGS4001', 'name' => 'Caro', 'month' => 'Feb 2026', 'salary' => '₹ 50,000.00', 'status' => 'PAID'],
-    ['id' => 'IGS2030', 'name' => 'Aisha', 'month' => 'Jan 2026', 'salary' => '₹ 55,000.00', 'status' => 'PAID'],
-];
-
-include '../sidebars.php';
+// 1. INCLUDE COMMON FILES
+// Ensure sidebars.php and header.php are in the parent directory as per your structure
+include '../sidebars.php'; 
 include '../header.php';
+
+// 2. MOCK DATA (Simulating Database Fetches)
+$kpi = [
+    'balance' => 850000,
+    'income'  => 1250000,
+    'expense' => 450000,
+    'pending' => 125000
+];
+
+// Recent Transactions (Mixed from Invoice, PO, Ledger)
+$recent_transactions = [
+    ['id' => 'INV-014', 'date' => '2026-02-11', 'party' => 'Facebook India', 'type' => 'Invoice', 'amount' => 45000, 'status' => 'Pending'],
+    ['id' => 'PO-205',  'date' => '2026-02-10', 'party' => 'Dell Computers', 'type' => 'Purchase Order', 'amount' => 120000, 'status' => 'Paid'],
+    ['id' => 'EXP-009', 'date' => '2026-02-09', 'party' => 'Office Rent',    'type' => 'Expense', 'amount' => 25000, 'status' => 'Cleared'],
+    ['id' => 'SAL-Feb', 'date' => '2026-02-01', 'party' => 'Staff Salary',   'type' => 'Payroll', 'amount' => 650000, 'status' => 'Processed'],
+];
 ?>
 
 <!DOCTYPE html>
@@ -49,489 +28,321 @@ include '../header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Accounts Dashboard</title>
+    <title>Accounts Overview - Workack</title>
     
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
         :root {
-            --primary-color: #1b5a5a;
-            --primary-light: #267a7a;
+            /* Brand Colors */
+            --theme-color: #1b5a5a;       /* Deep Teal */
+            --theme-dark: #134e4e;
+            --theme-light: #e0f2f1;
             --accent-gold: #D4AF37;
-            --bg-light: #f4f6f9;
+            
+            /* UI Colors */
+            --bg-body: #f3f4f6;
+            --surface: #ffffff;
             --text-main: #1e293b;
             --text-muted: #64748b;
-            --border-color: #e2e8f0;
-            --success: #059669;
-            --danger: #dc2626;
-            --warning: #d97706;
-            --primary-sidebar-width: 95px;
-            --secondary-sidebar-width: 220px;
+            --border: #e2e8f0;
+            
+            /* Functional Colors */
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+
+            /* Sidebar logic */
+            --sidebar-width: 95px;
         }
 
         body {
-            background-color: var(--bg-light);
+            background-color: var(--bg-body);
             font-family: 'Plus Jakarta Sans', sans-serif;
-            margin: 0;
-            padding: 0;
-            overflow-x: hidden;
+            color: var(--text-main);
+            margin: 0; padding: 0;
         }
 
-        /* Layout */
-        .d-flex-wrapper {
-            display: flex;
-            width: 100%;
-            min-height: 100vh;
-            transition: margin-left 0.35s ease;
-        }
-
-        .sidebar-container {
-            width: var(--primary-sidebar-width);
-            flex-shrink: 0;
-            min-height: 100vh;
-            background: #fff;
-            border-right: 1px solid #e0e0e0;
-            position: sticky;
-            top: 0;
-            z-index: 1001;
-        }
-
+        /* --- LAYOUT --- */
         .main-content {
-            flex-grow: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            transition: margin-left 0.35s ease;
+            margin-left: var(--sidebar-width);
             padding: 30px;
+            width: calc(100% - var(--sidebar-width));
+            min-height: 100vh;
+            transition: all 0.3s ease;
         }
 
-        /* Push when secondary sidebar opens */
-        body.secondary-open .d-flex-wrapper,
-        body.secondary-open .main-content {
-            margin-left: var(--secondary-sidebar-width);
+        /* --- HEADER SECTION --- */
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            margin-bottom: 30px;
+        }
+        .welcome-text h1 {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--theme-color);
+            margin: 0;
+        }
+        .welcome-text p {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin: 5px 0 0;
+        }
+        .date-badge {
+            background: white;
+            padding: 8px 16px;
+            border-radius: 50px;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--theme-color);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+            border: 1px solid var(--border);
         }
 
-        /* KPI Cards */
+        /* --- KPI CARDS --- */
         .kpi-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
             gap: 20px;
-            margin-bottom: 40px;
+            margin-bottom: 30px;
         }
-
         .kpi-card {
+            background: var(--surface);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.02);
+            border: 1px solid var(--border);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s;
+        }
+        .kpi-card:hover { transform: translateY(-3px); }
+        
+        .kpi-icon {
+            width: 45px; height: 45px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 22px;
+            margin-bottom: 15px;
+        }
+        .kpi-label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-value { font-size: 26px; font-weight: 800; color: var(--text-main); margin-top: 5px; }
+        .kpi-trend { font-size: 12px; margin-top: 8px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+        
+        /* Specific Colors */
+        .k-balance .kpi-icon { background: var(--theme-light); color: var(--theme-color); }
+        .k-income .kpi-icon { background: #dcfce7; color: var(--success); }
+        .k-expense .kpi-icon { background: #fee2e2; color: var(--danger); }
+        .k-pending .kpi-icon { background: #ffedd5; color: var(--warning); }
+
+        /* --- QUICK ACTIONS --- */
+        .section-title { font-size: 16px; font-weight: 700; color: var(--theme-color); margin-bottom: 15px; display: flex; align-items: center; gap: 8px; }
+        
+        .action-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .action-btn {
             background: white;
             padding: 20px;
             border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-            border-left: 4px solid var(--primary-color);
-            transition: transform 0.2s;
-        }
-
-        .kpi-card:hover {
-            transform: translateY(-5px);
-        }
-
-        .kpi-label {
-            font-size: 12px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-
-        .kpi-value {
-            font-size: 24px;
-            font-weight: 800;
-            color: var(--text-main);
-        }
-
-        .kpi-icon {
-            position: absolute;
-            right: 20px;
-            top: 20px;
-            opacity: 0.1;
-            font-size: 40px;
-        }
-
-        /* Quick Actions */
-        .quick-actions {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 40px;
-        }
-
-        .action-btn {
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            text-align: center;
-            font-weight: 600;
-            color: var(--primary-color);
-            transition: all 0.2s;
+            border: 1px solid var(--border);
+            text-decoration: none;
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
             gap: 10px;
+            transition: all 0.2s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.02);
         }
-
         .action-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            border-color: var(--theme-color);
+            background: var(--theme-light);
+            transform: translateY(-2px);
         }
+        .action-btn i { font-size: 28px; color: var(--theme-color); }
+        .action-btn span { font-size: 13px; font-weight: 600; color: var(--text-main); }
 
-        .action-icon {
-            font-size: 24px;
-        }
-
-        /* Charts */
-        .charts-grid {
+        /* --- CHARTS & TABLE LAYOUT --- */
+        .dashboard-split {
             display: grid;
             grid-template-columns: 2fr 1fr;
-            gap: 20px;
-            margin-bottom: 40px;
-        }
-
-        .chart-card {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        }
-
-        /* Recent Sections */
-        .recent-section {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            gap: 25px;
             margin-bottom: 30px;
         }
 
-        .section-title {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--primary-color);
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
+        .chart-card, .table-card {
+            background: white;
+            padding: 25px;
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.02);
         }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
+        .chart-header { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .chart-header h3 { font-size: 16px; font-weight: 700; margin: 0; color: var(--text-main); }
 
-        th {
-            text-align: left;
-            padding: 12px;
-            background: #f8fafc;
-            color: var(--text-muted);
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
+        /* --- RECENT TABLE --- */
+        .recent-table { width: 100%; border-collapse: collapse; }
+        .recent-table th { text-align: left; padding: 12px; font-size: 11px; color: var(--text-muted); text-transform: uppercase; background: #f8fafc; border-radius: 6px; }
+        .recent-table td { padding: 15px 12px; border-bottom: 1px solid #f1f5f9; font-size: 13px; vertical-align: middle; }
+        .recent-table tr:last-child td { border-bottom: none; }
+        
+        .txn-icon { 
+            width: 32px; height: 32px; border-radius: 8px; 
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 16px; margin-right: 10px; 
         }
+        .txn-inv { background: #e0f2fe; color: #0284c7; }
+        .txn-po { background: #fce7f3; color: #db2777; }
+        .txn-exp { background: #fee2e2; color: #dc2626; }
 
-        td {
-            padding: 12px;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 13px;
+        .status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+        .st-paid { background: var(--success); }
+        .st-pending { background: var(--warning); }
+
+        /* Mobile Responsive */
+        @media (max-width: 1024px) {
+            .dashboard-split { grid-template-columns: 1fr; }
         }
-
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
-        .st-paid {
-            background: #d1fae5;
-            color: #065f46;
-        }
-
-        .st-unpaid {
-            background: #fee2e2;
-            color: #b91c1c;
-        }
-
-        .amt-pos {
-            color: var(--success);
-            font-weight: 600;
-        }
-
-        .amt-neg {
-            color: var(--danger);
-            font-weight: 600;
-        }
-
-        /* Responsive */
-        @media (max-width: 992px) {
-            .charts-grid {
-                grid-template-columns: 1fr;
-            }
-            body.secondary-open .main-content {
-                margin-left: 0;
-            }
+        @media (max-width: 768px) {
+            .main-content { margin-left: 0; width: 100%; }
+            .kpi-grid { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
 <body>
 
-<div class="d-flex-wrapper">
-
-    <div class="sidebar-container">
-        <?php // sidebars.php is already included at top ?>
+<main class="main-content">
+    
+    <div class="dashboard-header">
+        <div class="welcome-text">
+            <h1>Accounts Dashboard</h1>
+            <p>Financial overview for Neoera Infotech</p>
+        </div>
+        <div class="date-badge">
+            <i class="ph ph-calendar-blank"></i> <?php echo date('d M, Y'); ?>
+        </div>
     </div>
 
-    <div class="main-content" id="mainContent">
+    <div class="kpi-grid">
+        <div class="kpi-card k-balance">
+            <div class="kpi-icon"><i class="ph ph-wallet"></i></div>
+            <div class="kpi-label">Current Balance</div>
+            <div class="kpi-value">₹<?php echo number_format($kpi['balance']); ?></div>
+            <div class="kpi-trend" style="color: var(--success);">
+                <i class="ph ph-trend-up"></i> +12% vs last month
+            </div>
+        </div>
+
+        <div class="kpi-card k-income">
+            <div class="kpi-icon"><i class="ph ph-arrow-down-left"></i></div>
+            <div class="kpi-label">Total Income</div>
+            <div class="kpi-value">₹<?php echo number_format($kpi['income']); ?></div>
+            <div class="kpi-trend" style="color: var(--success);">
+                <i class="ph ph-check-circle"></i> 15 Invoices Paid
+            </div>
+        </div>
+
+        <div class="kpi-card k-expense">
+            <div class="kpi-icon"><i class="ph ph-arrow-up-right"></i></div>
+            <div class="kpi-label">Total Expenses</div>
+            <div class="kpi-value">₹<?php echo number_format($kpi['expense']); ?></div>
+            <div class="kpi-trend" style="color: var(--danger);">
+                <i class="ph ph-warning-circle"></i> High Rent Cost
+            </div>
+        </div>
+
+        <div class="kpi-card k-pending">
+            <div class="kpi-icon"><i class="ph ph-clock-countdown"></i></div>
+            <div class="kpi-label">Pending Receivables</div>
+            <div class="kpi-value">₹<?php echo number_format($kpi['pending']); ?></div>
+            <div class="kpi-trend" style="color: var(--warning);">
+                <i class="ph ph-bell"></i> 3 Overdue
+            </div>
+        </div>
+    </div>
+
+    <div class="section-title"><i class="ph ph-lightning"></i> Quick Actions</div>
+    <div class="action-grid">
+        <a href="new_invoice.php" class="action-btn">
+            <i class="ph ph-file-plus"></i>
+            <span>Create Invoice</span>
+        </a>
+        <a href="ledger.php" class="action-btn">
+            <i class="ph ph-book-open-text"></i>
+            <span>View Ledger</span>
+        </a>
+        <a href="purchase_order.php" class="action-btn">
+            <i class="ph ph-shopping-cart"></i>
+            <span>New PO</span>
+        </a>
+        <a href="payslip.php" class="action-btn">
+            <i class="ph ph-users-three"></i>
+            <span>Payroll</span>
+        </a>
+        <a href="accounts_reports.php" class="action-btn">
+            <i class="ph ph-chart-pie-slice"></i>
+            <span>Reports</span>
+        </a>
+        <a href="masters.php" class="action-btn">
+            <i class="ph ph-bank"></i>
+            <span>Masters</span>
+        </a>
+    </div>
+
+    <div class="dashboard-split">
         
-        <?php // header.php is already included at top ?>
-
-        <!-- Header -->
-        <div class="header-area mb-8">
-            <div>
-                <h2 class="text-2xl font-bold text-[--primary-color]">Accounts Dashboard</h2>
-                <p class="text-sm text-gray-500">Overview of financial operations and quick access to tools</p>
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>Cash Flow Analysis (2026)</h3>
+                <select style="border:none; background:#f1f5f9; padding:5px; border-radius:5px; font-size:12px;">
+                    <option>Last 6 Months</option>
+                    <option>This Year</option>
+                </select>
             </div>
-            <div class="flex gap-4">
-                <button class="bg-[--primary-color] text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold">
-                    <i class="ph ph-export"></i> Export Summary
-                </button>
-                <button class="bg-[--primary-color] text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm font-semibold">
-                    <i class="ph ph-funnel"></i> Advanced Filters
-                </button>
+            <div style="height: 300px;">
+                <canvas id="cashFlowChart"></canvas>
             </div>
         </div>
 
-        <!-- KPI Cards -->
-        <div class="kpi-grid">
-            <div class="kpi-card relative overflow-hidden">
-                <div class="kpi-label">Total Income</div>
-                <div class="kpi-value">₹<?= number_format($kpi['total_income'], 2) ?></div>
-                <i class="ph ph-arrow-up kpi-icon text-[--success]"></i>
+        <div class="table-card">
+            <div class="chart-header">
+                <h3>Recent Transactions</h3>
+                <a href="ledger.php" style="font-size:12px; color:var(--theme-color); text-decoration:none; font-weight:600;">View All</a>
             </div>
-            <div class="kpi-card relative overflow-hidden">
-                <div class="kpi-label">Total Expenses</div>
-                <div class="kpi-value">₹<?= number_format($kpi['total_expense'], 2) ?></div>
-                <i class="ph ph-arrow-down kpi-icon text-[--danger]"></i>
-            </div>
-            <div class="kpi-card relative overflow-hidden">
-                <div class="kpi-label">Net Profit</div>
-                <div class="kpi-value">₹<?= number_format($kpi['net_profit'], 2) ?></div>
-                <i class="ph ph-chart-line-up kpi-icon text-[--primary-color]"></i>
-            </div>
-            <div class="kpi-card relative overflow-hidden">
-                <div class="kpi-label">Pending Invoices</div>
-                <div class="kpi-value">₹<?= number_format($kpi['pending_invoices'], 2) ?></div>
-                <i class="ph ph-warning kpi-icon text-[--warning]"></i>
-            </div>
-            <div class="kpi-card relative overflow-hidden">
-                <div class="kpi-label">Active Employees</div>
-                <div class="kpi-value"><?= $kpi['active_employees'] ?></div>
-                <i class="ph ph-users kpi-icon text-[--primary-color]"></i>
-            </div>
-            <div class="kpi-card relative overflow-hidden">
-                <div class="kpi-label">Total Clients</div>
-                <div class="kpi-value"><?= $kpi['total_clients'] ?></div>
-                <i class="ph ph-handshake kpi-icon text-[--primary-color]"></i>
-            </div>
-        </div>
-
-        <!-- Quick Actions -->
-        <div class="recent-section">
-            <h3 class="section-title"><i class="ph ph-lightning"></i> Quick Actions</h3>
-            <div class="quick-actions">
-                <a href="new_invoice.php" class="action-btn">
-                    <i class="ph ph-receipt action-icon text-[--primary-color]"></i>
-                    New Invoice
-                </a>
-                <a href="purchase_order.php" class="action-btn">
-                    <i class="ph ph-shopping-cart action-icon text-[--primary-color]"></i>
-                    New PO
-                </a>
-                <a href="ledger.php" class="action-btn">
-                    <i class="ph ph-book-open action-icon text-[--primary-color]"></i>
-                    Ledger Entry
-                </a>
-                <a href="payslip.php" class="action-btn">
-                    <i class="ph ph-currency-inr action-icon text-[--primary-color]"></i>
-                    Generate Payslip
-                </a>
-                <a href="masters.php" class="action-btn">
-                    <i class="ph ph-gear action-icon text-[--primary-color]"></i>
-                    Masters Setup
-                </a>
-                <a href="accounts_reports.php" class="action-btn">
-                    <i class="ph ph-chart-bar action-icon text-[--primary-color]"></i>
-                    View Reports
-                </a>
-            </div>
-        </div>
-
-        <!-- Charts -->
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3 class="section-title text-sm mb-4">Income vs Expenses</h3>
-                <canvas id="financeChart" height="300"></canvas>
-            </div>
-            <div class="chart-card">
-                <h3 class="section-title text-sm mb-4">Invoice Status</h3>
-                <canvas id="invoiceChart" height="300"></canvas>
-            </div>
-        </div>
-
-        <!-- Recent Invoices -->
-        <div class="recent-section">
-            <h3 class="section-title"><i class="ph ph-receipt"></i> Recent Invoices</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Invoice #</th>
-                        <th>Client</th>
-                        <th>Date</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
+            
+            <table class="recent-table">
                 <tbody>
-                    <?php foreach ($recent_invoices as $inv): ?>
+                    <?php foreach($recent_transactions as $txn): 
+                        // Determine Icon & Color logic
+                        $iconClass = 'ph-file-text';
+                        $bgClass = 'txn-inv';
+                        if($txn['type'] == 'Expense') { $iconClass = 'ph-receipt'; $bgClass = 'txn-exp'; }
+                        if($txn['type'] == 'Purchase Order') { $iconClass = 'ph-shopping-bag'; $bgClass = 'txn-po'; }
+                    ?>
                     <tr>
-                        <td><b><?= $inv['no'] ?></b></td>
-                        <td><?= $inv['client'] ?></td>
-                        <td><?= $inv['date'] ?></td>
-                        <td class="amt-pos">₹<?= number_format($inv['total']) ?></td>
-                        <td><span class="status-badge <?= $inv['status']=='Paid'?'st-paid':'st-unpaid' ?>"><?= $inv['status'] ?></span></td>
-                        <td>
-                            <a href="new_invoice.php?edit=<?= $inv['no'] ?>" class="text-blue-500 mr-2"><i class="ph ph-pencil"></i></a>
-                            <a href="#" class="text-red-500"><i class="ph ph-trash"></i></a>
+                        <td width="50">
+                            <div class="txn-icon <?php echo $bgClass; ?>">
+                                <i class="ph <?php echo $iconClass; ?>"></i>
+                            </div>
                         </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Recent Purchase Orders -->
-        <div class="recent-section">
-            <h3 class="section-title"><i class="ph ph-shopping-cart"></i> Recent Purchase Orders</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>PO No</th>
-                        <th>Vendor</th>
-                        <th>Date</th>
-                        <th>Grand Total</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recent_pos as $po): ?>
-                    <tr>
-                        <td><b><?= $po['no'] ?></b></td>
-                        <td><?= $po['vendor'] ?></td>
-                        <td><?= $po['date'] ?></td>
-                        <td class="amt-neg">₹<?= number_format($po['grand']) ?></td>
                         <td>
-                            <a href="purchase_order.php?edit=<?= $po['no'] ?>" class="text-blue-500 mr-2"><i class="ph ph-pencil"></i></a>
-                            <a href="#" class="text-red-500"><i class="ph ph-trash"></i></a>
+                            <div style="font-weight: 600; color: var(--text-main);"><?php echo $txn['party']; ?></div>
+                            <div style="font-size: 11px; color: var(--text-muted);"><?php echo $txn['type']; ?> • <?php echo $txn['id']; ?></div>
                         </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Recent Ledger Transactions -->
-        <div class="recent-section">
-            <h3 class="section-title"><i class="ph ph-book-open"></i> Recent Transactions</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Type</th>
-                        <th>Party</th>
-                        <th>Description</th>
-                        <th>Debit</th>
-                        <th>Credit</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recent_ledger as $row): ?>
-                    <tr>
-                        <td><?= $row['date'] ?></td>
-                        <td><?= $row['type'] ?></td>
-                        <td><b><?= $row['party'] ?></b></td>
-                        <td><?= $row['desc'] ?></td>
-                        <td class="amt-neg"><?= $row['mode']=='Debit' ? '₹'.number_format($row['amount']) : '-' ?></td>
-                        <td class="amt-pos"><?= $row['mode']=='Credit' ? '₹'.number_format($row['amount']) : '-' ?></td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Recent Expenses -->
-        <div class="recent-section">
-            <h3 class="section-title"><i class="ph ph-receipt"></i> Recent Expenses</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Item</th>
-                        <th>Category</th>
-                        <th>Amount</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recent_expenses as $exp): ?>
-                    <tr>
-                        <td><?= $exp['date'] ?></td>
-                        <td><?= $exp['item'] ?></td>
-                        <td><span class="status-badge st-paid"><?= $exp['category'] ?></span></td>
-                        <td class="amt-neg">₹<?= number_format($exp['amount']) ?></td>
-                        <td>
-                            <a href="masters.php?edit=<?= $exp['item'] ?>" class="text-blue-500 mr-2"><i class="ph ph-pencil"></i></a>
-                            <a href="#" class="text-red-500"><i class="ph ph-trash"></i></a>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Recent Payslips -->
-        <div class="recent-section">
-            <h3 class="section-title"><i class="ph ph-currency-inr"></i> Recent Payslips</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Emp ID</th>
-                        <th>Name</th>
-                        <th>Month</th>
-                        <th>Net Salary</th>
-                        <th>Status</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($recent_payslips as $slip): ?>
-                    <tr>
-                        <td><b><?= $slip['id'] ?></b></td>
-                        <td><?= $slip['name'] ?></td>
-                        <td><?= $slip['month'] ?></td>
-                        <td class="amt-pos"><?= $slip['salary'] ?></td>
-                        <td><span class="status-badge st-paid"><?= $slip['status'] ?></span></td>
-                        <td>
-                            <a href="payslip.php?reprint=<?= $slip['id'] ?>" class="text-blue-500 mr-2"><i class="ph ph-printer"></i></a>
-                            <a href="#" class="text-red-500"><i class="ph ph-trash"></i></a>
+                        <td style="text-align: right;">
+                            <div style="font-weight: 700; color: var(--text-main);">₹<?php echo number_format($txn['amount']); ?></div>
+                            <div style="font-size: 11px; color: var(--text-muted);"><?php echo $txn['date']; ?></div>
                         </td>
                     </tr>
                     <?php endforeach; ?>
@@ -540,31 +351,101 @@ include '../header.php';
         </div>
 
     </div>
-</div>
+
+    <div class="dashboard-split" style="grid-template-columns: 1fr 2fr;">
+         <div class="chart-card">
+            <div class="chart-header">
+                <h3>Expense Distribution</h3>
+            </div>
+            <div style="height: 250px; position: relative;">
+                <canvas id="expenseChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <div class="chart-header">
+                <h3>Invoice Payment Status</h3>
+            </div>
+            <div style="height: 250px;">
+                <canvas id="invoiceBarChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+</main>
 
 <script>
-    // Charts
-    const ctxFinance = document.getElementById('financeChart').getContext('2d');
-    new Chart(ctxFinance, {
+    // 1. Cash Flow Chart (Bar)
+    const ctxFlow = document.getElementById('cashFlowChart').getContext('2d');
+    new Chart(ctxFlow, {
         type: 'bar',
         data: {
-            labels: <?= json_encode($chart_months) ?>,
+            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
             datasets: [
-                { label: 'Income', data: <?= json_encode($chart_income) ?>, backgroundColor: '#059669' },
-                { label: 'Expenses', data: <?= json_encode($chart_expense) ?>, backgroundColor: '#dc2626' }
+                {
+                    label: 'Income',
+                    data: [120000, 190000, 30000, 50000, 20000, 300000],
+                    backgroundColor: '#1b5a5a',
+                    borderRadius: 4
+                },
+                {
+                    label: 'Expense',
+                    data: [80000, 50000, 30000, 40000, 10000, 200000],
+                    backgroundColor: '#ef4444',
+                    borderRadius: 4
+                }
             ]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true, grid: { borderDash: [2, 2] } },
+                x: { grid: { display: false } }
+            },
+            plugins: { legend: { position: 'top', align: 'end' } }
+        }
     });
 
-    const ctxInvoice = document.getElementById('invoiceChart').getContext('2d');
-    new Chart(ctxInvoice, {
+    // 2. Expense Breakdown (Doughnut)
+    const ctxExp = document.getElementById('expenseChart').getContext('2d');
+    new Chart(ctxExp, {
         type: 'doughnut',
         data: {
-            labels: ['Paid', 'Unpaid', 'Pending'],
-            datasets: [{ data: [65, 20, 15], backgroundColor: ['#059669', '#dc2626', '#d97706'] }]
+            labels: ['Rent', 'Salaries', 'Purchase', 'Utilities'],
+            datasets: [{
+                data: [25, 45, 20, 10],
+                backgroundColor: ['#f59e0b', '#3b82f6', '#10b981', '#6366f1'],
+                borderWidth: 0
+            }]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'right' } },
+            cutout: '70%'
+        }
+    });
+
+    // 3. Invoice Status (Horizontal Bar)
+    const ctxInv = document.getElementById('invoiceBarChart').getContext('2d');
+    new Chart(ctxInv, {
+        type: 'bar',
+        indexAxis: 'y',
+        data: {
+            labels: ['Paid', 'Unpaid', 'Overdue'],
+            datasets: [{
+                label: 'Count',
+                data: [15, 5, 2],
+                backgroundColor: ['#10b981', '#f59e0b', '#ef4444'],
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } }
+        }
     });
 </script>
 
