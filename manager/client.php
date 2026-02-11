@@ -146,6 +146,7 @@ include('../sidebars.php');
 
     <div class="page-container">
         <main class="main-content">
+           <?php include '../header.php'; ?> 
             <div class="max-w-[1600px] mx-auto">
                 
                 <div class="flex justify-between items-start mb-8">

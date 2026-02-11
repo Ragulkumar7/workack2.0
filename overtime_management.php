@@ -92,6 +92,8 @@ $overtimeRecords = [
     <?php if (file_exists($sidebarPath)) { include($sidebarPath); } ?>
 
     <main id="mainContent">
+            <?php include 'header.php'; ?>
+
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
                 <h1 class="text-2xl font-bold text-slate-800">Overtime Management</h1>

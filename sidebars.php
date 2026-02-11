@@ -176,9 +176,9 @@ $sections = [
             // --- TERMINATION ---
             [
                 'name' => 'Termination', 
-                'path' => $base . 'manager/termination.php', 
+                'path' => $base . 'termination.php', 
                 'icon' => 'user-minus', 
-                'allowed' => ['Manager', 'System Admin', 'HR']
+                'allowed' => ['System Admin', 'HR']
             ],
 
             // --- ANNOUNCEMENT (Common + Accounts) ---
