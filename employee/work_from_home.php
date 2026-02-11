@@ -136,6 +136,7 @@ $user_role = $_SESSION['role'] ?? 'Staff';
 <body>
 
     <?php include($sidebarPath); ?>
+    <?php include('../header.php'); ?>
 
     <div class="main-content">
         
