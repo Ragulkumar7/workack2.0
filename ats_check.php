@@ -120,6 +120,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['resumes'])) {
 <body>
 
     <?php include('sidebars.php'); ?>
+    <?php include('header.php'); ?>
 
     <div id="mainContent">
         

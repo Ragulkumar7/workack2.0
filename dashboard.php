@@ -127,6 +127,7 @@ $meetings = [
 <body class="bg-slate-50">
 
     <?php include('sidebars.php'); ?>
+    <?php include('header.php'); ?>
 
     <main id="mainContent">
 
