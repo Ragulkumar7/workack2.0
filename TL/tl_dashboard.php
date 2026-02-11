@@ -6,6 +6,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // 2. ROBUST SIDEBAR INCLUDE (Path logic for TL folder)
 $sidebarPath = __DIR__ . '/../sidebars.php'; 
+include('../header.php');
 if (!file_exists($sidebarPath)) {
     $sidebarPath = 'sidebars.php'; 
 }
