@@ -95,7 +95,7 @@ $sections = [
                     ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_manager.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Overtime', 'path' => $base . 'overtime_management.php', 'icon' => 'hourglass'],
-                    ['name' => 'WFH Request', 'path' => $base . 'wfh_request.php', 'icon' => 'home'],
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_management.php', 'icon' => 'calendar-off']
                 ]
             ],
@@ -117,7 +117,7 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Employee'],
+                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts'],
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
@@ -125,11 +125,11 @@ $sections = [
                 ]
             ],
 
-           // --- TASK MANAGEMENT (Manager, Admin, HR, IT) ---
+           // --- TASK MANAGEMENT (Manager, Admin) ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'IT'], // TL Removed here
+                'allowed' => ['Manager', 'System Admin'], // TL Removed here
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
@@ -217,7 +217,7 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts','Employee', 'Team Lead', 'IT Admin', 'It_Executive']
+                'allowed' => ['HR', 'Accounts','Employee', 'Team Lead', 'IT Admin', 'IT Executive']
             ],
 
             // --- TICKET RAISE ---
@@ -335,13 +335,13 @@ $sections = [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'It_Executive', 'Accounts']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts']
             ],
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead','IT Admin', 'It_Executive', 'Accounts']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead','IT Admin', 'IT Executive', 'Accounts']
             ],
         ]
     ]
