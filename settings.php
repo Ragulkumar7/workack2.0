@@ -86,10 +86,6 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
         input:checked + .slider { background-color: var(--primary-orange); }
         input:checked + .slider:before { transform: translateX(20px); }
 
-        .notif-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .notif-table th { text-align: left; padding: 15px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--border-light); background: #fafafa; }
-        .notif-table td { padding: 15px; border-bottom: 1px solid var(--border-light); font-size: 14px; }
-
         .grid-box-container { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 15px; }
         .setting-box { border: 1px solid var(--border-light); padding: 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
         .setting-box h5 { margin: 0; font-size: 15px; font-weight: 600; }
@@ -114,9 +110,6 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
             <div class="top-nav-item active" onclick="showSection('profile', this, 'General Settings')">
                 <i class="fas fa-cog"></i> General Settings
             </div>
-            <div class="top-nav-item" onclick="showSection('email-templates', this, 'System Settings')">
-                <i class="fas fa-server"></i> System Settings
-            </div>
             <div class="top-nav-item" onclick="showSection('storage', this, 'Other Settings')">
                 <i class="fas fa-th"></i> Other Settings
             </div>
@@ -130,16 +123,6 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
                 <div class="submenu show" id="general-submenu">
                     <div class="submenu-item active" onclick="showSection('profile', this, 'General Settings')">» Profile Settings</div>
                     <div class="submenu-item" onclick="showSection('security', this, 'General Settings')">Security Settings</div>
-                    <div class="submenu-item" onclick="showSection('notifications', this, 'General Settings')">Notifications</div>
-                </div>
-
-                <div class="nav-link" onclick="toggleSub('system-submenu', 'arrow-sys')">
-                    <span>System Settings</span><i class="fas fa-chevron-down" id="arrow-sys"></i>
-                </div>
-                <div class="submenu" id="system-submenu">
-                    <div class="submenu-item" onclick="showSection('email-templates', this, 'System Settings')">Email Templates</div>
-                    <div class="submenu-item" onclick="showSection('sms-settings', this, 'System Settings')">SMS Settings</div>
-                    <div class="submenu-item" onclick="showSection('otp-settings', this, 'System Settings')">OTP Settings</div>
                 </div>
 
                 <div class="nav-link" onclick="toggleSub('other-submenu', 'arrow-oth')">
@@ -147,7 +130,7 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
                 </div>
                 <div class="submenu" id="other-submenu">
                     <div class="submenu-item" onclick="showSection('storage', this, 'Other Settings')">Storage</div>
-                    <div class="submenu-item" onclick="showSection('backup', this, 'Other Settings')">Backup</div>
+                    <div class="submenu-item" onclick="showSection('trash', this, 'Other Settings')">Trash</div>
                     <div class="submenu-item" onclick="showSection('clear-cache', this, 'Other Settings')">Clear Cache</div>
                 </div>
             </aside>
@@ -194,58 +177,13 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
                 <div class="security-item" style="border:none;"><div class="security-info"><h4>Deactivate Account</h4><p>Shutdown your account temporarily</p></div><button class="btn-action btn-black" onclick="openModal('deactivateModal')">Deactivate</button></div>
             </div>
 
-            <div id="notifications-card" class="content-card">
-                <div class="card-title">Notifications</div>
-                <table class="notif-table">
-                    <thead><tr><th>Modules</th><th align="center">Push</th><th align="center">SMS</th><th align="center">Email</th></tr></thead>
-                    <tbody>
-                        <tr><td><strong>New Hire Notifications</strong></td><td align="center"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td><td align="center"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td><td align="center"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td></tr>
-                        <tr><td><strong>Time Off Requests</strong></td><td align="center"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td><td align="center"><label class="switch"><input type="checkbox"><span class="slider"></span></label></td><td align="center"><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div id="email-templates-card" class="content-card">
-                <div style="display:flex; justify-content:space-between; align-items:center;" class="card-title">
-                    <span>Email Templates</span>
-                    <button class="btn-save" style="padding:8px 15px; font-size:12px;">+ Add Template</button>
-                </div>
-                <div class="grid-box-container">
-                    <div class="setting-box"><h5>Email Verification</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
-                    <div class="setting-box"><h5>Welcome Email</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
-                    <div class="setting-box"><h5>Leave Request</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
-                    <div class="setting-box"><h5>Performance Review</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
-                    <div class="setting-box"><h5>Training Session</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
-                    <div class="setting-box"><h5>Password Reset</h5><div class="actions"><i class="fas fa-edit"></i><i class="fas fa-trash"></i></div></div>
-                </div>
-            </div>
-
-            <div id="sms-settings-card" class="content-card">
-                <div class="card-title">SMS Settings</div>
-                <div class="grid-box-container">
-                    <div class="setting-box"><h5>Nexmo</h5><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
-                    <div class="setting-box"><h5>2Factor</h5><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
-                    <div class="setting-box"><h5>Twilio</h5><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
-                </div>
-            </div>
-
-            <div id="otp-settings-card" class="content-card">
-                <div class="card-title">OTP Settings</div>
-                <div class="form-grid" style="grid-template-columns: 1fr;">
-                    <div class="input-group"><label>OTP Type</label><select><option>SMS OTP</option><option>Email OTP</option></select></div>
-                    <div class="input-group"><label>OTP Digit Limit</label><select><option>4 Digits</option><option>6 Digits</option></select></div>
-                </div>
-                <div style="text-align: right;"><button class="btn-save">Save OTP Config</button></div>
-            </div>
-
             <div id="storage-card" class="content-card">
                 <div class="card-title">Storage Settings</div>
                 <div class="storage-box"><div><i class="fas fa-server"></i> Local Storage</div><label class="switch"><input type="checkbox" checked><span class="slider"></span></label></div>
-                <div class="storage-box"><div><i class="fab fa-aws"></i> AWS S3</div><label class="switch"><input type="checkbox"><span class="slider"></span></label></div>
             </div>
 
-            <div id="backup-card" class="content-card">
-                <div class="card-title" style="display:flex; justify-content:space-between;">Database Backup <span><button class="btn-save" style="font-size:12px;">Generate Now</button></span></div>
+            <div id="trash-card" class="content-card">
+                <div class="card-title" style="display:flex; justify-content:space-between;">Database Trash <span><button class="btn-save" style="font-size:12px;">Generate Now</button></span></div>
                 <table class="backup-table">
                     <thead><tr><th>File Name</th><th>Size</th><th>Date</th><th align="right">Action</th></tr></thead>
                     <tbody><tr><td>db_backup_2024.sql</td><td>2.4 MB</td><td>11 Sep 2024</td><td align="right"><i class="fas fa-download"></i></td></tr></tbody>
@@ -273,38 +211,27 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
             document.getElementById(arrowId).style.transform = document.getElementById(id).classList.contains("show") ? "rotate(180deg)" : "rotate(0deg)";
         }
 
-        // Updated Function to Fix Breadcrumb Loop & Top Nav Selection
         function showSection(sectionId, element, categoryName) {
-            // 1. Switch Content Cards
             document.querySelectorAll('.content-card').forEach(card => card.classList.remove('active'));
             document.getElementById(sectionId + '-card').classList.add('active');
 
-            // 2. Sidebar Active State Logic
             document.querySelectorAll('.submenu-item').forEach(item => { 
                 item.classList.remove('active'); 
-                item.innerText = item.innerText.replace('» ', ''); // Reset text
+                item.innerText = item.innerText.replace('» ', '');
             });
 
-            // If clicked element is a sidebar item (not top nav), highlight it
             if (element.classList.contains('submenu-item')) {
                 element.classList.add('active'); 
-                element.innerText = '» ' + element.innerText; // Add arrow
+                element.innerText = '» ' + element.innerText;
             }
 
-            // 3. Top Nav Active State
             document.querySelectorAll('.top-nav-item').forEach(item => item.classList.remove('active'));
             
-            // Simple logic to highlight top nav based on category
             const topNavs = document.querySelectorAll('.top-nav-item');
             if (categoryName === 'General Settings') topNavs[0].classList.add('active');
-            else if (categoryName === 'System Settings') topNavs[1].classList.add('active');
-            else if (categoryName === 'Other Settings') topNavs[2].classList.add('active');
+            else if (categoryName === 'Other Settings') topNavs[1].classList.add('active');
 
-            // 4. Update Breadcrumb safely (No recursion)
-            // Use the button text (cleaned) for the last part
             let sectionName = element.innerText.replace('» ', '').trim();
-            
-            // Fix: If clicking Top Nav "Other Settings", default to "Storage" in breadcrumb
             if(sectionName === 'Other Settings') sectionName = 'Storage';
 
             document.getElementById('breadcrumb-text').innerText = 'Settings / ' + categoryName + ' / ' + sectionName;
