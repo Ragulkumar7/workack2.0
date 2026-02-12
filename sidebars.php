@@ -153,8 +153,8 @@ $sections = [
                 'icon' => 'clipboard-check', 
                 'allowed' => ['Employee'],
                 'subItems' => [
-                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
+                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                 ]
             ],
 
