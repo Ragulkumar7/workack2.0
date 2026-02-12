@@ -171,7 +171,7 @@ $sections = [
                 'name' => 'Projects', 
                 'path' => $base . 'manager/manager_projects.php', 
                 'icon' => 'layers', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead']
+                'allowed' => ['Manager', 'System Admin']
             ],
 
             // --- CLIENTS ---
