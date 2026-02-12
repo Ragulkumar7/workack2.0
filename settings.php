@@ -17,7 +17,7 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
         :root {
             --bg-light: #f7f7f7;
             --white: #ffffff;
-            --primary-orange: #ff5b37; 
+            --primary-orange: #1b5a5a; 
             --text-dark: #333333;
             --text-muted: #666666;
             --border-light: #e3e3e3;
