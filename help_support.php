@@ -4,20 +4,14 @@
 // 1. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 2. ROBUST SIDEBAR INCLUDE
+// 2. ROBUST SIDEBAR & HEADER INCLUDE
 $sidebarPath = __DIR__ . '/sidebars.php'; 
-if (!file_exists($sidebarPath)) {
-    $sidebarPath = __DIR__ . '/../sidebars.php'; 
-}
+$headerPath = __DIR__ . '/header.php';
 
-// 3. LOGIN CHECK (Optional - Uncomment to enforce)
-if (!isset($_SESSION['user_id'])) { 
-    // header("Location: index.php"); 
-    // exit(); 
-}
+if (!file_exists($sidebarPath)) { $sidebarPath = __DIR__ . '/../sidebars.php'; }
+if (!file_exists($headerPath)) { $headerPath = __DIR__ . '/../header.php'; }
 
 // 4. MOCK DATA FOR KNOWLEDGEBASE
-// This structure allows you to easily add more categories/articles from a database later.
 $kb_categories = [
     [
         "title" => "Introduction to HRMS",
@@ -101,8 +95,8 @@ $kb_categories = [
 
     <style>
         :root {
-            --primary: #ea580c; 
-            --primary-hover: #c2410c;
+            --primary: #1b5a5a; 
+            --primary-hover: #144545;
             --bg-body: #f8f9fa;
             --text-main: #111827;
             --text-muted: #6b7280;
@@ -114,207 +108,183 @@ $kb_categories = [
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-body);
-            margin: 0; padding: 0;
             color: var(--text-main);
+            margin: 0;
         }
 
-        /* --- LAYOUT --- */
         .main-content {
-            margin-left: var(--primary-sidebar-width, 95px);
+            margin-left: var(--sidebar-width);
             padding: 24px 32px;
             min-height: 100vh;
-            transition: all 0.3s ease;
         }
 
-        /* --- HEADER --- */
-        .page-header {
-            display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 24px; flex-wrap: wrap; gap: 15px;
-        }
-        .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; color: #1e293b; }
-        .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
-
-        .btn {
-            display: inline-flex; align-items: center; justify-content: center;
-            padding: 10px 16px; font-size: 14px; font-weight: 500;
-            border-radius: 6px; border: 1px solid var(--border);
-            background: var(--white); color: var(--text-main);
-            cursor: pointer; transition: 0.2s; text-decoration: none; gap: 8px;
-        }
-        .btn:hover { background: #f9fafb; border-color: #d1d5db; }
-        .btn-primary { background-color: var(--primary); color: white; border-color: var(--primary); }
-        .btn-primary:hover { background-color: var(--primary-hover); }
-
-        /* --- TOOLBAR CARD --- */
-        .toolbar-card {
-            background: white; border: 1px solid var(--border);
-            border-radius: 12px; padding: 16px 24px; 
-            box-shadow: 0 1px 2px rgba(0,0,0,0.03);
-            margin-bottom: 24px;
-            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;
-        }
-        .toolbar-title { font-size: 16px; font-weight: 700; color: #334155; }
-
-        /* Inputs in Toolbar */
-        .input-group {
-            display: flex; align-items: center; border: 1px solid var(--border);
-            border-radius: 6px; padding: 8px 12px; background: white; 
-            min-width: 200px;
-        }
-        .input-group i { color: #9ca3af; width: 16px; height: 16px; margin-right: 8px; }
-        .input-group input, .input-group select {
-            border: none; outline: none; width: 100%; font-size: 13px; color: var(--text-main); background: transparent;
-        }
-
-        /* --- KB CARDS GRID --- */
-        .kb-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr); /* 3 Columns on Desktop */
-            gap: 24px;
+        .kb-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
+            gap: 24px; 
+            margin-top: 20px;
         }
 
         .kb-card {
-            background: white; border: 1px solid var(--border);
-            border-radius: 12px; padding: 24px;
-            transition: transform 0.2s, box-shadow 0.2s;
-            display: flex; flex-direction: column;
+            background: white; 
+            border: 1px solid var(--border);
+            border-radius: 12px; 
+            padding: 24px;
+            transition: all 0.2s ease;
         }
-        .kb-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
+        .kb-card:hover { 
+            transform: translateY(-4px); 
+            box-shadow: 0 10px 20px -5px rgba(27, 90, 90, 0.1); 
+            border-color: var(--primary);
+        }
 
-        .kb-header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
-        .kb-icon { color: var(--primary); width: 20px; height: 20px; }
-        .kb-title { font-size: 15px; font-weight: 600; color: #1e293b; }
-        .kb-count { font-size: 14px; font-weight: 600; color: var(--primary); }
-
-        .kb-list { list-style: none; padding: 0; margin: 0; }
         .kb-item { 
-            display: flex; align-items: flex-start; gap: 10px; 
-            margin-bottom: 12px; font-size: 13px; color: #475569; 
-            cursor: pointer; transition: color 0.2s;
-            line-height: 1.5;
+            display: flex; 
+            align-items: flex-start; 
+            gap: 10px; 
+            margin-bottom: 12px; 
+            font-size: 13.5px; 
+            color: #475569; 
+            cursor: pointer; 
+            transition: color 0.2s;
         }
         .kb-item:hover { color: var(--primary); }
-        .kb-item-icon { width: 14px; height: 14px; margin-top: 3px; color: #94a3b8; flex-shrink: 0; }
-        .kb-item:hover .kb-item-icon { color: var(--primary); }
 
-        /* --- RESPONSIVE --- */
-        @media (max-width: 1024px) {
-            .kb-grid { grid-template-columns: repeat(2, 1fr); } /* 2 Cols Tablet */
+        /* MODAL CSS */
+        #contentModal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+            padding: 20px;
         }
-        @media (max-width: 768px) {
-            .main-content { margin-left: 0; padding: 15px; }
-            .page-header { flex-direction: column; align-items: flex-start; }
-            .header-actions { width: 100%; justify-content: space-between; }
-            .toolbar-card { flex-direction: column; align-items: flex-start; }
-            .input-group { width: 100%; }
-            .kb-grid { grid-template-columns: 1fr; } /* 1 Col Mobile */
+        .modal-box {
+            background: white;
+            width: 100%;
+            max-width: 650px;
+            border-radius: 16px;
+            padding: 40px;
+            position: relative;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        .close-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            cursor: pointer;
+            color: #94a3b8;
+            transition: color 0.2s;
+        }
+        .close-btn:hover { color: var(--primary); }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            padding: 10px 24px;
+            border-radius: 8px;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
         }
     </style>
 </head>
 <body>
 
+    <?php if (file_exists($headerPath)) include($headerPath); ?>
+
     <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
 
-    <div class="main-content" id="mainContent">
-            <?php include 'header.php'; ?>
-
-        <div class="page-header">
-            <div>
-                <h1>Help & Support</h1>
-                <div class="breadcrumb">
-                    <i data-lucide="home" style="width:14px; height:14px;"></i>
-                    <span>/</span>
-                    <span>Administration</span>
-                    <span>/</span>
-                    <span style="font-weight:600; color:#111827;">Knowledgebase</span>
-                </div>
-            </div>
-            <div class="header-actions">
-                <a href="ticketraise.php?view=dashboard" class="btn btn-primary">
-                    <i data-lucide="life-buoy" style="width:16px;"></i> Contact Support
-                </a>
-            </div>
+    <div class="main-content">
+        <div class="mb-8">
+            <h1 class="text-3xl font-bold text-slate-800">Help & Support</h1>
+            <p class="text-slate-500 mt-1">Find guides, tutorials, and answers to your HRMS questions.</p>
         </div>
 
-        <div class="toolbar-card">
-            <span class="toolbar-title">Knowledgebase</span>
-            
-            <div style="display:flex; gap:10px; flex-wrap:wrap; flex:1; justify-content:flex-end;">
-                <div class="input-group" style="flex:1; max-width:300px;">
-                    <i data-lucide="search"></i>
-                    <input type="text" id="searchInput" placeholder="Search help articles..." onkeyup="filterArticles()">
-                </div>
-
-                <div class="input-group" style="width:auto;">
-                    <i data-lucide="calendar"></i>
-                    <input type="text" value="02/03/2026 - 02/09/2026" readonly style="cursor:default; width: 160px;">
-                </div>
-
-                <div class="input-group" style="width:auto;">
-                    <span style="font-size:12px; color:#6b7280; white-space:nowrap; margin-right:5px;">Sort By:</span>
-                    <select>
-                        <option>Last 7 Days</option>
-                        <option>Most Viewed</option>
-                        <option>Recently Added</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <div class="kb-grid" id="kbGrid">
+        <div class="kb-grid">
             <?php foreach ($kb_categories as $category): ?>
             <div class="kb-card">
-                <div class="kb-header">
-                    <i data-lucide="folder" class="kb-icon"></i>
-                    <span class="kb-title"><?php echo $category['title']; ?></span>
-                    <span class="kb-count">( <?php echo $category['count']; ?> )</span>
+                <div class="flex items-center gap-2 mb-4">
+                    <div class="p-2 rounded-lg bg-teal-50">
+                        <i data-lucide="folder" class="text-[#1b5a5a] w-5 h-5"></i>
+                    </div>
+                    <span class="font-bold text-slate-800 text-lg"><?php echo $category['title']; ?></span>
                 </div>
-                <ul class="kb-list">
+                <ul class="list-none p-0">
                     <?php foreach ($category['articles'] as $article): ?>
-                    <li class="kb-item">
-                        <i data-lucide="file-text" class="kb-item-icon"></i>
-                        <span class="article-text"><?php echo $article; ?></span>
+                    <li class="kb-item" onclick="showTopicContent('<?php echo addslashes($article); ?>')">
+                        <i data-lucide="file-text" class="w-4 h-4 mt-1 text-slate-400"></i>
+                        <span><?php echo $article; ?></span>
                     </li>
                     <?php endforeach; ?>
                 </ul>
             </div>
             <?php endforeach; ?>
         </div>
+    </div>
 
+    <div id="contentModal">
+        <div class="modal-box shadow-2xl">
+            <span class="close-btn" onclick="closeModal()"><i data-lucide="x"></i></span>
+            <div id="modalInner">
+                <h2 id="topicTitle" class="text-2xl font-bold text-[#1b5a5a] mb-4"></h2>
+                <hr class="mb-6 border-slate-100">
+                <div id="topicDescription" class="text-slate-600 leading-relaxed space-y-4 text-lg">
+                    </div>
+                <div class="mt-8 pt-6 border-t border-slate-100 flex justify-end">
+                    <button onclick="closeModal()" class="btn-primary">Got it, thanks!</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
-        // Initialize Icons
+        // Initialize Lucide Icons
         lucide.createIcons();
 
-        // --- Live Search Functionality ---
-        function filterArticles() {
-            let input = document.getElementById('searchInput').value.toLowerCase();
-            let cards = document.getElementsByClassName('kb-card');
+        // Topic Database
+        const articleData = {
+            "What is an HRMS and Why is it Essential?": "An HRMS (Human Resource Management System) is a suite of software used to manage internal HR functions. From employee data to payroll, recruitment, and benefits, it centralizes all employee information in one secure location.",
+            "The Key Features of an HRMS Explained": "Key features include Employee Information Management, Payroll processing, Time and Attendance tracking, Recruitment/ATS, and Performance Management systems.",
+            "How HRMS Helps Automate HR Tasks": "Automation reduces manual entry in payroll, tracks leave balances automatically, and sends notifications for document expirations or performance reviews.",
+            "How to view & update your personal profile": "Navigate to the 'Profile' section from the sidebar. Click 'Edit', update your contact details or address, and click 'Save'. Some changes may require HR approval.",
+            "Steps to Apply for Leave via the Portal": "1. Go to Leave Management. 2. Select 'Apply Leave'. 3. Choose Leave Type (Sick/Annual). 4. Pick dates and submit for Manager approval.",
+            "How to access and download your payslips": "Visit the 'Payroll' module. Select 'Payslips'. Choose the specific month and year, then click 'Download PDF' to save it to your device.",
+            "How to Approve or Reject Employee Requests": "As a manager, go to your 'Inbox' or 'Approval Center'. Review the request details and click 'Approve' or 'Reject' with an optional comment.",
+            "Understanding your Salary Structure": "Your salary is composed of Basic Pay, HRA, Special Allowance, and Deductions like PF and Professional Tax. Details are found in your digital contract.",
+            "Leave Types and Entitlements": "Employees are entitled to 12 Sick Leaves, 15 Annual Leaves, and Public Holidays as per the company calendar. Check your balance in the Leave module.",
+            "How to use the Biometric Punch System": "Ensure your fingerprint or face is registered. Simply scan at the entrance/exit. The data syncs to the HRMS every 30 minutes.",
+            "Resetting your password securely": "Click 'Forgot Password' on the login screen. An OTP will be sent to your registered email. Enter the OTP and create a new password following the complexity rules."
+        };
 
-            for (let i = 0; i < cards.length; i++) {
-                let listItems = cards[i].getElementsByClassName('kb-item');
-                let hasMatch = false;
+        function showTopicContent(title) {
+            const modal = document.getElementById('contentModal');
+            const titleEl = document.getElementById('topicTitle');
+            const descEl = document.getElementById('topicDescription');
 
-                // Loop through articles in each card
-                for (let j = 0; j < listItems.length; j++) {
-                    let text = listItems[j].querySelector('.article-text').innerText.toLowerCase();
-                    if (text.includes(input)) {
-                        listItems[j].style.display = ""; // Show matching item
-                        hasMatch = true;
-                    } else {
-                        listItems[j].style.display = "none"; // Hide non-matching item
-                    }
-                }
+            titleEl.innerText = title;
+            const content = articleData[title] || "The detailed guide for this topic is being prepared. For immediate assistance, please reach out to the IT Support desk.";
+            
+            descEl.innerHTML = `<p>${content}</p>`;
+            modal.style.display = 'flex';
+            document.body.style.overflow = 'hidden'; // Prevent scroll
+        }
 
-                // If input is empty, show everything. 
-                // If input exists, show card ONLY if it has matching articles.
-                if (input === "") {
-                    cards[i].style.display = "";
-                    for(let j=0; j<listItems.length; j++) listItems[j].style.display = "";
-                } else {
-                    cards[i].style.display = hasMatch ? "" : "none";
-                }
+        function closeModal() {
+            document.getElementById('contentModal').style.display = 'none';
+            document.body.style.overflow = 'auto'; // Re-enable scroll
+        }
+
+        // Close on outside click
+        window.onclick = function(event) {
+            const modal = document.getElementById('contentModal');
+            if (event.target == modal) {
+                closeModal();
             }
         }
     </script>
