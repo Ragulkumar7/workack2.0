@@ -73,7 +73,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         // IT Executive go to the IT Executive folder
                         header("Location: IT_Executive/ITExecutive_dashboard.php");
                         break;
-
+                    case 'HR Executive':
+                        // HR Executive go to the HR Executive folder
+                        header("Location: HR_executive/HR_executive_dashboard.php");
+                        break;
 
                     case 'Digital Marketing':
                         // Employees go to the employee folder

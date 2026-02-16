@@ -3,7 +3,6 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // 2. ROBUST INCLUDE FUNCTION
-// This function checks the current folder AND the parent folder to prevent "No such file" errors.
 function includeFile($filename) {
     $paths = [
         __DIR__ . '/' . $filename,       // Look in current TL folder
@@ -16,11 +15,10 @@ function includeFile($filename) {
             return;
         }
     }
-    // Optional: Echo a warning if not found, or silence it
     echo "";
 }
 
-// 3. MOCK DATA (Team Members)
+// 3. MOCK DATA (Team Members) - Added 'salary' field
 $teamMembers = [
     [
         "id" => "EMP-002", "first_name" => "Brian", "last_name" => "Villalobos", 
@@ -28,7 +26,8 @@ $teamMembers = [
         "designation" => "Senior Developer", "dept" => "Development", 
         "join_date" => "2024-10-24", "status" => "Active", "img" => "12",
         "emp_type" => "Contract", "performance" => "High",
-        "pan" => "FGHIJ5678K", "bank_name" => "SBI", "account_no" => "0987654321"
+        "pan" => "FGHIJ5678K", "bank_name" => "SBI", "account_no" => "0987654321",
+        "salary" => "85000"
     ],
     [
         "id" => "EMP-004", "first_name" => "Stephan", "last_name" => "Peralt", 
@@ -36,7 +35,8 @@ $teamMembers = [
         "designation" => "Android Developer", "dept" => "Development", 
         "join_date" => "2025-03-01", "status" => "Active", "img" => "14",
         "emp_type" => "Intern", "performance" => "Average",
-        "pan" => "", "bank_name" => "", "account_no" => ""
+        "pan" => "", "bank_name" => "", "account_no" => "",
+        "salary" => "25000"
     ],
     [
         "id" => "EMP-009", "first_name" => "Julia", "last_name" => "Gomes", 
@@ -44,7 +44,8 @@ $teamMembers = [
         "designation" => "UI Designer", "dept" => "Development", 
         "join_date" => "2025-05-12", "status" => "Inactive", "img" => "25",
         "emp_type" => "Permanent", "performance" => "N/A",
-        "pan" => "KJHGF8821L", "bank_name" => "ICICI", "account_no" => "5566778899"
+        "pan" => "KJHGF8821L", "bank_name" => "ICICI", "account_no" => "5566778899",
+        "salary" => "60000"
     ],
 ];
 ?>
@@ -68,7 +69,7 @@ $teamMembers = [
             --border: #e5e7eb;
             --bg-body: #f8f9fa;
             --white: #ffffff;
-            --sidebar-width: 250px; /* Default sidebar width assumption */
+            --sidebar-width: 250px;
         }
 
         body { 
@@ -76,18 +77,16 @@ $teamMembers = [
             background-color: var(--bg-body); 
             margin: 0; 
             color: var(--text-main);
-            overflow-x: hidden; /* Prevent body scroll on mobile */
+            overflow-x: hidden;
         }
 
-        /* --- LAYOUT --- */
         .main-content { 
-            margin-left: var(--primary-sidebar-width, 95px); /* Matches your variable */
+            margin-left: var(--primary-sidebar-width, 95px); 
             padding: 24px 32px; 
             min-height: 100vh; 
             transition: all 0.3s ease; 
         }
 
-        /* --- HEADER --- */
         .page-header { 
             display: flex; 
             justify-content: space-between; 
@@ -99,7 +98,6 @@ $teamMembers = [
         .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; }
         .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
 
-        /* --- BUTTONS & CONTROLS --- */
         .btn { 
             display: inline-flex; align-items: center; justify-content: center;
             padding: 9px 16px; font-size: 14px; font-weight: 500; 
@@ -115,7 +113,6 @@ $teamMembers = [
         .view-btn { padding: 8px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: white; color: var(--text-muted); }
         .view-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
 
-        /* --- STATS CARDS --- */
         .stats-grid { 
             display: grid; 
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
@@ -136,20 +133,18 @@ $teamMembers = [
         .card-green .stat-icon-box { background: #10b981; }
         .card-blue .stat-icon-box { background: #3b82f6; }
 
-        /* --- FILTERS --- */
         .filter-row {
             background: white; padding: 15px; border-radius: 12px; 
             border: 1px solid var(--border); margin-bottom: 20px; 
             display: flex; gap: 15px; align-items: center; flex-wrap: wrap;
         }
 
-        /* --- TABLE VIEW --- */
         .table-responsive { 
             background: white; border-radius: 12px; border: 1px solid var(--border); 
-            overflow-x: auto; /* CRITICAL FOR MOBILE */
+            overflow-x: auto; 
             -webkit-overflow-scrolling: touch;
         }
-        table { width: 100%; border-collapse: collapse; min-width: 800px; /* Forces scroll on small screens */ }
+        table { width: 100%; border-collapse: collapse; min-width: 800px; }
         th { text-align: left; padding: 14px 16px; font-size: 12px; font-weight: 600; background: #f9fafb; color: #4b5563; text-transform: uppercase; border-bottom: 1px solid var(--border); }
         td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
         
@@ -159,7 +154,6 @@ $teamMembers = [
         .status-active { background: #dcfce7; color: #166534; }
         .status-inactive { background: #fee2e2; color: #991b1b; }
 
-        /* --- GRID VIEW --- */
         .grid-view-container { 
             display: none; 
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
@@ -173,27 +167,26 @@ $teamMembers = [
         .emp-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
         .card-img { width: 80px; height: 80px; border-radius: 50%; margin-bottom: 12px; border: 3px solid #f3f4f6; object-fit: cover; }
 
-        /* --- MODAL --- */
         .modal-overlay { 
             display: none; position: fixed; inset: 0; 
             background: rgba(0,0,0,0.5); z-index: 2000; 
             align-items: center; justify-content: center; 
             backdrop-filter: blur(2px); 
-            padding: 10px; /* Padding for mobile edges */
+            padding: 10px;
         }
         .modal-overlay.active { display: flex; }
         .modal-box { 
             background: white; width: 700px; max-width: 100%; 
             border-radius: 12px; overflow: hidden; 
             display: flex; flex-direction: column;
-            max-height: 90vh; /* Prevents modal from being taller than screen */
+            max-height: 90vh;
         }
         .modal-header { 
             padding: 20px; border-bottom: 1px solid var(--border); 
             display: flex; justify-content: space-between; align-items: center; 
         }
         .modal-body { 
-            padding: 24px; overflow-y: auto; /* Scrollable content */
+            padding: 24px; overflow-y: auto;
         }
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .form-group { margin-bottom: 5px; }
@@ -208,12 +201,8 @@ $teamMembers = [
             background: #fff;
         }
 
-        /* --- RESPONSIVE MEDIA QUERIES --- */
         @media (max-width: 768px) {
-            /* 1. Reset Margin for Mobile (Assuming sidebar collapses) */
             .main-content { margin-left: 0; padding: 16px; }
-
-            /* 2. Header Stack: Title on top, buttons below */
             .page-header { 
                 flex-direction: column; 
                 align-items: flex-start; 
@@ -223,15 +212,9 @@ $teamMembers = [
                 width: 100%;
                 justify-content: space-between;
             }
-
-            /* 3. Filter Row Stack */
             .filter-row { flex-direction: column; align-items: stretch; }
             .filter-row input, .filter-row select { width: 100% !important; }
-
-            /* 4. Form Grid Single Column */
             .form-grid { grid-template-columns: 1fr; }
-
-            /* 5. Modal Width */
             .modal-box { width: 100%; }
         }
     </style>
@@ -284,7 +267,7 @@ $teamMembers = [
                 <i data-lucide="search" style="position:absolute; left:10px; top:10px; width:16px; color:#9ca3af;"></i>
                 <input type="text" placeholder="Search team member..." class="form-control" style="padding-left:35px;">
             </div>
-            <select class="form-control" style="width:180px;"><option>All Status</option><option>Active</option></select>
+            <select class="form-control" style="width:180px;"><option>All Status</option><option>Active</option><option>Inactive</option></select>
         </div>
 
         <div id="listView" class="table-responsive">
@@ -373,6 +356,10 @@ $teamMembers = [
                                 <option>Inactive</option>
                             </select>
                         </div>
+                        <div class="form-group">
+                            <label>Salary</label>
+                            <input type="text" id="salary" class="form-control" placeholder="Enter Amount">
+                        </div>
                     </div>
                 </form>
             </div>
@@ -386,7 +373,6 @@ $teamMembers = [
     <script>
         lucide.createIcons();
 
-        // View Switching Logic
         function switchView(view) {
             const listBtn = document.getElementById('btnList');
             const gridBtn = document.getElementById('btnGrid');
@@ -402,34 +388,33 @@ $teamMembers = [
             }
         }
 
-        // Modal Logic
         function openEditModal(data) {
             document.getElementById('modalTitle').innerText = "Team Member: " + data.first_name;
-            // Pre-fill data
             document.getElementById('fName').value = data.first_name;
             document.getElementById('lName').value = data.last_name;
             document.getElementById('email').value = data.email;
             document.getElementById('phone').value = data.phone;
             document.getElementById('desig').value = data.designation;
             document.getElementById('status').value = data.status;
+            // Pre-fill salary
+            document.getElementById('salary').value = data.salary || "";
             
-            document.body.style.overflow = 'hidden'; // Stop background scrolling
+            document.body.style.overflow = 'hidden';
             document.getElementById('memberModal').classList.add('active');
         }
 
         function openAddModal() {
             document.getElementById('modalTitle').innerText = "Add New Team Member";
             document.getElementById('memberForm').reset();
-            document.body.style.overflow = 'hidden'; // Stop background scrolling
+            document.body.style.overflow = 'hidden';
             document.getElementById('memberModal').classList.add('active');
         }
 
         function closeModal() {
-            document.body.style.overflow = 'auto'; // Restore background scrolling
+            document.body.style.overflow = 'auto';
             document.getElementById('memberModal').classList.remove('active');
         }
 
-        // Close modal when clicking outside
         window.onclick = function(e) {
             if (e.target.classList.contains('modal-overlay')) closeModal();
         }
