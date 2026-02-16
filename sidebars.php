@@ -19,7 +19,7 @@ $current_view = $_GET['view'] ?? '';
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
 // Added 'hr_executive' to ensure paths correctly use '../' to go to root.
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive'])) {
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr'])) {
     $base = '../';
 } else {
     $base = '';
@@ -181,6 +181,13 @@ $sections = [
                 'icon' => 'users', 
                 'allowed' => ['Team Lead']
             ],
+           // salary hike for HR only
+            [
+                'name' => 'Salary Hike', 
+                'path' => $base . 'HR/hr_salaryhikes.php', 
+                'icon' => 'banknote', 
+                'allowed' => ['HR'] // Only HR can see Salary Hike option
+            ],
 
             // --- PROJECTS & CLIENTS ---
             [
@@ -205,12 +212,18 @@ $sections = [
             ],
             [
                 'name' => 'Productivity', 
-                'path' => $base . 'productivity_monitor.php', 
+                'path' => $base . 'manager/productivity_monitor.php', 
                 'icon' => 'activity', 
-                'allowed' => ['Manager', 'System Admin', 'HR'] 
+                'allowed' => ['Manager'] 
             ],
             
             // --- HR EXECUTIVE PAGES ---
+            [
+                'name' => 'Jobs', 
+                'path' => $base . 'HR_executive/jobs.php', 
+                'icon' => 'briefcase', 
+                'allowed' => ['HR', 'HR Executive']
+            ],
             [
                 'name' => 'Onboarding', 
                 'path' => $base . 'HR_executive/employee_onboarding.php', 
