@@ -15,37 +15,33 @@ include '../header.php';
     <style>
         body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; color: #334155; overflow-x: hidden; }
         
-        /* FIX: The .page-wrapper now acts as the 'mainContent' target.
-           The transition ensures the "Push" effect from your video is smooth.
-        */
         .page-wrapper {
-            transition: margin-left 0.3s ease-in-out;
-            margin-left: 95px; /* Matches Primary Sidebar width */
-            padding: 20px;
+            transition: all 0.3s ease-in-out;
+            margin-left: 95px; 
+            padding: 25px;
             min-height: 100vh;
             position: relative;
             z-index: 1;
+            width: calc(100% - 95px);
         }
 
-        /* This class is toggled by your sidebars.php script. 
-           It adds the secondary sidebar width (220px) to the base margin (95px).
-        */
         .main-shifted { 
             margin-left: 315px !important; 
+            width: calc(100% - 315px) !important;
         }
 
         @media (max-width: 991.98px) {
-            .page-wrapper { margin-left: 0 !important; }
-            .main-shifted { margin-left: 0 !important; }
+            .page-wrapper { margin-left: 0 !important; width: 100% !important; }
+            .main-shifted { margin-left: 0 !important; width: 100% !important; }
         }
 
         /* Profile & Info Cards */
         .profile-card, .info-card { border: none; border-radius: 15px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 20px; background: #fff; }
-        .profile-img-container { text-align: center; margin-top: 20px; } 
-        .profile-img { width: 100px; height: 100px; border-radius: 50%; border: 4px solid #fff; background: #eee; object-fit: cover; }
+        .profile-img-container { text-align: center; margin-top: 30px; } 
+        .profile-img { width: 120px; height: 120px; border-radius: 50%; border: 4px solid #fff; background: #eee; object-fit: cover; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         
-        .badge-dev { background: #e2e8f0; color: #475569; border-radius: 5px; font-size: 0.85rem; padding: 4px 12px; font-weight: 500;}
-        .badge-exp { background: #e0f2fe; color: #0369a1; border-radius: 5px; font-size: 0.85rem; padding: 4px 12px; font-weight: 500;}
+        .badge-dev { background: #f1f5f9; color: #475569; border-radius: 6px; font-size: 0.85rem; padding: 6px 14px; font-weight: 500;}
+        .badge-exp { background: #e0f2fe; color: #0369a1; border-radius: 6px; font-size: 0.85rem; padding: 6px 14px; font-weight: 500;}
         
         .card-title-flex { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
         .card-title-flex h6 { margin: 0; font-weight: 700; color: #1e293b; font-size: 1rem; }
@@ -61,12 +57,15 @@ include '../header.php';
         .emergency-relation { font-size: 0.9rem; color: #334155; font-weight: 500; }
         .emergency-phone { font-weight: 600; color: #1e293b; font-size: 0.95rem; text-align: right; }
 
-        /* Detail Cards */
-        .detail-card { border: none; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); overflow: hidden; background: #fff; }
+        /* Detail Cards - FIX: Added display block and removed overflow hidden to prevent vanishing text */
+        .detail-card { border: none; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); background: #fff; display: block; }
         .card-header-custom { background: #fff; border: none; display: flex; justify-content: space-between; align-items: center; padding: 20px; cursor: pointer; text-decoration: none !important; color: inherit; }
         .card-header-custom h5 { margin: 0; font-size: 1.1rem; font-weight: 600; color: #1e293b; }
         .card-header-custom .fa-chevron-down { transition: transform 0.3s ease; }
-        .card-header-custom[aria-expanded="true"] .fa-chevron-down { transform: rotate(180deg); }
+        .card-header-custom[aria-expanded="false"] .fa-chevron-down { transform: rotate(-90deg); }
+
+        /* Fix for vanishing text: Ensure the collapse body has height and visibility */
+        .collapse.show { visibility: visible !important; display: block !important; }
 
         .data-label { display: block; color: #94a3b8; font-size: 0.85rem; margin-bottom: 2px; }
         .data-value { display: block; color: #1e293b; font-weight: 600; font-size: 0.95rem; }
@@ -79,7 +78,6 @@ include '../header.php';
         .role-badge { background: #f1f5f9; color: #475569; border-radius: 6px; font-size: 0.85rem; padding: 4px 12px; display: inline-flex; align-items: center; margin-top: 5px; font-weight: 500; border: 1px solid #e2e8f0; }
         .role-badge::before { content: "•"; margin-right: 6px; color: #006064; font-size: 1.2rem; }
 
-        /* Teal Buttons */
         .btn-edit, .btn-message, .btn-save, .btn-bank-stat, .btn-upload { background-color: #006064; color: white; border: none; border-radius: 8px; font-weight: 500; transition: background 0.2s; }
         .btn-edit:hover, .btn-message:hover, .btn-save:hover, .btn-bank-stat:hover { background-color: #004d40; }
         .btn-edit, .btn-message { padding: 10px 18px; }
@@ -87,7 +85,6 @@ include '../header.php';
         .btn-save { padding: 10px 24px; font-weight: 600; }
         .btn-collapse { background: white; border: 1px solid #e2e8f0; border-radius: 8px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: #64748b; }
         
-        /* Modals */
         .upload-section { background-color: #f8fafc; border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
         .upload-circle { width: 80px; height: 80px; border-radius: 50%; background: #eee; }
         .stat-section-title { font-weight: 700; color: #1e293b; margin: 25px 0 15px 0; font-size: 1.1rem; border-bottom: 1px solid #f1f5f9; padding-bottom: 10px; }
@@ -102,7 +99,9 @@ include '../header.php';
                 <h5 class="fw-bold mb-0 text-dark">Employee Details</h5>
             </div>
             <div class="col-6 text-end d-flex justify-content-end gap-2">
-               
+                <button class="btn-bank-stat" data-bs-toggle="modal" data-bs-target="#bankStatutoryModal">
+                    <i class="far fa-plus-square me-2"></i> Bank & Statutory
+                </button>
                 <button class="btn-collapse"><i class="fas fa-angles-up"></i></button>
             </div>
         </div>
@@ -111,13 +110,17 @@ include '../header.php';
             <div class="col-lg-4">
                 <div class="profile-card p-0">
                     <div class="profile-img-container">
-                        <img src="https://via.placeholder.com/100" class="profile-img" alt="Stephan Peralt">
+                        <img src="https://via.placeholder.com/120" class="profile-img" alt="Stephan Peralt">
                     </div>
                     <div class="card-body text-center mt-2">
                         <h4 class="fw-bold mb-1">Stephan Peralt <i class="fas fa-check-circle text-success" style="font-size: 1rem;"></i></h4>
-                        <div class="d-flex justify-content-center gap-2 mb-4">
+                        <div class="d-flex justify-content-center gap-2 mb-4 mt-3">
                             <span class="badge-dev">• Software Developer</span>
                             <span class="badge-exp">10+ years of Experience</span>
+                        </div>
+                        <div class="d-flex gap-2 justify-content-center pb-4">
+                            <button class="btn-edit" data-bs-toggle="modal" data-bs-target="#editEmployeeModal"><i class="far fa-edit"></i> Edit Info</button>
+                            <button class="btn-message"><i class="far fa-comment-dots"></i> Message</button>
                         </div>
                     </div>
                 </div>
