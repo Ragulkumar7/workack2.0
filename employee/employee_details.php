@@ -102,9 +102,7 @@ include '../header.php';
                 <h5 class="fw-bold mb-0 text-dark">Employee Details</h5>
             </div>
             <div class="col-6 text-end d-flex justify-content-end gap-2">
-                <button class="btn-bank-stat" data-bs-toggle="modal" data-bs-target="#bankStatutoryModal">
-                    <i class="far fa-plus-square me-2"></i> Bank & Statutory
-                </button>
+               
                 <button class="btn-collapse"><i class="fas fa-angles-up"></i></button>
             </div>
         </div>
@@ -120,10 +118,6 @@ include '../header.php';
                         <div class="d-flex justify-content-center gap-2 mb-4">
                             <span class="badge-dev">• Software Developer</span>
                             <span class="badge-exp">10+ years of Experience</span>
-                        </div>
-                        <div class="d-flex gap-2 justify-content-center pb-3">
-                            <button class="btn-edit" data-bs-toggle="modal" data-bs-target="#editEmployeeModal"><i class="far fa-edit"></i> Edit Info</button>
-                            <button class="btn-message"><i class="far fa-comment-dots"></i> Message</button>
                         </div>
                     </div>
                 </div>
