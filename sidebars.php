@@ -97,7 +97,6 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR', 'HR Executive'],
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
-                    ['name' => 'Attendance (Emp)', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_manager.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Overtime', 'path' => $base . 'overtime_management.php', 'icon' => 'hourglass'],
