@@ -52,6 +52,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         header("Location: TL/tl_dashboard.php");
                         break;
 
+                         case 'HR Executive':
+                        // Team Leads go to the TL folder
+                        header("Location: HR_executive/HR_executive_dashboard.php");
+                        break;
+
                     case 'Employee':
                         header("Location: employee/employee_dashboard.php");
                         break;
@@ -202,6 +207,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                     <select name="role" id="role_sel" onchange="updateEx()">
                         <option value="System Admin">System Admin</option>
                         <option value="HR">HR</option>
+                         <option value="HR Executive">HR Executive</option>
                         <option value="Manager">Manager</option>
                         <option value="Team Lead">Team Lead</option>
                         <option value="Employee" selected>Employee</option>
