@@ -1,14 +1,82 @@
 <?php
 // --- PATH & SESSION LOGIC ---
- $path_to_root = '../'; 
+$path_to_root = '../'; 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+// --- DATABASE CONNECTION ---
+// Using the corrected path
+require_once '../include/db_connect.php'; 
+
+// Check if user is logged in
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.php");
+    exit();
+}
+
+$current_user_id = $_SESSION['user_id'];
+
+// --- MYSQL QUERY TO FETCH USER DATA ---
+$sql = "SELECT username, role FROM users WHERE id = ?";
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $current_user_id);
+mysqli_stmt_execute($stmt);
+$user_result = mysqli_stmt_get_result($stmt);
+$user_info = mysqli_fetch_assoc($user_result);
+
+// Dynamic variables from database
+$employee_name = $user_info['username']; 
+$employee_role = $user_info['role']; 
+
+// --- ATTENDANCE LOGIC (PUNCH IN/OUT) ---
+$today = date('Y-m-d');
+
+// Check for existing record for today
+$check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
+$check_stmt = mysqli_prepare($conn, $check_sql);
+mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
+mysqli_stmt_execute($check_stmt);
+$attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
+
+// Handle Punch Button Clicks
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    if ($_POST['action'] == 'punch_in' && !$attendance_record) {
+        $punch_in_time = date('Y-m-d H:i:s');
+        $ins_sql = "INSERT INTO attendance (user_id, punch_in, date) VALUES (?, ?, ?)";
+        $ins_stmt = mysqli_prepare($conn, $ins_sql);
+        mysqli_stmt_bind_param($ins_stmt, "iss", $current_user_id, $punch_in_time, $today);
+        mysqli_stmt_execute($ins_stmt);
+        header("Location: " . $_SERVER['PHP_SELF']); 
+        exit();
+    } elseif ($_POST['action'] == 'punch_out' && $attendance_record && !$attendance_record['punch_out']) {
+        $punch_out_time = date('Y-m-d H:i:s');
+        $upd_sql = "UPDATE attendance SET punch_out = ? WHERE id = ?";
+        $upd_stmt = mysqli_prepare($conn, $upd_sql);
+        mysqli_stmt_bind_param($upd_stmt, "si", $punch_out_time, $attendance_record['id']);
+        mysqli_stmt_execute($upd_stmt);
+        header("Location: " . $_SERVER['PHP_SELF']); 
+        exit();
+    }
+}
+
+// Display Variables for Attendance section
+$display_punch_in = $attendance_record ? date('h:i A', strtotime($attendance_record['punch_in'])) : '--:--';
+$total_hours_today = "0:00:00";
+if ($attendance_record && $attendance_record['punch_out']) {
+    $start = new DateTime($attendance_record['punch_in']);
+    $end = new DateTime($attendance_record['punch_out']);
+    $total_hours_today = $start->diff($end)->format('%H:%I:%S');
+} elseif ($attendance_record && !$attendance_record['punch_out']) {
+    $start = new DateTime($attendance_record['punch_in']);
+    $end = new DateTime();
+    $total_hours_today = $start->diff($end)->format('%H:%I:%S');
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Employee Dashboard - Stephan Peralt</title>
+    <title>Employee Dashboard - <?php echo htmlspecialchars($employee_name); ?></title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -120,12 +188,9 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
             <?php
             // Configuration & Data
-            $employee_name = "Stephan Peralt";
-            $attendance_date = "11 Mar 2025";
-            $attendance_time = "08:35 AM";
-            $total_hours_today = "5:45:32";
-            $attendance_percent = 65; 
-
+            $attendance_date = date("d M Y");
+            $attendance_time_display = date("h:i A"); // Current time for display if not fetched
+            
             // Date & Resignation Data
             $joining_date = "15 Jan 2024";
             $status = "Resigned"; 
@@ -140,7 +205,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
             $stats_sick = 68;
             ?>
 
-            <!-- Header Section -->
             <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
                 <div>
                     <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Employee Dashboard</h1>
@@ -153,12 +217,9 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </nav>
                 </div>
                 <div class="flex gap-3 flex-wrap">
+                    
                     <button class="bg-white border border-gray-200 px-5 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm hover:shadow-md transition-shadow">
-                        <i class="fa-solid fa-file-export text-gray-400"></i> Export 
-                        <i class="fa-solid fa-chevron-down text-[10px] text-gray-400"></i>
-                    </button>
-                    <button class="bg-white border border-gray-200 px-5 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm hover:shadow-md transition-shadow">
-                        <i class="fa-regular fa-calendar text-gray-400"></i> 15-04-2025
+                        <i class="fa-regular fa-calendar text-gray-400"></i> <?php echo date("d-m-Y"); ?>
                     </button>
                     <button class="bg-white border border-gray-200 p-2.5 rounded-xl text-sm flex items-center shadow-sm hover:shadow-md transition-shadow">
                         <i class="fa-solid fa-angles-up text-gray-400"></i>
@@ -166,21 +227,19 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                 </div>
             </div>
 
-            <!-- Main Grid -->
             <div class="grid grid-cols-12 gap-6">
                 
-                <!-- Employee Profile Card -->
                 <div class="col-span-12 lg:col-span-3">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover-card h-full">
                         <div class="bg-gradient-to-r from-teal-600 to-teal-700 p-8 pb-10">
                             <div class="flex flex-col items-center text-center">
                                 <div class="relative">
-                                    <img src="https://ui-avatars.com/api/?name=Stephan+Peralt&background=ffffff&color=0d9488&size=100&font-size=0.4&bold=true" class="w-24 h-24 rounded-full border-4 border-white shadow-lg">
+                                    <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($employee_name); ?>&background=ffffff&color=0d9488&size=100&font-size=0.4&bold=true" class="w-24 h-24 rounded-full border-4 border-white shadow-lg">
                                     <div class="absolute bottom-1 right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white"></div>
                                 </div>
-                                <h2 class="text-white font-bold text-xl mt-4"><?php echo $employee_name; ?></h2>
-                                <p class="text-teal-100 text-sm mt-1">Senior Product Designer</p>
-                                <span class="inline-block bg-white/20 text-white text-xs px-3 py-1 rounded-full mt-2">UI/UX Design</span>
+                                <h2 class="text-white font-bold text-xl mt-4"><?php echo htmlspecialchars($employee_name); ?></h2>
+                                <p class="text-teal-100 text-sm mt-1"><?php echo htmlspecialchars($employee_role); ?></p>
+                                <span class="inline-block bg-white/20 text-white text-xs px-3 py-1 rounded-full mt-2">Verified Account</span>
                             </div>
                         </div>
                         <div class="p-6 space-y-5">
@@ -200,7 +259,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                 </div>
                                 <div>
                                     <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Email</p>
-                                    <p class="font-semibold text-sm text-slate-800">steperde124@example.com</p>
+                                    <p class="font-semibold text-sm text-slate-800"><?php echo htmlspecialchars($employee_name); ?></p>
                                 </div>
                             </div>
                             
@@ -210,7 +269,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                 </div>
                                 <div>
                                     <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Reports To</p>
-                                    <p class="font-semibold text-sm text-slate-800">Douglas Martini</p>
+                                    <p class="font-semibold text-sm text-slate-800">System Admin</p>
                                 </div>
                             </div>
                             
@@ -254,9 +313,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Leave Details & Balance Section -->
                 <div class="col-span-12 lg:col-span-5 space-y-6">
-                    <!-- Leave Details Card -->
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
@@ -305,7 +362,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                         </div>
                     </div>
 
-                    <!-- Leave Balance Card -->
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
@@ -347,19 +403,19 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Attendance Card -->
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
                         <div class="text-center mb-6">
                             <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest mb-2">Today's Attendance</h3>
-                            <p class="text-slate-800 font-bold text-lg"><?php echo $attendance_time . ', ' . $attendance_date; ?></p>
+                            <p class="text-slate-800 font-bold text-lg"><?php echo date('h:i A, d M Y'); ?></p>
                         </div>
                         
                         <div class="relative flex items-center justify-center my-8">
                             <svg class="w-40 h-40 transform -rotate-90">
                                 <circle cx="80" cy="80" r="70" stroke="#f1f5f9" stroke-width="12" fill="transparent" />
                                 <circle cx="80" cy="80" r="70" stroke="#0d9488" stroke-width="12" fill="transparent" 
-                                    stroke-dasharray="440" stroke-dashoffset="154" stroke-linecap="round" class="progress-ring" />
+                                    stroke-dasharray="440" stroke-dashoffset="<?php echo ($attendance_record && $attendance_record['punch_out']) ? '0' : '154'; ?>" 
+                                    stroke-linecap="round" class="progress-ring" />
                             </svg>
                             <div class="absolute text-center">
                                 <p class="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Total Hours</p>
@@ -370,21 +426,34 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                         <div class="space-y-4">
                             <div class="flex justify-center">
                                 <div class="inline-block bg-teal-100 text-teal-700 px-4 py-2 rounded-lg text-xs font-bold">
-                                    <i class="fa-solid fa-clock mr-1"></i> Production : 3.45 hrs
+                                    <i class="fa-solid fa-clock mr-1"></i> 
+                                    Status: <?php echo !$attendance_record ? 'Not Punched In' : ($attendance_record['punch_out'] ? 'Shift Ended' : 'On Duty'); ?>
                                 </div>
                             </div>
                             <p class="text-center text-xs text-gray-500">
                                 <i class="fa-solid fa-fingerprint text-orange-500 mr-1"></i> 
-                                Punch In at <?php echo $attendance_time; ?>
+                                Punch In at <?php echo $display_punch_in; ?>
                             </p>
-                            <button class="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold py-4 rounded-xl text-sm shadow-lg shadow-orange-200 hover:shadow-xl hover:shadow-orange-300 transition-all">
-                                <i class="fa-solid fa-right-from-bracket mr-2"></i> Punch Out
-                            </button>
+
+                            <form method="POST">
+                                <?php if (!$attendance_record): ?>
+                                    <button type="submit" name="action" value="punch_in" class="w-full bg-gradient-to-r from-teal-500 to-teal-600 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-teal-300 transition-all">
+                                        <i class="fa-solid fa-right-to-bracket mr-2"></i> Punch In
+                                    </button>
+                                <?php elseif (!$attendance_record['punch_out']): ?>
+                                    <button type="submit" name="action" value="punch_out" class="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-orange-300 transition-all">
+                                        <i class="fa-solid fa-right-from-bracket mr-2"></i> Punch Out
+                                    </button>
+                                <?php else: ?>
+                                    <button disabled class="w-full bg-gray-200 text-gray-500 font-bold py-4 rounded-xl text-sm cursor-not-allowed">
+                                        <i class="fa-solid fa-check mr-2"></i> Shift Completed
+                                    </button>
+                                <?php endif; ?>
+                            </form>
                         </div>
                     </div>
                 </div>
 
-                <!-- Stats Cards Row -->
                 <div class="col-span-12">
                     <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
                         <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card">
@@ -449,7 +518,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Timeline Bar -->
                 <div class="col-span-12">
                     <div class="bg-white rounded-2xl border border-gray-100 p-7 shadow-sm hover-card">
                         <div class="flex flex-col lg:flex-row justify-between mb-6 gap-4">
@@ -494,7 +562,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Projects Section -->
                 <div class="col-span-12 lg:col-span-6">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
                         <div class="flex justify-between items-center mb-6">
@@ -546,7 +613,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Tasks Section -->
                 <div class="col-span-12 lg:col-span-6">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
                         <div class="flex justify-between items-center mb-6">
@@ -569,7 +635,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                 <div class="flex items-center gap-3">
                                     <i class="fa-solid fa-grip-vertical text-gray-200 text-xs cursor-move"></i>
                                     <input type="checkbox" class="w-4 h-4 rounded text-teal-600 border-gray-300 focus:ring-teal-500">
-                                    <span class="text-sm font-medium text-slate-700"><?php echo $task['title']; ?></span>
+                                    <span class="text-sm font-medium text-slate-700"><?php echo htmlspecialchars($task['title']); ?></span>
                                 </div>
                                 <div class="flex items-center gap-3">
                                     <?php 
@@ -581,7 +647,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                     ];
                                     ?>
                                     <span class="text-[10px] font-bold px-3 py-1 rounded-full <?php echo $colors[$task['color']]; ?>">
-                                        ● <?php echo $task['status']; ?>
+                                        ● <?php echo htmlspecialchars($task['status']); ?>
                                     </span>
                                     <div class="flex -space-x-1">
                                         <img src="https://ui-avatars.com/api/?name=X&background=0d9488&color=fff&size=24" class="w-6 h-6 rounded-full border-2 border-white">
@@ -594,7 +660,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Performance Chart -->
                 <div class="col-span-12 lg:col-span-5">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
                         <div class="flex justify-between items-center mb-6">
@@ -631,7 +696,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Skills Section -->
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
                         <div class="flex justify-between items-center mb-6">
@@ -654,8 +718,8 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                 <div class="flex items-center gap-4">
                                     <div class="w-1.5 h-10 rounded-full" style="background-color: <?php echo $skill['color']; ?>"></div>
                                     <div>
-                                        <p class="text-sm font-bold text-slate-800"><?php echo $skill['name']; ?></p>
-                                        <p class="text-[10px] text-gray-400">Updated: <?php echo $skill['date']; ?></p>
+                                        <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($skill['name']); ?></p>
+                                        <p class="text-[10px] text-gray-400">Updated: <?php echo htmlspecialchars($skill['date']); ?></p>
                                     </div>
                                 </div>
                                 <div class="relative w-12 h-12 flex items-center justify-center">
@@ -664,7 +728,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                         <circle cx="24" cy="24" r="20" fill="none" stroke="<?php echo $skill['color']; ?>" stroke-width="4" 
                                             stroke-dasharray="126" stroke-dashoffset="<?php echo 126 - (126 * $skill['pct'] / 100); ?>" stroke-linecap="round" />
                                     </svg>
-                                    <span class="absolute text-[10px] font-bold text-slate-800"><?php echo $skill['pct']; ?>%</span>
+                                    <span class="absolute text-[10px] font-bold text-slate-800"><?php echo htmlspecialchars($skill['pct']); ?>%</span>
                                 </div>
                             </div>
                             <?php endforeach; ?>
@@ -672,7 +736,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Birthday & Info Cards -->
                 <div class="col-span-12 lg:col-span-3 space-y-5">
                     <div class="bg-gradient-to-br from-teal-600 to-teal-700 rounded-2xl p-6 text-center text-white relative overflow-hidden shadow-lg">
                         <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
@@ -702,7 +765,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Team Members -->
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
                         <div class="flex justify-between items-center mb-6">
@@ -732,8 +794,8 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                         <div class="absolute bottom-0 right-0 w-3 h-3 <?php echo $statusColors[$member['status']]; ?> rounded-full border-2 border-white"></div>
                                     </div>
                                     <div>
-                                        <p class="text-sm font-bold text-slate-800"><?php echo $member['name']; ?></p>
-                                        <p class="text-[10px] text-gray-400"><?php echo $member['role']; ?></p>
+                                        <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($member['name']); ?></p>
+                                        <p class="text-[10px] text-gray-400"><?php echo htmlspecialchars($member['role']); ?></p>
                                     </div>
                                 </div>
                                 <div class="flex gap-1">
@@ -753,7 +815,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Notifications -->
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
                         <div class="flex justify-between items-center mb-6">
@@ -794,7 +855,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                     </div>
                 </div>
 
-                <!-- Meetings Schedule -->
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
                         <div class="flex justify-between items-center mb-6">
@@ -833,7 +893,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                                 <div class="w-3 h-3 rounded-full bg-green-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow"></div>
                                 <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-xl flex-1 border border-green-100">
                                     <p class="text-sm font-bold text-slate-800">Update of Project Flow</p>
-                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-code text-green-500"></i> Development</p>
+                                    <p class="text-[10px] text-gray-400 mt-1 flex items-center gap-1"><i class="fa-solid fa-code text-green-500"></i> Development</p>
                                 </div>
                             </div>
                         </div>
@@ -841,7 +901,6 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
                 </div>
             </div>
             
-            <!-- Settings Button -->
             <div class="fixed right-0 top-1/2 -translate-y-1/2 bg-teal-600 text-white p-3 rounded-l-xl shadow-xl cursor-pointer hover:bg-teal-700 transition z-50">
                 <i class="fa-solid fa-gear text-lg"></i>
             </div>

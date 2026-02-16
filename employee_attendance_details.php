@@ -103,17 +103,8 @@ $attendanceRecords = [
                     Status: Not Started
                 </div>
                 
-                <p class="text-slate-600 text-sm mb-4 flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-clock text-orange-500"></i> <span id="punchText" class="font-medium">--:-- --</span>
-                </p>
+                
 
-                <button id="punchBtn" onclick="togglePunch()" class="w-full bg-[#111827] text-white py-3 rounded-md font-bold transition-all shadow-md hover:bg-slate-800 active:scale-95 mb-3">
-                    Punch In
-                </button>
-
-                <button id="breakBtn" onclick="toggleBreak()" class="w-full bg-amber-500 text-white py-3 rounded-md font-bold transition-all shadow-md hover:bg-amber-600 active:scale-95 hidden">
-                    Take a Break ☕
-                </button>
 
                 <div class="bg-slate-50 rounded-xl p-3 mt-6 border border-slate-100">
                     <p class="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Session Production</p>
