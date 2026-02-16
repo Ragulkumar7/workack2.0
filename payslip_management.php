@@ -50,13 +50,9 @@ include 'include/db_connect.php';
             -moz-appearance: none;
             appearance: none;
         }
-
-        /* Print Styles for Payslip */
-        @media print {
-            body * { visibility: hidden; }
-            #payslipPrintArea, #payslipPrintArea * { visibility: visible; }
-            #payslipPrintArea { position: absolute; left: 0; top: 0; width: 100%; }
-        }
+        
+        .hover-card { transition: all 0.3s ease; }
+        .hover-card:hover { box-shadow: 0 20px 40px -15px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body class="text-slate-800">
@@ -126,30 +122,61 @@ include 'include/db_connect.php';
                             </div>
                         </div>
 
+                        <!-- Pay Period Configuration Block -->
                         <div class="p-5 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border border-slate-200">
                             <label class="block text-xs font-bold text-slate-500 uppercase mb-3">Pay Period Configuration</label>
-                            <div class="flex flex-wrap items-center gap-6 mb-4">
-                                <label class="flex items-center gap-2 text-sm cursor-pointer">
-                                    <input type="radio" name="period_type" value="month" checked class="w-4 h-4 text-teal-600 focus:ring-teal-500">
-                                    <span class="font-medium text-slate-700">Month Wise</span>
+                            
+                            <!-- Radio Toggles -->
+                            <div class="flex flex-wrap items-center gap-6 mb-5">
+                                <label class="flex items-center gap-2 text-sm cursor-pointer group">
+                                    <input type="radio" name="period_type" value="month" checked onclick="togglePeriodView('month')" class="w-4 h-4 text-teal-600 focus:ring-teal-500">
+                                    <span class="font-medium text-slate-700 group-hover:text-teal-600">Month Wise</span>
                                 </label>
-                                <label class="flex items-center gap-2 text-sm cursor-pointer">
-                                    <input type="radio" name="period_type" value="range" class="w-4 h-4 text-teal-600 focus:ring-teal-500">
-                                    <span class="font-medium text-slate-700">Custom Range</span>
+                                <label class="flex items-center gap-2 text-sm cursor-pointer group">
+                                    <input type="radio" name="period_type" value="range" onclick="togglePeriodView('range')" class="w-4 h-4 text-teal-600 focus:ring-teal-500">
+                                    <span class="font-medium text-slate-700 group-hover:text-teal-600">Custom Range</span>
                                 </label>
                             </div>
                             
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="text-xs text-slate-500 font-medium">Month <span class="text-red-500">*</span></label>
-                                    <input type="month" id="payMonth" class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1" required>
+                            <!-- Dynamic Input Fields -->
+                            <div class="relative min-h-[90px]">
+                                <!-- View 1: Month Wise -->
+                                <div id="input-month-wise" class="transition-all duration-300">
+                                    <p class="text-[11px] text-slate-500 mb-3 bg-blue-50 p-2 rounded-lg border border-blue-100">
+                                        <i class="fa-solid fa-info-circle text-blue-400 mr-1"></i>
+                                        Generates salary for the entire selected month (1st to End).
+                                    </p>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="text-xs text-slate-500 font-medium">Month <span class="text-red-500">*</span></label>
+                                            <input type="month" id="payMonth" class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
+                                        </div>
+                                        <div>
+                                            <label class="text-xs text-slate-500 font-medium">Year</label>
+                                            <select class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
+                                                <option>2025</option>
+                                                <option>2026</option>
+                                            </select>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div>
-                                    <label class="text-xs text-slate-500 font-medium">Year</label>
-                                    <select class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1">
-                                        <option>2025</option>
-                                        <option>2026</option>
-                                    </select>
+
+                                <!-- View 2: Custom Range -->
+                                <div id="input-custom-range" class="hidden transition-all duration-300">
+                                    <p class="text-[11px] text-slate-500 mb-3 bg-orange-50 p-2 rounded-lg border border-orange-100">
+                                        <i class="fa-solid fa-exclamation-triangle text-orange-400 mr-1"></i>
+                                        Useful for pro-rata (new joiners) or final settlements (resignations).
+                                    </p>
+                                    <div class="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label class="text-xs text-slate-500 font-medium">Start Date <span class="text-red-500">*</span></label>
+                                            <input type="date" id="startDate" class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
+                                        </div>
+                                        <div>
+                                            <label class="text-xs text-slate-500 font-medium">End Date <span class="text-red-500">*</span></label>
+                                            <input type="date" id="endDate" class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -355,74 +382,89 @@ include 'include/db_connect.php';
     </div>
 
     <script>
-        // Pass PHP data to JS for dynamic usage
+        // Pass PHP data to JS
         const payslipData = <?php echo json_encode($payslips); ?>;
 
-        // 1. Form Validation
+        // 1. Toggle Logic for Period Selection
+        function togglePeriodView(type) {
+            const monthWiseBlock = document.getElementById('input-month-wise');
+            const customRangeBlock = document.getElementById('input-custom-range');
+
+            if (type === 'month') {
+                monthWiseBlock.classList.remove('hidden');
+                customRangeBlock.classList.add('hidden');
+            } else {
+                monthWiseBlock.classList.add('hidden');
+                customRangeBlock.classList.remove('hidden');
+            }
+        }
+
+        // 2. Form Validation
         document.getElementById('generateForm').addEventListener('submit', function(e) {
             e.preventDefault();
             const empSelect = document.getElementById('employeeSelect');
-            const payMonth = document.getElementById('payMonth');
+            const periodType = document.querySelector('input[name="period_type"]:checked').value;
 
             if (!empSelect.value) {
                 showNotification('error', 'Validation Error', 'Please select an employee.');
                 return;
             }
-            if (!payMonth.value) {
-                showNotification('error', 'Validation Error', 'Please select a pay month.');
-                return;
+
+            if (periodType === 'month') {
+                const payMonth = document.getElementById('payMonth').value;
+                if (!payMonth) {
+                    showNotification('error', 'Validation Error', 'Please select a pay month.');
+                    return;
+                }
+                // Logic: Full month calculation
+                console.log("Processing Month Wise:", payMonth);
+            } else {
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                if (!startDate || !endDate) {
+                    showNotification('error', 'Validation Error', 'Please select both Start and End dates.');
+                    return;
+                }
+                if (new Date(startDate) > new Date(endDate)) {
+                    showNotification('error', 'Invalid Dates', 'Start date cannot be after End date.');
+                    return;
+                }
+                // Logic: Custom period calculation
+                console.log("Processing Custom Range:", startDate, "to", endDate);
             }
 
-            // Success Logic
             showNotification('success', 'Payslip Generated', 'Request has been sent to accounts for approval.');
-            // Optionally reset form
-            // this.reset();
         });
 
-        // 2. Download Functionality
+        // 3. Download Functionality
         function downloadPayslip(id, name, month, amount) {
-            // Populate the hidden template
             document.getElementById('print-id').innerText = id;
             document.getElementById('print-emp-name').innerText = name;
             document.getElementById('print-month').innerText = month;
             document.getElementById('print-amount').innerText = amount;
             document.getElementById('print-total').innerText = amount;
 
-            // Clone the content
             const content = document.getElementById('payslipPrintArea').innerHTML;
-
-            // Open a new window
             const printWindow = window.open('', '_blank');
             
-            // Write necessary HTML and styles to the new window
             printWindow.document.write(`
                 <html>
                 <head>
                     <title>Payslip ${id}</title>
                     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-                    <style>
-                        body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; }
-                    </style>
+                    <style>body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; }</style>
                 </head>
-                <body>
-                    ${content}
-                </body>
+                <body>${content}</body>
                 </html>
             `);
 
             printWindow.document.close();
-            
-            // Trigger print dialog
-            setTimeout(() => {
-                printWindow.print();
-                // printWindow.close(); // Uncomment if you want to close automatically
-            }, 500);
+            setTimeout(() => { printWindow.print(); }, 500);
         }
 
-        // 3. Toast Notification System
+        // 4. Toast Notification System
         function showNotification(type, title, message) {
             const container = document.getElementById('toast-container');
-            
             const toast = document.createElement('div');
             const bgColor = type === 'success' ? 'bg-white border-l-4 border-teal-500' : 'bg-white border-l-4 border-red-500';
             const iconColor = type === 'success' ? 'text-teal-500' : 'text-red-500';
@@ -438,13 +480,7 @@ include 'include/db_connect.php';
             `;
 
             container.appendChild(toast);
-
-            // Animate In
-            requestAnimationFrame(() => {
-                toast.classList.remove('translate-x-full', 'opacity-0');
-            });
-
-            // Remove after 4 seconds
+            requestAnimationFrame(() => { toast.classList.remove('translate-x-full', 'opacity-0'); });
             setTimeout(() => {
                 toast.classList.add('translate-x-full', 'opacity-0');
                 setTimeout(() => { toast.remove(); }, 300);
