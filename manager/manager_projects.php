@@ -3,7 +3,7 @@ ob_start();
 session_start();
 
 // Mock Data (Expanded for Load More functionality)
-$projects_data = [
+ $projects_data = [
     [
         'id' => 'PRO-001',
         'name' => 'Office Management',
@@ -167,7 +167,7 @@ $projects_data = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Projects - SmartHR</title>
     
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -176,60 +176,66 @@ $projects_data = [
 
     <style>
         :root {
-            --primary: #ff9b44;
-            --primary-hover: #ff851a;
-            --text-dark: #1f1f1f;
-            --text-muted: #8e8e8e;
-            --bg-body: #f7f7f7;
-            --border-color: #e3e3e3;
+            /* Updated Color Scheme to match Employee Dashboard exactly */
+            --primary: #144d4d; /* Dark Teal Custom */
+            --primary-hover: #115e59; /* Teal-700 for hover */
+            --primary-light: #ccfbf1;
+            --text-dark: #1e293b; /* Slate-800 */
+            --text-muted: #64748b; /* Slate-500 */
+            --bg-body: #f1f5f9; /* Slate-100 */
+            --border-color: #e2e8f0; /* Slate-200 */
             --card-bg: #ffffff;
-            --success: #55ce63;
-            --danger: #f62d51;
-            --warning: #ffbc34;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
 
         body {
             background-color: var(--bg-body);
             display: flex;
             min-height: 100vh;
+            color: var(--text-dark);
         }
 
         .main-content {
             flex: 1;
-            padding: 25px;
+            padding: 24px;
             margin-left: 95px;
-            transition: margin-left 0.3s;
+            transition: margin-left 0.3s ease;
+            width: calc(100% - 95px);
         }
-        .main-content.main-shifted { margin-left: 315px; }
+        .main-content.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
 
         /* HEADER & UTILS */
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-        .page-title h3 { font-size: 1.25rem; font-weight: 500; color: var(--text-dark); }
-        .breadcrumb { font-size: 0.85rem; color: var(--text-muted); display: flex; gap: 5px; }
-        .breadcrumb span { color: var(--text-dark); font-weight: 500; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .page-title h3 { font-size: 1.5rem; font-weight: 700; color: var(--text-dark); letter-spacing: -0.025em; }
         
-        .header-actions { display: flex; gap: 10px; align-items: center; }
+        .header-actions { display: flex; gap: 12px; align-items: center; }
         
         .btn {
-            padding: 8px 15px;
-            border-radius: 5px;
-            font-size: 0.9rem;
-            font-weight: 500;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 0.875rem;
+            font-weight: 600;
             border: none;
             cursor: pointer;
             display: flex;
             align-items: center;
             gap: 8px;
-            transition: 0.2s;
+            transition: all 0.2s;
             text-decoration: none;
         }
-        .btn-orange { background: var(--primary); color: white; }
-        .btn-orange:hover { background: var(--primary-hover); }
-        .btn-white { background: white; border: 1px solid var(--border-color); color: var(--text-dark); position: relative;}
-        .btn-white:hover { background: #f9f9f9; }
-        .btn-icon { width: 35px; height: 35px; justify-content: center; padding: 0; }
+        .btn-primary { 
+            background: var(--primary); /* Dark Teal */
+            color: white; 
+            box-shadow: 0 4px 6px -1px rgba(20, 77, 77, 0.2);
+        }
+        .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
+        .btn-white { background: white; border: 1px solid var(--border-color); color: var(--text-dark); }
+        .btn-white:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .btn-icon { width: 40px; height: 40px; justify-content: center; padding: 0; border-radius: 10px; }
         .btn-icon.active { background: var(--primary); color: white; border-color: var(--primary); }
 
         /* EXPORT DROPDOWN */
@@ -239,57 +245,72 @@ $projects_data = [
             right: 0;
             background: white;
             border: 1px solid var(--border-color);
-            border-radius: 4px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            min-width: 150px;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            min-width: 180px;
             display: none;
             z-index: 100;
-            margin-top: 5px;
+            margin-top: 8px;
+            padding: 8px;
         }
         .dropdown-menu.show { display: block; }
         .dropdown-item {
             display: flex;
             align-items: center;
-            padding: 10px 15px;
-            color: #333;
+            padding: 10px 12px;
+            color: var(--text-dark);
             text-decoration: none;
-            font-size: 0.9rem;
+            font-size: 0.875rem;
             gap: 10px;
             cursor: pointer;
+            border-radius: 8px;
+            transition: 0.2s;
         }
-        .dropdown-item:hover { background: #f5f5f5; }
+        .dropdown-item:hover { background: #f1f5f9; }
 
         /* FILTERS */
         .filter-row {
             background: white;
-            padding: 15px;
-            border-radius: 4px;
-            margin-bottom: 20px;
+            padding: 16px 20px;
+            border-radius: 12px;
+            margin-bottom: 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
-        .form-select {
-            padding: 8px 12px;
             border: 1px solid var(--border-color);
-            border-radius: 4px;
+        }
+        .filter-row h4 { font-size: 1rem; font-weight: 600; color: var(--text-dark); }
+        
+        .form-select {
+            padding: 10px 36px 10px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
             color: var(--text-muted);
             outline: none;
             cursor: pointer;
+            font-size: 0.875rem;
+            background-color: #fff;
+            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+            background-position: right 10px center;
+            background-repeat: no-repeat;
+            background-size: 1.5em 1.5em;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
         }
+        .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(20, 77, 77, 0.1); }
         
         /* VIEWS */
         .projects-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 25px;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 24px;
         }
         
         .projects-list {
             background: white;
-            border-radius: 4px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
             overflow-x: auto;
             display: none;
         }
@@ -298,114 +319,133 @@ $projects_data = [
         .project-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 20px;
+            border-radius: 16px;
+            padding: 24px;
             position: relative;
-            transition: 0.3s;
+            transition: all 0.3s ease;
         }
-        .project-card:hover { box-shadow: 0 5px 15px rgba(0,0,0,0.05); }
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; position: relative; }
-        .project-title { font-size: 1rem; font-weight: 500; color: var(--text-dark); margin-bottom: 5px; }
-        .project-desc { font-size: 0.8rem; color: #777; line-height: 1.5; margin-bottom: 20px; height: 40px; overflow: hidden; }
-        .project-meta { display: flex; align-items: center; margin-bottom: 20px; }
-        .leader-avatar { width: 30px; height: 30px; border-radius: 50%; margin-right: 10px; }
-        .leader-info h5 { font-size: 0.85rem; font-weight: 500; color: var(--text-dark); }
-        .leader-info span { font-size: 0.75rem; color: #888; }
+        .project-card:hover { 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+            transform: translateY(-2px);
+            border-color: #cbd5e1;
+        }
+        
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; position: relative; }
+        .project-title { font-size: 1.05rem; font-weight: 600; color: var(--text-dark); margin-bottom: 4px; }
+        .project-desc { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 20px; height: 36px; overflow: hidden; }
+        .project-meta { display: flex; align-items: center; margin-bottom: 20px; background: #f8fafc; padding: 10px; border-radius: 10px; }
+        .leader-avatar { width: 36px; height: 36px; border-radius: 10px; margin-right: 12px; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .leader-info h5 { font-size: 0.875rem; font-weight: 600; color: var(--text-dark); }
+        .leader-info span { font-size: 0.75rem; color: var(--text-muted); }
         .deadline-badge { margin-left: auto; text-align: right; }
-        .deadline-badge span { display: block; font-size: 0.75rem; color: #888; }
+        .deadline-badge span { display: block; font-size: 0.75rem; color: var(--text-muted); }
         .deadline-badge strong { font-size: 0.8rem; color: var(--text-dark); }
-        .card-footer { margin-top: 15px; display: flex; justify-content: space-between; align-items: center; }
-        .task-count { font-size: 0.8rem; font-weight: 500; color: var(--text-dark); display: flex; align-items: center; gap: 5px;}
+        .card-footer { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid #f1f5f9; }
+        .task-count { font-size: 0.8rem; font-weight: 500; color: var(--text-dark); display: flex; align-items: center; gap: 6px;}
         .team-avatars { display: flex; }
         .team-avatars img { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; margin-left: -10px; }
         .team-avatars img:first-child { margin-left: 0; }
-        .team-plus { width: 28px; height: 28px; border-radius: 50%; background: #ff5b37; color: white; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; margin-left: -10px; }
+        .team-plus { width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: white; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; margin-left: -10px; font-weight: 600; }
 
         /* ACTION DROPDOWN IN CARD */
-        .action-icon { cursor: pointer; padding: 5px; color: #aaa; }
+        .action-icon { cursor: pointer; padding: 8px; color: #94a3b8; border-radius: 6px; transition: 0.2s; }
+        .action-icon:hover { background: #f1f5f9; color: var(--text-dark); }
         .card-action-menu {
             position: absolute;
-            right: 10px;
-            top: 40px;
+            right: 0;
+            top: 35px;
             background: white;
-            border: 1px solid #eee;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            border-radius: 12px;
             z-index: 10;
             display: none;
-            width: 120px;
+            width: 130px;
+            padding: 6px;
         }
         .card-action-menu.active { display: block; }
         .card-action-item {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 8px 15px;
-            font-size: 0.85rem;
-            color: #333;
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            color: var(--text-dark);
             text-decoration: none;
-            transition: 0.2s;
+            border-radius: 8px;
         }
-        .card-action-item:hover { background: #f9f9f9; }
+        .card-action-item:hover { background: #f1f5f9; }
 
         /* TABLE STYLES */
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 15px; background: #f9f9f9; font-weight: 600; font-size: 0.9rem; color: #333; border-bottom: 1px solid #eee; }
-        td { padding: 15px; vertical-align: middle; font-size: 0.9rem; border-bottom: 1px solid #eee; color: #555; }
-        tr:hover td { background: #fafafa; }
+        th { text-align: left; padding: 14px 20px; background: #f8fafc; font-weight: 600; font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border-color); }
+        td { padding: 14px 20px; vertical-align: middle; font-size: 0.875rem; border-bottom: 1px solid #f1f5f9; color: var(--text-dark); }
+        tr:hover td { background: #f8fafc; }
         
-        .status-badge { padding: 5px 10px; border-radius: 15px; font-size: 0.75rem; color: white; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
-        .status-badge.active { background: var(--success); }
-        .status-badge.inactive { background: var(--danger); }
-        .status-dot { width: 6px; height: 6px; background: white; border-radius: 50%; display: inline-block; }
+        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+        .status-badge.active { background: #dcfce7; color: #16a34a; }
+        .status-badge.inactive { background: #fee2e2; color: #dc2626; }
+        .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+        .status-badge.active .status-dot { background: #16a34a; }
+        .status-badge.inactive .status-dot { background: #dc2626; }
         
-        .priority-badge { display: inline-block; padding: 5px 10px; border-radius: 4px; border: 1px solid; font-size: 0.8rem; font-weight: 500; display: flex; align-items: center; gap: 5px; width: fit-content; }
-        .priority-high { color: var(--danger); border-color: var(--danger); }
-        .priority-medium { color: var(--warning); border-color: var(--warning); }
-        .priority-low { color: var(--success); border-color: var(--success); }
+        .priority-badge { display: inline-flex; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; align-items: center; gap: 6px; }
+        .priority-high { background: #fee2e2; color: #dc2626; }
+        .priority-medium { background: #fef3c7; color: #d97706; }
+        .priority-low { background: #dbeafe; color: #2563eb; }
         .priority-dot { width: 6px; height: 6px; border-radius: 50%; }
-        .priority-high .priority-dot { background: var(--danger); }
-        .priority-medium .priority-dot { background: var(--warning); }
-        .priority-low .priority-dot { background: var(--success); }
+        .priority-high .priority-dot { background: #dc2626; }
+        .priority-medium .priority-dot { background: #d97706; }
+        .priority-low .priority-dot { background: #2563eb; }
 
         /* MODAL & FORM */
-        .modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center; }
+        .modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.4); align-items: center; justify-content: center; backdrop-filter: blur(4px); }
         .modal.show { display: flex; }
-        .modal-content { background: white; width: 800px; max-width: 95%; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); display: flex; flex-direction: column; max-height: 90vh; }
-        .modal-header { padding: 20px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-        .modal-title { font-size: 1.2rem; font-weight: 500; }
-        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #aaa; }
-        .modal-tabs { display: flex; padding: 0 20px; border-bottom: 1px solid #eee; margin-top: 10px; }
-        .tab-btn { padding: 10px 20px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-weight: 500; color: #777; }
+        .modal-content { background: white; width: 800px; max-width: 95%; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; max-height: 90vh; }
+        .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 1.125rem; font-weight: 600; }
+        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #94a3b8; transition: 0.2s; }
+        .close-btn:hover { color: var(--text-dark); }
+        .modal-tabs { display: flex; padding: 0 24px; border-bottom: 1px solid var(--border-color); margin-top: 10px; gap: 24px; }
+        .tab-btn { padding: 12px 4px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-weight: 500; color: var(--text-muted); transition: 0.2s; }
         .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
-        .modal-body { padding: 25px; overflow-y: auto; flex: 1; }
-        .modal-footer { padding: 20px; border-top: 1px solid #eee; display: flex; justify-content: flex-end; gap: 10px; }
+        .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+        .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; }
         
         .form-row { display: flex; gap: 20px; margin-bottom: 20px; }
         .col-half { flex: 1; }
         .form-group { margin-bottom: 20px; }
-        .form-label { display: block; font-size: 0.9rem; margin-bottom: 8px; font-weight: 400; color: #333; }
-        .form-control { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9rem; }
-        .form-control:focus { border-color: var(--primary); outline: none; }
+        .form-label { display: block; font-size: 0.875rem; margin-bottom: 8px; font-weight: 500; color: var(--text-dark); }
+        .form-control { width: 100%; padding: 10px 14px; border: 1px solid var(--border-color); border-radius: 10px; font-size: 0.875rem; transition: 0.2s; background: #fff; }
+        .form-control:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(20, 77, 77, 0.1); }
         
         /* Dynamic Tags Input */
-        .tags-input-container { border: 1px solid #ddd; padding: 5px; border-radius: 4px; display: flex; flex-wrap: wrap; gap: 5px; min-height: 42px; align-items: center; cursor: text; }
-        .tags-input-container:focus-within { border-color: var(--primary); }
-        .tag-pill { background: #f0f0f0; border: 1px solid #e0e0e0; padding: 2px 8px; border-radius: 4px; font-size: 0.85rem; display: flex; align-items: center; gap: 5px; color: #333; }
-        .tag-close { cursor: pointer; font-size: 1rem; line-height: 0.8; color: #999; }
-        .tag-close:hover { color: red; }
-        .tag-input { border: none; outline: none; flex: 1; padding: 5px; font-size: 0.9rem; min-width: 80px; background: transparent; }
+        .tags-input-container { border: 1px solid var(--border-color); padding: 8px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 6px; min-height: 44px; align-items: center; cursor: text; background: #fff; }
+        .tags-input-container:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(20, 77, 77, 0.1); }
+        .tag-pill { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; display: flex; align-items: center; gap: 6px; color: var(--text-dark); font-weight: 500; }
+        .tag-close { cursor: pointer; font-size: 0.9rem; line-height: 1; color: #94a3b8; transition: 0.2s; }
+        .tag-close:hover { color: var(--danger); }
+        .tag-input { border: none; outline: none; flex: 1; padding: 4px; font-size: 0.875rem; min-width: 80px; background: transparent; }
 
-        .editor-toolbar { border: 1px solid #ddd; border-bottom: none; padding: 5px; background: #f9f9f9; border-radius: 4px 4px 0 0; display: flex; gap: 5px; }
-        .editor-btn { width: 25px; height: 25px; border: none; background: none; cursor: pointer; color: #555; }
-        textarea.has-toolbar { border-radius: 0 0 4px 4px; }
+        .editor-toolbar { border: 1px solid var(--border-color); border-bottom: none; padding: 8px; background: #f8fafc; border-radius: 10px 10px 0 0; display: flex; gap: 4px; }
+        .editor-btn { width: 28px; height: 28px; border: none; background: none; cursor: pointer; color: #64748b; border-radius: 6px; transition: 0.2s; }
+        .editor-btn:hover { background: #e2e8f0; color: var(--text-dark); }
+        textarea.has-toolbar { border-radius: 0 0 10px 10px; }
 
         /* Load More Button */
-        .load-more-container { text-align: center; margin-top: 20px; margin-bottom: 40px; }
-        .btn-load-more { background: white; border: 1px solid var(--primary); color: var(--primary); padding: 10px 20px; border-radius: 5px; font-weight: 500; cursor: pointer; transition: 0.2s; }
+        .load-more-container { text-align: center; margin-top: 24px; margin-bottom: 40px; }
+        .btn-load-more { 
+            background: white; 
+            border: 2px solid var(--primary); 
+            color: var(--primary); 
+            padding: 10px 24px; 
+            border-radius: 10px; 
+            font-weight: 600; 
+            cursor: pointer; 
+            transition: 0.2s; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
         .btn-load-more:hover { background: var(--primary); color: white; }
-
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
@@ -414,18 +454,15 @@ $projects_data = [
 
     <main class="main-content" id="mainContent">
       <?php include '../header.php'; ?>
+      
         <div class="page-header">
             <div class="page-title">
                 <h3>Projects</h3>
-                <div class="breadcrumb">
-                    <i class="fa-solid fa-house"></i>
-                    Projects > <span id="viewTitle">Projects Grid</span>
-                </div>
             </div>
             <div class="header-actions">
                 <div style="position:relative;">
-                    <input type="text" id="searchInput" placeholder="Search in HRMS" style="padding: 8px 30px 8px 10px; border:1px solid #ddd; border-radius:4px; font-size:0.9rem;">
-                    <i class="fa-solid fa-search" style="position:absolute; right:10px; top:10px; color:#aaa; font-size:0.8rem;"></i>
+                    <input type="text" id="searchInput" placeholder="Search in HRMS" style="padding: 10px 36px 10px 14px; border:1px solid var(--border-color); border-radius:10px; font-size:0.875rem; transition: 0.2s;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border-color)'">
+                    <i class="fa-solid fa-search" style="position:absolute; right:12px; top:12px; color:#94a3b8; font-size:0.9rem;"></i>
                 </div>
                 
                 <button class="btn btn-white btn-icon active" id="btnGrid" onclick="switchView('grid')"><i class="fa-solid fa-border-all"></i></button>
@@ -434,12 +471,12 @@ $projects_data = [
                 <div style="position:relative;">
                     <button class="btn btn-white" onclick="toggleExportMenu()"><i class="fa-solid fa-file-export"></i> Export <i class="fa-solid fa-chevron-down" style="font-size:0.7rem;"></i></button>
                     <div class="dropdown-menu" id="exportMenu">
-                        <a href="#" class="dropdown-item" onclick="exportToPDF()"><i class="fa-solid fa-file-pdf" style="color:#F40F02"></i> Export as PDF</a>
-                        <a href="#" class="dropdown-item" onclick="exportToExcel()"><i class="fa-solid fa-file-excel" style="color:#1D6F42"></i> Export as Excel</a>
+                        <a href="#" class="dropdown-item" onclick="exportToPDF()"><i class="fa-solid fa-file-pdf" style="color:#dc2626"></i> Export as PDF</a>
+                        <a href="#" class="dropdown-item" onclick="exportToExcel()"><i class="fa-solid fa-file-excel" style="color:#16a34a"></i> Export as Excel</a>
                     </div>
                 </div>
                 
-                <button class="btn btn-orange" onclick="openModal()"><i class="fa-solid fa-plus"></i> Add Project</button>
+                <button class="btn btn-primary" onclick="openModal()"><i class="fa-solid fa-plus"></i> Add Project</button>
             </div>
         </div>
 
@@ -447,7 +484,7 @@ $projects_data = [
             <div class="filter-left">
                 <h4 id="viewHeading">Projects Grid</h4>
             </div>
-            <div class="filter-right" style="display:flex; gap:10px;">
+            <div class="filter-right" style="display:flex; gap:12px;">
                 <select class="form-select" id="statusFilter" onchange="applyFilters()">
                     <option value="All">Select Status</option>
                     <option value="Active">Active</option>
@@ -461,8 +498,7 @@ $projects_data = [
             </div>
         </div>
 
-        <div class="projects-grid" id="projectsGridView">
-            </div>
+        <div class="projects-grid" id="projectsGridView"></div>
 
         <div class="projects-list" id="projectsListView">
             <table id="projectsTable">
@@ -479,8 +515,7 @@ $projects_data = [
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody id="tableBody">
-                    </tbody>
+                <tbody id="tableBody"></tbody>
             </table>
         </div>
 
@@ -495,7 +530,7 @@ $projects_data = [
             <div class="modal-header">
                 <div>
                     <h3 class="modal-title">Add Project</h3>
-                    <small style="color:#777;">Project ID : PRO-0004</small>
+                    <small style="color:var(--text-muted); font-size: 0.8rem;">Project ID : PRO-0004</small>
                 </div>
                 <button class="close-btn" onclick="closeModal()">&times;</button>
             </div>
@@ -508,15 +543,15 @@ $projects_data = [
             <div class="modal-body" id="tab-basic">
                 <form id="projectFormBasic">
                     <div class="form-group" style="display:flex; align-items:center; gap:20px; margin-bottom:25px;">
-                        <div style="width:60px; height:60px; background:#f0f0f0; border-radius:4px; display:flex; align-items:center; justify-content:center; border:1px dashed #ccc;">
-                            <i class="fa-regular fa-image" style="color:#ccc; font-size:1.5rem;"></i>
+                        <div style="width:64px; height:64px; background:#f8fafc; border-radius:12px; display:flex; align-items:center; justify-content:center; border:1px dashed #cbd5e1;">
+                            <i class="fa-regular fa-image" style="color:#94a3b8; font-size:1.5rem;"></i>
                         </div>
                         <div>
                             <label class="form-label" style="margin-bottom:2px;">Upload Project Logo</label>
-                            <span style="font-size:0.75rem; color:#999; display:block; margin-bottom:5px;">Image should be below 4 mb</span>
+                            <span style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:5px;">Image should be below 4 mb</span>
                             <div style="display:flex; gap:10px;">
-                                <button type="button" class="btn btn-orange" style="padding:4px 10px; font-size:0.8rem;">Upload</button>
-                                <button type="button" class="btn btn-white" style="padding:4px 10px; font-size:0.8rem; color:red; border-color:red;">Cancel</button>
+                                <button type="button" class="btn btn-primary" style="padding:6px 12px; font-size:0.8rem;">Upload</button>
+                                <button type="button" class="btn btn-white" style="padding:6px 12px; font-size:0.8rem; color:var(--danger); border-color:var(--danger);">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -560,8 +595,8 @@ $projects_data = [
                                 <div style="flex:1;">
                                     <label class="form-label">Project Value</label>
                                     <div style="position:relative;">
-                                        <span style="position:absolute; left:10px; top:10px; color:#777;">$</span>
-                                        <input type="number" class="form-control" style="padding-left:25px;">
+                                        <span style="position:absolute; left:12px; top:11px; color:var(--text-muted);">$</span>
+                                        <input type="number" class="form-control" style="padding-left:28px;">
                                     </div>
                                 </div>
                                 <div style="flex:1;">
@@ -638,7 +673,7 @@ $projects_data = [
 
             <div class="modal-footer">
                 <button class="btn btn-white" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-orange" onclick="saveProject()">Save</button>
+                <button class="btn btn-primary" onclick="saveProject()">Save</button>
             </div>
         </div>
     </div>
@@ -663,28 +698,22 @@ $projects_data = [
         // Initial Render
         renderProjects();
 
-        // --- RENDER FUNCTIONS (With Pagination) ---
+        // --- RENDER FUNCTIONS ---
         function renderProjects() {
-            // Apply filtering logic first to get the dataset
             let filtered = getFilteredProjects();
-
             gridView.innerHTML = '';
             tableBody.innerHTML = '';
 
-            // Slice data based on visibleCount
             const toShow = filtered.slice(0, visibleCount);
             
-            // Check Load More Visibility
             if(visibleCount >= filtered.length) {
                 loadMoreBtn.style.display = 'none';
             } else {
                 loadMoreBtn.style.display = 'block';
             }
 
-            // Grid View Render
             toShow.forEach(p => {
-                const percent = (p.tasks_done / p.tasks_total) * 100;
-                const statusColor = p.status === 'Active' ? 'var(--success)' : 'var(--danger)';
+                const statusBadgeClass = p.status === 'Active' ? 'active' : 'inactive';
                 
                 const cardHtml = `
                 <div class="project-card">
@@ -712,7 +741,7 @@ $projects_data = [
                     </div>
                     <div class="card-footer">
                         <div class="task-count">
-                            <i class="fa-regular fa-square-check" style="color:${statusColor};"></i>
+                            <i class="fa-regular fa-square-check" style="color: var(--primary);"></i>
                             Tasks : ${p.tasks_done}/${p.tasks_total}
                         </div>
                         <div class="team-avatars">
@@ -723,17 +752,16 @@ $projects_data = [
                 </div>`;
                 gridView.innerHTML += cardHtml;
 
-                // List View Render (Table Row)
                 const priorityClass = `priority-${p.priority.toLowerCase()}`;
                 const statusClass = p.status.toLowerCase();
                 const rowHtml = `
                 <tr>
                     <td><input type="checkbox"></td>
-                    <td><a href="#" style="color:#333; text-decoration:none;">${p.id}</a></td>
+                    <td><a href="#" style="color:var(--text-dark); text-decoration:none; font-weight:500;">${p.id}</a></td>
                     <td style="font-weight:500;">${p.name}</td>
                     <td>
                         <div style="display:flex; align-items:center;">
-                            <img src="${p.leader_img}" style="width:25px; height:25px; border-radius:50%; margin-right:8px;">
+                            <img src="${p.leader_img}" style="width:28px; height:28px; border-radius:8px; margin-right:10px;">
                             <span>${p.leader}</span>
                         </div>
                     </td>
@@ -746,7 +774,7 @@ $projects_data = [
                     <td>${p.deadline_display}</td>
                     <td>
                         <div class="priority-badge ${priorityClass}">
-                            <span class="priority-dot"></span> ${p.priority} <i class="fa-solid fa-chevron-down" style="font-size:0.6rem; margin-left:5px;"></i>
+                            <span class="priority-dot"></span> ${p.priority} <i class="fa-solid fa-chevron-down" style="font-size:0.6rem; margin-left:4px; opacity: 0.7;"></i>
                         </div>
                     </td>
                     <td>
@@ -756,8 +784,8 @@ $projects_data = [
                     </td>
                     <td>
                         <div style="display:flex; gap:10px; font-size:1rem;">
-                            <i class="fa-regular fa-pen-to-square" style="color:#777; cursor:pointer;" onclick="editProject('${p.id}')"></i>
-                            <i class="fa-regular fa-trash-can" style="color:#777; cursor:pointer;" onclick="deleteProject('${p.id}')"></i>
+                            <i class="fa-regular fa-pen-to-square" style="color:var(--text-muted); cursor:pointer;" onclick="editProject('${p.id}')"></i>
+                            <i class="fa-regular fa-trash-can" style="color:var(--danger); cursor:pointer;" onclick="deleteProject('${p.id}')"></i>
                         </div>
                     </td>
                 </tr>`;
@@ -767,20 +795,16 @@ $projects_data = [
 
         function getFilteredProjects() {
             let filtered = [...projects];
-            
-            // Search
             const term = searchInput.value.toLowerCase();
             if(term) {
                 filtered = filtered.filter(p => p.name.toLowerCase().includes(term) || p.leader.toLowerCase().includes(term));
             }
 
-            // Status Filter
             const status = statusFilter.value;
             if(status !== 'All') {
                 filtered = filtered.filter(p => p.status === status);
             }
 
-            // Sorting
             const sortVal = sortFilter.value;
             if(sortVal === 'asc') {
                 filtered.sort((a, b) => a.name.localeCompare(b.name));
@@ -791,12 +815,12 @@ $projects_data = [
         }
 
         function applyFilters() {
-            visibleCount = 8; // Reset pagination on filter change
+            visibleCount = 8;
             renderProjects();
         }
 
         function loadMoreProjects() {
-            visibleCount += 4; // Load 4 more
+            visibleCount += 4;
             renderProjects();
         }
 
@@ -820,15 +844,12 @@ $projects_data = [
         }
 
         function removeTag(element) {
-            // element is the 'x' span. parent is tag-pill.
-            // We need to prevent the click from bubbling to focusTagInput if possible, but removing the element stops it naturally.
             element.parentElement.remove();
         }
 
         // --- CARD ACTION MENU LOGIC ---
         function toggleCardMenu(id, event) {
             event.stopPropagation();
-            // Close others
             document.querySelectorAll('.card-action-menu').forEach(m => {
                 if(m.id !== `menu-${id}`) m.classList.remove('active');
             });
@@ -836,7 +857,6 @@ $projects_data = [
             menu.classList.toggle('active');
         }
 
-        // Close menus when clicking outside
         window.addEventListener('click', () => {
             document.querySelectorAll('.card-action-menu').forEach(m => m.classList.remove('active'));
             exportMenu.classList.remove('show');
@@ -845,7 +865,6 @@ $projects_data = [
         // --- ACTIONS ---
         function editProject(id) {
             alert('Edit Project Modal would open for ID: ' + id);
-            // In a real app, populate modal with data here
         }
 
         function deleteProject(id) {
@@ -863,25 +882,20 @@ $projects_data = [
                 document.getElementById('projectsListView').style.display = 'none';
                 document.getElementById('btnGrid').classList.add('active');
                 document.getElementById('btnList').classList.remove('active');
-                document.getElementById('viewTitle').innerText = 'Projects Grid';
                 document.getElementById('viewHeading').innerText = 'Projects Grid';
-                // Show load more in grid view
                 loadMoreBtn.style.display = (visibleCount < getFilteredProjects().length) ? 'block' : 'none';
             } else {
                 document.getElementById('projectsGridView').style.display = 'none';
                 document.getElementById('projectsListView').style.display = 'block';
                 document.getElementById('btnGrid').classList.remove('active');
                 document.getElementById('btnList').classList.add('active');
-                document.getElementById('viewTitle').innerText = 'Projects List';
                 document.getElementById('viewHeading').innerText = 'Project List';
-                // Typically list view shows pagination, but here we can keep load more or hide it. Keeping it for consistency.
                 loadMoreBtn.style.display = (visibleCount < getFilteredProjects().length) ? 'block' : 'none';
             }
         }
 
         // --- EXPORT FUNCTIONS ---
         function toggleExportMenu() {
-            // Event bubbling handled by window click listener
             setTimeout(() => exportMenu.classList.toggle('show'), 10); 
         }
 
@@ -913,7 +927,7 @@ $projects_data = [
             XLSX.writeFile(workbook, "projects_export.xlsx");
         }
 
-        // --- ADD PROJECT MODAL LOGIC ---
+        // --- MODAL LOGIC ---
         function openModal() { modal.classList.add('show'); }
         function closeModal() { 
             modal.classList.remove('show'); 
@@ -950,7 +964,6 @@ $projects_data = [
             const priorityVal = document.getElementById('inpPriority').value;
             const statusVal = document.getElementById('inpStatus').value;
 
-            // Generate New Object
             const newProject = {
                 id: 'PRO-' + (Math.floor(Math.random() * 1000) + 100),
                 name: name,

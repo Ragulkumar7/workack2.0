@@ -18,8 +18,8 @@ $current_view = $_GET['view'] ?? '';
 // --- FIX: UPDATED FOLDER DETECTION ---
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
-// Added 'itadmin', 'it_executive', and 'it_executive' to ensure paths go up one level correctly.
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive','hr executive'])) {
+// Added 'hr_executive' to ensure paths correctly use '../' to go to root.
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr'])) {
     $base = '../';
 } else {
     $base = '';
@@ -79,7 +79,7 @@ $sections = [
                 'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive','HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive']
             ],
 
             // --- EMPLOYEE DETAILS ---
@@ -90,14 +90,13 @@ $sections = [
                 'allowed' => ['Employee']
             ],
             
-            // --- ATTENDANCE (Manager) ---
+            // --- ATTENDANCE (Manager/HR) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Manager', 'System Admin', 'HR'],
+                'allowed' => ['Manager', 'System Admin', 'HR', 'HR Executive'],
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
-                    ['name' => 'Attendance (Emp)', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_manager.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Overtime', 'path' => $base . 'overtime_management.php', 'icon' => 'hourglass'],
@@ -117,11 +116,10 @@ $sections = [
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off']
-                    
                 ]
             ],
 
-            // --- ATTENDANCE (Employee) ---
+            // --- ATTENDANCE (General) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
@@ -133,29 +131,32 @@ $sections = [
                 ]
             ],
 
-           // --- TASK MANAGEMENT (Manager, Admin) ---
+            // --- TASK MANAGEMENT ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
-                'allowed' => ['Manager', 'System Admin'], // TL Removed here
+                'allowed' => ['Manager', 'System Admin'],
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
                 ]
             ],
 
-            // --- TASK MANAGEMENT (Team Lead - Updated Path) ---
+             [
+                'name' => 'Manage Employees', 
+                'path' => $base . 'Manager/manager_employee.php', 
+                'icon' => 'users', 
+                'allowed' => ['Manager']
+            ],
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
-                'allowed' => ['Team Lead', 'Team Leader'], // Only TL
+                'allowed' => ['Team Lead'],
                 'subItems' => [
                     ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Team Tasks', 'path' => $base . 'TL/task_tl.php', 'icon' => 'users'], // New Path for TL
+                    ['name' => 'Team Tasks', 'path' => $base . 'TL/task_tl.php', 'icon' => 'users'],
                 ]
             ],
-
-            // --- TASK MANAGEMENT (Employee) ---
             [
                 'name' => 'Task Management', 
                 'icon' => 'clipboard-check', 
@@ -166,36 +167,34 @@ $sections = [
                 ]
             ],
 
-            // --- EMPLOYEE MGMT ---
+            // --- EMPLOYEE MANAGEMENT ---
             [
                 'name' => 'Employee', 
                 'path' => $base . 'employee_management.php', 
                 'icon' => 'users', 
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
-
             [
                 'name' => 'Employee', 
                 'path' => $base . 'TL/team_member.php', 
                 'icon' => 'users', 
                 'allowed' => ['Team Lead']
             ],
+           // salary hike for HR only
             [
-                'name' => 'Team Performance', 
-                'path' => $base . 'TL/tl_performance.php', 
-                'icon' => 'bar-chart-2', 
-                'allowed' => ['Team Lead']
+                'name' => 'Salary Hike', 
+                'path' => $base . 'HR/hr_salaryhikes.php', 
+                'icon' => 'banknote', 
+                'allowed' => ['HR'] // Only HR can see Salary Hike option
             ],
 
-            // --- PROJECTS ---
+            // --- PROJECTS & CLIENTS ---
             [
                 'name' => 'Projects', 
                 'path' => $base . 'manager/manager_projects.php', 
                 'icon' => 'layers', 
                 'allowed' => ['Manager', 'System Admin']
             ],
-
-            // --- CLIENTS ---
             [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
@@ -203,39 +202,41 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR']
             ],
 
-            // --- PERFORMANCE ---
+            // --- PERFORMANCE & PRODUCTIVITY ---
             [
                 'name' => 'Performance', 
                 'path' => $base . 'performance_list.php', 
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager', 'System Admin', 'HR'],
             ],
-
-            // --- PRODUCTIVITY MONITOR (HR & Manager) ---
             [
                 'name' => 'Productivity', 
-                'path' => $base . 'productivity_monitor.php', 
+                'path' => $base . 'manager/productivity_monitor.php', 
                 'icon' => 'activity', 
-                'allowed' => ['Manager', 'System Admin', 'HR'] 
+                'allowed' => ['Manager'] 
             ],
             
-            // --- ATS BULK SCREENER ---
+            // --- HR EXECUTIVE PAGES ---
+            [
+                'name' => 'Jobs', 
+                'path' => $base . 'HR_executive/jobs.php', 
+                'icon' => 'briefcase', 
+                'allowed' => ['HR', 'HR Executive']
+            ],
+            [
+                'name' => 'Onboarding', 
+                'path' => $base . 'HR_executive/employee_onboarding.php', 
+                'icon' => 'user-plus', 
+                'allowed' => ['HR Executive']
+            ],
+        
             [
                 'name' => 'ATS Screener', 
-                'path' => $base . 'HR/ats_check.php', 
+                'path' => $base . 'HR_executive/ats.php', 
                 'icon' => 'file-search',
-                'allowed' => ['HR']
-            ],
-
-            // --- TERMINATION ---
-            [
-                'name' => 'Termination', 
-                'path' => $base . 'termination.php', 
-                'icon' => 'user-minus', 
-                'allowed' => ['System Admin', 'HR']
-            ],
-
-            // --- ANNOUNCEMENT ---
+                'allowed' => ['HR Executive']
+            ],  
+             // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
@@ -246,33 +247,10 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts','Employee', 'Team Lead', 'IT Admin', 'IT Executive']
+                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive']
             ],
 
-            // --- TICKET RAISE ---
-            [
-                'name' => 'Ticket Raise', 
-                'path' => $base . 'ticketraise.php', 
-                'icon' => 'ticket', 
-                'allowed' => ['System Admin'],
-                'subItems' => [
-                    ['name' => 'Ticket Dashboard', 'path' => $base . 'ticketraise.php?view=dashboard', 'icon' => 'layout-dashboard'],
-                    ['name' => 'Ticket Details', 'path' => $base . 'ticketraise.php?view=details', 'icon' => 'file-text'],
-                    ['name' => 'Ticket Automation', 'path' => $base . 'ticketraise.php?view=automation', 'icon' => 'zap', 'allowed' => ['Manager', 'System Admin']], 
-                    ['name' => 'Ticket Report', 'path' => $base . 'ticketraise.php?view=report', 'icon' => 'file-bar-chart'],
-                ]
-            ],
-            [
-                'name' => 'Ticket Raise', 
-                'path' => $base . 'ticketraise_form.php', 
-                'icon' => 'ticket', 
-                'allowed' => ['Manager', 'HR', 'Employee', 'Team Lead', 'Accounts'],
-                'subItems' => [
-                    ['name' => 'Raise New Ticket', 'path' => $base . 'ticketraise_form.php', 'icon' => 'plus-circle'],   
-                ]
-            ],
-            
-            // --- IT TICKET MANAGEMENT (Corrected folder paths) ---
+            // --- TICKETS ---
             [
                 'name' => 'Manage Tickets', 
                 'path' => $base . 'ITadmin/manage_tickets.php', 
@@ -280,55 +258,29 @@ $sections = [
                 'allowed' => ['IT Admin']
             ],
             [
-                'name' => 'View Ticket', 
-                'path' => $base . 'ITadmin/view_ticket_details.php', 
-                'icon' => 'eye', 
-                'allowed' => ['IT Admin']
-            ],
-            // --- IT EXECUTIVE ---
-            [
                 'name' => 'Ticket Actions', 
                 'path' => $base . 'IT_Executive/it_exec_ticket_action.php', 
-                'icon' => 'file-check-2', // Represents taking action on a file/ticket
+                'icon' => 'file-check-2', 
                 'allowed' => ['IT Executive']
             ],
         ]
     ],
-
-    // --- FINANCE (HR ONLY) ---
-    [
-        'label' => 'Finance',
-        'items' => [
-            [
-                'name' => 'Salary Hike', 
-                'path' => $base . 'payroll_salary.php', 
-                'icon' => 'banknote', 
-                'allowed' => ['HR'] 
-            ],
-        ]
-    ],
-    // --- FINANCE & PAYSLIP (NEW SECTION) ---
+    // --- PAYROLL & ACCOUNTS SECTION FIXED ---
     [
         'label' => 'Finance & Payroll',
         'items' => [
-            // Payslip Management with Dropdown
             [
                 'name' => 'Payslip <br>Management', 
                 'icon' => 'file-text', 
-                'allowed' => ['HR', 'System Admin', 'Accounts', 'Employee'],
+                'allowed' => ['HR', 'System Admin', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
                 'subItems' => [
-                    ['name' => 'Generate Payslip', 'path' => $base . 'payslip.php?view=generate', 'icon' => 'plus-circle'],
-                    ['name' => 'Pending Approvals', 'path' => $base . 'payslip.php?view=approvals', 'icon' => 'clock'],
-                    ['name' => 'All Payslips', 'path' => $base . 'payslip.php?view=history', 'icon' => 'files'],
-                    // Recent Transactions Mock
-                    ['name' => 'Re cent: #PAY-008', 'path' => $base . 'payslip.php?view=details&id=008', 'icon' => 'history'],
-                    ['name' => 'Recent: #PAY-007', 'path' => $base . 'payslip.php?view=details&id=007', 'icon' => 'history'],
+                    ['name' => 'Generate Payslip', 'path' => $base . 'payslip_management.php?view=generate', 'icon' => 'plus-circle'],
+                    ['name' => 'Pending Approvals', 'path' => $base . 'payslip_management.php?view=approvals', 'icon' => 'clock'],
+                    ['name' => 'All Payslips', 'path' => $base . 'payslip_management.php?view=history', 'icon' => 'files'],
                 ]
             ],
         ]
     ],
-
-    // --- ACCOUNTS ---
     [
         'label' => 'Accounts',
         'items' => [
@@ -344,30 +296,6 @@ $sections = [
                 'icon' => 'shopping-cart', 
                 'allowed' => ['Accounts'] 
             ],
-            [
-                'name' => 'General Ledger', 
-                'path' => $base . 'Accounts/ledger.php', 
-                'icon' => 'book', 
-                'allowed' => ['Accounts'] 
-            ],
-            [
-                'name' => 'Masters', 
-                'path' => $base . 'Accounts/masters.php', 
-                'icon' => 'landmark', 
-                'allowed' => ['Accounts'] 
-            ],
-            [
-                'name' => 'Reports', 
-                'path' => $base . 'Accounts/accounts_reports.php', 
-                'icon' => 'pie-chart', 
-                'allowed' => ['Accounts'] 
-            ],
-            [
-                'name' => 'Payslip', 
-                'path' => $base . 'Accounts/payslip.php', 
-                'icon' => 'banknote', 
-                'allowed' => ['Accounts'] 
-            ],
         ]
     ],
 
@@ -375,22 +303,16 @@ $sections = [
         'label' => 'Support & Tools',
         'items' => [
             [
-                'name' => 'Reports', 
-                'path' => $base . 'manager/manager_reports.php', 
-                'icon' => 'file-bar-chart', 
-                'allowed' => ['Manager', 'System Admin', 'HR']
-            ],
-            [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive']
             ],
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead','IT Admin', 'IT Executive', 'Accounts']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive']
             ],
         ]
     ]
@@ -399,8 +321,9 @@ $sections = [
 // 3. FILTER SECTIONS BY USER ROLE
 $activeSections = [];
 foreach ($sections as $section) {
+    // FIX: Added isset check to prevent crashes on line 314
     $filteredItems = array_filter($section['items'], function ($item) use ($user_role) {
-        return in_array($user_role, $item['allowed']);
+        return isset($item['allowed']) && in_array($user_role, $item['allowed']);
     });
     if (!empty($filteredItems)) {
         $section['items'] = $filteredItems;

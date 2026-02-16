@@ -5,7 +5,7 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // 2. ROBUST SIDEBAR INCLUDE
-$sidebarPath = __DIR__ . '/sidebars.php'; 
+ $sidebarPath = __DIR__ . '/sidebars.php'; 
 if (!file_exists($sidebarPath)) {
     $sidebarPath = __DIR__ . '/../sidebars.php'; 
 }
@@ -17,7 +17,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 // 4. MOCK DATA (Updated with Bank & Statutory Details)
-$employees = [
+ $employees = [
     [
         "id" => "EMP-001", "first_name" => "Anthony", "last_name" => "Lewis", 
         "email" => "anthony@example.com", "phone" => "(123) 4567 890", 
@@ -69,12 +69,14 @@ $employees = [
 
     <style>
         :root {
-            --primary: #f97316; /* Orange */
-            --primary-hover: #ea580c;
-            --text-main: #1f2937;
-            --text-muted: #6b7280;
-            --border: #e5e7eb;
-            --bg-body: #f8f9fa;
+            /* Updated Theme to Dark Teal */
+            --primary: #144d4d; /* Dark Teal Custom */
+            --primary-hover: #115e59; /* Teal-700 */
+            --primary-light: #ccfbf1;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --bg-body: #f1f5f9;
             --white: #ffffff;
         }
 
@@ -85,12 +87,18 @@ $employees = [
             color: var(--text-main);
         }
 
-        /* --- LAYOUT --- */
+        /* --- CRITICAL LAYOUT FIX FOR SIDEBAR --- */
         .main-content {
-            margin-left: var(--primary-sidebar-width, 95px);
-            padding: 24px 32px;
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            padding: 24px;
             min-height: 100vh;
-            transition: all 0.3s ease;
+        }
+        /* When Secondary Sidebar Opens */
+        .main-content.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
         }
 
         /* --- HEADER --- */
@@ -98,77 +106,82 @@ $employees = [
             display: flex; justify-content: space-between; align-items: center;
             margin-bottom: 24px; flex-wrap: wrap; gap: 15px;
         }
-        .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; }
-        .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
+        .header-title h1 { font-size: 1.5rem; font-weight: 700; margin: 0; color: var(--text-main); letter-spacing: -0.025em; }
+        .breadcrumb { display: flex; align-items: center; font-size: 0.875rem; color: var(--text-muted); gap: 8px; margin-top: 5px; }
 
         /* Buttons & Toggles */
         .btn {
             display: inline-flex; align-items: center; justify-content: center;
-            padding: 9px 16px; font-size: 14px; font-weight: 500;
-            border-radius: 6px; border: 1px solid var(--border);
+            padding: 10px 20px; font-size: 0.875rem; font-weight: 600;
+            border-radius: 10px; border: 1px solid var(--border);
             background: var(--white); color: var(--text-main);
             cursor: pointer; transition: 0.2s; text-decoration: none; gap: 8px;
         }
-        .btn:hover { background: #f9fafb; }
-        .btn-primary { background-color: var(--primary); color: white; border-color: var(--primary); }
+        .btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .btn-primary { background-color: var(--primary); color: white; border-color: var(--primary); box-shadow: 0 4px 6px -1px rgba(20, 77, 77, 0.1); }
         .btn-primary:hover { background-color: var(--primary-hover); }
         
-        .view-toggle { display: flex; gap: 5px; }
-        .view-btn { padding: 8px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: white; color: var(--text-muted); }
-        .view-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
+        .view-toggle { display: flex; gap: 6px; background: #f1f5f9; padding: 4px; border-radius: 10px; }
+        .view-btn { padding: 8px; border-radius: 8px; cursor: pointer; border: none; background: transparent; color: var(--text-muted); transition: 0.2s; }
+        .view-btn.active { background: white; color: var(--primary); box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
 
         /* --- STATS CARDS --- */
         .stats-grid {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px; margin-bottom: 30px;
+            gap: 20px; margin-bottom: 24px;
         }
         .stat-card {
-            background: white; border-radius: 12px; padding: 20px;
+            background: white; border-radius: 16px; padding: 20px;
             border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0,0,0,0.05);
             display: flex; align-items: center; justify-content: space-between;
+            transition: 0.3s;
         }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); }
+        
         .stat-icon-box {
-            width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;
+            width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;
         }
         .stat-info h3 { font-size: 24px; font-weight: 700; margin: 0; }
         .stat-info span { font-size: 13px; color: var(--text-muted); }
-        .stat-badge { font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+        .stat-badge { font-size: 11px; padding: 4px 10px; border-radius: 20px; font-weight: 600; }
         
-        .card-black .stat-icon-box { background: #1f2937; } .card-black .stat-badge { background: #f3e8ff; color: #9333ea; }
-        .card-green .stat-icon-box { background: #10b981; } .card-green .stat-badge { background: #ffedd5; color: #c2410c; }
-        .card-red .stat-icon-box { background: #ef4444; } .card-red .stat-badge { background: #f1f5f9; color: #475569; }
-        .card-blue .stat-icon-box { background: #3b82f6; } .card-blue .stat-badge { background: #dbeafe; color: #1e40af; }
+        .card-teal .stat-icon-box { background: var(--primary); } .card-teal .stat-badge { background: var(--primary-light); color: var(--primary); }
+        .card-green .stat-icon-box { background: #10b981; } .card-green .stat-badge { background: #dcfce7; color: #16a34a; }
+        .card-red .stat-icon-box { background: #ef4444; } .card-red .stat-badge { background: #fee2e2; color: #dc2626; }
+        .card-blue .stat-icon-box { background: #3b82f6; } .card-blue .stat-badge { background: #dbeafe; color: #2563eb; }
 
         /* --- FILTERS --- */
         .filters-container {
-            background: white; padding: 20px; border-radius: 12px; border: 1px solid var(--border);
+            background: white; padding: 20px; border-radius: 16px; border: 1px solid var(--border);
             margin-bottom: 24px;
         }
-        .filters-row { display: flex; gap: 15px; align-items: center; flex-wrap: wrap; margin-top: 15px; }
+        .filters-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 15px; }
         .filter-group {
             display: flex; align-items: center; border: 1px solid var(--border);
-            border-radius: 8px; padding: 8px 12px; background: white; 
-            min-width: 150px; flex: 1; position: relative;
+            border-radius: 10px; padding: 8px 14px; background: white; 
+            flex: 1; position: relative; transition: 0.2s;
         }
+        .filter-group:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(20, 77, 77, 0.1); }
         .filter-group select, .filter-group input {
-            border: none; outline: none; width: 100%; font-size: 13px; background: transparent; color: var(--text-main); margin-left: 5px;
+            border: none; outline: none; width: 100%; font-size: 0.875rem; background: transparent; color: var(--text-main); margin-left: 8px;
         }
         .search-box { flex: 2; min-width: 250px; }
 
         /* --- LIST VIEW --- */
-        .table-responsive { overflow-x: auto; background: white; border-radius: 12px; border: 1px solid var(--border); }
+        .table-responsive { overflow-x: auto; background: white; border-radius: 16px; border: 1px solid var(--border); }
         table { width: 100%; border-collapse: collapse; min-width: 1000px; }
-        thead { background: #f9fafb; border-bottom: 1px solid var(--border); }
-        th { text-align: left; padding: 14px 16px; font-size: 12px; font-weight: 600; color: #4b5563; text-transform: uppercase; }
-        td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+        thead { background: #f8fafc; border-bottom: 1px solid var(--border); }
+        th { text-align: left; padding: 14px 16px; font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+        td { padding: 14px 16px; font-size: 0.875rem; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+        tr:hover td { background: #f8fafc; }
         
         .emp-profile { display: flex; align-items: center; gap: 12px; }
-        .emp-img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
+        .emp-img { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; }
         .emp-details { display: flex; flex-direction: column; }
         .emp-name { font-weight: 600; color: var(--text-main); }
         .emp-role { font-size: 11px; color: var(--text-muted); }
 
-        .status-badge { padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; }
         .status-active { background: #dcfce7; color: #166534; }
         .status-inactive { background: #fee2e2; color: #991b1b; }
 
@@ -177,43 +190,44 @@ $employees = [
         .grid-view-container.active { display: grid; }
         
         .emp-card {
-            background: white; border: 1px solid var(--border); border-radius: 12px;
-            padding: 24px; text-align: center; position: relative; transition: transform 0.2s;
+            background: white; border: 1px solid var(--border); border-radius: 16px;
+            padding: 24px; text-align: center; position: relative; transition: transform 0.2s, box-shadow 0.2s;
         }
-        .emp-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
-        .card-menu { position: absolute; top: 15px; right: 15px; cursor: pointer; color: #9ca3af; }
-        .card-img { width: 70px; height: 70px; border-radius: 50%; margin: 0 auto 15px; object-fit: cover; border: 3px solid #f3f4f6; }
+        .emp-card:hover { transform: translateY(-4px); box-shadow: 0 12px 20px -8px rgba(0,0,0,0.1); }
+        .card-menu { position: absolute; top: 15px; right: 15px; cursor: pointer; color: #94a3b8; transition: 0.2s; }
+        .card-menu:hover { color: var(--primary); }
+        .card-img { width: 80px; height: 80px; border-radius: 50%; margin: 0 auto 15px; object-fit: cover; border: 3px solid #f1f5f9; }
         
         /* --- EXPORT DROPDOWN --- */
         .export-dropdown {
             position: absolute; top: 100%; right: 0; background: white; border: 1px solid var(--border);
-            border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); z-index: 10;
-            width: 160px; display: none; flex-direction: column; margin-top: 5px;
+            border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); z-index: 10;
+            width: 180px; display: none; flex-direction: column; margin-top: 5px; padding: 8px;
         }
         .export-dropdown.show { display: flex; }
-        .export-item { padding: 10px 15px; font-size: 13px; color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 8px; }
-        .export-item:hover { background: #f9fafb; }
+        .export-item { padding: 10px 12px; font-size: 0.875rem; color: var(--text-main); cursor: pointer; display: flex; align-items: center; gap: 10px; border-radius: 8px; }
+        .export-item:hover { background: #f1f5f9; }
 
-        /* --- MODAL (Add/Edit Employee) --- */
+        /* --- MODAL --- */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center;
-            backdrop-filter: blur(2px);
+            background: rgba(15, 23, 42, 0.4); z-index: 2000; align-items: center; justify-content: center;
+            backdrop-filter: blur(4px);
         }
         .modal-overlay.active { display: flex; }
         .modal-box { 
             background: white; width: 850px; max-width: 95%; max-height: 90vh; overflow-y: auto;
-            border-radius: 12px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); 
+            border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); 
         }
         .modal-header { 
             padding: 20px 24px; border-bottom: 1px solid var(--border); 
             display: flex; justify-content: space-between; align-items: center;
         }
-        .modal-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: #1e293b; }
-        .modal-header span { color: #6b7280; font-weight: 400; font-size: 14px; margin-left: 10px; }
+        .modal-header h3 { margin: 0; font-size: 1.125rem; font-weight: 600; color: #1e293b; }
+        .modal-header span { color: #6b7280; font-weight: 400; font-size: 0.875rem; margin-left: 10px; }
         
-        .modal-tabs { padding: 0 24px; border-bottom: 1px solid var(--border); display: flex; gap: 20px; position: sticky; top: 0; background: white; z-index: 10; }
-        .tab-item { padding: 15px 0; font-size: 14px; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; }
+        .modal-tabs { padding: 0 24px; border-bottom: 1px solid var(--border); display: flex; gap: 24px; background: white; position: sticky; top: 0; z-index: 10; }
+        .tab-item { padding: 12px 0; font-size: 0.875rem; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: 0.2s; }
         .tab-item.active { color: var(--primary); border-bottom-color: var(--primary); }
 
         .modal-body { padding: 24px; }
@@ -221,47 +235,48 @@ $employees = [
         /* Image Upload Area */
         .img-upload-area {
             display: flex; align-items: center; gap: 20px; padding: 20px;
-            background: #f8fafc; border: 1px dashed var(--border); border-radius: 8px; margin-bottom: 20px;
+            background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 12px; margin-bottom: 20px;
         }
-        .preview-circle { width: 60px; height: 60px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; color: #94a3b8; overflow: hidden; }
+        .preview-circle { width: 64px; height: 64px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; color: #94a3b8; overflow: hidden; }
         .preview-circle img { width: 100%; height: 100%; object-fit: cover; }
 
         /* Form Grid */
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .form-group { margin-bottom: 5px; }
-        .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #374151; }
+        .form-group label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 6px; color: #374151; }
         .form-group label span { color: #ef4444; }
         
         .form-control {
-            width: 100%; padding: 10px 12px; border: 1px solid #d1d5db;
-            border-radius: 6px; font-size: 14px; box-sizing: border-box; outline: none; transition: 0.2s;
+            width: 100%; padding: 10px 14px; border: 1px solid #e2e8f0;
+            border-radius: 10px; font-size: 0.875rem; box-sizing: border-box; outline: none; transition: 0.2s;
         }
-        .form-control:focus { border-color: var(--primary); }
+        .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(20, 77, 77, 0.1); }
         
         .password-group { position: relative; }
         .password-toggle { position: absolute; right: 12px; top: 38px; color: #9ca3af; cursor: pointer; width: 16px; }
 
-        .form-section-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin: 25px 0 15px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+        .form-section-title { font-size: 0.95rem; font-weight: 600; color: var(--text-main); margin: 25px 0 15px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
 
         .modal-footer { 
             padding: 16px 24px; border-top: 1px solid var(--border); 
             display: flex; justify-content: flex-end; gap: 12px; 
+            background: #f8fafc;
         }
 
         /* PERMISSIONS TABLE */
-        .perm-table { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-        .perm-table th { background: #f9fafb; padding: 12px; text-align: center; font-size: 12px; border-bottom: 1px solid var(--border); font-weight: 600; }
+        .perm-table { width: 100%; border-collapse: collapse; margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+        .perm-table th { background: #f8fafc; padding: 12px; text-align: center; font-size: 0.75rem; border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text-muted); }
         .perm-table th:first-child { text-align: left; padding-left: 20px; }
-        .perm-table td { padding: 10px; text-align: center; border-bottom: 1px solid #f3f4f6; }
+        .perm-table td { padding: 10px; text-align: center; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; }
         .perm-table td:first-child { text-align: left; padding-left: 20px; font-weight: 500; color: var(--text-main); }
-        .role-check { width: 16px; height: 16px; accent-color: var(--primary); cursor: pointer; }
+        .role-check { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; border-radius: 4px; }
 
         /* Responsive */
         @media (max-width: 768px) {
             .page-header { flex-direction: column; align-items: flex-start; }
             .filters-row { flex-direction: column; align-items: stretch; }
             .form-grid { grid-template-columns: 1fr; }
-            .main-content { margin-left: 0; padding: 15px; }
+            .main-content { margin-left: 0; width: 100%; padding: 15px; }
         }
     </style>
 </head>
@@ -270,7 +285,8 @@ $employees = [
     <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
 
     <div class="main-content" id="mainContent">
-                    <?php include 'header.php'; ?>
+        
+        <?php include 'header.php'; ?>
 
         <div class="page-header">
             <div>
@@ -280,10 +296,10 @@ $employees = [
                     <span>/</span>
                     <span>Employees</span>
                     <span>/</span>
-                    <span style="font-weight:600; color:#111827;">Employees List</span>
+                    <span style="font-weight:600; color: var(--primary);">Employees List</span>
                 </div>
             </div>
-            <div style="display:flex; gap:10px; align-items:center;">
+            <div style="display:flex; gap:12px; align-items:center;">
                 <div class="view-toggle">
                     <div class="view-btn active" onclick="switchView('list')" id="btnList"><i data-lucide="list" style="width:18px;"></i></div>
                     <div class="view-btn" onclick="switchView('grid')" id="btnGrid"><i data-lucide="layout-grid" style="width:18px;"></i></div>
@@ -300,41 +316,41 @@ $employees = [
         </div>
 
         <div class="stats-grid">
-            <div class="stat-card card-black">
+            <div class="stat-card card-teal">
+                <div class="stat-info"><span>Total Employees</span><h3>1007</h3></div>
                 <div class="stat-icon-box"><i data-lucide="users"></i></div>
-                <div class="stat-info"><span>Total Employees</span><h3>1007</h3></div><span class="stat-badge">+19.01%</span>
             </div>
             <div class="stat-card card-green">
+                <div class="stat-info"><span>Active</span><h3>980</h3></div>
                 <div class="stat-icon-box"><i data-lucide="user-check"></i></div>
-                <div class="stat-info"><span>Active</span><h3>1007</h3></div><span class="stat-badge">+19.01%</span>
             </div>
             <div class="stat-card card-red">
+                <div class="stat-info"><span>Inactive</span><h3>27</h3></div>
                 <div class="stat-icon-box"><i data-lucide="user-x"></i></div>
-                <div class="stat-info"><span>InActive</span><h3>1007</h3></div><span class="stat-badge">+19.01%</span>
             </div>
             <div class="stat-card card-blue">
+                <div class="stat-info"><span>New Hires</span><h3>67</h3></div>
                 <div class="stat-icon-box"><i data-lucide="user-plus"></i></div>
-                <div class="stat-info"><span>New Employees</span><h3>67</h3></div><span class="stat-badge">+19.01%</span>
             </div>
         </div>
 
         <div class="filters-container">
-            <h3 style="font-size:16px; font-weight:700; margin:0;">Plan List</h3>
+            <h3 style="font-size:16px; font-weight:600; margin:0; color: var(--text-main);">Filter Employees</h3>
             <div class="filters-row">
                 <div class="filter-group">
-                    <i data-lucide="calendar" style="width:16px; color:#9ca3af;"></i>
+                    <i data-lucide="calendar" style="width:16px; color:#94a3b8;"></i>
                     <input type="text" value="02/03/2026 - 02/09/2026" readonly>
                 </div>
                 <div class="filter-group">
                     <select><option>Designation</option><option>Team Lead</option></select>
-                    <i data-lucide="chevron-down" style="width:14px; color:#9ca3af;"></i>
+                    <i data-lucide="chevron-down" style="width:14px; color:#94a3b8;"></i>
                 </div>
                 <div class="filter-group">
                     <select><option>Select Status</option><option>Active</option></select>
-                    <i data-lucide="chevron-down" style="width:14px; color:#9ca3af;"></i>
+                    <i data-lucide="chevron-down" style="width:14px; color:#94a3b8;"></i>
                 </div>
                 <div class="filter-group search-box">
-                    <input type="text" placeholder="Search..." style="margin-left:0;">
+                    <input type="text" placeholder="Search employees..." style="margin-left:0;">
                 </div>
             </div>
         </div>
@@ -358,7 +374,7 @@ $employees = [
                     <?php foreach($employees as $emp): ?>
                     <tr>
                         <td><input type="checkbox"></td>
-                        <td style="font-weight:600;"><?= $emp['id'] ?></td>
+                        <td style="font-weight:600; color: var(--text-main);"><?= $emp['id'] ?></td>
                         <td>
                             <div class="emp-profile">
                                 <img src="https://i.pravatar.cc/150?img=<?= $emp['img'] ?>" class="emp-img">
@@ -370,13 +386,13 @@ $employees = [
                         </td>
                         <td><?= $emp['email'] ?></td>
                         <td><?= $emp['phone'] ?></td>
-                        <td><span style="background:#f3f4f6; padding:4px 8px; border-radius:4px; font-size:12px;"><?= $emp['designation'] ?></span></td>
+                        <td><span style="background:#f1f5f9; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:500;"><?= $emp['designation'] ?></span></td>
                         <td><?= $emp['join_date'] ?></td>
                         <td><span class="status-badge <?= $emp['status'] == 'Active' ? 'status-active' : 'status-inactive' ?>"><?= $emp['status'] ?></span></td>
                         <td>
                             <div style="display:flex; gap:10px;">
-                                <i data-lucide="edit" style="width:16px; cursor:pointer; color:#3b82f6;" onclick='openEditModal(<?= json_encode($emp) ?>)'></i>
-                                <i data-lucide="trash-2" style="width:16px; cursor:pointer; color:#ef4444;"></i>
+                                <i data-lucide="edit" style="width:18px; cursor:pointer; color:#64748b;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='#64748b'" onclick='openEditModal(<?= json_encode($emp) ?>)'></i>
+                                <i data-lucide="trash-2" style="width:18px; cursor:pointer; color:#64748b;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='#64748b'"></i>
                             </div>
                         </td>
                     </tr>
@@ -388,17 +404,17 @@ $employees = [
         <div id="gridView" class="grid-view-container">
             <?php foreach($employees as $emp): ?>
             <div class="emp-card">
-                <div class="card-menu"><i data-lucide="more-vertical" style="width:16px;" onclick='openEditModal(<?= json_encode($emp) ?>)'></i></div>
+                <div class="card-menu"><i data-lucide="more-vertical" style="width:18px;" onclick='openEditModal(<?= json_encode($emp) ?>)'></i></div>
                 <img src="https://i.pravatar.cc/150?img=<?= $emp['img'] ?>" class="card-img">
-                <h4 style="margin:0 0 5px; font-weight:700;"><?= $emp['first_name'] . ' ' . $emp['last_name'] ?></h4>
-                <p style="margin:0 0 15px; font-size:13px; color:#6b7280;"><?= $emp['designation'] ?></p>
+                <h4 style="margin:0 0 5px; font-weight:600; color: var(--text-main);"><?= $emp['first_name'] . ' ' . $emp['last_name'] ?></h4>
+                <p style="margin:0 0 15px; font-size:13px; color:var(--text-muted);"><?= $emp['designation'] ?></p>
                 <div style="display:flex; justify-content:center; gap:10px; margin-bottom:15px;">
-                    <span style="background:#f3f4f6; padding:4px 10px; border-radius:20px; font-size:11px;"><?= $emp['dept'] ?></span>
+                    <span style="background:#f1f5f9; padding:4px 10px; border-radius:20px; font-size:11px; color:var(--text-muted); font-weight:500;"><?= $emp['dept'] ?></span>
                 </div>
-                <div style="border-top:1px solid #e5e7eb; padding-top:15px; display:flex; justify-content:space-between; align-items:center;">
+                <div style="border-top:1px solid #f1f5f9; padding-top:15px; display:flex; justify-content:space-between; align-items:center;">
                     <div style="text-align:left;">
-                        <span style="display:block; font-size:11px; color:#9ca3af;">Joined</span>
-                        <span style="font-size:12px; font-weight:600;"><?= $emp['join_date'] ?></span>
+                        <span style="display:block; font-size:11px; color:#94a3b8;">Joined</span>
+                        <span style="font-size:12px; font-weight:600; color:var(--text-main);"><?= $emp['join_date'] ?></span>
                     </div>
                     <span class="status-badge <?= $emp['status'] == 'Active' ? 'status-active' : 'status-inactive' ?>"><?= $emp['status'] ?></span>
                 </div>
@@ -415,7 +431,7 @@ $employees = [
                     <h3 id="modalTitle">Add New Employee</h3>
                     <span id="modalIdDisplay"></span>
                 </div>
-                <i data-lucide="x" style="cursor:pointer;" onclick="closeModal()"></i>
+                <i data-lucide="x" style="cursor:pointer; color:#94a3b8;" onclick="closeModal()"></i>
             </div>
             
             <div class="modal-tabs">
@@ -433,10 +449,10 @@ $employees = [
                                 <i data-lucide="image" style="width:24px;"></i>
                             </div>
                             <div>
-                                <h5 style="margin:0 0 5px; font-size:14px;">Upload Profile Image</h5>
-                                <p style="margin:0 0 10px; font-size:12px; color:#9ca3af;">Image should be below 4 mb</p>
+                                <h5 style="margin:0 0 5px; font-size:14px; font-weight:600;">Upload Profile Image</h5>
+                                <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Image should be below 4 mb</p>
                                 <div style="display:flex; gap:10px;">
-                                    <button class="btn btn-primary" style="padding:6px 12px; font-size:12px;">Upload</button>
+                                    <button type="button" class="btn btn-primary" style="padding:6px 12px; font-size:12px;">Upload</button>
                                 </div>
                             </div>
                         </div>
@@ -500,9 +516,9 @@ $employees = [
 
                     <div id="tab-permissions" class="tab-content" style="display:none;">
                         <h4 class="form-section-title">Module Access Control</h4>
-                        <p style="font-size:13px; color:#6b7280; margin-bottom:15px;">Define which modules this employee can access and their privilege level.</p>
+                        <p style="font-size:13px; color:var(--text-muted); margin-bottom:15px;">Define which modules this employee can access and their privilege level.</p>
                         
-                        <div style="border:1px solid #e5e7eb; border-radius:8px; overflow:hidden;">
+                        <div style="border:1px solid var(--border); border-radius:12px; overflow:hidden;">
                             <table class="perm-table">
                                 <thead>
                                     <tr>
@@ -586,7 +602,7 @@ $employees = [
             document.getElementById('desig').value = empData.designation;
             document.getElementById('empType').value = empData.emp_type || 'Permanent';
 
-            // Fill Fields - Bank & Statutory (Mock Data support)
+            // Fill Fields - Bank & Statutory
             document.getElementById('panNo').value = empData.pan || '';
             document.getElementById('bankName').value = empData.bank_name || '';
             document.getElementById('accNo').value = empData.account_no || '';
