@@ -67,6 +67,12 @@ $sections = [
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['IT Executive'] 
             ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'HR_executive/HR_executive_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['HR Executive'] 
+            ],
 
             // --- TEAM CHAT (Common) ---
             [
@@ -96,7 +102,7 @@ $sections = [
                     ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_manager.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Overtime', 'path' => $base . 'overtime_management.php', 'icon' => 'hourglass'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
-                    ['name' => 'Leave Management', 'path' => $base . 'leave_management.php', 'icon' => 'calendar-off']
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off']
                 ]
             ],
 
@@ -109,7 +115,9 @@ $sections = [
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
-                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off']
+                    
                 ]
             ],
 
@@ -163,7 +171,20 @@ $sections = [
                 'name' => 'Employee', 
                 'path' => $base . 'employee_management.php', 
                 'icon' => 'users', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead']
+                'allowed' => ['Manager', 'System Admin', 'HR']
+            ],
+
+            [
+                'name' => 'Employee', 
+                'path' => $base . 'TL/team_member.php', 
+                'icon' => 'users', 
+                'allowed' => ['Team Lead']
+            ],
+            [
+                'name' => 'Team Performance', 
+                'path' => $base . 'TL/tl_performance.php', 
+                'icon' => 'bar-chart-2', 
+                'allowed' => ['Team Lead']
             ],
 
             // --- PROJECTS ---
@@ -283,6 +304,26 @@ $sections = [
                 'path' => $base . 'payroll_salary.php', 
                 'icon' => 'banknote', 
                 'allowed' => ['HR'] 
+            ],
+        ]
+    ],
+    // --- FINANCE & PAYSLIP (NEW SECTION) ---
+    [
+        'label' => 'Finance & Payroll',
+        'items' => [
+            // Payslip Management with Dropdown
+            [
+                'name' => 'Payslip <br>Management', 
+                'icon' => 'file-text', 
+                'allowed' => ['HR', 'System Admin', 'Accounts', 'Employee'],
+                'subItems' => [
+                    ['name' => 'Generate Payslip', 'path' => $base . 'payslip.php?view=generate', 'icon' => 'plus-circle'],
+                    ['name' => 'Pending Approvals', 'path' => $base . 'payslip.php?view=approvals', 'icon' => 'clock'],
+                    ['name' => 'All Payslips', 'path' => $base . 'payslip.php?view=history', 'icon' => 'files'],
+                    // Recent Transactions Mock
+                    ['name' => 'Re cent: #PAY-008', 'path' => $base . 'payslip.php?view=details&id=008', 'icon' => 'history'],
+                    ['name' => 'Recent: #PAY-007', 'path' => $base . 'payslip.php?view=details&id=007', 'icon' => 'history'],
+                ]
             ],
         ]
     ],

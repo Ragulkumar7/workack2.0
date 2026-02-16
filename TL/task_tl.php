@@ -4,454 +4,540 @@
 // 1. SESSION START
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// Check Login
-if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
+// Check Login (Uncomment for production)
+// if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workack HRMS | TL Task Management</title>
+    <title>Team Task Management - Workack HRMS</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
         :root {
-            --bg-light: #f7f7f7;
-            --white: #ffffff;
-            --primary-orange: #1b5a5a; 
-            --text-dark: #333333;
-            --text-muted: #666666;
-            --border-light: #e3e3e3;
+            /* --- THEME COLORS (Matched to Image 1) --- */
+            --primary: #1b5a5a; /* Orange */
+            --primary-hover: #113c3c;
+            --secondary: #64748b;
+            --success: #10b981; /* Green for Active/Add buttons */
+            --danger: #ef4444;
+            --warning-bg: #fffbeb;
+            --warning-border: #fcd34d;
+            
+            /* --- LAYOUT COLORS --- */
+            --bg-body: #f8f9fa;
+            --bg-card: #ffffff;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --border: #e2e8f0;
         }
-
+           
         body { 
-            background-color: var(--bg-light); 
-            color: var(--text-dark); 
+            background-color: var(--bg-body); 
+            color: var(--text-main); 
             font-family: 'Inter', sans-serif; 
             margin: 0; 
             overflow-x: hidden;
         }
         
-        /* --- SIDEBAR INTEGRATION CSS --- */
+        /* --- LAYOUT & SIDEBAR --- */
         #mainContent { 
-            margin-left: 95px; 
-            padding: 30px; 
-            transition: margin-left 0.3s ease;
+            margin-left: 95px; /* Sidebar width */
+            padding: 24px 32px; 
+            transition: all 0.3s ease;
             width: calc(100% - 95px);
             min-height: 100vh;
             box-sizing: border-box;
         }
-        #mainContent.main-shifted {
-            margin-left: 315px; 
-            width: calc(100% - 315px);
+        
+        /* --- HEADER --- */
+        .page-header { 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 24px; flex-wrap: wrap; gap: 15px; 
         }
-        /* --------------------------- */
-        
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .page-header h1 { font-size: 24px; margin: 0; font-weight: 600; }
-        .breadcrumb { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
-
-        .project-overview { background: #fff; border-radius: 8px; border: 1px solid var(--border-light); padding: 20px; margin-bottom: 30px; border-left: 5px solid var(--primary-orange); box-shadow: 0 2px 6px rgba(0,0,0,0.02); }
-        .project-overview h4 { margin: 0 0 10px; color: var(--primary-orange); text-transform: uppercase; font-size: 12px; letter-spacing: 1px; }
-        .project-overview h2 { margin: 0; font-size: 20px; font-weight: 700; }
-
-        .content-card { background: var(--white); border: 1px solid var(--border-light); border-radius: 8px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.02); }
-        .card-title { font-size: 18px; font-weight: 600; padding: 20px 25px; border-bottom: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; margin: 0; }
-
-        .task-table { width: 100%; border-collapse: collapse; }
-        .task-table th { text-align: left; padding: 15px 25px; font-size: 13px; color: var(--text-muted); border-bottom: 1px solid var(--border-light); background: #fafafa; font-weight: 600; }
-        .task-table td { padding: 18px 25px; border-bottom: 1px solid var(--border-light); font-size: 14px; }
-        
-        /* Badge Styles */
-        .status-badge { padding: 5px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .pending { background: #fff1f0; color: #ff4d4f; border: 1px solid #ffa39e; }
-        .completed { background: #f6ffed; color: #52c41a; border: 1px solid #b7eb8f; }
-        
-        /* Assignee Tag Style in Table */
-        .assignee-tag { display: inline-block; background: #f0f2f5; padding: 2px 8px; border-radius: 12px; font-size: 12px; margin-right: 4px; margin-bottom: 4px; border: 1px solid #e0e0e0; }
-
-        .btn-save { background: var(--primary-orange); color: white; padding: 11px 22px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 14px; transition: 0.2s; }
-        .btn-save:hover { background-color: #e54e2d; }
-        .btn-complete { background: #52c41a; padding: 8px 15px; font-size: 12px; }
-        .btn-complete:hover { background: #389e0d; }
-        
-        .action-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 15px; margin-left: 12px; transition: 0.2s; }
-        .action-btn:hover { color: var(--primary-orange); }
-
-        /* Modals */
-        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
-        .modal-content { background: white; margin: 5% auto; padding: 0; border-radius: 10px; width: 600px; position: relative; animation: slideIn 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
-        @keyframes slideIn { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        
-        .modal-header { padding: 20px 25px; border-bottom: 1px solid #eee; background: #fafafa; display: flex; justify-content: space-between; align-items: center; border-radius: 10px 10px 0 0; }
-        .modal-header h3 { margin: 0; font-size: 18px; }
-        .modal-body { padding: 25px; }
-
-        .input-group { margin-bottom: 18px; position: relative; }
-        .input-group label { display: block; font-size: 13px; margin-bottom: 8px; font-weight: 600; color: var(--text-dark); }
-        .input-group input, .input-group select, .input-group textarea { width: 100%; padding: 11px; border: 1px solid var(--border-light); border-radius: 6px; font-size: 14px; box-sizing: border-box; font-family: 'Inter', sans-serif; }
-        .input-group input:focus, .input-group select:focus, .input-group textarea:focus { outline: none; border-color: var(--primary-orange); }
-        
-        .search-icon { position: absolute; right: 12px; top: 12px; color: #aaa; pointer-events: none; }
-
-        /* External Resource Toggle */
-        .external-toggle {
-            background: #fff8e1; border: 1px solid #ffe58f; padding: 12px; border-radius: 6px;
-            display: flex; align-items: center; gap: 10px; margin-bottom: 15px;
+        .page-header h1 { font-size: 24px; margin: 0; font-weight: 700; color: #1e293b; }
+        .breadcrumb { 
+            font-size: 13px; color: var(--text-muted); margin-top: 5px; 
+            display: flex; align-items: center; gap: 6px; 
         }
-        .external-toggle input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; accent-color: #f59e0b; }
-        .external-toggle label { margin: 0; font-size: 13px; color: #b76e00; cursor: pointer; }
+
+        /* --- PROJECT CARD --- */
+        .project-overview { 
+            background: var(--bg-card); border-radius: 10px; border: 1px solid var(--border); 
+            padding: 24px; margin-bottom: 30px; border-left: 5px solid var(--primary); 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02); 
+        }
+        .project-overview h4 { margin: 0 0 8px; color: var(--primary); text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+        .project-overview h2 { margin: 0; font-size: 20px; font-weight: 700; color: #0f172a; }
+
+        /* --- CONTENT CARD & TABLE --- */
+        .content-card { 
+            background: var(--bg-card); border: 1px solid var(--border); 
+            border-radius: 10px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.02); 
+        }
+        .card-header {
+            padding: 16px 24px; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .card-title { font-size: 16px; font-weight: 600; margin: 0; }
+
+        /* Table Styling (Matched to Image 1) */
+        .table-responsive { overflow-x: auto; width: 100%; }
+        table { width: 100%; border-collapse: collapse; min-width: 900px; }
+        
+        thead { background-color: #f8fafc; border-bottom: 1px solid var(--border); }
+        th { 
+            text-align: left; padding: 14px 24px; font-size: 12px; 
+            font-weight: 600; color: #64748b; text-transform: uppercase; 
+        }
+        
+        td { 
+            padding: 16px 24px; border-bottom: 1px solid #f1f5f9; 
+            font-size: 14px; vertical-align: middle; color: #334155;
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover { background-color: #f8fafc; }
+
+        /* --- BUTTONS --- */
+        .btn { 
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+            padding: 9px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; 
+            cursor: pointer; transition: 0.2s; border: none; outline: none;
+        }
+        .btn-primary { background-color: var(--primary); color: white; }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+
+        .btn-success { background-color: var(--success); color: white; padding: 8px 14px; }
+        .btn-success:hover { background-color: #059669; }
+
+        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-outline:hover { background: #f8fafc; }
+
+        .icon-btn { 
+            padding: 6px; border-radius: 4px; border: none; background: transparent; 
+            cursor: pointer; color: var(--secondary); transition: 0.2s; 
+        }
+        .icon-btn:hover { background: #f1f5f9; color: var(--primary); }
+        .icon-btn.delete:hover { color: var(--danger); background: #fef2f2; }
+
+        /* --- BADGES & TAGS --- */
+        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+        .status-Pending { background: #fff7ed; color: #c2410c; }
+        .status-Completed { background: #dcfce7; color: #166534; }
+
+        .assignee-chip { 
+            display: inline-flex; align-items: center; gap: 6px;
+            background: #f1f5f9; color: #475569; padding: 4px 10px; 
+            border-radius: 20px; font-size: 12px; font-weight: 500; margin-right: 5px;
+        }
+
+        /* --- MODAL STYLING (Matched to Image 2) --- */
+        .modal { 
+            display: none; position: fixed; z-index: 1000; left: 0; top: 0; 
+            width: 100%; height: 100%; background: rgba(0,0,0,0.5); 
+            backdrop-filter: blur(2px); align-items: center; justify-content: center; 
+        }
+        .modal.active { display: flex; }
+
+        .modal-content { 
+            background: white; width: 600px; max-width: 90%; 
+            border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); 
+            animation: slideIn 0.2s ease-out; overflow: hidden;
+        }
+        @keyframes slideIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        .modal-header { 
+            padding: 16px 24px; border-bottom: 1px solid var(--border); 
+            display: flex; justify-content: space-between; align-items: center; 
+        }
+        .modal-header h3 { font-size: 18px; font-weight: 600; margin: 0; }
+
+        .modal-body { padding: 24px; max-height: 70vh; overflow-y: auto; }
+
+        /* Form Inputs */
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: #374151; }
+        .form-group label span { color: var(--danger); }
+        
+        .form-control { 
+            width: 100%; padding: 10px 12px; border: 1px solid var(--border); 
+            border-radius: 6px; font-size: 14px; font-family: inherit; color: #1e293b;
+            box-sizing: border-box; transition: 0.2s;
+        }
+        .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1); }
+
+        /* External Toggle Box */
+        .external-box {
+            background: var(--warning-bg); border: 1px solid var(--warning-border);
+            padding: 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px;
+            margin-bottom: 20px;
+        }
+        .external-box label { margin: 0; font-weight: 500; color: #92400e; cursor: pointer; }
+        .external-box input { accent-color: #d97706; width: 16px; height: 16px; cursor: pointer; }
+
+        /* Add Member Row */
+        .add-member-row { display: flex; gap: 10px; }
+        .add-member-row .form-control { flex: 1; }
+        
+        /* Dashed Empty State */
+        .empty-assignees {
+            border: 1px dashed var(--border); border-radius: 6px; padding: 15px;
+            text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 10px;
+        }
+        
+        /* Assignee Chips inside Modal */
+        .modal-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+        .modal-chip {
+            background: #f1f5f9; border: 1px solid var(--border); padding: 5px 10px;
+            border-radius: 6px; font-size: 13px; display: flex; align-items: center; gap: 8px;
+        }
+
+        .modal-footer {
+            padding: 16px 24px; border-top: 1px solid var(--border); 
+            background: #f8fafc; display: flex; justify-content: flex-end; gap: 10px;
+        }
+
+        /* --- RESPONSIVE --- */
+        @media (max-width: 768px) {
+            #mainContent { margin-left: 0; padding: 16px; width: 100%; }
+            .page-header { flex-direction: column; align-items: flex-start; }
+            .row-split { flex-direction: column; }
+            .add-member-row { flex-direction: column; }
+            .add-member-row button { width: 100%; }
+        }
     </style>
 </head>
 <body>
 
-    <?php include('../sidebars.php'); ?>
+    <?php 
+    // Use the robust include method
+    $sidebarPath = __DIR__ . '/../sidebars.php'; 
+    if (file_exists($sidebarPath)) { include($sidebarPath); }
+    ?>
 
     <div id="mainContent">
+        
         <div class="page-header">
             <div>
                 <h1>Team Task Management</h1>
-                <div class="breadcrumb">Team Lead / Project Breakdown</div>
+                <div class="breadcrumb">
+                    <i data-lucide="home" style="width:14px;"></i>
+                    <span>/</span> Performance <span>/</span> Task Management
+                </div>
             </div>
-            <button class="btn-save" onclick="openModal('splitTaskModal')">
-                <i class="fas fa-plus"></i> Split Task to Team
+            <button class="btn btn-primary" onclick="openModal('taskModal')">
+                <i data-lucide="plus-circle" style="width:18px;"></i> Split Task
             </button>
         </div>
 
         <div class="project-overview">
             <h4>Assigned Master Project</h4>
-            <h2 id="parentProjectName">Workack HRMS API Integration</h2>
-            <div style="margin-top: 10px; font-size: 13px; color: var(--text-muted);">
-                <i class="far fa-calendar-alt"></i> Deadline: 15 Feb 2026 &nbsp;|&nbsp; <i class="fas fa-user-tie"></i> Assigned by: Manager
+            <h2>Workack HRMS API Integration</h2>
+            <div style="margin-top: 12px; font-size: 13px; color: #64748b; display:flex; gap: 20px; align-items:center; flex-wrap:wrap;">
+                <span style="display:flex; align-items:center; gap:6px;"><i data-lucide="calendar" style="width:14px;"></i> Deadline: <b>15 Feb 2026</b></span>
+                <span style="display:flex; align-items:center; gap:6px;"><i data-lucide="user" style="width:14px;"></i> Assigned by: <b>Manager</b></span>
             </div>
         </div>
 
         <div class="content-card">
-            <h3 class="card-title">Employee Task Distribution</h3>
-            <div style="overflow-x: auto;">
-                <table class="task-table" id="teamTaskTable">
+            <div class="card-header">
+                <h3 class="card-title">Employee Task Distribution</h3>
+                <div style="position:relative; width:250px;">
+                    <input type="text" placeholder="Search tasks..." class="form-control" style="padding-left:35px; height:36px;">
+                    <i data-lucide="search" style="width:16px; position:absolute; left:10px; top:10px; color:#94a3b8;"></i>
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table>
                     <thead>
                         <tr>
-                            <th>Sub-Task Name</th>
-                            <th>Assigned Employees</th>
-                            <th>Status</th>
-                            <th>Due Date</th>
-                            <th style="text-align: right;">Actions</th>
+                            <th style="width: 25%;">Sub-Task Name</th>
+                            <th style="width: 30%;">Assigned To</th>
+                            <th style="width: 15%;">Status</th>
+                            <th style="width: 15%;">Due Date</th>
+                            <th style="width: 15%; text-align: right;">Action</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <tr id="subrow-1">
-                            <td class="st-title"><strong>Database Schema Design</strong></td>
-                            <td class="st-name">
-                                <span class="assignee-tag">Suresh Babu</span>
+                    <tbody id="taskTableBody">
+                        <tr id="row-1">
+                            <td>
+                                <div style="font-weight:600; color:#1e293b;">Database Schema Design</div>
+                                <div style="font-size:12px; color:#64748b; margin-top:2px;">Create SQL Tables for Users</div>
                             </td>
-                            <td class="st-status"><span class="status-badge pending">Pending</span></td>
-                            <td class="st-date">08 Feb 2026</td>
+                            <td>
+                                <div class="assignee-list">
+                                    <span class="assignee-chip"><i data-lucide="user" style="width:12px;"></i> Suresh Babu</span>
+                                </div>
+                            </td>
+                            <td><span class="status-badge status-Pending">Pending</span></td>
+                            <td>08 Feb 2026</td>
                             <td style="text-align: right;">
-                                <button class="btn-save btn-complete" onclick="markComplete('subrow-1')">Mark Finished</button>
-                                <button class="action-btn" onclick="editSubTask('subrow-1')"><i class="fas fa-edit"></i></button>
-                                <button class="action-btn" style="color:#dc3545;" onclick="deleteSubTask('subrow-1')"><i class="fas fa-trash"></i></button>
+                                <button class="icon-btn" title="Edit" onclick="editTask('row-1')"><i data-lucide="edit-3" style="width:16px;"></i></button>
+                                <button class="icon-btn delete" title="Delete" onclick="deleteTask('row-1')"><i data-lucide="trash-2" style="width:16px;"></i></button>
                             </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
         </div>
+
     </div>
 
-    <div id="splitTaskModal" class="modal">
+    <div id="taskModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="modalHeading">Split Task to Employees</h3>
-                <span style="cursor:pointer; font-size:24px; color:#aaa; line-height: 1;" onclick="closeModal('splitTaskModal')">&times;</span>
+                <h3 id="modalTitle">Split Task to Employees</h3>
+                <button class="icon-btn" onclick="closeModal('taskModal')"><i data-lucide="x" style="width:20px;"></i></button>
             </div>
-            <form id="splitForm">
-                <div class="modal-body">
-                    <input type="hidden" id="editSubRowId">
-                    
-                    <div class="input-group">
-                        <label>Sub-Task Title</label>
-                        <input type="text" id="subTitle" placeholder="e.g., UI Login Screen" required>
-                    </div>
-                    
-                    <div class="external-toggle">
-                        <input type="checkbox" id="isExternal" onchange="toggleExternalAssign()">
-                        <label for="isExternal">Add employee from another department?</label>
+            
+            <div class="modal-body">
+                <form id="taskForm">
+                    <input type="hidden" id="editRowId">
+
+                    <div class="form-group">
+                        <label>Sub-Task Title <span>*</span></label>
+                        <input type="text" id="tTitle" class="form-control" placeholder="e.g., UI Login Screen Design" required>
                     </div>
 
-                    <div class="input-group" id="deptGroup" style="display:none;">
-                        <label style="color: #d97706;">Select Source Department</label>
-                        <select id="sourceDept" onchange="fetchExternalEmployees()">
-                            <option value="">-- Select Department --</option>
-                            <option value="IT">IT Development</option>
-                            <option value="Marketing">Digital Marketing</option>
-                            <option value="Design">UI/UX Design</option>
-                            <option value="Accounts">Accounts & Finance</option>
+                    <div class="form-group">
+                        <label>Task Description <span>*</span></label>
+                        <textarea id="tDesc" class="form-control" rows="3" placeholder="Explain what needs to be done..." required></textarea>
+                    </div>
+
+                    <div class="external-box">
+                        <input type="checkbox" id="isExternal" onchange="toggleExternal()">
+                        <label for="isExternal">Assign to another department?</label>
+                    </div>
+
+                    <div class="form-group" id="deptSelectGroup" style="display:none;">
+                        <label>Select Department</label>
+                        <select class="form-control" id="deptSelect" onchange="updateEmpPlaceholder()">
+                            <option>Marketing</option>
+                            <option>Design</option>
+                            <option>Finance</option>
                         </select>
                     </div>
 
-                    <div class="input-group">
-                        <label id="assignLabel">Select Team Member</label>
-                        <div style="display:flex; gap:10px;">
-                            <div style="position:relative; flex:1;">
-                                <input type="text" id="empSearch" placeholder="Search employee" list="employeeList">
-                                <i class="fas fa-search search-icon" style="top: 12px;"></i>
-                                <datalist id="employeeList">
-                                    </datalist>
-                            </div>
-                            <button type="button" onclick="addAssignee()" class="btn-save" style="padding: 10px 15px; background: #28a745;">
-                                <i class="fas fa-plus"></i> Add
+                    <div class="form-group">
+                        <label>Add Team Member</label>
+                        <div class="add-member-row">
+                            <input type="text" id="empInput" class="form-control" placeholder="Search employee..." list="empList">
+                            <datalist id="empList">
+                                <option value="Suresh Babu">
+                                <option value="Karthik">
+                                <option value="Anitha">
+                            </datalist>
+                            <button type="button" class="btn btn-success" onclick="addAssignee()">
+                                <i data-lucide="plus" style="width:16px;"></i> Add
                             </button>
                         </div>
-                    </div>
-
-                    <div id="selectedAssigneesList" style="margin-bottom: 15px; display:flex; flex-wrap:wrap; gap:8px; min-height: 30px; padding: 5px; border: 1px dashed #e0e0e0; border-radius: 6px;">
-                        <span style="font-size:12px; color:#aaa; width:100%; text-align:center; line-height:28px;" id="emptyMsg">No employees added yet</span>
-                    </div>
-
-                    <div style="display:flex; gap:15px;">
-                        <div class="input-group" style="flex:1;">
-                            <label>Sub-Deadline</label>
-                            <input type="date" id="subDate" required>
+                        
+                        <div id="assigneeContainer" class="empty-assignees">
+                            No employees added yet
                         </div>
-                        <div class="input-group" style="flex:1;">
+                    </div>
+
+                    <div style="display:flex; gap:15px;" class="row-split">
+                        <div class="form-group" style="flex:1;">
+                            <label>Due Date <span>*</span></label>
+                            <input type="date" id="tDate" class="form-control" required>
+                        </div>
+                        <div class="form-group" style="flex:1;">
                             <label>Priority</label>
-                            <select id="subPriority">
+                            <select id="tPriority" class="form-control">
+                                <option>Medium</option>
                                 <option>High</option>
-                                <option selected>Medium</option>
                                 <option>Low</option>
                             </select>
                         </div>
                     </div>
-                </div>
-                <div style="padding: 20px 25px; border-top: 1px solid #eee; text-align: right; background: #fafafa; border-radius: 0 0 10px 10px;">
-                    <button type="button" style="background:#eee; color:#444; border:none; padding:11px 20px; border-radius:6px; margin-right:10px; cursor:pointer; font-weight:600;" onclick="closeModal('splitTaskModal')">Cancel</button>
-                    <button type="submit" class="btn-save">Assign Task</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div id="proofModal" class="modal">
-        <div class="modal-content" style="width:450px;">
-            <div class="modal-header">
-                <h3>Submit Completion Proof</h3>
-                <span style="cursor:pointer; font-size:24px; color:#aaa; line-height: 1;" onclick="closeModal('proofModal')">&times;</span>
+                </form>
             </div>
-            <form id="proofForm">
-                <div class="modal-body">
-                    <input type="hidden" id="proofRowId">
-                    <div class="input-group" style="margin-bottom: 0;">
-                        <label>Completion Note / Link</label>
-                        <textarea id="workProof" rows="4" placeholder="e.g. GitHub link or 'Done'" required></textarea>
-                    </div>
-                </div>
-                <div style="padding: 20px 25px; text-align: right; border-top: 1px solid #eee; background: #fafafa; border-radius: 0 0 10px 10px;">
-                    <button type="button" style="background:#eee; color:#444; border:none; padding:11px 20px; border-radius:6px; margin-right:10px; cursor:pointer; font-weight:600;" onclick="closeModal('proofModal')">Cancel</button>
-                    <button type="submit" class="btn-save" style="background:#52c41a;">Submit Proof</button>
-                </div>
-            </form>
+
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('taskModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveTask()">Assign Task</button>
+            </div>
         </div>
     </div>
 
     <script>
-        // --- DATA & VARIABLES ---
-        const myTeam = ["Suresh Babu", "Karthik", "Anitha", "Ramesh", "Priya"];
-        let selectedAssignees = []; // Stores the final list of selected employees
+        // Initialize Icons
+        lucide.createIcons();
 
-        // --- MODAL CONTROLS ---
-        function closeModal(id) { 
-            document.getElementById(id).style.display = 'none'; 
-        }
+        // State
+        let selectedAssignees = [];
+        let rowCounter = 2;
 
-        // --- MULTI-ASSIGNEE LOGIC ---
-        
-        // 1. Initialize Modal State (Reset Everything)
+        // Modal Functions
         function openModal(id) {
-            document.getElementById(id).style.display = 'block';
-            if(id === 'splitTaskModal') {
-                // If it's a new task (checking by title emptiness for now)
-                if(!document.getElementById('subTitle').value) {
-                    selectedAssignees = [];
-                    renderAssignees();
-                    document.getElementById('isExternal').checked = false;
-                    toggleExternalAssign(); // This will reset list to My Team
-                    document.getElementById('modalHeading').innerText = "Split Task to Employees";
-                }
+            document.getElementById(id).classList.add('active');
+            // Reset for new task
+            if (!document.getElementById('editRowId').value) {
+                resetForm();
             }
         }
 
-        // 2. Toggle External Department Dropdown
-        function toggleExternalAssign() {
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+            setTimeout(resetForm, 300); // Clear after animation
+        }
+
+        function resetForm() {
+            document.getElementById('taskForm').reset();
+            document.getElementById('editRowId').value = '';
+            document.getElementById('modalTitle').innerText = "Split Task to Employees";
+            selectedAssignees = [];
+            renderAssignees();
+            document.getElementById('isExternal').checked = false;
+            toggleExternal();
+        }
+
+        // Toggle External Department Logic
+        function toggleExternal() {
             const isExt = document.getElementById('isExternal').checked;
-            const deptGroup = document.getElementById('deptGroup');
-            const assignLabel = document.getElementById('assignLabel');
-            const empInput = document.getElementById('empSearch');
-            
-            // Clear input only, retain selectedAssignees array
-            empInput.value = ""; 
+            const deptGroup = document.getElementById('deptSelectGroup');
+            const empInput = document.getElementById('empInput');
 
             if (isExt) {
                 deptGroup.style.display = 'block';
-                assignLabel.innerText = "Select External Employee";
-                empInput.placeholder = "Select department first...";
-                updateDataList([]); // Clear list until dept selected
+                empInput.placeholder = "Search Marketing employee...";
             } else {
                 deptGroup.style.display = 'none';
-                assignLabel.innerText = "Select Team Member";
-                empInput.placeholder = "Search employee";
-                document.getElementById('sourceDept').value = ""; 
-                updateDataList(myTeam); // Show own team
+                empInput.placeholder = "Search employee...";
             }
         }
 
-        // 3. Mock Fetch External Employees
-        function fetchExternalEmployees() {
-            const dept = document.getElementById('sourceDept').value;
-            let extEmployees = [];
-
-            if(dept === "IT") extEmployees = ["Ragul (IT)", "Vasanth (IT)", "Deepak (IT)"];
-            else if(dept === "Marketing") extEmployees = ["John (Mkt)", "Sarah (Mkt)"];
-            else if(dept === "Design") extEmployees = ["Figma User 1", "Sketch Guru"];
-            else if(dept === "Accounts") extEmployees = ["Acc. Manager", "Auditor"];
-
-            updateDataList(extEmployees);
-            document.getElementById('empSearch').placeholder = "Search " + dept + " employee...";
+        function updateEmpPlaceholder() {
+            const dept = document.getElementById('deptSelect').value;
+            document.getElementById('empInput').placeholder = "Search " + dept + " employee...";
         }
 
-        // 4. Update Datalist Options
-        function updateDataList(names) {
-            const dataList = document.getElementById('employeeList');
-            dataList.innerHTML = '';
-            names.forEach(name => {
-                const option = document.createElement('option');
-                option.value = name;
-                dataList.appendChild(option);
-            });
-        }
-
-        // 5. Add Person to List
+        // Assignee Logic
         function addAssignee() {
-            const empName = document.getElementById('empSearch').value.trim();
-            if (!empName) return alert("Please select an employee first.");
-            
-            if (selectedAssignees.includes(empName)) {
-                return alert("This employee is already added!");
+            const input = document.getElementById('empInput');
+            const val = input.value.trim();
+            if (val && !selectedAssignees.includes(val)) {
+                selectedAssignees.push(val);
+                renderAssignees();
+                input.value = '';
+            } else if (selectedAssignees.includes(val)) {
+                alert('Employee already added!');
             }
-
-            selectedAssignees.push(empName);
-            renderAssignees();
-            document.getElementById('empSearch').value = ""; // Clear input
         }
 
-        // 6. Remove Person from List
         function removeAssignee(index) {
             selectedAssignees.splice(index, 1);
             renderAssignees();
         }
 
-        // 7. Render Chips (UI)
         function renderAssignees() {
-            const container = document.getElementById('selectedAssigneesList');
-            container.innerHTML = "";
+            const container = document.getElementById('assigneeContainer');
             
-            if(selectedAssignees.length === 0) {
-                container.innerHTML = '<span style="font-size:12px; color:#aaa; width:100%; text-align:center; line-height:28px;">No employees added yet</span>';
+            if (selectedAssignees.length === 0) {
+                container.innerHTML = 'No employees added yet';
+                container.className = 'empty-assignees';
                 return;
             }
 
-            selectedAssignees.forEach((name, index) => {
-                const tag = document.createElement('div');
-                // Chip Style
-                tag.style.cssText = "background:#e3f2fd; color:#0d47a1; padding:5px 12px; border-radius:20px; font-size:12px; display:flex; align-items:center; gap:6px; border:1px solid #90caf9; font-weight:500;";
-                tag.innerHTML = `
-                    ${name} 
-                    <i class="fas fa-times" style="cursor:pointer; color:#ef5350;" onclick="removeAssignee(${index})"></i>
-                `;
-                container.appendChild(tag);
-            });
+            container.className = 'modal-chips';
+            container.innerHTML = selectedAssignees.map((name, i) => `
+                <div class="modal-chip">
+                    <span>${name}</span>
+                    <i data-lucide="x" style="width:14px; cursor:pointer; color:#ef4444;" onclick="removeAssignee(${i})"></i>
+                </div>
+            `).join('');
+            lucide.createIcons();
         }
 
-        // --- SUBMIT LOGIC ---
-        document.getElementById('splitForm').onsubmit = function(e) {
-            e.preventDefault();
-            
-            if (selectedAssignees.length === 0) {
-                return alert("Please assign at least one employee.");
-            }
+        // Save Task (Create/Edit)
+        function saveTask() {
+            const title = document.getElementById('tTitle').value;
+            const desc = document.getElementById('tDesc').value;
+            const date = document.getElementById('tDate').value;
+            const editId = document.getElementById('editRowId').value;
 
-            let taskTitle = document.getElementById('subTitle').value;
-            // Generate list string for display/alert
-            let assignedListStr = selectedAssignees.join(", "); 
+            if(!title || !date) return alert("Please fill required fields");
+            if(selectedAssignees.length === 0) return alert("Please assign at least one member");
 
-            // Logic to handle Edit vs New (For Demo, we just alert)
-            let action = document.getElementById('modalHeading').innerText;
-            if(action.includes("Edit")) {
-                alert(`Task Updated!\nAssigned to: ${assignedListStr}`);
+            // Format Date
+            const dateObj = new Date(date);
+            const dateStr = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+            // Create Assignee HTML for Table
+            const assigneeHtml = selectedAssignees.map(name => 
+                `<span class="assignee-chip"><i data-lucide="user" style="width:12px;"></i> ${name}</span>`
+            ).join('');
+
+            if(editId) {
+                // Update
+                const row = document.getElementById(editId);
+                row.cells[0].innerHTML = `<div style="font-weight:600; color:#1e293b;">${title}</div><div style="font-size:12px; color:#64748b; margin-top:2px;">${desc}</div>`;
+                row.cells[1].innerHTML = `<div class="assignee-list">${assigneeHtml}</div>`;
+                row.cells[3].innerText = dateStr;
             } else {
-                alert(`Task "${taskTitle}" assigned successfully to:\n${assignedListStr}`);
-                
-                // Add Row Logic (Optional Visual Demo)
-                // addRowToTable(taskTitle, assignedListStr, 'Pending', document.getElementById('subDate').value);
+                // Create
+                const newId = 'row-' + rowCounter++;
+                const tbody = document.getElementById('taskTableBody');
+                const tr = document.createElement('tr');
+                tr.id = newId;
+                tr.innerHTML = `
+                    <td>
+                        <div style="font-weight:600; color:#1e293b;">${title}</div>
+                        <div style="font-size:12px; color:#64748b; margin-top:2px;">${desc}</div>
+                    </td>
+                    <td><div class="assignee-list">${assigneeHtml}</div></td>
+                    <td><span class="status-badge status-Pending">Pending</span></td>
+                    <td>${dateStr}</td>
+                    <td style="text-align: right;">
+                        <button class="icon-btn" onclick="editTask('${newId}')"><i data-lucide="edit-3" style="width:16px;"></i></button>
+                        <button class="icon-btn delete" onclick="deleteTask('${newId}')"><i data-lucide="trash-2" style="width:16px;"></i></button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
             }
-            
-            closeModal('splitTaskModal');
+
+            closeModal('taskModal');
+            lucide.createIcons();
         }
 
-        // --- TABLE ACTIONS ---
-        function markComplete(rowId) {
-            document.getElementById('proofRowId').value = rowId;
-            document.getElementById('workProof').value = ''; 
-            document.getElementById('proofModal').style.display = 'block';
+        // Table Actions
+        function deleteTask(id) {
+            if(confirm('Delete this task?')) {
+                document.getElementById(id).remove();
+            }
         }
 
-        document.getElementById('proofForm').onsubmit = function(e) {
-            e.preventDefault();
-            let rowId = document.getElementById('proofRowId').value;
-            let proof = document.getElementById('workProof').value;
-
-            let row = document.getElementById(rowId);
-            row.querySelector('.st-status').innerHTML = '<span class="status-badge completed">Completed</span>';
-            row.style.backgroundColor = '#f6ffed';
-            row.querySelector('.btn-complete').style.display = 'none';
-            row.querySelector('td:last-child').innerHTML = '<i class="fas fa-check-circle" style="color:#52c41a; font-size:18px;"></i> Verified';
-
-            alert("Proof Submitted: " + proof);
-            closeModal('proofModal');
-        }
-
-        function editSubTask(rowId) {
-            document.getElementById('modalHeading').innerText = "Edit Sub-Task";
-            document.getElementById('editSubRowId').value = rowId;
+        function editTask(id) {
+            const row = document.getElementById(id);
+            // In a real app, you would fetch data from ID. Here we scrape the DOM for demo.
+            const title = row.cells[0].querySelector('div:first-child').innerText;
+            const desc = row.cells[0].querySelector('div:last-child').innerText;
             
-            // Get current values
-            let title = document.querySelector(`#${rowId} .st-title`).innerText;
-            // For demo edit, we just grab the text. In real app, you'd fetch ID list.
-            let currentAssigneesText = document.querySelector(`#${rowId} .st-name`).innerText;
-            
-            document.getElementById('subTitle').value = title;
-            document.getElementById('subDate').value = "2026-02-08"; // Mock date
-            
-            // Reset and populate list
-            selectedAssignees = currentAssigneesText.split(',').map(s => s.trim()).filter(s => s);
+            document.getElementById('tTitle').value = title;
+            document.getElementById('tDesc').value = desc;
+            document.getElementById('editRowId').value = id;
+            document.getElementById('modalTitle').innerText = "Edit Sub-Task";
+
+            // Reset assignees for demo scraping
+            selectedAssignees = []; 
+            const chips = row.cells[1].querySelectorAll('.assignee-chip');
+            chips.forEach(c => selectedAssignees.push(c.innerText.trim()));
             renderAssignees();
-            
-            document.getElementById('splitTaskModal').style.display = 'block';
+
+            openModal('taskModal');
         }
 
-        function deleteSubTask(rowId) {
-            if(confirm("Are you sure you want to remove this assignment?")) {
-                document.getElementById(rowId).remove();
+        // Close on outside click
+        window.onclick = function(e) {
+            if(e.target.classList.contains('modal')) {
+                closeModal('taskModal');
             }
-        }
-
-        window.onclick = function(event) { 
-            if (event.target.className === 'modal') { 
-                event.target.style.display = 'none';
-            } 
         }
     </script>
 </body>
