@@ -1,24 +1,71 @@
 <?php
+
+include 'sidebars.php'; 
+include 'header.php';
+// Uncomment in production
+
 // attendance_admin.php
 
 // 1. SESSION START
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
+// Check auth (uncomment in production)
+// if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 
-// 2. MOCK DATA FOR EXPORT (Since this is now a standalone admin page)
-// In a real app, this would come from the database based on the table view.
-$exportData = [];
-for($i=1; $i<=6; $i++) {
-    $exportData[] = [
-        "employee" => "User $i",
-        "status" => "Present",
-        "checkin" => "09:00 AM",
-        "checkout" => "06:".rand(10,59)." PM",
-        "break" => "20 Min",
-        "late" => "1$i Min",
-        "production" => "8.55 Hrs"
+// 2. MOCK DATA GENERATION
+ $departments = ['IT', 'HR', 'Sales', 'Marketing', 'Finance'];
+ $attendanceData = [];
+
+// Generate data for the last 30 days
+for ($i = 1; $i <= 50; $i++) {
+    $day = rand(1, 30); // Random day of current month
+    $month = date('m');
+    $year = date('Y');
+    $dateStr = sprintf("%04d-%02d-%02d", $year, $month, $day);
+    
+    // Generate Display ID (e.g., EMP-001)
+    $displayId = "EMP-" . str_pad($i, 3, '0', STR_PAD_LEFT);
+    
+    // Random Status Logic
+    $statusRand = rand(0, 10);
+    $status = 'Present';
+    $checkIn = '09:00 AM';
+    $checkOut = '06:00 PM';
+    $break = '20 Min';
+    $late = '0 Min';
+    $prod = '8.55 Hrs';
+
+    if ($statusRand > 8) { 
+        $status = 'Absent'; 
+        $checkIn = '-'; $checkOut = '-'; $break = '-'; $late = '-'; $prod = '0 Hrs';
+    } elseif ($statusRand == 7) {
+        $status = 'Late'; 
+        $late = rand(5, 45) . ' Min';
+        $checkIn = '09:' . $late . ' AM';
+    } elseif ($statusRand == 6) {
+        $status = 'Half Day';
+        $prod = '4.30 Hrs';
+        $checkOut = '01:00 PM';
+    }
+
+    $attendanceData[] = [
+        "id" => $i,          // Internal ID
+        "emp_id" => $displayId, // ADDED: Display Employee ID
+        "name" => "Employee " . $i,
+        "avatar" => "https://i.pravatar.cc/150?img=" . ($i + 10),
+        "role" => "Staff Member",
+        "dept" => $departments[array_rand($departments)],
+        "date" => $dateStr, // YYYY-MM-DD
+        "status" => $status,
+        "checkin" => $checkIn,
+        "checkout" => $checkOut,
+        "break" => $break,
+        "late" => $late,
+        "production" => $prod
     ];
 }
+
+// Pass data to JS
+ $jsonData = json_encode($attendanceData);
 ?>
 
 <!DOCTYPE html>
@@ -26,276 +73,575 @@ for($i=1; $i<=6; $i++) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HRMS - Attendance Admin</title>
+    <title>HRMS - Attendance Management</title>
     
+    <!-- Dependencies -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
-        :root { --primary-orange: #ff5e3a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
-        body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
-        
-        #mainContent { 
-            margin-left: 95px; 
-            padding: 25px 35px; 
-            transition: margin-left 0.3s ease;
-            width: calc(100% - 95px);
+        :root { 
+            --primary: #4f46e5; 
+            --primary-light: #e0e7ff;
+            --bg-body: #f1f5f9; 
+            --text-dark: #1e293b;
+            --text-muted: #64748b;
         }
-        #mainContent.main-shifted {
-            margin-left: 315px; 
-            width: calc(100% - 315px);
-        }
-
-        .card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); margin-bottom: 20px; background: #fff; }
-        .table thead th { background: #f9fafb; padding: 15px; border-bottom: 1px solid var(--border-color); color: #4a5568; font-weight: 600; }
-        .table tbody td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
-        .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; margin-right: 10px; }
-        
-        .status-pill { padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
-        .bg-present { background: #e6fffa; color: #38a169; }
-        .bg-absent { background: #fff5f5; color: #e53e3e; }
-        .prod-btn { color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
-        
-        .modal-active { display: flex !important; }
-
-        /* Notification Toast Styling */
-        #exportToast {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            z-index: 10000; display: none; background: #38a169; color: white;
-            padding: 12px 24px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            font-weight: 600; animation: fadeInOut 3s ease-in-out forwards;
+        body { 
+            background-color: var(--bg-body); 
+            font-family: 'Inter', sans-serif; 
+            color: var(--text-dark);
         }
 
-        @keyframes fadeInOut {
-            0% { opacity: 0; transform: translate(-50%, -20px); }
-            15% { opacity: 1; transform: translate(-50%, 0); }
-            85% { opacity: 1; transform: translate(-50%, 0); }
-            100% { opacity: 0; transform: translate(-50%, -20px); }
+        /* Layout Adjustments */
+        .main-wrapper { margin-left: 80px; padding: 2rem; transition: all 0.3s; }
+        
+        /* Card Styling */
+        .stat-card { border: none; border-radius: 12px; background: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-3px); }
+        .table-card { border: none; border-radius: 12px; background: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
+
+        /* Table Styling */
+        .table thead th { 
+            background-color: #f8fafc; 
+            color: var(--text-muted); 
+            font-weight: 600; 
+            font-size: 0.85rem; 
+            text-transform: uppercase; 
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 1rem;
         }
+        .table tbody td { 
+            vertical-align: middle; 
+            padding: 1rem; 
+            border-bottom: 1px solid #f1f5f9; 
+            font-size: 0.9rem;
+        }
+        
+        /* Status Pills */
+        .status-badge { 
+            padding: 0.35rem 0.75rem; 
+            border-radius: 20px; 
+            font-size: 0.75rem; 
+            font-weight: 600; 
+            display: inline-block;
+        }
+        .status-present { background: #dcfce7; color: #166534; }
+        .status-absent { background: #fee2e2; color: #991b1b; }
+        .status-late { background: #fef9c3; color: #854d0e; }
+        .status-half { background: #e0f2fe; color: #075985; }
+
+        /* Custom Elements */
+        .avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .action-btn { padding: 0.4rem 0.8rem; font-size: 0.8rem; border-radius: 6px; transition: all 0.2s; }
+        
+        /* Modal Transitions */
+        .modal-backdrop { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        .custom-modal { display: none; }
+        .custom-modal.active { display: flex; }
+        
+        /* Toast */
+        #toast {
+            visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center;
+            border-radius: 8px; padding: 16px; position: fixed; z-index: 10000; left: 50%; bottom: 30px;
+            transform: translateX(-50%); font-size: 14px; opacity: 0; transition: opacity 0.5s, bottom 0.5s;
+        }
+        #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
     </style>
 </head>
-<body class="bg-slate-50">
+<body>
 
-    <div id="exportToast"><i class="fa-solid fa-circle-check mr-2"></i> Report Downloaded</div>
+    <!-- Sidebar & Header Placeholders (Simulated for standalone) -->
+    <!-- <?php include('sidebars.php'); ?> -->
+    <!-- <?php include('header.php'); ?> -->
 
-    <?php include('sidebars.php'); ?>
-    <?php include('header.php'); ?>
-
-    <div id="reportModal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[9999] hidden items-center justify-center p-4">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden">
-            <div class="flex justify-between items-center p-6 border-b">
-                <h2 class="text-2xl font-bold">Attendance Details</h2>
-                <button onclick="closeModal()" class="bg-slate-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-slate-600 transition">
-                    <i class="fa-solid fa-xmark"></i>
+    <div class="main-wrapper">
+        
+        <!-- Page Header -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+                <h2 class="fw-bold text-dark fs-4 mb-1">Attendance Management</h2>
+                <p class="text-muted small mb-0">Manage and track employee attendance records.</p>
+            </div>
+            <div>
+                <button onclick="exportCSV()" class="btn btn-light border action-btn fw-semibold">
+                    <i class="fa-solid fa-download text-primary me-1"></i> Export Report
                 </button>
             </div>
-            <div class="p-8">
-                <div class="mb-6">
-                    <h3 class="text-xl font-bold text-slate-800" id="modalEmpName">User Name</h3>
-                    <p class="text-slate-500 text-sm">Full Day Attendance Report</p>
-                </div>
+        </div>
 
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8 bg-slate-50 p-6 rounded-lg border border-slate-100">
-                    <div><p class="text-slate-500 text-sm mb-1">Date</p><p class="font-bold text-lg" id="modalDate">15 Apr 2025</p></div>
-                    <div><p class="text-slate-500 text-sm mb-1">Punch in at</p><p class="font-bold text-lg" id="modalPunchIn">09:00 AM</p></div>
-                    <div><p class="text-slate-500 text-sm mb-1">Punch out at</p><p class="font-bold text-lg" id="modalPunchOut">06:45 PM</p></div>
-                    <div><p class="text-slate-500 text-sm mb-1">Status</p><p class="font-bold text-lg" id="modalStatus">Present</p></div>
-                </div>
-
-                <div class="grid grid-cols-4 gap-4 mb-8">
-                    <div>
-                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-slate-200"></span> Total Hours</p>
-                        <p class="text-3xl font-bold text-slate-800">12h 36m</p>
+        <!-- Stats Overview -->
+        <div class="row g-4 mb-4">
+            <div class="col-md-3">
+                <div class="stat-card p-3 d-flex align-items-center">
+                    <div class="bg-primary-subtle p-3 rounded-circle me-3">
+                        <i class="fa-solid fa-users text-primary fs-5"></i>
                     </div>
                     <div>
-                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Productive</p>
-                        <p class="text-3xl font-bold text-slate-800">08h 36m</p>
-                    </div>
-                    <div>
-                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-amber-400"></span> Break</p>
-                        <p class="text-3xl font-bold text-slate-800">22m 15s</p>
-                    </div>
-                    <div>
-                        <p class="text-slate-500 text-sm flex items-center gap-2 mb-2"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Overtime</p>
-                        <p class="text-3xl font-bold text-slate-800">02h 15m</p>
+                        <div class="text-muted small fw-bold text-uppercase">Total Employees</div>
+                        <div class="fs-5 fw-bold">1,240</div>
                     </div>
                 </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card p-3 d-flex align-items-center">
+                    <div class="bg-success-subtle p-3 rounded-circle me-3">
+                        <i class="fa-solid fa-user-check text-success fs-5"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-bold text-uppercase">Present Today</div>
+                        <div class="fs-5 fw-bold" id="statPresent">0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card p-3 d-flex align-items-center">
+                    <div class="bg-warning-subtle p-3 rounded-circle me-3">
+                        <i class="fa-solid fa-clock text-warning fs-5"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-bold text-uppercase">Late Arrivals</div>
+                        <div class="fs-5 fw-bold" id="statLate">0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stat-card p-3 d-flex align-items-center">
+                    <div class="bg-danger-subtle p-3 rounded-circle me-3">
+                        <i class="fa-solid fa-user-xmark text-danger fs-5"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-bold text-uppercase">Absent</div>
+                        <div class="fs-5 fw-bold" id="statAbsent">0</div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-                <div class="h-10 w-full bg-slate-50 rounded-full flex overflow-hidden mb-4 border border-slate-100 p-1">
-                    <div style="width: 15%"></div>
-                    <div class="h-full bg-emerald-500 rounded-lg" style="width: 12%"></div>
-                    <div class="h-full bg-amber-400 rounded-lg mx-1" style="width: 4%"></div>
-                    <div class="h-full bg-emerald-500 rounded-lg" style="width: 20%"></div>
-                    <div class="h-full bg-amber-400 rounded-lg mx-1" style="width: 10%"></div>
-                    <div class="h-full bg-emerald-500 rounded-lg" style="width: 15%"></div>
-                    <div class="h-full bg-amber-400 rounded-lg mx-1" style="width: 4%"></div>
-                    <div class="h-full bg-blue-500 rounded-lg" style="width: 3%"></div>
-                    <div class="h-full bg-blue-500 rounded-lg ml-1" style="width: 3%"></div>
+        <!-- Filters & Table Card -->
+        <div class="table-card overflow-hidden">
+            
+            <!-- Filter Toolbar -->
+            <div class="p-3 border-bottom bg-light d-flex flex-wrap gap-3 align-items-center justify-content-between">
+                <div class="d-flex flex-wrap gap-2">
+                    <select id="filterMonth" class="form-select form-select-sm border-secondary-subtle shadow-none" style="width: 140px;">
+                        <option value="">All Months</option>
+                        <option value="<?php echo date('Y-m'); ?>" selected>This Month</option>
+                        <option value="<?php echo date('Y-m', strtotime('-1 month')); ?>">Last Month</option>
+                    </select>
+
+                    <select id="filterDept" class="form-select form-select-sm border-secondary-subtle shadow-none" style="width: 140px;">
+                        <option value="">All Depts</option>
+                        <option value="IT">IT</option>
+                        <option value="HR">HR</option>
+                        <option value="Sales">Sales</option>
+                        <option value="Marketing">Marketing</option>
+                    </select>
+
+                    <select id="filterStatus" class="form-select form-select-sm border-secondary-subtle shadow-none" style="width: 120px;">
+                        <option value="">All Status</option>
+                        <option value="Present">Present</option>
+                        <option value="Absent">Absent</option>
+                        <option value="Late">Late</option>
+                    </select>
                 </div>
                 
-                <div class="flex justify-between text-[11px] text-slate-400 font-medium px-1 uppercase">
-                    <span>06:00</span><span>08:00</span><span>10:00</span><span>12:00</span><span>02:00</span><span>04:00</span><span>06:00</span><span>08:00</span><span>10:00</span>
+                <div class="position-relative">
+                    <i class="fa-solid fa-search position-absolute top-50 start-0 translate-middle-y ms-3 text-muted"></i>
+                    <input type="text" id="searchInput" class="form-control form-control-sm ps-5 border-secondary-subtle shadow-none" placeholder="Search Name or ID..." style="width: 220px;">
+                </div>
+            </div>
+
+            <!-- Data Table -->
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>Employee</th>
+                            <th>Emp ID</th> <!-- NEW COLUMN -->
+                            <th>Date</th>
+                            <th>Department</th>
+                            <th>Status</th>
+                            <th>Check In</th>
+                            <th>Check Out</th>
+                            <th>Production</th>
+                            <th class="text-end">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attendanceTableBody">
+                        <!-- Rows injected via JS -->
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Pagination Placeholder -->
+            <div class="p-3 border-top d-flex justify-content-between align-items-center">
+                <span class="text-muted small">Showing <span id="showingCount">0</span> records</span>
+                <nav>
+                    <ul class="pagination pagination-sm mb-0">
+                        <li class="page-item disabled"><a class="page-link" href="#">Previous</a></li>
+                        <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                        <li class="page-item"><a class="page-link" href="#">2</a></li>
+                        <li class="page-item"><a class="page-link" href="#">Next</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1. VIEW REPORT MODAL -->
+    <div id="viewModal" class="custom-modal fixed-top modal-backdrop w-100 h-100 align-items-center justify-content-center z-50">
+        <div class="bg-white rounded-4 shadow-lg w-100" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
+            <div class="p-4 border-bottom d-flex justify-content-between align-items-center bg-primary text-white rounded-top-4">
+                <h5 class="mb-0 fw-bold"><i class="fa-regular fa-file-lines me-2"></i>Detailed Report</h5>
+                <button onclick="closeModal('viewModal')" class="btn btn-sm btn-light text-primary fw-bold rounded-circle p-0 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">&times;</button>
+            </div>
+            <div class="p-5">
+                <div class="d-flex align-items-center mb-4">
+                    <img id="vm-avatar" src="" class="avatar me-3" style="width: 60px; height: 60px;">
+                    <div>
+                        <div class="d-flex align-items-center gap-2">
+                            <h4 class="fw-bold mb-0" id="vm-name">User Name</h4>
+                            <span class="badge bg-light text-dark border font-monospace" id="vm-id">EMP-001</span>
+                        </div>
+                        <p class="text-muted mb-0" id="vm-dept">Department</p>
+                    </div>
+                    <div class="ms-auto text-end">
+                        <div class="text-muted small">Date</div>
+                        <div class="fw-bold fs-5" id="vm-date">--</div>
+                    </div>
+                </div>
+
+                <!-- Timeline Visualization -->
+                <div class="bg-light p-4 rounded-3 mb-4 border">
+                    <div class="d-flex justify-content-between text-center mb-2">
+                        <div>
+                            <div class="text-muted small">Punch In</div>
+                            <div class="fw-bold text-success" id="vm-in">09:00 AM</div>
+                        </div>
+                        <div>
+                            <div class="text-muted small">Break</div>
+                            <div class="fw-bold text-warning" id="vm-break">20m</div>
+                        </div>
+                        <div>
+                            <div class="text-muted small">Punch Out</div>
+                            <div class="fw-bold text-danger" id="vm-out">06:00 PM</div>
+                        </div>
+                    </div>
+                    <div class="progress rounded-pill" style="height: 10px;">
+                        <div class="progress-bar bg-success" role="progressbar" style="width: 45%"></div>
+                        <div class="progress-bar bg-warning" role="progressbar" style="width: 10%"></div>
+                        <div class="progress-bar bg-danger" role="progressbar" style="width: 45%"></div>
+                    </div>
+                    <div class="d-flex justify-content-between mt-2 text-muted small" style="font-size: 0.7rem;">
+                        <span>09:00</span>
+                        <span>01:00</span>
+                        <span>01:20</span>
+                        <span>06:00</span>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-6">
+                        <div class="p-3 border rounded-3">
+                            <div class="text-muted small">Total Working Hours</div>
+                            <div class="fw-bold fs-4" id="vm-total">08h 00m</div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-3 border rounded-3">
+                            <div class="text-muted small">Overtime</div>
+                            <div class="fw-bold fs-4" id="vm-late">00h 00m</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <main id="mainContent">
-        
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div><h4 class="fw-bold mb-0 text-dark">Attendance Admin</h4></div>
-            <div class="d-flex gap-2">
-                <button class="btn btn-light border btn-sm" onclick="triggerExport()"><i class="fa-solid fa-download"></i> Export CSV</button>
+    <!-- 2. EDIT ATTENDANCE MODAL -->
+    <div id="editModal" class="custom-modal fixed-top modal-backdrop w-100 h-100 align-items-center justify-content-center z-50">
+        <div class="bg-white rounded-4 shadow-lg w-100" style="max-width: 500px;">
+            <div class="p-4 border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold">Mark Attendance</h5>
+                <button onclick="closeModal('editModal')" class="btn btn-sm text-secondary">&times;</button>
+            </div>
+            <div class="p-4">
+                <form id="editForm" onsubmit="event.preventDefault(); saveAttendance();">
+                    <input type="hidden" id="editId">
+                    
+                    <div class="mb-3">
+                        <label class="small text-muted fw-bold">Employee</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light" id="editDisplayId">EMP-001</span>
+                            <input type="text" id="editName" class="form-control" readonly style="background: #f8fafc;">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="small text-muted fw-bold">Status</label>
+                            <select id="editStatus" class="form-select">
+                                <option value="Present">Present</option>
+                                <option value="Absent">Absent</option>
+                                <option value="Late">Late</option>
+                                <option value="Half Day">Half Day</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="small text-muted fw-bold">Date</label>
+                            <input type="date" id="editDate" class="form-control" readonly style="background: #f8fafc;">
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <label class="small text-muted fw-bold">Check In</label>
+                            <input type="time" id="editIn" class="form-control">
+                        </div>
+                        <div class="col-6">
+                            <label class="small text-muted fw-bold">Check Out</label>
+                            <input type="time" id="editOut" class="form-control">
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="small text-muted fw-bold">Notes (Reason for late/absence)</label>
+                        <textarea id="editNotes" class="form-control" rows="2"></textarea>
+                    </div>
+
+                    <div class="d-flex gap-2">
+                        <button type="button" onclick="closeModal('editModal')" class="btn btn-light flex-grow-1">Cancel</button>
+                        <button type="submit" class="btn btn-primary flex-grow-1">Save Changes</button>
+                    </div>
+                </form>
             </div>
         </div>
+    </div>
 
-        <div class="card mb-4 text-center">
-            <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
-                <div class="text-start">
-                    <h6 class="fw-bold mb-0">Attendance Details Today</h6>
-                    <small class="text-muted">Data from 800+ total employees</small>
-                </div>
-                <div class="small fw-bold">
-                    Total Absenties today 
-                    <img src="https://i.pravatar.cc/25?img=1" class="rounded-circle ms-1">
-                    <span class="badge bg-danger rounded-circle">+1</span>
-                </div>
-            </div>
-            <div class="row g-0">
-                <div class="col border-end p-3">
-                    <div class="text-muted small mb-1">Present</div>
-                    <h4 class="mb-0 fw-bold">250</h4>
-                    <span class="badge bg-success-subtle text-success mt-1">+1%</span>
-                </div>
-                <div class="col border-end p-3">
-                    <div class="text-muted small mb-1">Late Login</div>
-                    <h4 class="mb-0 fw-bold">45</h4>
-                    <span class="badge bg-danger-subtle text-danger mt-1">-1%</span>
-                </div>
-                <div class="col border-end p-3">
-                    <div class="text-muted small mb-1">Uninformed</div>
-                    <h4 class="mb-0 fw-bold">15</h4>
-                    <span class="badge bg-danger-subtle text-danger mt-1">-12%</span>
-                </div>
-                <div class="col border-end p-3">
-                    <div class="text-muted small mb-1">Permission</div>
-                    <h4 class="mb-0 fw-bold">03</h4>
-                    <span class="badge bg-success-subtle text-success mt-1">+1%</span>
-                </div>
-                <div class="col p-3">
-                    <div class="text-muted small mb-1">Absent</div>
-                    <h4 class="mb-0 fw-bold">12</h4>
-                    <span class="badge bg-danger-subtle text-danger mt-1">-19%</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="card p-0 overflow-hidden">
-            <div class="table-responsive">
-                <table class="table mb-0 table-hover">
-                    <thead>
-                        <tr>
-                            <th>Employee</th>
-                            <th>Status</th>
-                            <th>Check In</th>
-                            <th>Check Out</th>
-                            <th>Break</th>
-                            <th>Late</th>
-                            <th>Production Hours</th>
-                            <th>Action</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php for($i=1; $i<=6; $i++): 
-                            $checkOutTime = "06:" . rand(10,59) . " PM";
-                            $lateMins = "1" . $i . " Min";
-                        ?>
-                        <tr>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <img src="https://i.pravatar.cc/30?img=<?php echo $i+10; ?>" class="avatar-img">
-                                    <div>
-                                        <div class="fw-bold text-dark">User <?php echo $i; ?></div>
-                                        <small class="text-muted">Developer</small>
-                                    </div>
-                                </div>
-                            </td>
-                            <td><span class="status-pill bg-present">● Present</span></td>
-                            <td>09:00 AM</td>
-                            <td><?php echo $checkOutTime; ?></td>
-                            <td>20 Min</td>
-                            <td><?php echo $lateMins; ?></td>
-                            <td><span class="prod-btn bg-success">8.55 Hrs</span></td>
-                            <td>
-                                <button class="btn btn-sm btn-light text-primary border" 
-                                        onclick="openModal({name: 'User <?php echo $i; ?>', date: '<?php echo date('d M Y'); ?>', in: '09:00 AM', out: '<?php echo $checkOutTime; ?>', status: 'Present'})">
-                                    <i class="fa-solid fa-file-lines me-1"></i> Report
-                                </button>
-                            </td>
-                        </tr>
-                        <?php endfor; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-    </main>
+    <!-- Toast Notification -->
+    <div id="toast">Action Successful</div>
 
     <script>
-        const modal = document.getElementById('reportModal');
-        const toast = document.getElementById('exportToast');
+        // 1. INITIALIZE DATA
+        let allRecords = <?php echo $jsonData; ?>;
 
-        // CSV Export Logic
-        function triggerExport() {
-            // 1. Show Toast
-            toast.style.display = 'block';
-            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        // 2. DOM ELEMENTS
+        const tableBody = document.getElementById('attendanceTableBody');
+        const filterMonth = document.getElementById('filterMonth');
+        const filterDept = document.getElementById('filterDept');
+        const filterStatus = document.getElementById('filterStatus');
+        const searchInput = document.getElementById('searchInput');
+        const showingCount = document.getElementById('showingCount');
+        
+        // Stat Elements
+        const statPresent = document.getElementById('statPresent');
+        const statLate = document.getElementById('statLate');
+        const statAbsent = document.getElementById('statAbsent');
 
-            // 2. Generate CSV from PHP Data
-            let csv = [];
-            csv.push("Employee,Status,Check In,Check Out,Break,Late,Production");
+        // 3. RENDER FUNCTION
+        function renderTable() {
+            tableBody.innerHTML = '';
             
-            const records = <?php echo json_encode($exportData); ?>;
-            records.forEach(row => {
-                csv.push(`${row.employee},${row.status},${row.checkin},${row.checkout},${row.break},${row.late},${row.production}`);
+            let presentCount = 0;
+            let lateCount = 0;
+            let absentCount = 0;
+
+            // Get Filter Values
+            const monthVal = filterMonth.value;
+            const deptVal = filterDept.value;
+            const statusVal = filterStatus.value;
+            const searchVal = searchInput.value.toLowerCase();
+
+            // Filter Logic
+            const filteredData = allRecords.filter(record => {
+                const recordMonth = record.date.substring(0, 7);
+                
+                const matchMonth = monthVal === "" || recordMonth === monthVal;
+                const matchDept = deptVal === "" || record.dept === deptVal;
+                const matchStatus = statusVal === "" || record.status === statusVal;
+                // Updated Search Logic: Search by Name OR Emp ID
+                const matchSearch = record.name.toLowerCase().includes(searchVal) || record.emp_id.toLowerCase().includes(searchVal);
+
+                return matchMonth && matchDept && matchStatus && matchSearch;
             });
 
-            // 3. Download
-            const csvString = csv.join("\n");
-            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob);
+            // Update Stats based on filtered view
+            filteredData.forEach(rec => {
+                if(rec.status === 'Present') presentCount++;
+                else if(rec.status === 'Late') lateCount++;
+                else if(rec.status === 'Absent') absentCount++;
+            });
+
+            // Update DOM Stats
+            statPresent.innerText = presentCount;
+            statLate.innerText = lateCount;
+            statAbsent.innerText = absentCount;
+            showingCount.innerText = filteredData.length;
+
+            // Generate Rows
+            if(filteredData.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="9" class="text-center py-5 text-muted">No records found matching filters.</td></tr>`;
+                return;
+            }
+
+            filteredData.forEach(rec => {
+                let statusClass = 'status-present';
+                if(rec.status === 'Absent') statusClass = 'status-absent';
+                if(rec.status === 'Late') statusClass = 'status-late';
+                if(rec.status === 'Half Day') statusClass = 'status-half';
+
+                const row = `
+                    <tr>
+                        <td>
+                            <div class="d-flex align-items-center">
+                                <img src="${rec.avatar}" class="avatar me-2">
+                                <div>
+                                    <div class="fw-bold text-dark">${rec.name}</div>
+                                    <small class="text-muted" style="font-size: 0.75rem;">${rec.role}</small>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <!-- NEW COLUMN: Emp ID -->
+                            <span class="badge bg-light text-secondary border font-monospace">${rec.emp_id}</span>
+                        </td>
+                        <td>${rec.date}</td>
+                        <td><span class="badge bg-light text-dark border">${rec.dept}</span></td>
+                        <td><span class="status-badge ${statusClass}">${rec.status}</span></td>
+                        <td>${rec.checkin}</td>
+                        <td>${rec.checkout}</td>
+                        <td><span class="fw-bold text-dark">${rec.production}</span></td>
+                        <td class="text-end">
+                            <button onclick="openViewModal(${rec.id})" class="btn btn-sm btn-light text-primary me-1" title="View Report">
+                                <i class="fa-solid fa-eye"></i>
+                            </button>
+                            <button onclick="openEditModal(${rec.id})" class="btn btn-sm btn-light text-dark" title="Edit Attendance">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+        }
+
+        // 4. EVENT LISTENERS
+        filterMonth.addEventListener('change', renderTable);
+        filterDept.addEventListener('change', renderTable);
+        filterStatus.addEventListener('change', renderTable);
+        searchInput.addEventListener('input', renderTable);
+
+        // 5. MODAL LOGIC
+        function openModal(id) {
+            document.getElementById(id).classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+            document.body.style.overflow = 'auto';
+        }
+
+        // Open View Details
+        function openViewModal(id) {
+            const rec = allRecords.find(r => r.id === id);
+            if(!rec) return;
+
+            document.getElementById('vm-name').innerText = rec.name;
+            document.getElementById('vm-id').innerText = rec.emp_id; // Set ID in Modal
+            document.getElementById('vm-dept').innerText = rec.dept;
+            document.getElementById('vm-avatar').src = rec.avatar;
+            document.getElementById('vm-date').innerText = rec.date;
+            document.getElementById('vm-in').innerText = rec.checkin;
+            document.getElementById('vm-out').innerText = rec.checkout;
+            document.getElementById('vm-break').innerText = rec.break;
+            document.getElementById('vm-total').innerText = rec.production;
+            
+            openModal('viewModal');
+        }
+
+        // Open Edit Form
+        function openEditModal(id) {
+            const rec = allRecords.find(r => r.id === id);
+            if(!rec) return;
+
+            document.getElementById('editId').value = rec.id;
+            document.getElementById('editDisplayId').innerText = rec.emp_id; // Set ID in Edit Form
+            document.getElementById('editName').value = rec.name;
+            document.getElementById('editDate').value = rec.date;
+            document.getElementById('editStatus').value = rec.status;
+            
+            // Mock time parsing
+            document.getElementById('editIn').value = rec.checkin.includes('AM') ? '09:00' : '18:00'; 
+            document.getElementById('editOut').value = rec.checkout.includes('PM') ? '18:00' : '09:00';
+
+            openModal('editModal');
+        }
+
+        // 6. SAVE ATTENDANCE (Mock Update)
+        function saveAttendance() {
+            const id = parseInt(document.getElementById('editId').value);
+            const newStatus = document.getElementById('editStatus').value;
+            
+            const index = allRecords.findIndex(r => r.id === id);
+            if(index !== -1) {
+                allRecords[index].status = newStatus;
+                
+                closeModal('editModal');
+                showToast(`Attendance updated for ${allRecords[index].emp_id}`);
+                renderTable(); 
+            }
+        }
+
+        // 7. EXPORT TO CSV
+        function exportCSV() {
+            let csvContent = "data:text/csv;charset=utf-8,";
+            // Updated Header to include Emp ID
+            csvContent += "Employee ID,Name,Department,Date,Status,CheckIn,CheckOut,Production\n";
+
+            const rows = document.querySelectorAll("#attendanceTableBody tr");
+            rows.forEach(row => {
+                const cols = row.querySelectorAll("td");
+                if(cols.length > 1) { 
+                    const rowData = [
+                        cols[1].innerText.trim(),       // Emp ID (Col index 1)
+                        cols[0].innerText.replace(/\n/g, ' '), // Name (Col index 0)
+                        cols[3].innerText.trim(),       // Dept
+                        cols[2].innerText,              // Date
+                        cols[4].innerText.trim(),       // Status
+                        cols[5].innerText,              // In
+                        cols[6].innerText,              // Out
+                        cols[7].innerText               // Prod
+                    ];
+                    csvContent += rowData.join(",") + "\n";
+                }
+            });
+
+            const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
-            link.setAttribute("href", url);
-            link.setAttribute("download", "Admin_Attendance_Report.csv");
-            link.style.visibility = 'hidden';
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "attendance_export.csv");
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+            showToast("Report downloaded successfully");
         }
 
-        // Modal Logic
-        function openModal(data) { 
-            if(data) {
-                document.getElementById('modalEmpName').innerText = data.name;
-                document.getElementById('modalDate').innerText = data.date;
-                document.getElementById('modalPunchIn').innerText = data.in || '-';
-                document.getElementById('modalPunchOut').innerText = data.out || '-';
-                document.getElementById('modalStatus').innerText = data.status;
-            }
-            modal.classList.add('modal-active'); 
-            document.body.style.overflow = 'hidden'; 
+        // Helper: Toast
+        function showToast(msg) {
+            const toast = document.getElementById("toast");
+            toast.innerText = msg;
+            toast.className = "show";
+            setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
         }
 
-        function closeModal() { 
-            modal.classList.remove('modal-active'); 
-            document.body.style.overflow = 'auto'; 
-        }
+        // Initial Render
+        renderTable();
 
-        window.onclick = (e) => { 
-            if (e.target == modal) closeModal(); 
-        }
     </script>
 </body>
 </html>
