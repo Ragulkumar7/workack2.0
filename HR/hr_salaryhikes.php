@@ -1,3 +1,8 @@
+
+<?php 
+include '../sidebars.php'; 
+include '../header.php';
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,28 +24,17 @@
     </style>
 </head>
 <body class="text-gray-700">
-    <?php include 'sidebars.php'; ?>
 
-    <div class="flex flex-col ml-20">
 
-        <header class="h-16 bg-white border-b flex items-center justify-between px-6 sticky top-0 z-50">
-            <div class="flex items-center gap-4">
+        
+            
                 <button class="p-2 hover:bg-gray-100 rounded-lg"><i class="fa-solid fa-bars-staggered"></i></button>
-                <div class="relative hidden md:block">
-                    <input type="text" placeholder="Search in HRMS" class="bg-gray-50 border border-gray-200 rounded-lg py-2 pl-10 pr-4 w-64 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+               
+                   
                     <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-400 text-xs"></i>
                     <div class="absolute right-2 top-2 text-[10px] text-gray-400 border rounded px-1 bg-white">CTRL + /</div>
                 </div>
-                <i class="fa-solid fa-table-cells-large text-gray-500 cursor-pointer ml-2"></i>
-                <i class="fa-solid fa-gear text-gray-500 cursor-pointer"></i>
-            </div>
-
-            <div class="flex items-center gap-5 text-gray-500">
-                <i class="fa-solid fa-expand cursor-pointer hover:text-teal-600"></i>
-                <i class="fa-solid fa-grid-horizontal cursor-pointer hover:text-teal-600"></i>
-                <i class="fa-regular fa-comment-dots cursor-pointer hover:text-teal-600"></i>
-                <i class="fa-regular fa-envelope cursor-pointer hover:text-teal-600"></i>
-                <div class="relative">
+                
                     <i class="fa-regular fa-bell cursor-pointer hover:text-teal-600"></i>
                     <span class="absolute -top-1 -right-1 bg-red-500 w-2 h-2 rounded-full border border-white"></span>
                 </div>
