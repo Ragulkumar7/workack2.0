@@ -1,58 +1,55 @@
-<?php 
+<?php
 // auditor_reports.php
-
-// --- 1. INCLUDE COMMON FILES ---
 include '../sidebars.php'; 
 include '../header.php';
 
-// --- 2. MOCK DATA GENERATION --- (Matching Accountant Reports)
- $kpi = [
-    'total_income' => 1250000,
-    'total_expense' => 450000,
-    'net_profit' => 800000,
-    'pending_invoices' => 125000,
-    'active_employees' => 24,
-    'total_clients' => 12
+// --- MOCK DATA FOR AUDIT ---
+
+// 1. General Ledger (All Transactions)
+// In a real app, this would query the general_ledger table
+ $ledger_transactions = [
+    ['id' => 'TXN-1001', 'date' => '2026-02-15', 'type' => 'Credit', 'category' => 'Sales', 'party' => 'Facebook India', 'amount' => 450000, 'mode' => 'NEFT', 'bank' => 'HDFC', 'verified' => true],
+    ['id' => 'TXN-1002', 'date' => '2026-02-14', 'type' => 'Debit', 'category' => 'OpEx', 'party' => 'Office Rent', 'amount' => 45000, 'mode' => 'Cheque', 'bank' => 'HDFC', 'verified' => true],
+    ['id' => 'TXN-1003', 'date' => '2026-02-13', 'type' => 'Debit', 'category' => 'CapEx', 'party' => 'Dell India', 'amount' => 125000, 'mode' => 'NEFT', 'bank' => 'ICICI', 'verified' => false], // Pending Verification
+    ['id' => 'TXN-1004', 'date' => '2026-02-12', 'type' => 'Credit', 'category' => 'Sales', 'party' => 'Google India', 'amount' => 120000, 'mode' => 'UPI', 'bank' => 'HDFC', 'verified' => true],
+    ['id' => 'TXN-1005', 'date' => '2026-02-11', 'type' => 'Debit', 'category' => 'OpEx', 'party' => 'Amazon AWS', 'amount' => 15000, 'mode' => 'Auto-Debit', 'bank' => 'HDFC', 'verified' => true],
+    ['id' => 'TXN-1006', 'date' => '2026-02-10', 'type' => 'Credit', 'category' => 'Interest', 'party' => 'HDFC Bank', 'amount' => 2500, 'mode' => 'Bank Credit', 'bank' => 'HDFC', 'verified' => true],
+    ['id' => 'TXN-1007', 'date' => '2026-02-09', 'type' => 'Debit', 'category' => 'Payroll', 'party' => 'Staff Salary', 'amount' => 450000, 'mode' => 'NEFT Bulk', 'bank' => 'ICICI', 'verified' => false], // Pending Verification
+    ['id' => 'TXN-1008', 'date' => '2026-02-08', 'type' => 'Debit', 'category' => 'Utilities', 'party' => 'TNEB', 'amount' => 12000, 'mode' => 'Auto-Pay', 'bank' => 'HDFC', 'verified' => true],
 ];
 
- $chart_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
- $chart_income = [200000, 450000, 300000, 500000, 400000, 600000];
- $chart_expense = [100000, 150000, 120000, 200000, 180000, 250000];
+// Calculate KPIs
+ $total_txns = count($ledger_transactions);
+ $unverified_count = 0;
+ $total_debit = 0;
+ $total_credit = 0;
 
- $mock_clients = [
-    ['name' => 'Facebook India', 'gst' => '29AAACF...', 'loc' => 'Bangalore', 'mob' => '9876543210', 'total' => 450000],
-    ['name' => 'Google India', 'gst' => '29GGGGG...', 'loc' => 'Hyderabad', 'mob' => '9123456780', 'total' => 1250000],
-    ['name' => 'Neoera Infotech', 'gst' => '33AAAA...', 'loc' => 'Coimbatore', 'mob' => '9988776655', 'total' => 85000],
+foreach($ledger_transactions as $t) {
+    if(!$t['verified']) $unverified_count++;
+    if($t['type'] == 'Debit') $total_debit += $t['amount'];
+    if($t['type'] == 'Credit') $total_credit += $t['amount'];
+}
+
+// 2. Bank Reconciliation Data
+ $bank_recon = [
+    ['bank' => 'HDFC Business', 'book_balance' => 850000, 'bank_stmt_balance' => 842500, 'diff' => -7500, 'status' => 'Unreconciled'],
+    ['bank' => 'ICICI Current', 'book_balance' => 320000, 'bank_stmt_balance' => 320000, 'diff' => 0, 'status' => 'Reconciled'],
+    ['bank' => 'Canara Savings', 'book_balance' => 150000, 'bank_stmt_balance' => 148000, 'diff' => -2000, 'status' => 'Unreconciled'],
 ];
 
- $mock_employees = [
-    ['id' => 'EMP001', 'name' => 'Rajesh Kumar', 'dept' => 'Management', 'desig' => 'CEO', 'type' => 'Permanent', 'doj' => '2023-01-15'],
-    ['id' => 'EMP002', 'name' => 'Vasanth Bro', 'dept' => 'IT', 'desig' => 'Team Lead', 'type' => 'Permanent', 'doj' => '2023-02-20'],
+// 3. Tax Liability
+ $tax_data = [
+    ['type' => 'GST Payable (Feb)', 'period' => 'Feb 2026', 'amount' => 45000, 'due_date' => '20-Mar-2026', 'status' => 'Pending'],
+    ['type' => 'TDS Deducted (Consultants)', 'period' => 'Feb 2026', 'amount' => 12000, 'due_date' => '07-Mar-2026', 'status' => 'Deposited'],
+    ['type' => 'Professional Tax', 'period' => 'Feb 2026', 'amount' => 2000, 'due_date' => '15-Mar-2026', 'status' => 'Pending'],
 ];
 
- $mock_salary = [
-    ['month' => 'Jan 2026', 'id' => 'EMP001', 'name' => 'Rajesh Kumar', 'basic' => 50000, 'hra' => 20000, 'deduct' => 5000, 'net' => 65000, 'status' => 'Paid'],
-    ['month' => 'Jan 2026', 'id' => 'EMP002', 'name' => 'Vasanth Bro', 'basic' => 40000, 'hra' => 15000, 'deduct' => 3000, 'net' => 52000, 'status' => 'Paid'],
-];
-
- $mock_yearly = [
-    ['id' => 'EMP001', 'name' => 'Rajesh Kumar', 'year' => '2025-26', 'months' => 10, 'gross' => 650000],
-    ['id' => 'EMP002', 'name' => 'Vasanth Bro', 'year' => '2025-26', 'months' => 10, 'gross' => 520000],
-];
-
- $mock_ledger = [
-    ['date' => '2026-02-10', 'type' => 'Income', 'cat' => 'Project', 'party' => 'Facebook India', 'desc' => 'Milestone 1', 'amount' => 500000, 'mode' => 'Credit'],
-    ['date' => '2026-02-09', 'type' => 'Expense', 'cat' => 'Ops', 'party' => 'Office Rent', 'desc' => 'Feb Rent', 'amount' => 45000, 'mode' => 'Debit'],
-];
-
- $mock_po = [
-    ['no' => 'PO-001', 'vendor' => 'Dell Computers', 'date' => '2026-01-10', 'grand' => 120000, 'paid' => 120000, 'bal' => 0],
-    ['no' => 'PO-002', 'vendor' => 'Stationery World', 'date' => '2026-02-01', 'grand' => 5000, 'paid' => 0, 'bal' => 5000],
-];
-
- $mock_invoices = [
-    ['no' => 'INV-001', 'client' => 'Facebook', 'date' => '2026-01-20', 'total' => 47200, 'status' => 'Paid'],
-    ['no' => 'INV-002', 'client' => 'Neoera', 'date' => '2026-02-02', 'total' => 11800, 'status' => 'Unpaid'],
+// 4. Audit Trail (System Logs)
+ $audit_log = [
+    ['date' => '2026-02-15 10:30', 'user' => 'Catherine (Acc)', 'action' => 'Created Invoice INV-014', 'ip' => '192.168.1.45'],
+    ['date' => '2026-02-15 09:15', 'user' => 'Rajesh (CFO)', 'action' => 'Approved PO-205', 'ip' => '192.168.1.10'],
+    ['date' => '2026-02-14 16:45', 'user' => 'System', 'action' => 'Auto Backup Completed', 'ip' => 'Localhost'],
+    ['date' => '2026-02-14 14:20', 'user' => 'Vasanth (IT)', 'action' => 'Modified Vendor Master', 'ip' => '192.168.1.55'],
 ];
 ?>
 
@@ -61,262 +58,348 @@ include '../header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auditor Reports - Workack</title>
+    <title>Auditor & Compliance Reports - Workack</title>
     
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
         :root {
             --theme-color: #1b5a5a;
-            --theme-dark: #134e4e;
-            --accent-gold: #D4AF37;
+            --theme-light: #e0f2f1;
             --bg-body: #f3f4f6;
+            --surface: #ffffff;
             --text-main: #1e293b;
-            --text-light: #64748b;
-            --success: #059669;
-            --danger: #dc2626;
-            --warning: #d97706;
-            --sidebar-width: 95px; 
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --primary-width: 95px; 
         }
 
         body { background: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); margin: 0; padding: 0; }
-        .main-content { margin-left: var(--sidebar-width); padding: 30px; width: calc(100% - var(--sidebar-width)); }
+        .main-content { margin-left: var(--primary-width); padding: 30px; width: calc(100% - var(--primary-width)); min-height: 100vh; }
+
+        /* Header */
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .header-text h1 { font-size: 24px; font-weight: 700; color: var(--theme-color); margin: 0; }
+        .header-text p { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
+        
+        .btn-export { background: var(--theme-color); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; box-shadow: 0 4px 12px rgba(27, 90, 90, 0.2); }
+        .btn-export:hover { background: #134e4e; transform: translateY(-2px); }
 
         /* KPI Cards */
-        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .kpi-card { 
-            background: white; padding: 20px; border-radius: 12px; 
-            border-left: 4px solid var(--theme-color);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03); position: relative;
-            transition: transform 0.2s;
-        }
-        .kpi-value { font-size: 24px; font-weight: 800; margin-top: 8px; color: var(--text-main); }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .kpi-card { background: var(--surface); padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 15px; position: relative; overflow: hidden; }
+        .kpi-card > div { position: relative; z-index: 2; }
+        .kpi-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+        .kpi-value { font-size: 24px; font-weight: 800; color: var(--text-main); }
+        .kpi-icon-bg { position: absolute; right: -10px; bottom: -20px; font-size: 100px; opacity: 0.05; z-index: 1; }
 
-        /* Drill-Down Tabs */
-        .drill-down-container { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-top: 30px; overflow: hidden; border: 1px solid #e2e8f0; }
-        .tab-nav { display: flex; border-bottom: 1px solid #e2e8f0; background: #fafafa; overflow-x: auto; scrollbar-width: none; }
+        /* Tab Container */
+        .audit-container { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); overflow: hidden; border: 1px solid var(--border); }
+        .tab-nav { display: flex; border-bottom: 1px solid var(--border); background: #f8fafc; overflow-x: auto; scrollbar-width: none; }
         .tab-nav::-webkit-scrollbar { display: none; }
-        .tab-btn { 
-            padding: 15px 25px; border: none; background: none; font-size: 13px; font-weight: 700; 
-            color: var(--text-light); cursor: pointer; border-bottom: 2px solid transparent; 
-            transition: 0.2s; white-space: nowrap; 
-        }
+        .tab-btn { padding: 18px 25px; border: none; background: none; font-size: 13px; font-weight: 700; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; transition: 0.2s; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
         .tab-btn.active { color: var(--theme-color); border-bottom-color: var(--theme-color); background: white; }
+        .tab-pane { display: none; padding: 24px; animation: fadeIn 0.3s ease; }
+        .tab-pane.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Tables */
+        .table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; min-width: 1000px; font-size: 13px; }
+        th { text-align: left; padding: 14px 16px; background: #f8fafc; color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+        td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; color: var(--text-main); vertical-align: middle; }
+        tr:hover td { background: #f8fafc; }
+
+        /* Status Badges */
+        .badge { padding: 5px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; text-transform: uppercase; display: inline-flex; align-items: center; gap: 4px; }
+        .bg-success { background: #dcfce7; color: #15803d; }
+        .bg-danger { background: #fee2e2; color: #b91c1c; }
+        .bg-warning { background: #fef3c7; color: #b45309; }
         
-        .tab-pane { display: none; padding: 20px; }
-        .tab-pane.active { display: block; animation: fadeIn 0.3s ease; }
+        /* Specific for Verification */
+        .check-circle { cursor: pointer; transition: 0.2s; font-size: 20px; }
+        .verified { color: var(--success); }
+        .unverified { color: var(--border); }
+        .unverified:hover { color: var(--success); }
 
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .amt-credit { color: var(--success); font-weight: 600; text-align: right; }
+        .amt-debit { color: var(--danger); font-weight: 600; text-align: right; }
 
-        /* Charts Section */
-        .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .chart-container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); height: 320px; }
+        /* Filter Bar */
+        .filter-bar { display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+        .filter-input { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; }
+        .filter-input:focus { border-color: var(--theme-color); }
 
-        /* Table Styling */
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th { text-align: left; padding: 12px 15px; background: #f8fafc; color: var(--text-light); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        td { padding: 12px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+        /* Bank Cards */
+        .bank-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .bank-card { border: 1px solid var(--border); border-radius: 12px; padding: 20px; background: #fff; }
+        .bank-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .bank-name { font-weight: 700; color: var(--theme-color); font-size: 16px; }
+        .recon-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+        .recon-total { margin-top: 15px; padding-top: 10px; border-top: 1px dashed var(--border); font-weight: 700; font-size: 16px; display: flex; justify-content: space-between; }
 
-        /* Badges */
-        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
-        .st-paid { background: #dcfce7; color: #15803d; }
-        .st-unpaid { background: #fee2e2; color: #b91c1c; }
-        .amt-pos { color: var(--success); font-weight: 600; }
-        .amt-neg { color: var(--danger); font-weight: 600; }
-
-        .btn-export-excel { 
-            background: #059669; color: white; border: none; padding: 8px 15px; 
-            border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; 
-            display: flex; align-items: center; gap: 6px; float: right; margin-bottom: 15px;
+        @media (max-width: 768px) { 
+            .main-content { margin-left: 0; width: 100%; padding: 15px; } 
+            .kpi-grid { grid-template-columns: 1fr; }
         }
-
-        @media (max-width: 768px) { .main-content { margin-left: 0; width: 100%; } .charts-row { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
 
 <main class="main-content">
-    <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
-        <div>
-            <h2 style="color: var(--theme-color); font-weight: 700; margin: 0;">Auditor & Transaction Reports</h2>
-            <p style="color: var(--text-light); font-size: 13px;">Complete transaction logs, ledger entries, and master data verification.</p>
+    <div class="page-header">
+        <div class="header-text">
+            <h1>Auditor & Compliance Reports</h1>
+            <p>Transaction verification, bank reconciliation, and audit trails.</p>
         </div>
-        <button class="btn-export-excel" onclick="exportFullReport()" style="background: var(--theme-color);">
-            <i class="ph ph-file-arrow-down"></i> Export All Data
+        <button class="btn-export" onclick="exportCurrentView()">
+            <i class="ph ph-download-simple"></i> Export Audit Report
         </button>
     </div>
 
     <div class="kpi-grid">
-        <div class="kpi-card income">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">TOTAL INCOME</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['total_income']); ?></div>
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-label">Total Transactions</div>
+                <div class="kpi-value"><?= $total_txns ?></div>
+            </div>
+            <i class="ph ph-receipt kpi-icon-bg" style="color: var(--theme-color);"></i>
         </div>
-        <div class="kpi-card expense">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">TOTAL EXPENSES</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['total_expense']); ?></div>
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-label">Unreconciled Items</div>
+                <div class="kpi-value" style="color: var(--danger);"><?= $unverified_count ?></div>
+            </div>
+            <i class="ph ph-warning-circle kpi-icon-bg" style="color: var(--danger);"></i>
         </div>
-        <div class="kpi-card profit">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">NET PROFIT</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['net_profit']); ?></div>
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-label">Total Tax Liability</div>
+                <div class="kpi-value">₹59,000</div>
+            </div>
+            <i class="ph ph-scales kpi-icon-bg" style="color: var(--warning);"></i>
         </div>
-        <div class="kpi-card" style="border-left-color: var(--warning);">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">PENDING INVOICES</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['pending_invoices']); ?></div>
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-label">Net Book Balance</div>
+                <div class="kpi-value">₹<?= number_format($total_credit - $total_debit) ?></div>
+            </div>
+            <i class="ph ph-bank kpi-icon-bg" style="color: #3b82f6;"></i>
         </div>
     </div>
 
-    <div class="charts-row">
-        <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px;"><i class="ph ph-chart-bar"></i> Income vs Expense Trend</div>
-            <canvas id="financeChart"></canvas>
-        </div>
-        <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px;"><i class="ph ph-chart-pie"></i> Payment Status</div>
-            <canvas id="invoiceChart"></canvas>
-        </div>
-    </div>
-
-    <div class="drill-down-container">
-        <div style="padding: 15px 20px; font-weight: 800; color: var(--theme-color); border-bottom: 1px solid #eee;">
-            | Transaction Drill-Down
-        </div>
+    <div class="audit-container">
         <div class="tab-nav">
-            <button class="tab-btn active" onclick="openTab(event, 'clients')">Client Master</button>
-            <button class="tab-btn" onclick="openTab(event, 'employees')">Employee Master</button>
-            <button class="tab-btn" onclick="openTab(event, 'salary')">Salary History</button>
-            <button class="tab-btn" onclick="openTab(event, 'ledger')">Company Ledger</button>
-            <button class="tab-btn" onclick="openTab(event, 'po')">Purchase Orders</button>
-            <button class="tab-btn" onclick="openTab(event, 'invoices')">Invoices</button>
+            <button class="tab-btn active" onclick="switchTab(event, 'ledger')"><i class="ph ph-list-dashes"></i> General Ledger (Audit)</button>
+            <button class="tab-btn" onclick="switchTab(event, 'recon')"><i class="ph ph-bank"></i> Bank Reconciliation</button>
+            <button class="tab-btn" onclick="switchTab(event, 'tax')"><i class="ph ph-currency-inr"></i> Tax & Compliance</button>
+            <button class="tab-btn" onclick="switchTab(event, 'trail')"><i class="ph ph-footprints"></i> Audit Trail Log</button>
         </div>
 
-        <div id="clients" class="tab-pane active">
-            <button class="btn-export-excel" onclick="exportTable('tableClients', 'Clients_Data')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <table id="tableClients">
-                <thead><tr><th>Client Name</th><th>GST</th><th>Location</th><th>Mobile</th><th style="text-align:right">Total Invoiced</th></tr></thead>
-                <tbody>
-                    <?php foreach ($mock_clients as $c): ?>
-                    <tr><td><b><?= $c['name'] ?></b></td><td><?= $c['gst'] ?></td><td><?= $c['loc'] ?></td><td><?= $c['mob'] ?></td><td class="amt-pos" style="text-align:right">₹<?= number_format($c['total']) ?></td></tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+        <!-- TAB 1: GENERAL LEDGER -->
+        <div id="ledger" class="tab-pane active">
+            <div class="filter-bar">
+                <input type="text" placeholder="Search Party or ID..." class="filter-input" style="width: 250px;">
+                <select class="filter-input">
+                    <option>All Types</option>
+                    <option>Credit Only</option>
+                    <option>Debit Only</option>
+                </select>
+                <select class="filter-input">
+                    <option>All Status</option>
+                    <option>Unverified Only</option>
+                </select>
+                <div style="margin-left: auto; font-size: 12px; color: var(--text-muted);">
+                    <i class="ph ph-info"></i> Click the circle to verify transactions
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="auditTable">
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">Verify</th>
+                            <th>Date</th>
+                            <th>Txn ID</th>
+                            <th>Type</th>
+                            <th>Party / Entity</th>
+                            <th>Category</th>
+                            <th>Mode</th>
+                            <th style="text-align: right;">Amount</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($ledger_transactions as $t): 
+                            $isVerified = $t['verified'];
+                            $iconClass = $isVerified ? 'ph-check-circle verified' : 'ph-circle unverified';
+                            $statusBadge = $isVerified 
+                                ? '<span class="badge bg-success"><i class="ph ph-check"></i> Verified</span>' 
+                                : '<span class="badge bg-warning"><i class="ph ph-clock"></i> Pending</span>';
+                            
+                            $amountClass = $t['type'] == 'Credit' ? 'amt-credit' : 'amt-debit';
+                            $prefix = $t['type'] == 'Credit' ? '+' : '-';
+                        ?>
+                        <tr id="row-<?= $t['id'] ?>">
+                            <td style="text-align: center;">
+                                <i class="ph <?= $iconClass ?> check-circle" onclick="toggleVerify('<?= $t['id'] ?>', this)"></i>
+                            </td>
+                            <td><?= $t['date'] ?></td>
+                            <td style="font-family: monospace; font-weight: 600;"><?= $t['id'] ?></td>
+                            <td><span class="badge" style="background: #f1f5f9; color: #64748b;"><?= $t['type'] ?></span></td>
+                            <td style="font-weight: 600;"><?= $t['party'] ?></td>
+                            <td><?= $t['category'] ?></td>
+                            <td><small><?= $t['mode'] ?> (<?= $t['bank'] ?>)</small></td>
+                            <td class="<?= $amountClass ?>"><?= $prefix ?> ₹<?= number_format($t['amount']) ?></td>
+                            <td id="status-<?= $t['id'] ?>"><?= $statusBadge ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
-        <div id="employees" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableEmployees', 'Employees')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <table id="tableEmployees">
-                <thead><tr><th>ID</th><th>Name</th><th>Dept</th><th>Designation</th><th>Type</th><th>DOJ</th></tr></thead>
-                <tbody>
-                    <?php foreach ($mock_employees as $e): ?>
-                    <tr><td><?= $e['id'] ?></td><td><b><?= $e['name'] ?></b></td><td><?= $e['dept'] ?></td><td><?= $e['desig'] ?></td><td><?= $e['type'] ?></td><td><?= $e['doj'] ?></td></tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+        <!-- TAB 2: BANK RECONCILIATION -->
+        <div id="recon" class="tab-pane">
+            <div class="bank-grid">
+                <?php foreach($bank_recon as $b): 
+                    $statusColor = $b['diff'] == 0 ? 'bg-success' : 'bg-danger';
+                    $statusText = $b['diff'] == 0 ? 'Reconciled' : 'Difference Found';
+                ?>
+                <div class="bank-card">
+                    <div class="bank-header">
+                        <span class="bank-name"><?= $b['bank'] ?></span>
+                        <span class="badge <?= $statusColor ?>"><?= $statusText ?></span>
+                    </div>
+                    <div class="recon-row">
+                        <span>Book Balance:</span>
+                        <span>₹<?= number_format($b['book_balance']) ?></span>
+                    </div>
+                    <div class="recon-row">
+                        <span>Bank Statement:</span>
+                        <span>₹<?= number_format($b['bank_stmt_balance']) ?></span>
+                    </div>
+                    <div class="recon-total" style="color: <?= $b['diff'] == 0 ? 'var(--text-main)' : 'var(--danger)' ?>;">
+                        <span>Difference:</span>
+                        <span>₹<?= number_format($b['diff']) ?></span>
+                    </div>
+                    <?php if($b['diff'] != 0): ?>
+                        <button style="margin-top:15px; width:100%; padding:8px; background:#f1f5f9; border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">Investigate Difference</button>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            </div>
         </div>
 
-        <div id="salary" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableSalary', 'Salary_History')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <table id="tableSalary">
-                <thead><tr><th>Month</th><th>Name</th><th>Basic</th><th>HRA</th><th>Net Pay</th><th>Status</th></tr></thead>
-                <tbody>
-                    <?php foreach ($mock_salary as $s): ?>
-                    <tr><td><?= $s['month'] ?></td><td><b><?= $s['name'] ?></b></td><td><?= number_format($s['basic']) ?></td><td><?= number_format($s['hra']) ?></td><td class="amt-pos">₹<?= number_format($s['net']) ?></td><td><span class="status-badge st-paid"><?= $s['status'] ?></span></td></tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+        <!-- TAB 3: TAX & COMPLIANCE -->
+        <div id="tax" class="tab-pane">
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tax Type</th>
+                            <th>Period</th>
+                            <th style="text-align: right;">Amount</th>
+                            <th>Due Date</th>
+                            <th>Filing Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($tax_data as $t): 
+                            $badge = $t['status'] == 'Deposited' ? 'bg-success' : 'bg-warning';
+                        ?>
+                        <tr>
+                            <td><strong><?= $t['type'] ?></strong></td>
+                            <td><?= $t['period'] ?></td>
+                            <td style="text-align: right; font-weight: 700;">₹<?= number_format($t['amount']) ?></td>
+                            <td><?= $t['due_date'] ?></td>
+                            <td><span class="badge <?= $badge ?>"><?= $t['status'] ?></span></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
 
-        <div id="ledger" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableLedger', 'Ledger')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <table id="tableLedger">
-                <thead><tr><th>Date</th><th>Category</th><th>Party</th><th>Description</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th></tr></thead>
-                <tbody>
-                    <?php foreach ($mock_ledger as $row): ?>
-                    <tr><td><?= $row['date'] ?></td><td><?= $row['cat'] ?></td><td><b><?= $row['party'] ?></b></td><td><?= $row['desc'] ?></td><td class="amt-neg" style="text-align:right"><?= $row['mode']=='Debit' ? '₹'.number_format($row['amount']) : '-' ?></td><td class="amt-pos" style="text-align:right"><?= $row['mode']=='Credit' ? '₹'.number_format($row['amount']) : '-' ?></td></tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <div id="po" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tablePO', 'Purchase_Orders')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <table id="tablePO">
-                <thead><tr><th>PO No</th><th>Vendor</th><th>Date</th><th>Grand Total</th><th>Paid</th><th>Balance</th></tr></thead>
-                <tbody>
-                    <?php foreach ($mock_po as $po): ?>
-                    <tr><td><b><?= $po['no'] ?></b></td><td><?= $po['vendor'] ?></td><td><?= $po['date'] ?></td><td>₹<?= number_format($po['grand']) ?></td><td class="amt-pos">₹<?= number_format($po['paid']) ?></td><td class="amt-neg">₹<?= number_format($po['bal']) ?></td></tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-        </div>
-
-        <div id="invoices" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableInvoices', 'Invoices')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <table id="tableInvoices">
-                <thead><tr><th>Invoice #</th><th>Client</th><th>Date</th><th>Total</th><th>Status</th></tr></thead>
-                <tbody>
-                    <?php foreach ($mock_invoices as $inv): ?>
-                    <tr><td><b><?= $inv['no'] ?></b></td><td><?= $inv['client'] ?></td><td><?= $inv['date'] ?></td><td>₹<?= number_format($inv['total']) ?></td><td><span class="status-badge <?= $inv['status']=='Paid'?'st-paid':'st-unpaid' ?>"><?= $inv['status'] ?></span></td></tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
+        <!-- TAB 4: AUDIT TRAIL -->
+        <div id="trail" class="tab-pane">
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>User</th>
+                            <th>Action Performed</th>
+                            <th>IP Address</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($audit_log as $log): ?>
+                        <tr>
+                            <td style="font-family: monospace; color: var(--text-muted);"><?= $log['date'] ?></td>
+                            <td style="font-weight: 600;"><?= $log['user'] ?></td>
+                            <td><?= $log['action'] ?></td>
+                            <td style="font-family: monospace;"><?= $log['ip'] ?></td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 </main>
 
 <script>
-    // Tab Navigation Logic
-    function openTab(evt, tabName) {
-        let i, tabPane, tabBtn;
-        tabPane = document.getElementsByClassName("tab-pane");
-        for (i = 0; i < tabPane.length; i++) { tabPane[i].style.display = "none"; tabPane[i].classList.remove("active"); }
-        tabBtn = document.getElementsByClassName("tab-btn");
-        for (i = 0; i < tabBtn.length; i++) { tabBtn[i].className = tabBtn[i].className.replace(" active", ""); }
-        document.getElementById(tabName).style.display = "block";
-        document.getElementById(tabName).classList.add("active");
-        evt.currentTarget.className += " active";
+    // --- TAB SWITCHING ---
+    function switchTab(evt, tabId) {
+        const panes = document.getElementsByClassName("tab-pane");
+        const btns = document.getElementsByClassName("tab-btn");
+
+        for (let i = 0; i < panes.length; i++) { panes[i].classList.remove("active"); }
+        for (let i = 0; i < btns.length; i++) { btns[i].classList.remove("active"); }
+
+        document.getElementById(tabId).classList.add("active");
+        evt.currentTarget.classList.add("active");
     }
 
-    // Charting (Preserved)
-    const ctxFinance = document.getElementById('financeChart').getContext('2d');
-    new Chart(ctxFinance, {
-        type: 'bar',
-        data: {
-            labels: <?php echo json_encode($chart_months); ?>,
-            datasets: [
-                { label: 'Income', data: <?php echo json_encode($chart_income); ?>, backgroundColor: '#059669' },
-                { label: 'Expenses', data: <?php echo json_encode($chart_expense); ?>, backgroundColor: '#dc2626' }
-            ]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    const ctxInvoice = document.getElementById('invoiceChart').getContext('2d');
-    new Chart(ctxInvoice, {
-        type: 'doughnut',
-        data: {
-            labels: ['Paid', 'Unpaid', 'Pending'],
-            datasets: [{ data: [65, 20, 15], backgroundColor: ['#059669', '#dc2626', '#d97706'] }]
-        },
-        options: { responsive: true, maintainAspectRatio: false }
-    });
-
-    // Excel Logic (Preserved)
-    function exportTable(tableId, filename) {
-        const table = document.getElementById(tableId);
-        const wb = XLSX.utils.table_to_book(table, {sheet: "Report"});
-        XLSX.writeFile(wb, filename + ".xlsx");
+    // --- TOGGLE VERIFICATION ---
+    function toggleVerify(id, iconElement) {
+        // Toggle Icon Visuals
+        const isVerified = iconElement.classList.contains('verified');
+        
+        if (isVerified) {
+            // Unverify
+            iconElement.classList.remove('ph-check-circle', 'verified');
+            iconElement.classList.add('ph-circle', 'unverified');
+            updateStatusBadge(id, 'Pending', 'bg-warning', 'ph-clock');
+        } else {
+            // Verify
+            iconElement.classList.remove('ph-circle', 'unverified');
+            iconElement.classList.add('ph-check-circle', 'verified');
+            updateStatusBadge(id, 'Verified', 'bg-success', 'ph-check');
+        }
     }
 
-    function exportFullReport() {
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableClients')), "Clients");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableEmployees')), "Employees");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableSalary')), "Salary");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableLedger')), "Ledger");
-        XLSX.writeFile(wb, "Auditor_Full_Report.xlsx");
+    function updateStatusBadge(id, text, bgClass, phIcon) {
+        const statusCell = document.getElementById('status-' + id);
+        statusCell.innerHTML = `<span class="badge ${bgClass}"><i class="ph ${phIcon}"></i> ${text}</span>`;
+    }
+
+    // --- EXPORT LOGIC ---
+    function exportCurrentView() {
+        const table = document.getElementById("auditTable");
+        if(table) {
+            const wb = XLSX.utils.table_to_book(table, {sheet: "Audit_Ledger"});
+            XLSX.writeFile(wb, "Auditor_Report_" + new Date().toISOString().slice(0,10) + ".xlsx");
+        } else {
+            alert("Please switch to the General Ledger tab to export data.");
+        }
     }
 </script>
 

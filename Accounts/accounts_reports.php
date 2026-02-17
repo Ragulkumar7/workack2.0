@@ -123,22 +123,29 @@ $mock_invoices = [
 
         /* --- FIX: Charts Section --- */
         .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .chart-container { 
-            background: white; 
-            padding: 20px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03); 
-            height: 350px; 
-            display: flex; 
-            flex-direction: column; /* Force flex column so children fit properly */
-        }
-        /* Wrapper to strictly contain the canvas */
-        .canvas-wrapper {
-            position: relative;
-            flex-grow: 1;
-            min-height: 0; /* Required to prevent flex overflow */
-            width: 100%;
-        }
+        .chart-container {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.03);
+    height: 360px;               /* ← give it a fixed pixel height */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;            /* ← very important here */
+}
+
+.canvas-wrapper {
+    position: relative;
+    flex: 1 1 auto;              /* better flex behavior */
+    min-height: 0;
+    width: 100%;
+    padding-bottom: 20px;        /* ← breathing room at bottom if needed */
+}
+
+.canvas-wrapper canvas {
+    position: absolute !important;
+    inset: 0 !important;         /* force canvas to fill wrapper exactly */
+}
 
         /* Table Styling */
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
