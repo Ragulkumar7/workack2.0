@@ -79,6 +79,12 @@ $sections = [
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['HR Executive'] 
             ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'CFO/cfo_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['CFO'] 
+            ],
 
             // --- TEAM CHAT (Common) ---
             [
@@ -144,7 +150,7 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin'],
                 'subItems' => [
                     ['name' => 'Self Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Team Tasks', 'path' => $base . 'manger/manager_task.php?view=team_tasks', 'icon' => 'users'],
+                    ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
                     ['name' => 'Projects', 'path' => $base . 'manager/manager_projects.php', 'icon' => 'layers'],
                 ]
             ],
@@ -280,7 +286,7 @@ $sections = [
             [
                 'name' => 'Payslip <br>Management', 
                 'icon' => 'file-text', 
-                'allowed' => ['HR', 'System Admin', 'Accounts', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
+                'allowed' => ['HR', 'System Admin', 'Accounts', 'Team Lead', 'Employee', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
                 'subItems' => [
                     ['name' => 'Generate Payslip', 'path' => $base . 'payslip_management.php?view=generate', 'icon' => 'plus-circle'],
                     ['name' => 'Pending Approvals', 'path' => $base . 'payslip_management.php?view=approvals', 'icon' => 'clock'],
