@@ -33,9 +33,15 @@ $sections = [
             // --- DASHBOARDS ---
             [
                 'name' => 'Dashboard', 
-                'path' => $base . 'dashboard.php', 
+                'path' => $base . 'manager_dashboard.php', 
                 'icon' => 'layout-dashboard', 
-                'allowed' => ['Manager', 'System Admin', 'HR'] 
+                'allowed' => ['Manager'] 
+            ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'HR/hr_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['HR'] 
             ],
             [
                 'name' => 'Dashboard', 
@@ -137,8 +143,9 @@ $sections = [
                 'icon' => 'clipboard-check', 
                 'allowed' => ['Manager', 'System Admin'],
                 'subItems' => [
-                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
+                    ['name' => 'Self Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'Team Tasks', 'path' => $base . 'manger/manager_task.php?view=team_tasks', 'icon' => 'users'],
+                    ['name' => 'Projects', 'path' => $base . 'manager/manager_projects.php', 'icon' => 'layers'],
                 ]
             ],
 
@@ -163,7 +170,8 @@ $sections = [
                 'allowed' => ['Employee'],
                 'subItems' => [
                     ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
-                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'],
+                    ['name' => 'Efficiency', 'path' => $base . 'employee/emp_efficiency.php', 'icon' => 'gauge']
                 ]
             ],
 
