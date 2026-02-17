@@ -39,12 +39,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                 // --- FIX: DYNAMIC REDIRECT BASED ON ROLE ---
                 switch ($row['role']) {
                     case 'Manager':
-                        header("Location: dashboard.php");
+                        header("Location: manager/manager_dashboard.php");
                         break;
                     case 'System Admin':
                     case 'HR':
                         // Managers go to the main root dashboard
-                        header("Location: dashboard.php");
+                        header("Location: HR/hr_dashboard.php");
                         break;
                     
                     case 'Team Lead':
@@ -77,7 +77,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         // HR Executive go to the HR Executive folder
                         header("Location: HR_executive/HR_executive_dashboard.php");
                         break;
-
+                    case 'CFO':
+                        //CFO go to the CFO folder
+                        header("Location: CFO/cfo_dashboard.php");
+                        break;
                     case 'Digital Marketing':
                         // Employees go to the employee folder
                         header("Location: employee/employee_dashboard.php");
@@ -214,7 +217,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         <option value="Manager">Manager</option>
                         <option value="Team Lead">Team Lead</option>
                         <option value="Employee" selected>Employee</option>
-                        <option value="Accountant">Accountant</option>
+                        <option value="Accounts">Accounts</option>
                         <option value="Sales">Sales</option>
                         <option value="Digital Marketing">Digital Marketing</option>
                         <option value="IT Admin">IT Admin</option>

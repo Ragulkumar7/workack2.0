@@ -57,8 +57,8 @@ include 'include/db_connect.php';
 </head>
 <body class="text-slate-800">
 
-    <?php include 'sidebars.php'; ?>
-    <?php include 'header.php'; ?>
+    <?php include '../sidebars.php'; ?>
+    <?php include '../header.php'; ?>
 
     <main id="mainContent" class="p-6 lg:p-8 min-h-screen">
         
