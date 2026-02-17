@@ -218,7 +218,7 @@ $sections = [
             
             // --- HR EXECUTIVE PAGES ---
             [
-                'name' => 'Jobs', 
+                'name' => 'Recruitment', 
                 'path' => $base . 'HR_executive/jobs.php', 
                 'icon' => 'briefcase', 
                 'allowed' => ['HR', 'HR Executive']
@@ -241,13 +241,13 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin']
+                'allowed' => ['Manager', 'System Admin', 'HR Executive']
             ],
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive']
+                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive']
             ],
 
             // --- TICKETS ---
@@ -272,7 +272,7 @@ $sections = [
             [
                 'name' => 'Payslip <br>Management', 
                 'icon' => 'file-text', 
-                'allowed' => ['HR', 'System Admin', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
+                'allowed' => ['HR', 'System Admin', 'Accounts', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
                 'subItems' => [
                     ['name' => 'Generate Payslip', 'path' => $base . 'payslip_management.php?view=generate', 'icon' => 'plus-circle'],
                     ['name' => 'Pending Approvals', 'path' => $base . 'payslip_management.php?view=approvals', 'icon' => 'clock'],
