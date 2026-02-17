@@ -1,6 +1,6 @@
 <?php 
 include '../sidebars.php'; 
-include '../header.php';
+ include '../header.php';
 // Uncomment in production
 ?>
 <!DOCTYPE html>
@@ -16,6 +16,8 @@ include '../header.php';
             --primary: #1b5a5a;
             --primary-light: #2d7a7a;
             --primary-bg: #f0fdfa;
+            --border: #e2e8f0;
+            --text-muted: #64748b;
         }
 
         body { 
@@ -39,12 +41,24 @@ include '../header.php';
 
         .btn-primary {
             background-color: var(--primary);
-            color: white;
+            color: white ;
             transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+        
         }
         .btn-primary:hover { 
             background-color: var(--primary-light); 
             transform: translateY(-1px); 
+        }
+        .btn {
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            border: 1px solid var(--border);
+            background: white;
+            font-weight: 500;
         }
 
         .card-shadow {
@@ -81,11 +95,96 @@ include '../header.php';
             border-color: var(--primary);
         }
 
+        /* --- Modal CSS --- */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: none; /* Hidden by default */
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        .modal-box {
+            background: white;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 800px;
+            max-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1);
+        }
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: #0f172a; }
+        .modal-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            padding: 0 20px;
+            gap: 24px;
+        }
+        .tab-item {
+            padding: 15px 0;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            font-weight: 500;
+            font-size: 14px;
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+        .tab-item.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        .modal-body {
+            padding: 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            background: #f8fafc;
+            border-radius: 0 0 12px 12px;
+        }
+        .img-upload-area { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
+        .preview-circle {
+            width: 70px; height: 70px; border-radius: 50%;
+            background: #f1f5f9; border: 1px dashed #cbd5e1;
+            display: flex; align-items: center; justify-content: center; color: #94a3b8;
+        }
+        .form-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px;
+        }
+        .form-group label span { color: #ef4444; }
+        .form-group .form-control {
+            width: 100%; padding: 10px 14px; border: 1px solid var(--border);
+            border-radius: 6px; font-size: 14px; transition: all 0.2s; background: #fff;
+        }
+        .form-group .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(27,90,90,0.1); }
+        .password-group { position: relative; }
+        .password-toggle { position: absolute; right: 14px; top: 34px; color: #94a3b8; cursor: pointer; }
+        .form-section-title { font-size: 16px; font-weight: 700; color: #1e293b; margin: 10px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px;}
+        .perm-table { width: 100%; text-align: left; border-collapse: collapse; background: #fff;}
+        .perm-table th, .perm-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 13px; }
+        .perm-table th { font-weight: 600; color: #475569; background: #f8fafc; }
+
         @media (max-width: 1024px) {
-            main#content-wrapper {
-                margin-left: 0;
-                padding-top: 70px;
-            }
+            main#content-wrapper { margin-left: 0; padding-top: 70px; }
+            .form-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -100,8 +199,13 @@ include '../header.php';
                 <h2 class="text-3xl font-extrabold text-gray-900 tracking-tight">Employee Onboarding</h2>
                 <p class="text-gray-600 mt-1.5">Manage new hires, assign IDs, managers, and salary packages.</p>
             </div>
-            <div class="text-sm text-gray-600 bg-white px-5 py-2.5 rounded-lg shadow-sm border">
-                <span id="currentDateDisplay"></span>
+            <div class="flex items-center gap-4">
+                <div class="text-sm text-gray-600 bg-white px-5 py-2.5 rounded-lg shadow-sm border">
+                    <span id="currentDateDisplay"></span>
+                </div>
+                <button onclick="openModal()" class="btn-primary px-5 py-2.5 rounded-lg font-bold shadow-sm border flex items-center gap-2">
+                    <i class="fas fa-plus"></i> Add Employee
+                </button>
             </div>
         </header>
 
@@ -135,216 +239,270 @@ include '../header.php';
             </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            
-            <div class="lg:col-span-4">
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden sticky top-6">
-                    <div class="bg-[#1b5a5a] p-6 border-b border-teal-800">
-                        <h3 class="text-lg font-bold text-white flex items-center gap-3">
-                            <i class="fas fa-user-plus"></i> New Hire Onboarding
-                        </h3>
-                        <p class="text-teal-100 text-sm mt-1.5">Create profile, assign ID, manager & salary.</p>
+        <div>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 min-h-[700px]">
+                <div class="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50 rounded-t-xl">
+                    <h3 class="text-xl font-bold text-gray-900">Onboarding Pipeline</h3>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="filterPipeline('All', this)" class="filter-btn active px-4 py-2 text-sm font-semibold rounded-lg border transition-all">All</button>
+                        <button onclick="filterPipeline('Pending', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">Pending</button>
+                        <button onclick="filterPipeline('In Progress', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">In Progress</button>
+                        <button onclick="filterPipeline('Completed', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">Completed</button>
                     </div>
+                </div>
 
-                    <div class="p-6">
-                        <form id="onboardingForm" class="space-y-5">
-                            
+                <div class="p-6 custom-scroll overflow-y-auto max-h-[800px]" id="onboardingList">
+                    <?php
+                    $onboardingList = [
+                        [
+                            "id" => "EMP-2023-001",
+                            "name" => "Alexander Wright",
+                            "role" => "Tech Lead",
+                            "dept" => "Development Team",
+                            "manager" => "Sarah Chen",
+                            "salary" => "₹18,50,000",
+                            "date" => "2023-10-25",
+                            "status" => "In Progress",
+                            "img" => "https://i.pravatar.cc/150?u=alex"
+                        ],
+                        [
+                            "id" => "EMP-2023-002",
+                            "name" => "Sophia Bennett",
+                            "role" => "Art Director",
+                            "dept" => "Design & Creative",
+                            "manager" => "Liam O'Shea",
+                            "salary" => "₹14,20,000",
+                            "date" => "2023-10-28",
+                            "status" => "Pending",
+                            "img" => "https://i.pravatar.cc/150?u=sophia"
+                        ],
+                        [
+                            "id" => "EMP-2023-003",
+                            "name" => "Julian Thorne",
+                            "role" => "Growth Manager",
+                            "dept" => "Marketing & Growth",
+                            "manager" => "Olivia Pope",
+                            "salary" => "₹16,80,000",
+                            "date" => "2023-10-20",
+                            "status" => "Completed",
+                            "img" => "https://i.pravatar.cc/150?u=julian"
+                        ]
+                    ];
+
+                    foreach ($onboardingList as $item): 
+                        $statusColor = $item['status'] == 'Completed' ? 'bg-green-100 text-green-700 border-green-200' : 
+                                        ($item['status'] == 'In Progress' ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-200');
+                    ?>
+                    <div class="onboarding-card bg-white border border-gray-100 rounded-lg p-5 mb-5 flex flex-col sm:flex-row gap-5 items-start sm:items-center justify-between" data-status="<?= $item['status'] ?>">
+                        <div class="flex items-center gap-4 w-full sm:w-auto">
+                            <img src="<?= $item['img'] ?>" class="w-14 h-14 rounded-full object-cover border-2 border-gray-200" alt="">
                             <div>
-                                <label class="block text-xs font-bold text-gray-600 uppercase mb-2">Employee ID</label>
-                                <div class="relative">
-                                    <span class="absolute left-3.5 top-3.5 text-gray-400"><i class="fas fa-id-card"></i></span>
-                                    <input type="text" id="empId" placeholder="EMP-2026-001" 
-                                           class="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:border-teal-600" required>
+                                <h4 class="font-bold text-gray-900 text-base flex items-center gap-2">
+                                    <?= $item['name'] ?> 
+                                    <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded border"><?= $item['id'] ?></span>
+                                </h4>
+                                <div class="text-sm text-gray-600 mt-1">
+                                    <span class="font-medium text-teal-700"><?= $item['role'] ?></span> • <?= $item['dept'] ?>
+                                </div>
+                                <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
+                                    <i class="fas fa-user-tie"></i> Mgr: <?= $item['manager'] ?>
                                 </div>
                             </div>
+                        </div>
 
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 uppercase mb-2">Full Name</label>
-                                <div class="relative">
-                                    <span class="absolute left-3.5 top-3.5 text-gray-400"><i class="fas fa-user"></i></span>
-                                    <input type="text" id="empName" placeholder="e.g. Julian Thorne" 
-                                           class="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:border-teal-600" required>
+                        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 w-full sm:w-auto">
+                            <div class="text-left sm:text-right">
+                                <div class="text-xs uppercase font-semibold text-gray-500 tracking-wide">Start Date</div>
+                                <div class="text-sm font-medium text-gray-800"><?= date("M d, Y", strtotime($item['date'])) ?></div>
+                            </div>
+                            <div class="text-left sm:text-right">
+                                <div class="text-xs uppercase font-semibold text-gray-500 tracking-wide">Salary</div>
+                                <div class="text-sm font-bold text-gray-900"><?= $item['salary'] ?></div>
+                            </div>
+                            <span class="px-4 py-1.5 rounded-full text-xs font-bold <?= $statusColor ?>">
+                                <?= $item['status'] ?>
+                            </span>
+                            <div class="relative group">
+                                <button class="text-gray-500 hover:text-teal-700 p-2">
+                                    <i class="fas fa-ellipsis-v"></i>
+                                </button>
+                                <div class="hidden group-hover:block absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-xl z-20">
+                                    <button onclick="updateStatus(this, 'In Progress')" class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-orange-50">
+                                        <i class="fas fa-hourglass-half mr-2 text-orange-500"></i> In Progress
+                                    </button>
+                                    <button onclick="updateStatus(this, 'Completed')" class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-teal-50">
+                                        <i class="fas fa-check mr-2 text-green-600"></i> Complete
+                                    </button>
+                                    <button onclick="deleteCard(this)" class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 border-t">
+                                        <i class="fas fa-trash mr-2"></i> Remove
+                                    </button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
 
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 uppercase mb-2">Department</label>
-                                <div class="relative">
-                                    <span class="absolute left-3.5 top-3.5 text-gray-400"><i class="fas fa-building"></i></span>
-                                    <select id="empDept" onchange="updateManagerOptions()" 
-                                            class="w-full pl-11 pr-10 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm appearance-none focus:border-teal-600" required>
-                                        <option value="" disabled selected>Select Department</option>
-                                        <option value="Development Team">Development Team</option>
-                                        <option value="Design & Creative">Design & Creative</option>
-                                        <option value="Marketing & Growth">Marketing & Growth</option>
-                                        <option value="Sales">Sales</option>
-                                        <option value="Human Resources">Human Resources</option>
-                                    </select>
-                                    <span class="absolute right-3.5 top-3.5 text-gray-400 pointer-events-none"><i class="fas fa-chevron-down text-xs"></i></span>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 uppercase mb-2">Reporting Manager</label>
-                                <div class="relative">
-                                    <span class="absolute left-3.5 top-3.5 text-gray-400"><i class="fas fa-user-tie"></i></span>
-                                    <select id="empManager" class="w-full pl-11 pr-10 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm appearance-none focus:border-teal-600" required disabled>
-                                        <option value="" disabled selected>Select Department First</option>
-                                    </select>
-                                    <span class="absolute right-3.5 top-3.5 text-gray-400 pointer-events-none"><i class="fas fa-chevron-down text-xs"></i></span>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 uppercase mb-2">Job Role</label>
-                                <div class="relative">
-                                    <span class="absolute left-3.5 top-3.5 text-gray-400"><i class="fas fa-briefcase"></i></span>
-                                    <input type="text" id="empRole" placeholder="e.g. Growth Manager" 
-                                           class="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:border-teal-600" required>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 uppercase mb-2">Annual Salary (₹)</label>
-                                <div class="relative">
-                                    <span class="absolute left-3.5 top-3.5 text-gray-400">₹</span>
-                                    <input type="number" id="empSalary" placeholder="e.g. 1200000" 
-                                           class="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:border-teal-600" required min="0">
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="block text-xs font-bold text-gray-600 uppercase mb-2">Start Date</label>
-                                <div class="relative">
-                                    <span class="absolute left-3.5 top-3.5 text-gray-400"><i class="fas fa-calendar-alt"></i></span>
-                                    <input type="date" id="empStartDate" 
-                                           class="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-300 rounded-lg text-sm focus:border-teal-600" required>
-                                </div>
-                            </div>
-
-                            <button type="submit" class="btn-primary w-full py-3.5 rounded-lg font-bold shadow-md mt-6 flex items-center justify-center gap-2">
-                                <i class="fas fa-paper-plane"></i> Start Onboarding
-                            </button>
-
-                        </form>
+                    <div id="emptyState" class="hidden text-center py-16">
+                        <div class="text-gray-300 text-6xl mb-4"><i class="fas fa-clipboard-list"></i></div>
+                        <p class="text-gray-500 text-lg">No onboarding records found.</p>
                     </div>
                 </div>
             </div>
+        </div>
+    </div>
 
-            <div class="lg:col-span-8">
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 min-h-[700px]">
-                    <div class="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50 rounded-t-xl">
-                        <h3 class="text-xl font-bold text-gray-900">Onboarding Pipeline</h3>
-                        <div class="flex flex-wrap gap-2">
-                            <button onclick="filterPipeline('All', this)" class="filter-btn active px-4 py-2 text-sm font-semibold rounded-lg border transition-all">All</button>
-                            <button onclick="filterPipeline('Pending', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">Pending</button>
-                            <button onclick="filterPipeline('In Progress', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">In Progress</button>
-                            <button onclick="filterPipeline('Completed', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">Completed</button>
-                        </div>
-                    </div>
-
-                    <div class="p-6 custom-scroll overflow-y-auto max-h-[800px]" id="onboardingList">
-                        <?php
-                        $onboardingList = [
-                            [
-                                "id" => "EMP-2023-001",
-                                "name" => "Alexander Wright",
-                                "role" => "Tech Lead",
-                                "dept" => "Development Team",
-                                "manager" => "Sarah Chen",
-                                "salary" => "₹18,50,000",
-                                "date" => "2023-10-25",
-                                "status" => "In Progress",
-                                "img" => "https://i.pravatar.cc/150?u=alex"
-                            ],
-                            [
-                                "id" => "EMP-2023-002",
-                                "name" => "Sophia Bennett",
-                                "role" => "Art Director",
-                                "dept" => "Design & Creative",
-                                "manager" => "Liam O'Shea",
-                                "salary" => "₹14,20,000",
-                                "date" => "2023-10-28",
-                                "status" => "Pending",
-                                "img" => "https://i.pravatar.cc/150?u=sophia"
-                            ],
-                            [
-                                "id" => "EMP-2023-003",
-                                "name" => "Julian Thorne",
-                                "role" => "Growth Manager",
-                                "dept" => "Marketing & Growth",
-                                "manager" => "Olivia Pope",
-                                "salary" => "₹16,80,000",
-                                "date" => "2023-10-20",
-                                "status" => "Completed",
-                                "img" => "https://i.pravatar.cc/150?u=julian"
-                            ]
-                        ];
-
-                        foreach ($onboardingList as $item): 
-                            $statusColor = $item['status'] == 'Completed' ? 'bg-green-100 text-green-700 border-green-200' : 
-                                          ($item['status'] == 'In Progress' ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-200');
-                        ?>
-                        <div class="onboarding-card bg-white border border-gray-100 rounded-lg p-5 mb-5 flex flex-col sm:flex-row gap-5 items-start sm:items-center justify-between" data-status="<?= $item['status'] ?>">
-                            
-                            <div class="flex items-center gap-4 w-full sm:w-auto">
-                                <img src="<?= $item['img'] ?>" class="w-14 h-14 rounded-full object-cover border-2 border-gray-200" alt="">
-                                <div>
-                                    <h4 class="font-bold text-gray-900 text-base flex items-center gap-2">
-                                        <?= $item['name'] ?> 
-                                        <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded border"><?= $item['id'] ?></span>
-                                    </h4>
-                                    <div class="text-sm text-gray-600 mt-1">
-                                        <span class="font-medium text-teal-700"><?= $item['role'] ?></span> 
-                                        • <?= $item['dept'] ?>
-                                    </div>
-                                    <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                                        <i class="fas fa-user-tie"></i> Mgr: <?= $item['manager'] ?>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 w-full sm:w-auto">
-                                <div class="text-left sm:text-right">
-                                    <div class="text-xs uppercase font-semibold text-gray-500 tracking-wide">Start Date</div>
-                                    <div class="text-sm font-medium text-gray-800"><?= date("M d, Y", strtotime($item['date'])) ?></div>
-                                </div>
-                                
-                                <div class="text-left sm:text-right">
-                                    <div class="text-xs uppercase font-semibold text-gray-500 tracking-wide">Salary</div>
-                                    <div class="text-sm font-bold text-gray-900"><?= $item['salary'] ?></div>
-                                </div>
-
-                                <span class="px-4 py-1.5 rounded-full text-xs font-bold <?= $statusColor ?>">
-                                    <?= $item['status'] ?>
-                                </span>
-
-                                <div class="relative group">
-                                    <button class="text-gray-500 hover:text-teal-700 p-2">
-                                        <i class="fas fa-ellipsis-v"></i>
-                                    </button>
-                                    <div class="hidden group-hover:block absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-xl z-20">
-                                        <button onclick="updateStatus(this, 'In Progress')" class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-orange-50">
-                                            <i class="fas fa-hourglass-half mr-2 text-orange-500"></i> In Progress
-                                        </button>
-                                        <button onclick="updateStatus(this, 'Completed')" class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-teal-50">
-                                            <i class="fas fa-check mr-2 text-green-600"></i> Complete
-                                        </button>
-                                        <button onclick="deleteCard(this)" class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 border-t">
-                                            <i class="fas fa-trash mr-2"></i> Remove
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <?php endforeach; ?>
-
-                        <div id="emptyState" class="hidden text-center py-16">
-                            <div class="text-gray-300 text-6xl mb-4"><i class="fas fa-clipboard-list"></i></div>
-                            <p class="text-gray-500 text-lg">No onboarding records found.</p>
-                        </div>
-                    </div>
+    <div class="modal-overlay" id="employeeModal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div style="display:flex; align-items:center;">
+                    <h3 id="modalTitle">Add New Employee</h3>
+                    <span id="modalIdDisplay"></span>
                 </div>
+                <i class="fas fa-times" style="cursor:pointer; color:#94a3b8; font-size: 18px;" onclick="closeModal()"></i>
+            </div>
+            
+            <div class="modal-tabs">
+                <div class="tab-item active" onclick="switchTab(this, 'tab-basic')">Basic Information</div>
+                <div class="tab-item" onclick="switchTab(this, 'tab-bank')">Bank Details</div>
+                <div class="tab-item" onclick="switchTab(this, 'tab-permissions')">Permissions</div>
+            </div>
+            
+            <div class="modal-body custom-scroll">
+                <form id="empFormDetailed">
+                    
+                    <div id="tab-basic" class="tab-content">
+                        <div class="img-upload-area">
+                            <div class="preview-circle" id="imgPreview">
+                                <i class="fas fa-image" style="font-size: 24px;"></i>
+                            </div>
+                            <div>
+                                <h5 style="margin:0 0 5px; font-size:14px; font-weight:600;">Upload Profile Image</h5>
+                                <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Image should be below 4 mb</p>
+                                <div style="display:flex; gap:10px;">
+                                    <button type="button" class="btn btn-primary" style="padding:6px 12px; font-size:12px;">Upload</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-group"><label>First Name <span>*</span></label><input type="text" class="form-control" id="modFName" required></div>
+                            <div class="form-group"><label>Last Name</label><input type="text" class="form-control" id="modLName"></div>
+                            <div class="form-group"><label>Employee ID <span>*</span></label><input type="text" class="form-control" id="modEmpId" required></div>
+                            <div class="form-group"><label>Joining Date <span>*</span></label><input type="date" class="form-control" id="modJoinDate" required></div>
+                            <div class="form-group"><label>Username <span>*</span></label><input type="text" class="form-control" id="modUName"></div>
+                            <div class="form-group"><label>Email <span>*</span></label><input type="email" class="form-control" id="modEmail"></div>
+                            <div class="form-group password-group">
+                                <label>Password <span>*</span></label>
+                                <input type="password" class="form-control" id="modPwd">
+                                <i class="fas fa-eye-slash password-toggle"></i>
+                            </div>
+                            <div class="form-group password-group">
+                                <label>Confirm Password <span>*</span></label>
+                                <input type="password" class="form-control">
+                                <i class="fas fa-eye-slash password-toggle"></i>
+                            </div>
+                            <div class="form-group"><label>Phone Number <span>*</span></label><input type="text" class="form-control" id="modPhone"></div>
+                            <div class="form-group"><label>Company <span>*</span></label><input type="text" class="form-control" id="modCompany"></div>
+                            
+                            <div class="form-group">
+                                <label>Department</label>
+                                <select class="form-control" id="modDept" onchange="updateModalManager()">
+                                    <option value="">Select</option>
+                                    <option value="Development Team">Development Team</option>
+                                    <option value="Sales">Sales</option>
+                                    <option value="Design & Creative">Design & Creative</option>
+                                    <option value="Marketing & Growth">Marketing & Growth</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Designation (Job Role) <span>*</span></label>
+                                <input type="text" class="form-control" id="modDesig" placeholder="e.g. Senior Developer">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Reporting Manager</label>
+                                <select class="form-control" id="modManager" disabled>
+                                    <option value="">Select Department First</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Annual Salary (₹) <span>*</span></label>
+                                <input type="number" class="form-control" id="modSalary" placeholder="1200000" min="0">
+                            </div>
+
+                            <div class="form-group">
+                                <label>Employment Type <span>*</span></label>
+                                <select class="form-control" id="modEmpType">
+                                    <option value="Permanent">Permanent</option>
+                                    <option value="Contract">Contract</option>
+                                    <option value="Intern">Intern</option>
+                                    <option value="Freelance">Freelance</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-bank" class="tab-content" style="display:none;">
+                        <h4 class="form-section-title">Add Employee Bank Details</h4>
+                        <div class="form-grid">
+                            <div class="form-group"><label>PAN Card No.</label><input type="text" class="form-control" placeholder="ABCDE1234F"></div>
+                            <div class="form-group"><label>PF Account No.</label><input type="text" class="form-control" placeholder="PF12345678"></div>
+                            <div class="form-group"><label>ESI Number</label><input type="text" class="form-control" placeholder="ESI987654"></div>
+                        </div>
+
+                        <h4 class="form-section-title">Bank Details</h4>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Bank Name</label><input type="text" class="form-control" placeholder="e.g. HDFC Bank"></div>
+                            <div class="form-group"><label>Bank Account No.</label><input type="text" class="form-control" placeholder="1234567890"></div>
+                            <div class="form-group"><label>IFSC Code</label><input type="text" class="form-control" placeholder="HDFC0001234"></div>
+                        </div>
+                    </div>
+
+                    <div id="tab-permissions" class="tab-content" style="display:none;">
+                        <h4 class="form-section-title">Module Access Control</h4>
+                        <p style="font-size:13px; color:var(--text-muted); margin-bottom:15px;">Define which modules this employee can access and their privilege level.</p>
+                        
+                        <div style="border:1px solid var(--border); border-radius:12px; overflow:hidden;">
+                            <table class="perm-table">
+                                <thead>
+                                    <tr>
+                                        <th>Module</th>
+                                        <th>Read</th>
+                                        <th>Write</th>
+                                        <th>Create</th>
+                                        <th>Delete</th>
+                                        <th>Import</th>
+                                        <th>Export</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php 
+                                    $modules = ['Employee', 'Holidays', 'Leaves', 'Events', 'Chat', 'Jobs', 'Payroll', 'Reports', 'Settings'];
+                                    foreach($modules as $mod): 
+                                    ?>
+                                    <tr>
+                                        <td><?= $mod ?></td>
+                                        <td><input type="checkbox" class="role-check" checked></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                        <td><input type="checkbox" class="role-check"></td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                </form>
+            </div>
+            
+            <div class="modal-footer">
+                <button class="btn" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" id="saveModalBtn">Save Employee</button>
             </div>
         </div>
     </div>
@@ -360,7 +518,6 @@ include '../header.php';
             weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         });
 
-        // Department → Manager mapping
         const departmentManagers = {
             "Development Team": ["Sarah Chen", "David Kim", "Marcus Vane"],
             "Sales": ["Richard Hendricks", "Gavin Belson", "Jian Yang"],
@@ -369,52 +526,26 @@ include '../header.php';
             "Human Resources": ["Janet Levin", "Michael Scott"]
         };
 
-        function updateManagerOptions() {
-            const dept = document.getElementById('empDept').value;
-            const mgrSelect = document.getElementById('empManager');
-
+        // Populate Manager dropdown for the Modal
+        function updateModalManager() {
+            const dept = document.getElementById('modDept').value;
+            const mgrSelect = document.getElementById('modManager');
             mgrSelect.innerHTML = '<option value="" disabled selected>Select Manager</option>';
             mgrSelect.disabled = !dept;
-
             if (dept && departmentManagers[dept]) {
                 departmentManagers[dept].forEach(mgr => {
-                    const opt = document.createElement('option');
-                    opt.value = mgr;
-                    opt.textContent = mgr;
-                    mgrSelect.appendChild(opt);
+                    mgrSelect.insertAdjacentHTML('beforeend', `<option value="${mgr}">${mgr}</option>`);
                 });
             }
         }
 
-        const form = document.getElementById('onboardingForm');
         const list = document.getElementById('onboardingList');
         const empty = document.getElementById('emptyState');
-        const totalEl = document.getElementById('totalCount');
-        const progressEl = document.getElementById('inProgressCount');
-        const completedEl = document.getElementById('completedCount');
 
-        // Initial stats from loaded cards
-        updateStats();
-
-        form.addEventListener('submit', e => {
-            e.preventDefault();
-
-            const id      = document.getElementById('empId').value.trim();
-            const name    = document.getElementById('empName').value.trim();
-            const dept    = document.getElementById('empDept').value;
-            const manager = document.getElementById('empManager').value;
-            const role    = document.getElementById('empRole').value.trim();
-            const salary  = document.getElementById('empSalary').value.trim();
-            const date    = document.getElementById('empStartDate').value;
-
-            if (!id || !name || !dept || !manager || !role || !salary || !date) {
-                showToast("Please fill all required fields", "error");
-                return;
-            }
-
+        // Render Card HTML to List
+        function appendEmployeeCard(id, name, dept, manager, role, salary, date) {
             const seed = Math.random().toString(36).substring(7);
             const avatar = `https://i.pravatar.cc/150?u=${seed}`;
-
             const salaryDisplay = salary ? `₹${Number(salary).toLocaleString('en-IN')}` : "—";
 
             const card = `
@@ -427,10 +558,10 @@ include '../header.php';
                             <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded border">${id}</span>
                         </h4>
                         <div class="text-sm text-gray-600 mt-1">
-                            <span class="font-medium text-teal-700">${role}</span> • ${dept}
+                            <span class="font-medium text-teal-700">${role}</span> • ${dept || 'N/A'}
                         </div>
                         <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                            <i class="fas fa-user-tie"></i> Mgr: ${manager}
+                            <i class="fas fa-user-tie"></i> Mgr: ${manager || 'Pending Assignment'}
                         </div>
                     </div>
                 </div>
@@ -470,16 +601,64 @@ include '../header.php';
             </div>`;
 
             list.insertAdjacentHTML('afterbegin', card);
-            form.reset();
-            document.getElementById('empManager').disabled = true;
-            document.getElementById('empManager').innerHTML = '<option value="" disabled selected>Select Department First</option>';
             
             // Reset filter to show new item
             document.querySelector('.filter-btn.active').click();
             updateStats();
-            showToast(`Onboarding initiated for ${name}`);
+        }
+
+        // ---------------- MODAL LOGIC ----------------
+        function openModal() {
+            document.getElementById('employeeModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('employeeModal').style.display = 'none';
+        }
+
+        function switchTab(btnElement, tabId) {
+            // Remove active classes
+            document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+            
+            // Add active classes
+            btnElement.classList.add('active');
+            document.getElementById(tabId).style.display = 'block';
+        }
+
+        // Modal Save Logic
+        document.getElementById('saveModalBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            
+            const fName = document.getElementById('modFName').value.trim();
+            const lName = document.getElementById('modLName').value.trim();
+            const id = document.getElementById('modEmpId').value.trim();
+            const date = document.getElementById('modJoinDate').value;
+            const role = document.getElementById('modDesig').value.trim();
+            const dept = document.getElementById('modDept').value;
+            const manager = document.getElementById('modManager').value;
+            const salary = document.getElementById('modSalary').value;
+
+            // Simple basic validation
+            if(!fName || !id || !date || !role) {
+                showToast("Please fill all required (*) fields in basic info", "error");
+                switchTab(document.querySelector('.tab-item'), 'tab-basic'); // Ensure basic tab is showing
+                return;
+            }
+
+            const fullName = lName ? `${fName} ${lName}` : fName;
+
+            appendEmployeeCard(id, fullName, dept, manager, role, salary, date);
+            
+            closeModal();
+            document.getElementById('empFormDetailed').reset();
+            document.getElementById('modManager').disabled = true;
+            document.getElementById('modManager').innerHTML = '<option value="">Select Department First</option>';
+            
+            showToast(`Employee ${fullName} successfully added`);
         });
 
+        // ---------------- UTILITIES ----------------
         function filterPipeline(status, btn) {
             document.querySelectorAll('.filter-btn').forEach(b => {
                 b.classList.remove('active', 'bg-teal-700', 'text-white', 'border-teal-700');
@@ -503,9 +682,9 @@ include '../header.php';
                 else if (s === 'In Progress') progress++;
             });
 
-            totalEl.textContent = total;
-            progressEl.textContent = progress;
-            completedEl.textContent = completed;
+            document.getElementById('totalCount').textContent = total;
+            document.getElementById('inProgressCount').textContent = progress;
+            document.getElementById('completedCount').textContent = completed;
 
             empty.classList.toggle('hidden', total > 0);
         }
@@ -549,7 +728,7 @@ include '../header.php';
             setTimeout(() => toast.classList.add('translate-y-24', 'opacity-0'), 3400);
         }
 
-        // Initial stats
+        // Initialize view
         updateStats();
     </script>
 </body>
