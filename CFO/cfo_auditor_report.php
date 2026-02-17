@@ -1,66 +1,56 @@
-<?php
-// cfo_dashboard.php
+<?php 
+// auditor_reports.php
+
+// --- 1. INCLUDE COMMON FILES ---
 include '../sidebars.php'; 
 include '../header.php';
 
-// --- 1. FILTER LOGIC ---
-$selected_month = $_GET['month'] ?? date('m');
-$selected_year = $_GET['year'] ?? date('Y');
-
-$months = [
-    '01' => 'January', '02' => 'February', '03' => 'March', '04' => 'April',
-    '05' => 'May', '06' => 'June', '07' => 'July', '08' => 'August',
-    '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
-];
-
-// --- 2. MOCK DATA (Simulating dynamic changes based on filter) ---
-$multiplier = ($selected_month == date('m')) ? 1 : ($selected_month % 3 + 0.8); 
-
-$kpi = [
-    'total_income' => 1250000 * $multiplier,
-    'total_expense' => 450000 * $multiplier,
-    'net_profit' => (1250000 - 450000) * $multiplier,
-    'pending_invoices' => 125000 * $multiplier,
+// --- 2. MOCK DATA GENERATION --- (Matching Accountant Reports)
+ $kpi = [
+    'total_income' => 1250000,
+    'total_expense' => 450000,
+    'net_profit' => 800000,
+    'pending_invoices' => 125000,
     'active_employees' => 24,
     'total_clients' => 12
 ];
 
-$chart_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-$chart_income = [200000, 450000, 300000, 500000, 400000, 600000];
-$chart_expense = [100000, 150000, 120000, 200000, 180000, 250000];
+ $chart_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
+ $chart_income = [200000, 450000, 300000, 500000, 400000, 600000];
+ $chart_expense = [100000, 150000, 120000, 200000, 180000, 250000];
 
-$mock_clients = [
+ $mock_clients = [
     ['name' => 'Facebook India', 'gst' => '29AAACF...', 'loc' => 'Bangalore', 'mob' => '9876543210', 'total' => 450000],
     ['name' => 'Google India', 'gst' => '29GGGGG...', 'loc' => 'Hyderabad', 'mob' => '9123456780', 'total' => 1250000],
     ['name' => 'Neoera Infotech', 'gst' => '33AAAA...', 'loc' => 'Coimbatore', 'mob' => '9988776655', 'total' => 85000],
 ];
 
-$mock_employees = [
+ $mock_employees = [
     ['id' => 'EMP001', 'name' => 'Rajesh Kumar', 'dept' => 'Management', 'desig' => 'CEO', 'type' => 'Permanent', 'doj' => '2023-01-15'],
     ['id' => 'EMP002', 'name' => 'Vasanth Bro', 'dept' => 'IT', 'desig' => 'Team Lead', 'type' => 'Permanent', 'doj' => '2023-02-20'],
 ];
 
-$mock_salary = [
+ $mock_salary = [
     ['month' => 'Jan 2026', 'id' => 'EMP001', 'name' => 'Rajesh Kumar', 'basic' => 50000, 'hra' => 20000, 'deduct' => 5000, 'net' => 65000, 'status' => 'Paid'],
     ['month' => 'Jan 2026', 'id' => 'EMP002', 'name' => 'Vasanth Bro', 'basic' => 40000, 'hra' => 15000, 'deduct' => 3000, 'net' => 52000, 'status' => 'Paid'],
 ];
 
-$mock_yearly = [
+ $mock_yearly = [
     ['id' => 'EMP001', 'name' => 'Rajesh Kumar', 'year' => '2025-26', 'months' => 10, 'gross' => 650000],
     ['id' => 'EMP002', 'name' => 'Vasanth Bro', 'year' => '2025-26', 'months' => 10, 'gross' => 520000],
 ];
 
-$mock_ledger = [
+ $mock_ledger = [
     ['date' => '2026-02-10', 'type' => 'Income', 'cat' => 'Project', 'party' => 'Facebook India', 'desc' => 'Milestone 1', 'amount' => 500000, 'mode' => 'Credit'],
     ['date' => '2026-02-09', 'type' => 'Expense', 'cat' => 'Ops', 'party' => 'Office Rent', 'desc' => 'Feb Rent', 'amount' => 45000, 'mode' => 'Debit'],
 ];
 
-$mock_po = [
+ $mock_po = [
     ['no' => 'PO-001', 'vendor' => 'Dell Computers', 'date' => '2026-01-10', 'grand' => 120000, 'paid' => 120000, 'bal' => 0],
     ['no' => 'PO-002', 'vendor' => 'Stationery World', 'date' => '2026-02-01', 'grand' => 5000, 'paid' => 0, 'bal' => 5000],
 ];
 
-$mock_invoices = [
+ $mock_invoices = [
     ['no' => 'INV-001', 'client' => 'Facebook', 'date' => '2026-01-20', 'total' => 47200, 'status' => 'Paid'],
     ['no' => 'INV-002', 'client' => 'Neoera', 'date' => '2026-02-02', 'total' => 11800, 'status' => 'Unpaid'],
 ];
@@ -71,7 +61,7 @@ $mock_invoices = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Management Reports - Workack</title>
+    <title>Auditor Reports - Workack</title>
     
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -93,7 +83,7 @@ $mock_invoices = [
         }
 
         body { background: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); margin: 0; padding: 0; }
-        .main-content { margin-left: var(--sidebar-width); padding: 30px; width: calc(100% - var(--sidebar-width)); box-sizing: border-box; }
+        .main-content { margin-left: var(--sidebar-width); padding: 30px; width: calc(100% - var(--sidebar-width)); }
 
         /* KPI Cards */
         .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
@@ -121,24 +111,9 @@ $mock_invoices = [
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        /* --- FIX: Charts Section --- */
+        /* Charts Section */
         .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .chart-container { 
-            background: white; 
-            padding: 20px; 
-            border-radius: 12px; 
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03); 
-            height: 350px; 
-            display: flex; 
-            flex-direction: column; /* Force flex column so children fit properly */
-        }
-        /* Wrapper to strictly contain the canvas */
-        .canvas-wrapper {
-            position: relative;
-            flex-grow: 1;
-            min-height: 0; /* Required to prevent flex overflow */
-            width: 100%;
-        }
+        .chart-container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); height: 320px; }
 
         /* Table Styling */
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -158,10 +133,7 @@ $mock_invoices = [
             display: flex; align-items: center; gap: 6px; float: right; margin-bottom: 15px;
         }
 
-        @media (max-width: 768px) { 
-            .main-content { margin-left: 0; width: 100%; padding: 15px; } 
-            .charts-row { grid-template-columns: 1fr; } 
-        }
+        @media (max-width: 768px) { .main-content { margin-left: 0; width: 100%; } .charts-row { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -169,10 +141,10 @@ $mock_invoices = [
 <main class="main-content">
     <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
         <div>
-            <h2 style="color: var(--theme-color); font-weight: 700; margin: 0;">Financial Intelligence</h2>
-            <p style="color: var(--text-light); font-size: 13px; margin: 5px 0 0 0;">Executive Overview & Overall Growth</p>
+            <h2 style="color: var(--theme-color); font-weight: 700; margin: 0;">Auditor & Transaction Reports</h2>
+            <p style="color: var(--text-light); font-size: 13px;">Complete transaction logs, ledger entries, and master data verification.</p>
         </div>
-        <button class="btn-export-excel" onclick="exportFullReport()" style="background: var(--theme-color); float: none; margin: 0;">
+        <button class="btn-export-excel" onclick="exportFullReport()" style="background: var(--theme-color);">
             <i class="ph ph-file-arrow-down"></i> Export All Data
         </button>
     </div>
@@ -198,22 +170,18 @@ $mock_invoices = [
 
     <div class="charts-row">
         <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px; color: var(--text-main);"><i class="ph ph-chart-bar"></i> Income vs Expense Trend</div>
-            <div class="canvas-wrapper">
-                <canvas id="financeChart"></canvas>
-            </div>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px;"><i class="ph ph-chart-bar"></i> Income vs Expense Trend</div>
+            <canvas id="financeChart"></canvas>
         </div>
         <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px; color: var(--text-main);"><i class="ph ph-chart-pie"></i> Payment Status</div>
-            <div class="canvas-wrapper">
-                <canvas id="invoiceChart"></canvas>
-            </div>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px;"><i class="ph ph-chart-pie"></i> Payment Status</div>
+            <canvas id="invoiceChart"></canvas>
         </div>
     </div>
 
     <div class="drill-down-container">
         <div style="padding: 15px 20px; font-weight: 800; color: var(--theme-color); border-bottom: 1px solid #eee;">
-            | Departmental Drill-Down
+            | Transaction Drill-Down
         </div>
         <div class="tab-nav">
             <button class="tab-btn active" onclick="openTab(event, 'clients')">Client Master</button>
@@ -311,28 +279,18 @@ $mock_invoices = [
         evt.currentTarget.className += " active";
     }
 
-    // Charting
+    // Charting (Preserved)
     const ctxFinance = document.getElementById('financeChart').getContext('2d');
     new Chart(ctxFinance, {
         type: 'bar',
         data: {
             labels: <?php echo json_encode($chart_months); ?>,
             datasets: [
-                { label: 'Income', data: <?php echo json_encode($chart_income); ?>, backgroundColor: '#059669', borderRadius: 4 },
-                { label: 'Expenses', data: <?php echo json_encode($chart_expense); ?>, backgroundColor: '#dc2626', borderRadius: 4 }
+                { label: 'Income', data: <?php echo json_encode($chart_income); ?>, backgroundColor: '#059669' },
+                { label: 'Expenses', data: <?php echo json_encode($chart_expense); ?>, backgroundColor: '#dc2626' }
             ]
         },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true, grid: { borderDash: [2, 2] } },
-                x: { grid: { display: false } }
-            },
-            plugins: {
-                legend: { position: 'top', align: 'end' }
-            }
-        }
+        options: { responsive: true, maintainAspectRatio: false }
     });
 
     const ctxInvoice = document.getElementById('invoiceChart').getContext('2d');
@@ -340,19 +298,12 @@ $mock_invoices = [
         type: 'doughnut',
         data: {
             labels: ['Paid', 'Unpaid', 'Pending'],
-            datasets: [{ data: [65, 20, 15], backgroundColor: ['#059669', '#dc2626', '#d97706'], borderWidth: 0 }]
+            datasets: [{ data: [65, 20, 15], backgroundColor: ['#059669', '#dc2626', '#d97706'] }]
         },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            cutout: '70%',
-            plugins: {
-                legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } }
-            }
-        }
+        options: { responsive: true, maintainAspectRatio: false }
     });
 
-    // Excel Logic
+    // Excel Logic (Preserved)
     function exportTable(tableId, filename) {
         const table = document.getElementById(tableId);
         const wb = XLSX.utils.table_to_book(table, {sheet: "Report"});
@@ -365,7 +316,7 @@ $mock_invoices = [
         XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableEmployees')), "Employees");
         XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableSalary')), "Salary");
         XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableLedger')), "Ledger");
-        XLSX.writeFile(wb, "Executive_Financial_Report.xlsx");
+        XLSX.writeFile(wb, "Auditor_Full_Report.xlsx");
     }
 </script>
 

@@ -19,7 +19,7 @@ $current_view = $_GET['view'] ?? '';
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
 // Added 'hr_executive' to ensure paths correctly use '../' to go to root.
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr'])) {
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo'])) {
     $base = '../';
 } else {
     $base = '';
@@ -33,7 +33,7 @@ $sections = [
             // --- DASHBOARDS ---
             [
                 'name' => 'Dashboard', 
-                'path' => $base . 'manager_dashboard.php', 
+                'path' => $base . 'manager/manager_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Manager'] 
             ],
@@ -91,7 +91,7 @@ $sections = [
                 'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO']
             ],
 
             // --- EMPLOYEE DETAILS ---
@@ -261,7 +261,7 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive']
+                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO']
             ],
 
             // --- TICKETS ---
@@ -286,15 +286,37 @@ $sections = [
             [
                 'name' => 'Payslip <br>Management', 
                 'icon' => 'file-text', 
-                'allowed' => ['HR', 'System Admin', 'Accounts', 'Team Lead', 'Employee', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
+                'allowed' => ['Accounts'],
                 'subItems' => [
-                    ['name' => 'Generate Payslip', 'path' => $base . 'payslip_management.php?view=generate', 'icon' => 'plus-circle'],
-                    ['name' => 'Pending Approvals', 'path' => $base . 'payslip_management.php?view=approvals', 'icon' => 'clock'],
-                    ['name' => 'All Payslips', 'path' => $base . 'payslip_management.php?view=history', 'icon' => 'files'],
+                    ['name' => 'Generate Payslip', 'path' => $base . 'Accounts/payslip_management.php?view=generate', 'icon' => 'plus-circle'],
+                    ['name' => 'Pending Approvals', 'path' => $base . 'Accounts/payslip_management.php?view=approvals', 'icon' => 'clock'],
+                    ['name' => 'All Payslips', 'path' => $base . 'Accounts/payslip_management.php?view=history', 'icon' => 'files'],
                 ]
             ],
         ]
     ],
+    [
+    'label' => 'Payslip Request', // FIX: Added separate section for Employee Payslip Request
+    'items' => [
+        [
+            'name' => 'Request Payslip', 
+            'path' => $base . 'payslip_request.php', 
+            'icon' => 'file-text', 
+            'allowed' => [
+                'System Admin', 
+                'HR', 
+                'Manager', 
+                'Team Lead', 
+                'Employee', 
+                'IT Admin', 
+                'IT Executive', 
+                'HR Executive',
+                'CFO'
+            ]
+        ],
+        
+    ]
+],
     [
         'label' => 'Accounts',
         'items' => [
@@ -312,7 +334,30 @@ $sections = [
             ],
         ]
     ],
-
+    [
+        'label' => 'CFO Management',
+        'items' => [
+            [
+                'name' => 'Approvals',
+                'path' => $base . 'CFO/cfo_approvals.php',
+                'icon' => 'check-square', // Icon for Approvals
+                'allowed' => ['CFO', 'System Admin']
+            ],
+            [
+                'name' => 'Financials',
+                'path' => $base . 'CFO/cfo_financials.php',
+                'icon' => 'trending-up', // Icon for Financials
+                'allowed' => ['CFO', 'System Admin']
+            ],
+            [
+                'name' => 'Payroll Review',
+                'path' => $base . 'CFO/cfo_payroll.php',
+                'icon' => 'banknote', // Icon for Payroll
+                'allowed' => ['CFO', 'System Admin']
+            ],
+        ]
+    ],
+    
     [
         'label' => 'Support & Tools',
         'items' => [
@@ -320,13 +365,13 @@ $sections = [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO']
             ],
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO']
             ],
         ]
     ]

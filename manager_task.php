@@ -182,7 +182,7 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
                             <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Assign To <span class="text-red-500">*</span></label>
                             <div class="relative">
                                 <select id="assignedId" required class="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary focus:bg-white transition-all">
-                                    <option value="">Choose Person</option>
+                                    <option value="">Choose Teamlead</option>
                                     <option value="Ragul Kumar (TL)">Ragul Kumar</option>
                                     <option value="Vasanth (HR)">Vasanth</option>
                                     <option value="Suresh Babu (Employee)">Suresh Babu</option>

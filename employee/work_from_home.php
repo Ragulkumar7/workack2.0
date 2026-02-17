@@ -2,21 +2,63 @@
 // 1. SESSION START & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 2. ROBUST SIDEBAR INCLUDE
-$sidebarPath = __DIR__ . '/../sidebars.php'; 
-if (!file_exists($sidebarPath)) {
-    $sidebarPath = 'sidebars.php'; 
+// --- FIXED PATHS FOR YOUR ENVIRONMENT ---
+$db_connect_path = 'C:\xampp\htdocs\workack2.0\include\db_connect.php';
+$sidebar_path    = 'C:\xampp\htdocs\workack2.0\sidebars.php';
+$header_path     = 'C:\xampp\htdocs\workack2.0\header.php';
+
+// Include DB
+if (file_exists($db_connect_path)) {
+    include_once($db_connect_path);
+} else {
+    die("Error: db_connect.php not found at " . htmlspecialchars($db_connect_path));
 }
 
 // 3. CHECK LOGIN
-if (!isset($_SESSION['user_id'])) { 
+if (!isset($_SESSION['id']) && !isset($_SESSION['user_id'])) { 
     header("Location: ../index.php"); 
     exit(); 
 }
+$current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : $_SESSION['user_id'];
 
-// Get User Data for the form
-$user_name = $_SESSION['username'] ?? 'Employee';
-$user_role = $_SESSION['role'] ?? 'Staff';
+// --- HANDLE FORM SUBMISSION ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_wfh'])) {
+    $shift = mysqli_real_escape_string($conn, $_POST['shift']);
+    $start_date = mysqli_real_escape_string($conn, $_POST['start_date']);
+    $end_date = mysqli_real_escape_string($conn, $_POST['end_date']);
+    $reason = mysqli_real_escape_string($conn, $_POST['reason']);
+
+    $sql = "INSERT INTO wfh_requests (user_id, start_date, end_date, shift, reason, status) VALUES (?, ?, ?, ?, ?, 'Pending')";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("issss", $current_user_id, $start_date, $end_date, $shift, $reason);
+    
+    if ($stmt->execute()) {
+        header("Location: " . $_SERVER['PHP_SELF'] . "?success=1");
+        exit();
+    }
+}
+
+// --- FETCH STATS ---
+// Pending Count
+$res_pending = $conn->query("SELECT COUNT(*) as total FROM wfh_requests WHERE user_id = $current_user_id AND status = 'Pending'");
+$pending_count = $res_pending->fetch_assoc()['total'];
+
+// Days Used this month
+$res_used = $conn->query("SELECT SUM(DATEDIFF(end_date, start_date) + 1) as total FROM wfh_requests WHERE user_id = $current_user_id AND status = 'Approved' AND MONTH(start_date) = MONTH(CURRENT_DATE())");
+$days_used = $res_used->fetch_assoc()['total'] ?? 0;
+
+// --- FETCH HISTORY ---
+$history = [];
+$res_history = $conn->query("SELECT * FROM wfh_requests WHERE user_id = $current_user_id ORDER BY applied_date DESC");
+while($row = $res_history->fetch_assoc()) {
+    $history[] = $row;
+}
+
+// Get User Profile Info
+$res_profile = $conn->query("SELECT full_name, designation FROM employee_profiles WHERE user_id = $current_user_id");
+$profile = $res_profile->fetch_assoc();
+$user_name = $profile['full_name'] ?? ($_SESSION['username'] ?? 'Employee');
+$user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
 ?>
 
 <!DOCTYPE html>
@@ -48,7 +90,7 @@ $user_role = $_SESSION['role'] ?? 'Staff';
         }
 
         .main-content {
-            margin-left: var(--primary-sidebar-width, 95px);
+            margin-left: 95px;
             padding: 24px 32px;
             min-height: 100vh;
             transition: all 0.3s ease;
@@ -94,7 +136,6 @@ $user_role = $_SESSION['role'] ?? 'Staff';
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .card-title { font-size: 16px; font-weight: 700; color: #111827; }
 
-        /* Filters */
         .filters-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
         .filter-item {
             display: flex; align-items: center; border: 1px solid var(--border);
@@ -109,9 +150,9 @@ $user_role = $_SESSION['role'] ?? 'Staff';
         td { font-size: 13px; padding: 16px; border-bottom: 1px solid #f3f4f6; }
         
         .status-badge { padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-        .status-approved { background: #dcfce7; color: #166534; }
-        .status-pending { background: #dbeafe; color: #1e40af; }
-        .status-rejected { background: #fee2e2; color: #991b1b; }
+        .status-Approved { background: #dcfce7; color: #166534; }
+        .status-Pending { background: #dbeafe; color: #1e40af; }
+        .status-Rejected { background: #fee2e2; color: #991b1b; }
 
         /* --- MODAL --- */
         .modal-overlay {
@@ -135,8 +176,8 @@ $user_role = $_SESSION['role'] ?? 'Staff';
 </head>
 <body>
 
-    <?php include($sidebarPath); ?>
-    <?php include('../header.php'); ?>
+    <?php include($sidebar_path); ?>
+    <?php include($header_path); ?>
 
     <div class="main-content">
         
@@ -166,12 +207,12 @@ $user_role = $_SESSION['role'] ?? 'Staff';
             </div>
             <div class="stat-card">
                 <div class="stat-title">Used This Month</div>
-                <div class="stat-value">01 Day</div>
+                <div class="stat-value"><?= sprintf("%02d", $days_used) ?> Days</div>
                 <i data-lucide="check-circle" class="stat-icon"></i>
             </div>
             <div class="stat-card">
                 <div class="stat-title">Pending Requests</div>
-                <div class="stat-value">01</div>
+                <div class="stat-value"><?= sprintf("%02d", $pending_count) ?></div>
                 <i data-lucide="clock" class="stat-icon"></i>
             </div>
         </div>
@@ -209,22 +250,19 @@ $user_role = $_SESSION['role'] ?? 'Staff';
                         </tr>
                     </thead>
                     <tbody>
+                        <?php foreach($history as $row): ?>
                         <tr>
-                            <td>20 Jan 2026</td>
-                            <td>24 Jan 2025</td>
-                            <td>Night</td>
-                            <td>Power outage in my area</td>
-                            <td>Sarah Manager</td>
-                            <td><span class="status-badge status-approved">Approved</span></td>
+                            <td><?= date('d M Y', strtotime($row['applied_date'])) ?></td>
+                            <td><?= date('d M Y', strtotime($row['start_date'])) ?> to <?= date('d M Y', strtotime($row['end_date'])) ?></td>
+                            <td><?= $row['shift'] ?></td>
+                            <td><?= htmlspecialchars($row['reason']) ?></td>
+                            <td><?= htmlspecialchars($row['reviewer_name']) ?></td>
+                            <td><span class="status-badge status-<?= $row['status'] ?>"><?= $row['status'] ?></span></td>
                         </tr>
-                        <tr>
-                            <td>01 Feb 2026</td>
-                            <td>02 Feb 2025</td>
-                            <td>Regular</td>
-                            <td>Internet maintenance</td>
-                            <td>Admin Team</td>
-                            <td><span class="status-badge status-pending">Pending</span></td>
-                        </tr>
+                        <?php endforeach; ?>
+                        <?php if(empty($history)): ?>
+                            <tr><td colspan="6" style="text-align:center; color:#9ca3af;">No WFH requests found.</td></tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -238,7 +276,8 @@ $user_role = $_SESSION['role'] ?? 'Staff';
                 <i data-lucide="x" style="cursor:pointer;" onclick="closeModal()"></i>
             </div>
             <div class="modal-body">
-                <form id="wfhForm">
+                <form id="wfhForm" method="POST">
+                    <input type="hidden" name="submit_wfh" value="1">
                     <div class="form-group">
                         <label>Employee Name</label>
                         <input type="text" class="form-control" value="<?= htmlspecialchars($user_name) ?>" readonly style="background:#f9fafb;">
@@ -251,33 +290,33 @@ $user_role = $_SESSION['role'] ?? 'Staff';
 
                     <div class="form-group">
                         <label>Shift <span style="color:red;">*</span></label>
-                        <select class="form-control" required>
+                        <select name="shift" class="form-control" required>
                             <option value="">Select Shift</option>
-                            <option>Regular</option>
-                            <option>Night</option>
+                            <option value="Regular">Regular</option>
+                            <option value="Night">Night</option>
                         </select>
                     </div>
 
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px;">
                         <div class="form-group">
                             <label>Start Date <span style="color:red;">*</span></label>
-                            <input type="date" class="form-control" required>
+                            <input type="date" name="start_date" class="form-control" required>
                         </div>
                         <div class="form-group">
                             <label>End Date <span style="color:red;">*</span></label>
-                            <input type="date" class="form-control" required>
+                            <input type="date" name="end_date" class="form-control" required>
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label>Reviewer/Reason <span style="color:red;">*</span></label>
-                        <textarea class="form-control" rows="3" placeholder="Explain the reason for WFH request..." required></textarea>
+                        <label>Reason <span style="color:red;">*</span></label>
+                        <textarea name="reason" class="form-control" rows="3" placeholder="Explain the reason for WFH request..." required></textarea>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Submit Request</button>
                     </div>
                 </form>
-            </div>
-            <div class="modal-footer">
-                <button class="btn" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="submitRequest()">Submit Request</button>
             </div>
         </div>
     </div>
@@ -302,11 +341,6 @@ $user_role = $_SESSION['role'] ?? 'Staff';
 
                 tr[i].style.display = (matchesSearch && matchesStatus) ? "" : "none";
             }
-        }
-
-        function submitRequest() {
-            alert("Your WFH request has been submitted to your manager for review.");
-            closeModal();
         }
     </script>
 </body>
