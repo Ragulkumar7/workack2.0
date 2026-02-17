@@ -14,14 +14,13 @@ $months = [
 ];
 
 // --- 2. MOCK DATA (Simulating dynamic changes based on filter) ---
-// In production, you would run SQL queries here using $selected_month and $selected_year
-$multiplier = ($selected_month == date('m')) ? 1 : ($selected_month % 3 + 0.8); // Just to make numbers change for the demo
+$multiplier = ($selected_month == date('m')) ? 1 : ($selected_month % 3 + 0.8); 
 
 $kpi = [
     'income' => 1250000 * $multiplier,
     'expense' => 450000 * $multiplier,
     'profit' => (1250000 - 450000) * $multiplier,
-    'ar' => 380000 * $multiplier, // Accounts Receivable
+    'ar' => 380000 * $multiplier, 
 ];
 
 $recent_invoices = [
@@ -41,10 +40,11 @@ $recent_pos = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CFO Executive Dashboard - Workack</title>
+    <title>CFO Executive Dashboard - Neoera</title>
     
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
     <style>
@@ -110,32 +110,61 @@ $recent_pos = [
         .st-overdue { background: #fee2e2; color: #b91c1c; }
 
         /* =========================================================
-           ATTENDANCE WIDGET STYLES (Preserved Exactly)
+           NEW ATTENDANCE WIDGET STYLES (Pure CSS Translation)
            ========================================================= */
-        .att-widget-container { display: flex; flex-direction: column; align-items: center; padding: 10px 0; }
-        .att-title { font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-        .att-datetime { font-size: 18px; font-weight: 800; color: #1e293b; margin-bottom: 25px; }
+        .punch-card {
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            width: 100%;
+            padding: 30px 20px;
+            text-align: center;
+            border: 1px solid #edf2f7;
+            font-family: 'Inter', sans-serif;
+        }
 
-        .circle-container { position: relative; width: 170px; height: 170px; margin-bottom: 20px; }
-        .circle-svg { transform: rotate(-90deg); width: 100%; height: 100%; }
-        .circle-bg { fill: none; stroke: #f1f5f9; stroke-width: 14; }
-        .circle-progress { fill: none; stroke: #0d9488; stroke-width: 14; stroke-linecap: round; stroke-dasharray: 440; stroke-dashoffset: 440; transition: stroke-dashoffset 1s linear; }
-        
-        .circle-inner { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
-        .circle-inner-label { font-size: 10px; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-        .circle-inner-time { font-size: 26px; font-weight: 800; color: #1e293b; font-variant-numeric: tabular-nums; }
+        .punch-card p.subtitle { color: #64748b; font-weight: 500; font-size: 14px; margin: 0; }
+        .punch-card h2.clock-time { font-size: 30px; font-weight: 700; color: #1f2937; margin: 5px 0; }
+        .punch-card p.date-text { font-size: 12px; color: #9ca3af; font-weight: 500; margin: 0 0 25px 0; }
 
-        .att-status-badge { background: #ccfbf1; color: #0f766e; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px; transition: all 0.3s; }
-        .att-status-badge.off-duty { background: #f1f5f9; color: #64748b; }
-        
-        .punch-info { font-size: 13px; color: #64748b; display: flex; align-items: center; gap: 6px; margin-bottom: 20px; opacity: 0; transition: opacity 0.3s; }
-        .punch-info.visible { opacity: 1; }
+        .profile-ring-container {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background: conic-gradient(#10b981 0% 70%, #3b82f6 70% 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 25px auto;
+        }
 
-        .btn-punch { width: 100%; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 700; color: white; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 8px; transition: all 0.2s; }
-        .btn-punch-out { background-color: #f97316; box-shadow: 0 4px 12px rgba(249, 115, 22, 0.2); }
-        .btn-punch-out:hover { background-color: #ea580c; }
-        .btn-punch-in { background-color: #10b981; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2); }
-        .btn-punch-in:hover { background-color: #059669; }
+        .profile-ring-inner { width: 128px; height: 128px; background: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10; }
+        .profile-img { width: 115px; height: 115px; border-radius: 50%; object-fit: cover; }
+
+        .production-badge {
+            background-color: #f97316;
+            color: white;
+            display: inline-block;
+            padding: 8px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 5px rgba(249, 115, 22, 0.3);
+            transition: opacity 0.3s ease;
+        }
+
+        .status-display { display: flex; align-items: center; justify-content: center; gap: 8px; color: #475569; margin-bottom: 24px; font-weight: 500; font-size: 14px; }
+
+        .btn-punch-out { background-color: #111827; color: white; width: 100%; padding: 14px; border-radius: 8px; font-weight: 600; font-size: 16px; margin-bottom: 12px; transition: background 0.3s; border: none; cursor: pointer; }
+        .btn-punch-out:hover { background-color: #1f2937; }
+
+        .btn-break { background-color: white; color: #f97316; border: 1px solid #fed7aa; width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; font-size: 16px; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.3s; cursor: pointer; }
+        .btn-break:hover { background-color: #fff7ed; }
+
+        .btn-punch-in { background-color: #f97316; color: white; width: 100%; padding: 14px; border-radius: 8px; font-weight: 600; font-size: 16px; transition: background 0.3s; border: none; cursor: pointer; }
+        .btn-punch-in:hover { background-color: #ea580c; }
 
         @media (max-width: 1024px) { .dashboard-split { grid-template-columns: 1fr; } }
         @media (max-width: 768px) { .main-content { margin-left: 0 !important; width: 100% !important; padding: 15px; } .global-filter { width: 100%; justify-content: center; } }
@@ -198,35 +227,31 @@ $recent_pos = [
             </div>
         </div>
 
-        <div class="dashboard-card">
-            <div class="att-widget-container">
-                <div class="att-title">TODAY'S ATTENDANCE</div>
-                <div class="att-datetime" id="liveDateTime">Loading...</div>
+        <div style="display: flex; align-items: stretch;">
+            <div class="punch-card">
+                <div style="margin-bottom: 24px;">
+                    <p class="subtitle">Good Morning, CFO</p>
+                    <h2 class="clock-time" id="liveClock">00:00 AM</h2>
+                    <p class="date-text" id="liveDate">-- --- ----</p>
+                </div>
 
-                <div class="circle-container">
-                    <svg class="circle-svg" viewBox="0 0 160 160">
-                        <circle class="circle-bg" cx="80" cy="80" r="70"></circle>
-                        <circle class="circle-progress" id="progressCircle" cx="80" cy="80" r="70"></circle>
-                    </svg>
-                    <div class="circle-inner">
-                        <div class="circle-inner-label">TOTAL HOURS</div>
-                        <div class="circle-inner-time" id="timerDisplay">00:00:00</div>
+                <div class="profile-ring-container">
+                    <div class="profile-ring-inner">
+                        <img src="https://i.pravatar.cc/300?img=11" alt="Profile" class="profile-img">
                     </div>
                 </div>
 
-                <div class="att-status-badge off-duty" id="statusBadge">
-                    <i class="ph ph-clock" id="statusIcon"></i> <span id="statusText">Status: Off Duty</span>
+                <div class="production-badge" id="prodBadge">
+                    Production : <span id="productionTimer">0.00</span> hrs
                 </div>
 
-                <div class="punch-info" id="punchInfoDiv">
-                    <i class="ph ph-fingerprint" style="color: #f97316; font-size: 16px;"></i> 
-                    Punch In at <span id="punchInTimeDisplay">--:--</span>
+                <div class="status-display" id="statusDisplay">
+                    <i class="ph-fill ph-clock" style="color: #10b981; font-size: 16px;"></i>
+                    <span id="punchTimeText">Punch In at 04:12 pm</span>
                 </div>
 
-                <button id="mainPunchBtn" class="btn-punch btn-punch-in" onclick="togglePunch()">
-                    <i class="ph ph-sign-in" id="btnIcon"></i>
-                    <span id="btnText">Punch In</span>
-                </button>
+                <div id="actionButtons">
+                    </div>
             </div>
         </div>
     </div>
@@ -292,8 +317,7 @@ $recent_pos = [
 </main>
 
 <script>
-    // --- CHART LOGIC ---
-    // Simulating dynamic chart data based on the selected month/year
+    // --- 1. CHART LOGIC ---
     const ctx = document.getElementById('cashFlowChart').getContext('2d');
     new Chart(ctx, {
         type: 'bar',
@@ -311,105 +335,120 @@ $recent_pos = [
         }
     });
 
-    // --- ATTENDANCE LIVE CLOCK & DATE ---
-    function updateHeaderDateTime() {
+    // --- 2. LIVE CLOCK (Top of Punch Card) ---
+    function updateClock() {
         const now = new Date();
         let hours = now.getHours();
+        const minutes = String(now.getMinutes()).padStart(2, '0');
         const ampm = hours >= 12 ? 'PM' : 'AM';
+        
         hours = hours % 12;
         hours = hours ? hours : 12; 
-        const minutes = now.getMinutes().toString().padStart(2, '0');
+        hours = String(hours).padStart(2, '0');
+
+        document.getElementById('liveClock').textContent = `${hours}:${minutes} ${ampm}`;
         
-        const day = now.getDate().toString().padStart(2, '0');
-        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const month = monthNames[now.getMonth()];
-        const year = now.getFullYear();
-        
-        document.getElementById('liveDateTime').textContent = `${hours}:${minutes} ${ampm}, ${day} ${month} ${year}`;
+        const options = { day: 'numeric', month: 'short', year: 'numeric' };
+        document.getElementById('liveDate').textContent = now.toLocaleDateString('en-GB', options);
     }
-    setInterval(updateHeaderDateTime, 1000);
-    updateHeaderDateTime();
+    setInterval(updateClock, 1000);
+    updateClock();
 
-    // --- ATTENDANCE PUNCH IN / OUT LOGIC ---
-    let isPunchedIn = false; 
-    let punchInTimestamp = null;
-    let timerInterval = null;
-    const circleCircumference = 440; 
+    // --- 3. ATTENDANCE PUNCH IN / OUT LOGIC ---
+    let timerInterval;
+    let secondsElapsed = 0;
+    
+    // Initial State (Simulating "Already Punched In" like your screenshot)
+    let currentState = 'in'; 
+    let punchInTimeStr = "09:00 AM";
 
-    function togglePunch() {
-        const btn = document.getElementById('mainPunchBtn');
-        const btnIcon = document.getElementById('btnIcon');
-        const btnText = document.getElementById('btnText');
-        const statusBadge = document.getElementById('statusBadge');
-        const statusText = document.getElementById('statusText');
-        const punchInfoDiv = document.getElementById('punchInfoDiv');
-        const punchInTimeDisplay = document.getElementById('punchInTimeDisplay');
-        const progressCircle = document.getElementById('progressCircle');
-        
-        if (!isPunchedIn) {
-            // PUNCH IN
-            const now = new Date();
-            punchInTimestamp = now;
-            
-            let h = now.getHours();
-            let m = now.getMinutes().toString().padStart(2, '0');
-            let ampm = h >= 12 ? 'PM' : 'AM';
-            h = h % 12; h = h ? h : 12;
-            punchInTimeDisplay.textContent = `${h.toString().padStart(2, '0')}:${m} ${ampm}`;
-            
-            statusBadge.classList.remove('off-duty');
-            statusText.textContent = 'Status: On Duty';
-            punchInfoDiv.classList.add('visible');
-            
-            btn.classList.remove('btn-punch-in');
-            btn.classList.add('btn-punch-out');
-            btnIcon.classList.replace('ph-sign-in', 'ph-sign-out');
-            btnText.textContent = 'Punch Out';
-            isPunchedIn = true;
+    function updatePunchUI() {
+        const container = document.getElementById('actionButtons');
+        const statusDisplay = document.getElementById('statusDisplay');
+        const badge = document.getElementById('prodBadge');
 
-            timerInterval = setInterval(updateLiveTimer, 1000);
-            updateLiveTimer();
+        if (currentState === 'out') {
+            container.innerHTML = `
+                <button onclick="handlePunch('in')" class="btn-punch-in">
+                    Punch In
+                </button>`;
+            statusDisplay.innerHTML = `<i class="ph-fill ph-fingerprint" style="color: #9ca3af; font-size: 16px;"></i> Not Punched In`;
+            badge.style.opacity = '0.5';
 
-        } else {
-            // PUNCH OUT
-            if(confirm("Are you sure you want to punch out?")) {
-                clearInterval(timerInterval);
-                statusBadge.classList.add('off-duty');
-                statusText.textContent = 'Status: Off Duty';
-                punchInfoDiv.classList.remove('visible');
-                
-                btn.classList.remove('btn-punch-out');
-                btn.classList.add('btn-punch-in');
-                btnIcon.classList.replace('ph-sign-out', 'ph-sign-in');
-                btnText.textContent = 'Punch In';
-                isPunchedIn = false;
-            }
+        } else if (currentState === 'in') {
+            container.innerHTML = `
+                <button onclick="handlePunch('out')" class="btn-punch-out">
+                    Punch Out
+                </button>
+                <button onclick="toggleBreak()" class="btn-break">
+                    <i class="ph-bold ph-coffee"></i> Take a Break
+                </button>`;
+            statusDisplay.innerHTML = `<i class="ph-fill ph-clock" style="color: #10b981; font-size: 16px;"></i> Punch In at ${punchInTimeStr}`;
+            badge.style.opacity = '1';
+
+        } else if (currentState === 'break') {
+            container.innerHTML = `
+                <button onclick="toggleBreak()" class="btn-break" style="background:#fef3c7; color:#d97706; border-color:#d97706;">
+                    <i class="ph-fill ph-play"></i> Resume Work
+                </button>`;
+            statusDisplay.innerHTML = `<i class="ph-fill ph-coffee" style="color: #f97316; font-size: 16px;"></i> On Break`;
         }
     }
 
-    function updateLiveTimer() {
-        if (!punchInTimestamp) return;
+    function handlePunch(action) {
         const now = new Date();
-        const diffMs = now - punchInTimestamp;
-        
-        const diffHrs = Math.floor(diffMs / 3600000);
-        const diffMins = Math.floor((diffMs % 3600000) / 60000);
-        const diffSecs = Math.floor((diffMs % 60000) / 1000);
-        
-        document.getElementById('timerDisplay').textContent = 
-            `${diffHrs.toString().padStart(2, '0')}:` +
-            `${diffMins.toString().padStart(2, '0')}:` +
-            `${diffSecs.toString().padStart(2, '0')}`;
+        let hours = now.getHours();
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12; hours = hours ? hours : 12; 
+        const timeString = `${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
 
-        const workDaySeconds = 9 * 60 * 60; 
-        const totalElapsedSeconds = Math.floor(diffMs / 1000);
-        
-        let percentage = totalElapsedSeconds / workDaySeconds;
-        if (percentage > 1) percentage = 1;
-
-        const offset = circleCircumference - (percentage * circleCircumference);
-        document.getElementById('progressCircle').style.strokeDashoffset = offset;
+        if (action === 'in') {
+            currentState = 'in';
+            punchInTimeStr = timeString;
+            startTimer();
+        } else {
+            currentState = 'out';
+            stopTimer();
+            secondsElapsed = 0; // Reset for demo
+            updateTimerDisplay();
+        }
+        updatePunchUI();
     }
+
+    function toggleBreak() {
+        if (currentState === 'in') {
+            currentState = 'break';
+            stopTimer(); // Pause timer
+        } else {
+            currentState = 'in';
+            startTimer(); // Resume timer
+        }
+        updatePunchUI();
+    }
+
+    function startTimer() {
+        stopTimer();
+        timerInterval = setInterval(() => {
+            secondsElapsed++;
+            updateTimerDisplay();
+        }, 1000);
+    }
+
+    function stopTimer() {
+        clearInterval(timerInterval);
+    }
+
+    function updateTimerDisplay() {
+        // Convert seconds to decimal hours (e.g., 1.50 hrs)
+        const hours = (secondsElapsed / 3600).toFixed(2);
+        document.getElementById('productionTimer').textContent = hours;
+    }
+
+    // Initialize the Punch Card on page load
+    updatePunchUI();
+    startTimer(); // Start ticking immediately since default state is 'in'
+
 </script>
 
 </body>

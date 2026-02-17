@@ -19,7 +19,7 @@ $current_view = $_GET['view'] ?? '';
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
 // Added 'hr_executive' to ensure paths correctly use '../' to go to root.
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr'])) {
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo'])) {
     $base = '../';
 } else {
     $base = '';
@@ -33,7 +33,7 @@ $sections = [
             // --- DASHBOARDS ---
             [
                 'name' => 'Dashboard', 
-                'path' => $base . 'manager_dashboard.php', 
+                'path' => $base . 'manager/manager_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Manager'] 
             ],
@@ -286,15 +286,37 @@ $sections = [
             [
                 'name' => 'Payslip <br>Management', 
                 'icon' => 'file-text', 
-                'allowed' => ['HR', 'System Admin', 'Accounts', 'Team Lead', 'Employee', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
+                'allowed' => ['Accounts'],
                 'subItems' => [
-                    ['name' => 'Generate Payslip', 'path' => $base . 'payslip_management.php?view=generate', 'icon' => 'plus-circle'],
-                    ['name' => 'Pending Approvals', 'path' => $base . 'payslip_management.php?view=approvals', 'icon' => 'clock'],
-                    ['name' => 'All Payslips', 'path' => $base . 'payslip_management.php?view=history', 'icon' => 'files'],
+                    ['name' => 'Generate Payslip', 'path' => $base . 'Accounts/payslip_management.php?view=generate', 'icon' => 'plus-circle'],
+                    ['name' => 'Pending Approvals', 'path' => $base . 'Accounts/payslip_management.php?view=approvals', 'icon' => 'clock'],
+                    ['name' => 'All Payslips', 'path' => $base . 'Accounts/payslip_management.php?view=history', 'icon' => 'files'],
                 ]
             ],
         ]
     ],
+    [
+    'label' => 'Payslip Request', // FIX: Added separate section for Employee Payslip Request
+    'items' => [
+        [
+            'name' => 'Request Payslip', 
+            'path' => $base . 'payslip_request.php', 
+            'icon' => 'file-text', 
+            'allowed' => [
+                'System Admin', 
+                'HR', 
+                'Manager', 
+                'Team Lead', 
+                'Employee', 
+                'IT Admin', 
+                'IT Executive', 
+                'HR Executive',
+                'CFO'
+            ]
+        ],
+        
+    ]
+],
     [
         'label' => 'Accounts',
         'items' => [
