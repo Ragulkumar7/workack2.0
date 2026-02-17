@@ -95,7 +95,7 @@ $history_requests = [
 
         .action-btns { display: flex; gap: 8px; justify-content: flex-end; }
         .btn-sm { padding: 8px 12px; border-radius: 6px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s; }
-        .btn-view { background: #f1f5f9; color: var(--text-main); }
+        .btn-view { background: #f1f5f9; color: var(--text-main); border: 1px solid var(--border); }
         .btn-view:hover { background: #e2e8f0; }
         .btn-approve { background: var(--success); color: white; }
         .btn-approve:hover { background: #059669; }
@@ -103,13 +103,17 @@ $history_requests = [
         .btn-reject:hover { background: #dc2626; }
 
         /* Modals */
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; display: none; justify-content: center; align-items: center; padding: 20px; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; padding: 20px; }
         .modal-content { background: white; width: 100%; max-width: 500px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; }
-        .modal-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        
+        /* Preview Modal Sizing */
+        .preview-modal { max-width: 750px !important; width: 95%; max-height: 90vh; }
+        
+        .modal-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #f8fafc; }
         .modal-header h3 { margin: 0; font-size: 18px; color: var(--theme-color); }
         .close-modal { font-size: 20px; color: var(--text-muted); cursor: pointer; transition: 0.2s; }
         .close-modal:hover { color: var(--danger); }
-        .modal-body { padding: 20px; overflow-y: auto; max-height: 60vh; }
+        .modal-body { padding: 20px; overflow-y: auto; max-height: 70vh; }
         .modal-footer { padding: 15px 20px; border-top: 1px solid var(--border); background: #f8fafc; display: flex; justify-content: flex-end; gap: 10px; }
 
         .form-group { margin-bottom: 15px; }
@@ -122,6 +126,66 @@ $history_requests = [
         #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
         @keyframes fadein { from { bottom: 0; opacity: 0; } to { bottom: 30px; opacity: 1; } }
         @keyframes fadeout { from { bottom: 30px; opacity: 1; } to { bottom: 0; opacity: 0; } }
+
+        /* --- PERFECT SINGLE-PAGE PRINT STYLES --- */
+        @media print {
+            @page { 
+                size: A4 portrait;
+                margin: 0.5cm; 
+            } 
+            
+            html, body {
+                height: auto; 
+                margin: 0 !important; 
+                padding: 0 !important;
+                background: white !important;
+                overflow: visible !important;
+            }
+
+            /* Hide everything outside the modal */
+            body > *:not(#detailsModal) { 
+                display: none !important; 
+            }
+
+            /* Show ONLY the modal that contains the print area */
+            #detailsModal { 
+                display: block !important; 
+                position: absolute; 
+                left: 0; 
+                top: 0; 
+                width: 100%; 
+                background: white !important; 
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+
+            .modal-content { 
+                width: 100% !important; 
+                max-width: 100% !important; 
+                box-shadow: none !important; 
+                border: none !important; 
+                margin: 0 !important; 
+                padding: 0 !important; 
+            }
+
+            .modal-body { 
+                padding: 0 !important; 
+                max-height: none !important; 
+                overflow: visible !important; 
+            }
+
+            /* Hide modal UI elements */
+            .modal-header, .close-modal, .btn-print-action, .modal-footer { 
+                display: none !important; 
+            }
+
+            /* Force page breaks to avoid blank second page */
+            #printableArea {
+                page-break-after: avoid;
+                page-break-inside: avoid;
+                margin: 0 !important;
+            }
+        }
 
         @media (max-width: 768px) {
             .main-content { margin-left: 0; width: 100%; padding: 15px; }
@@ -136,7 +200,7 @@ $history_requests = [
     
     <div class="page-header">
         <h1>Maker-Checker: Approval Center</h1>
-        <p>Review and authorize financial requests submitted by the Accounts team.</p>
+        <p>Review, authorize, and physically print financial requests drafted by the Accounts team.</p>
     </div>
 
     <div class="summary-grid">
@@ -192,7 +256,7 @@ $history_requests = [
                         ?>
                         <tr id="row-<?= $req['id'] ?>">
                             <td>
-                                <a class="req-id" onclick="openDetailsModal('<?= $req['id'] ?>', '<?= $req['type'] ?>', '<?= $req['vendor_client'] ?>', '<?= number_format($req['amount']) ?>')">
+                                <a class="req-id" onclick="openDetailsModal('<?= $req['id'] ?>', '<?= $req['type'] ?>', '<?= $req['vendor_client'] ?>', '<?= $req['amount'] ?>')">
                                     <i class="ph <?= $icon ?>"></i> <?= $req['id'] ?>
                                 </a>
                                 <div style="font-size:11px; color:var(--text-muted); margin-top:4px;"><?= $req['type'] ?></div>
@@ -224,6 +288,7 @@ $history_requests = [
                             <th>Date Processed</th>
                             <th style="text-align: right;">Amount</th>
                             <th>Status</th>
+                            <th style="text-align: right;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="historyTableBody">
@@ -237,6 +302,13 @@ $history_requests = [
                             <td><?= $hist['date'] ?></td>
                             <td class="amount-col">₹<?= number_format($hist['amount']) ?></td>
                             <td><span class="status-badge <?= $badge ?>"><i class="ph <?= $icon ?>"></i> <?= $hist['status'] ?></span></td>
+                            <td style="text-align: right;" class="action-btns">
+                                <?php if($hist['status'] == 'Approved'): ?>
+                                <button class="btn-sm btn-view" onclick="printApprovedDocument('<?= $hist['id'] ?>', '<?= $hist['type'] ?>', '<?= $hist['vendor_client'] ?>', '<?= $hist['amount'] ?>', '<?= $hist['date'] ?>')" title="Print Document">
+                                    <i class="ph ph-printer"></i> Print
+                                </button>
+                                <?php endif; ?>
+                            </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -271,16 +343,18 @@ $history_requests = [
 </div>
 
 <div class="modal-overlay" id="detailsModal">
-    <div class="modal-content" style="max-width: 600px;">
+    <div class="modal-content preview-modal">
         <div class="modal-header">
-            <h3>Document Preview</h3>
-            <i class="ph ph-x close-modal" onclick="closeModal('detailsModal')"></i>
-        </div>
-        <div class="modal-body" id="detailsBody">
+            <h3 style="margin:0; color:var(--text-main);">Document Preview</h3>
+            <div style="display:flex; gap:10px; align-items:center;">
+                <button class="btn-approve btn-print-action" onclick="window.print()" style="border:none; padding: 10px 20px; border-radius: 8px; font-size:13px; font-weight:700; cursor: pointer; display: flex; align-items: center; gap: 5px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);">
+                    <i class="ph ph-printer"></i> Print Document
+                </button>
+                <i class="ph ph-x close-modal" onclick="closeModal('detailsModal')"></i>
             </div>
-        <div class="modal-footer">
-            <button class="btn-sm btn-view" onclick="closeModal('detailsModal')">Close Preview</button>
         </div>
+        <div class="modal-body" id="detailsBody" style="padding: 0;">
+            </div>
     </div>
 </div>
 
@@ -290,13 +364,9 @@ $history_requests = [
     // --- TAB SWITCHING ---
     function switchTab(evt, tabId) {
         const tabContents = document.getElementsByClassName("tab-content");
-        for (let i = 0; i < tabContents.length; i++) {
-            tabContents[i].classList.remove("active");
-        }
+        for (let i = 0; i < tabContents.length; i++) { tabContents[i].classList.remove("active"); }
         const tabBtns = document.getElementsByClassName("tab-btn");
-        for (let i = 0; i < tabBtns.length; i++) {
-            tabBtns[i].classList.remove("active");
-        }
+        for (let i = 0; i < tabBtns.length; i++) { tabBtns[i].classList.remove("active"); }
         document.getElementById(tabId).classList.add("active");
         evt.currentTarget.classList.add("active");
     }
@@ -304,32 +374,99 @@ $history_requests = [
     // --- MODAL HANDLING ---
     function closeModal(modalId) {
         document.getElementById(modalId).style.display = 'none';
-        document.getElementById('actionRemarks').value = ''; // Reset textarea
-    }
-
-    // Close on outside click
-    window.onclick = function(event) {
-        if (event.target.classList.contains('modal-overlay')) {
-            event.target.style.display = "none";
+        if(modalId === 'actionModal') {
+            document.getElementById('actionRemarks').value = ''; 
         }
     }
 
-    // --- VIEW DETAILS MODAL ---
+    // --- PRINT PREVIEW: FOR PENDING ITEMS ---
     function openDetailsModal(id, type, party, amount) {
+        const currentDate = new Date().toLocaleDateString('en-GB');
+        generatePrintLayout(id, type, party, amount, currentDate, "Pending CFO Approval", "#d97706");
+    }
+
+    // --- PRINT PREVIEW: FOR APPROVED ITEMS ---
+    function printApprovedDocument(id, type, party, amount, dateProcessed) {
+        generatePrintLayout(id, type, party, amount, dateProcessed, "APPROVED & AUTHORIZED", "#10b981");
+    }
+
+    // --- GENERATE PRINT LAYOUT (Optimized for Single Page Print) ---
+    function generatePrintLayout(id, type, party, amount, date, statusText, statusColor) {
         const body = document.getElementById('detailsBody');
+        const formattedAmt = parseFloat(amount).toLocaleString('en-IN', {minimumFractionDigits: 2});
+
+        // The structure inside #printableArea is optimized for A4 paper printing.
         body.innerHTML = `
-            <div style="background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px;">
-                <h4 style="margin: 0 0 10px 0; color: var(--theme-color); font-size:16px;">${type} Details</h4>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 13px;">
-                    <div><span style="color:var(--text-muted);">Request ID:</span> <br><strong>${id}</strong></div>
-                    <div><span style="color:var(--text-muted);">Party:</span> <br><strong>${party}</strong></div>
-                    <div><span style="color:var(--text-muted);">Requested Amount:</span> <br><strong style="color:var(--theme-color); font-size:15px;">₹${amount}</strong></div>
-                    <div><span style="color:var(--text-muted);">Status:</span> <br><span class="status-badge bg-pending">Pending CFO</span></div>
+            <div id="printableArea" style="padding: 20px 30px; background: white; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b;">
+                
+                <div style="display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid var(--theme-color); padding-bottom: 20px; margin-bottom: 30px;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <img src="../assets/neoera.png" alt="Neoera Logo" style="height: 55px; width: auto; object-fit: contain;">
+                        <div>
+                            <h2 style="margin: 0; color: #1e293b; font-size: 32px; font-weight: 800; letter-spacing: -0.5px; line-height: 1;">NEOERA</h2>
+                            <span style="color: var(--theme-color); font-weight: 700; font-size: 12px; letter-spacing: 1.5px;">INFOTECH</span>
+                        </div>
+                    </div>
+                    <div style="text-align: right;">
+                        <h1 style="margin: 0; font-size: 22px; color: var(--theme-color); text-transform: uppercase; letter-spacing: 1px;">${type}</h1>
+                        <p style="margin: 5px 0 0; font-weight: 700; color: #64748b; font-size: 14px;">Ref No: <span style="color: #1e293b;">${id}</span></p>
+                    </div>
+                </div>
+                
+                <div style="display: flex; justify-content: space-between; margin-bottom: 40px; font-size: 13px;">
+                    <div>
+                        <p style="font-weight: 700; font-size: 11px; color: #94a3b8; margin-bottom: 5px; text-transform: uppercase;">From:</p>
+                        <h3 style="margin: 0 0 4px; font-size: 16px; color: #1e293b;">Neoera Infotech</h3>
+                        <p style="margin: 0 0 2px; color: #64748b;">9/96 h, Post, Village Nagar</p>
+                        <p style="margin: 0 0 2px; color: #64748b;">Coimbatore, Tamil Nadu 641107</p>
+                        <p style="margin: 0; color: #64748b;">GSTIN: 33ABCDE1234F1Z5</p>
+                    </div>
+                    <div style="text-align: right;">
+                        <p style="font-weight: 700; font-size: 11px; color: #94a3b8; margin-bottom: 5px; text-transform: uppercase;">Requested For / Vendor:</p>
+                        <h3 style="margin: 0 0 8px; font-size: 16px; color: #1e293b;">${party}</h3>
+                        <p style="margin: 0 0 4px; font-size: 13px;"><strong>Date:</strong> ${date}</p>
+                        <p style="margin: 0; font-size: 13px;"><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: 700;">${statusText}</span></p>
+                    </div>
+                </div>
+
+                <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; border: 1px solid #e2e8f0;">
+                    <thead>
+                        <tr style="background: #f8fafc;">
+                            <th style="padding: 12px 15px; text-align: left; font-size: 11px; color: var(--text-muted); border-bottom: 2px solid var(--theme-color); text-transform: uppercase;">Description / Particulars</th>
+                            <th style="padding: 12px 15px; text-align: right; font-size: 11px; color: var(--text-muted); border-bottom: 2px solid var(--theme-color); text-transform: uppercase;">Amount (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 15px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #1e293b;">${type} processed for bank disbursal / ledger entry</td>
+                            <td style="padding: 15px; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 600; font-size: 14px; color: #1e293b;">${formattedAmt}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                
+                <div style="display: flex; justify-content: flex-end; margin-bottom: 60px;">
+                    <div style="width: 300px; background: #f8fafc; padding: 15px 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 18px; color: var(--theme-color);">
+                            <span>Grand Total:</span> <span>₹${formattedAmt}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; padding-top: 60px; margin-top: 20px;">
+                    <div style="text-align: center; width: 220px;">
+                        <div style="border-top: 1px solid #94a3b8; padding-top: 10px; font-weight: 700; font-size: 14px; color: #1e293b;">Prepared By (Accounts)</div>
+                        <p style="font-size: 12px; color: #64748b; margin-top: 5px;">Signature</p>
+                    </div>
+                    <div style="text-align: center; width: 220px;">
+                        <div style="border-top: 1px solid #94a3b8; padding-top: 10px; font-weight: 700; font-size: 14px; color: #1e293b;">Authorized Signatory (CFO)</div>
+                        <p style="font-size: 12px; color: #64748b; margin-top: 5px;">Sign & Stamp Above</p>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 50px; text-align: center; font-size: 11px; color: #94a3b8; border-top: 1px dashed #e2e8f0; padding-top: 15px;">
+                    This document is generated by Neoera internal financial systems. Valid only with physical signatures for offline tracking.
                 </div>
             </div>
-            <p style="font-size: 13px; color: var(--text-muted); text-align: center;">
-                <em>In a production environment, the full itemized list or PDF generated by the Accountant would load here via AJAX.</em>
-            </p>
         `;
         document.getElementById('detailsModal').style.display = 'flex';
     }
@@ -338,9 +475,7 @@ $history_requests = [
     function openActionModal(id, action) {
         document.getElementById('activeReqId').value = id;
         document.getElementById('activeAction').value = action;
-        
         document.getElementById('modalReqId').textContent = id;
-        document.getElementById('modalActionTitle').textContent = action + ' Request';
         
         const actionText = document.getElementById('modalActionText');
         const confirmBtn = document.getElementById('confirmActionBtn');
@@ -351,7 +486,7 @@ $history_requests = [
             actionText.style.color = 'var(--success)';
             confirmBtn.style.backgroundColor = 'var(--success)';
             confirmBtn.style.color = 'white';
-            confirmBtn.innerHTML = '<i class="ph ph-check"></i> Confirm Approval';
+            confirmBtn.innerHTML = '<i class="ph ph-check"></i> Authorize Request';
             remarksInput.placeholder = "Optional remarks for the accountant...";
         } else {
             actionText.textContent = 'REJECT';
@@ -370,53 +505,63 @@ $history_requests = [
         const action = document.getElementById('activeAction').value;
         const remarks = document.getElementById('actionRemarks').value.trim();
 
-        // Validation for Rejection
         if (action === 'Reject' && remarks === '') {
             alert("Please provide a reason for rejecting this request.");
             document.getElementById('actionRemarks').focus();
             return;
         }
 
-        // 1. Close Modal
+        // Grab data from the row BEFORE removing it so we can push it to History
+        const row = document.getElementById('row-' + id);
+        let partyName = "-";
+        let amountVal = "0.00";
+        let reqType = "Document";
+        
+        if(row) {
+            partyName = row.querySelector('td:nth-child(2) strong').innerText;
+            amountVal = row.querySelector('.amount-col').innerText.replace('₹', '').replace(/,/g, '').trim();
+            reqType = row.querySelector('td:nth-child(1) div').innerText.trim();
+        }
+
         closeModal('actionModal');
 
-        // 2. Remove row from pending table with animation
-        const row = document.getElementById('row-' + id);
-        row.style.opacity = '0.3';
-        row.style.pointerEvents = 'none';
+        if(row) {
+            row.style.opacity = '0.3';
+            row.style.pointerEvents = 'none';
+        }
         
-        // 3. Simulate AJAX request delay
         setTimeout(() => {
-            row.remove();
+            if(row) row.remove();
             
-            // Move to History Table visually
             const historyBody = document.getElementById('historyTableBody');
             const dateStr = new Date().toLocaleDateString('en-GB', {day:'2-digit', month:'short', year:'numeric'}).replace(/ /g, '-');
             const badge = action === 'Approve' ? 'bg-approved' : 'bg-rejected';
             const icon = action === 'Approve' ? 'ph-check-circle' : 'ph-x-circle';
             
-            // Extract some basic info from the old row to populate history (Simplified for demo)
+            // Build new row with the PRINT action included
+            const actionBtnHtml = action === 'Approve' 
+                ? `<button class="btn-sm btn-view" onclick="printApprovedDocument('${id}', '${reqType}', '${partyName}', '${amountVal}', '${dateStr}')" title="Print Document"><i class="ph ph-printer"></i> Print</button>` 
+                : '';
+
             const newHistoryRow = `
                 <tr style="background: #f0fdf4;">
-                    <td><strong>${id}</strong><br><small style="color:var(--text-muted);">Processed Just Now</small></td>
-                    <td>-</td>
+                    <td><strong>${id}</strong><br><small style="color:var(--text-muted);">${reqType}</small></td>
+                    <td>${partyName}</td>
                     <td>${dateStr}</td>
-                    <td class="amount-col">-</td>
+                    <td class="amount-col">₹${parseFloat(amountVal).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
                     <td><span class="status-badge ${badge}"><i class="ph ${icon}"></i> ${action}d</span></td>
+                    <td style="text-align: right;" class="action-btns">
+                        ${actionBtnHtml}
+                    </td>
                 </tr>
             `;
             historyBody.insertAdjacentHTML('afterbegin', newHistoryRow);
 
-            // Update Badge Count
             const badgeEl = document.getElementById('badgeCount');
             let count = parseInt(badgeEl.textContent);
-            if (count > 0) {
-                badgeEl.textContent = count - 1;
-            }
+            if (count > 0) badgeEl.textContent = count - 1;
 
-            // Show Toast
             showToast(`Request ${id} has been ${action}d successfully.`);
-
         }, 600);
     }
 
@@ -425,7 +570,6 @@ $history_requests = [
         toast.textContent = msg;
         toast.className = "show";
         
-        // Change color based on text content
         if(msg.includes('Reject')) {
             toast.style.backgroundColor = "var(--danger)";
         } else {
