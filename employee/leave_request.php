@@ -272,9 +272,7 @@ if (!isset($_SESSION['user_id'])) {
             </div>
 
             <div class="header-actions">
-                <button class="btn">
-                    <i data-lucide="download" style="width:16px;"></i> Export
-                </button>
+                
                 <button class="btn btn-primary" onclick="openModal()">
                     <i data-lucide="plus-circle" style="width:16px;"></i> Add Leave
                 </button>
