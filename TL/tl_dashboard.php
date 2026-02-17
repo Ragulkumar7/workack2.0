@@ -1,23 +1,18 @@
 <?php
-// TL/dashboard.php - Professional Team Leader Dashboard
+// TL/tl_dashboard.php
 
 // 1. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 2. ROBUST SIDEBAR INCLUDE (Path logic for TL folder)
+// 2. SIDEBAR INCLUDE
 $sidebarPath = __DIR__ . '/../sidebars.php'; 
-include('../header.php');
-if (!file_exists($sidebarPath)) {
-    $sidebarPath = 'sidebars.php'; 
-}
 
-// 3. LOGIN CHECK
-if (!isset($_SESSION['user_id'])) { 
-    // header("Location: ../index.php"); 
-    // exit(); 
-}
+// 3. USER NAME CHECK (Fixing the Error)
+// We use the null coalescing operator (??) to provide a fallback if 'user_name' isn't set.
+$userName = $_SESSION['user_name'] ?? 'Team Leader'; 
+// Simulation for testing if session is empty (You can remove this line in production)
+if(!isset($_SESSION['user_id'])) { $_SESSION['user_id'] = 1; } 
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -36,8 +31,7 @@ if (!isset($_SESSION['user_id'])) {
             --bg-gray: #f8f9fa; 
             --border-color: #edf2f7; 
             --text-dark: #1f2937;
-            --text-light: #6b7280;
-            --sidebar-width: 95px;
+            --sidebar-width: 95px; /* Adjust if your sidebar is wider */
         }
 
         body {
@@ -48,16 +42,24 @@ if (!isset($_SESSION['user_id'])) {
         }
 
         /* --- LAYOUT --- */
-        #mainContent { 
-            margin-left: var(--sidebar-width); 
-            padding: 25px 35px; 
-            transition: all 0.3s ease;
-            min-height: 100vh;
-        }
+        #mainContent {
+    margin-left: var(--primary-sidebar-width); /* Uses the 95px variable from sidebar.php */
+    width: calc(100% - var(--primary-sidebar-width));
+    transition: all 0.3s ease; /* Smooth movement when secondary opens */
+    padding: 25px 35px;
+}
+#mainContent.main-shifted {
+    margin-left: calc(var(--primary-sidebar-width) + var(--secondary-sidebar-width));
+    width: calc(100% - (var(--primary-sidebar-width) + var(--secondary-sidebar-width)));
+}
         
         @media (max-width: 768px) {
-            #mainContent { margin-left: 0 !important; padding: 15px; }
-        }
+    #mainContent { 
+        margin-left: 0 !important; 
+        width: 100% !important;
+        padding: 15px; 
+    }
+}
 
         /* --- CARDS --- */
         .card { 
@@ -66,7 +68,6 @@ if (!isset($_SESSION['user_id'])) {
             border: 1px solid var(--border-color);
             box-shadow: 0 2px 10px rgba(0,0,0,0.02); 
             padding: 20px;
-            height: 100%;
         }
 
         .btn {
@@ -75,14 +76,25 @@ if (!isset($_SESSION['user_id'])) {
             transition: 0.2s; cursor: pointer; border: 1px solid var(--border-color); background: white;
         }
         .btn:hover { background: #f3f4f6; }
-        .btn-orange { background: #f97316; color: white; border-color: #f97316; }
-        .btn-orange:hover { background: #ea580c; }
-
-        /* --- BADGES --- */
-        .badge { padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-        .badge-high { background: #fee2e2; color: #ef4444; }
-        .badge-medium { background: #fef3c7; color: #d97706; }
-        .badge-low { background: #dcfce7; color: #16a34a; }
+        
+        /* Specific Button Styles from Image */
+        .btn-punch {
+            background-color: #111827; /* Dark Slate/Black */
+            color: white;
+            border: none;
+            width: 100%;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+        }
+        .btn-punch:hover { background-color: #1f2937; }
+        
+        .btn-break {
+            background-color: #f59e0b; /* Amber */
+            color: white;
+            border: none;
+        }
 
         /* --- TIMELINE --- */
         .timeline-item { position: relative; padding-left: 24px; padding-bottom: 24px; border-left: 1px dashed #e5e7eb; }
@@ -90,6 +102,36 @@ if (!isset($_SESSION['user_id'])) {
         .timeline-icon { 
             position: absolute; left: -16px; top: 0; width: 32px; height: 32px; border-radius: 50%; 
             display: flex; align-items: center; justify-content: center; color: white; font-size: 14px;
+        }
+
+        /* --- ATTENDANCE RING (CSS Gradient for the circle around image) --- */
+        .profile-ring-container {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            /* Conic gradient to mimic the progress bar in the image */
+            background: conic-gradient(#10b981 0% 65%, #3b82f6 65% 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+        }
+        .profile-ring-inner {
+            width: 128px;
+            height: 128px;
+            background: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10;
+        }
+        .profile-img {
+            width: 115px;
+            height: 115px;
+            border-radius: 50%;
+            object-fit: cover;
         }
     </style>
 </head>
@@ -110,126 +152,157 @@ if (!isset($_SESSION['user_id'])) {
             </div>
             <div class="flex gap-2">
                 <button class="btn"><i data-lucide="download" class="w-4 h-4 mr-2"></i> Report</button>
-                <div class="btn bg-white"><i data-lucide="calendar" class="w-4 h-4 mr-2 text-gray-400"></i> Current Week Overview</div>
+                <div class="btn bg-white"><i data-lucide="calendar" class="w-4 h-4 mr-2 text-gray-400"></i> Current Week</div>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mb-6">
-            <div class="card flex flex-col justify-between">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
-                        <i data-lucide="users" class="w-6 h-6"></i>
-                    </div>
-                    <div>
-                        <p class="text-xs text-gray-500 font-semibold uppercase">Total Team</p>
-                        <h3 class="text-2xl font-bold text-gray-800">12 Members</h3>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+            
+            <div class="card flex flex-col items-center justify-between text-center col-span-1 lg:row-span-2 h-full shadow-lg border-orange-100">
+                
+                <div class="mt-2">
+                    <p class="text-gray-500 font-medium">Good Morning, <?php echo $userName; ?></p>
+                    <h2 class="text-3xl font-bold text-gray-800 mt-1" id="liveClock">00:00 AM</h2>
+                    <p class="text-sm text-gray-400 font-medium mt-1" id="liveDate">11 Mar 2025</p>
+                </div>
+
+                <div class="my-6 relative">
+                    <div class="profile-ring-container">
+                        <div class="profile-ring-inner">
+                            <img src="https://i.pravatar.cc/300?img=11" alt="Profile" class="profile-img">
+                        </div>
                     </div>
                 </div>
-                <div class="mt-4">
-                    <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-blue-500 w-full"></div>
-                    </div>
-                    <p class="text-xs text-gray-400 mt-2 font-semibold">Engineering Department</p>
+
+                <div class="bg-orange-500 text-white px-6 py-2 rounded-lg shadow-md mb-4 w-full max-w-[200px]">
+                    <span class="text-sm font-medium">Production : <span id="productionTimer">0.00</span> hrs</span>
+                </div>
+
+                <div class="flex items-center justify-center gap-2 text-gray-600 mb-6" id="statusDisplay">
+                    <i data-lucide="fingerprint" class="w-5 h-5 text-orange-500"></i>
+                    <span class="font-medium text-sm">Not Punched In</span>
+                </div>
+
+                <div class="w-full space-y-3">
+                    <button id="mainPunchBtn" onclick="handlePunch()" class="btn-punch">
+                        Punch In
+                    </button>
+                    
+                    <button id="breakBtn" onclick="toggleBreak()" class="btn w-full border-orange-200 text-orange-600 hover:bg-orange-50 hidden">
+                        <i data-lucide="coffee" class="w-4 h-4 mr-2"></i> Take a Break
+                    </button>
                 </div>
             </div>
 
-            <div class="card flex flex-col justify-between">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
-                        <i data-lucide="user-check" class="w-6 h-6"></i>
+            <div class="col-span-1 lg:col-span-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="card flex flex-col justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                            <i data-lucide="users" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 font-semibold uppercase">Total Team</p>
+                            <h3 class="text-2xl font-bold text-gray-800">12</h3>
+                        </div>
                     </div>
-                    <div>
-                        <p class="text-xs text-gray-500 font-semibold uppercase">Present Today</p>
-                        <h3 class="text-2xl font-bold text-gray-800">10 / 12</h3>
+                    <div class="mt-4">
+                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-blue-500 w-full"></div>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2 font-semibold">Engineering Dept.</p>
                     </div>
                 </div>
-                <div class="mt-4">
-                    <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-emerald-500 w-[83%]"></div>
-                    </div>
-                    <p class="text-xs text-emerald-500 mt-2 font-semibold"><i data-lucide="trending-up" class="w-3 h-3 inline"></i> 83% <span class="text-gray-400 font-normal">Attendance rate</span></p>
-                </div>
-            </div>
 
-            <div class="card flex flex-col justify-between">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
-                        <i data-lucide="clipboard-list" class="w-6 h-6"></i>
+                <div class="card flex flex-col justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600">
+                            <i data-lucide="user-check" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 font-semibold uppercase">Present</p>
+                            <h3 class="text-2xl font-bold text-gray-800">10 / 12</h3>
+                        </div>
                     </div>
-                    <div>
-                        <p class="text-xs text-gray-500 font-semibold uppercase">Active Tasks</p>
-                        <h3 class="text-2xl font-bold text-gray-800">45</h3>
+                    <div class="mt-4">
+                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-emerald-500 w-[83%]"></div>
+                        </div>
+                        <p class="text-xs text-emerald-500 mt-2 font-semibold">83% Attendance</p>
                     </div>
                 </div>
-                <div class="mt-4">
-                    <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-orange-500 w-3/4"></div>
-                    </div>
-                    <p class="text-xs text-orange-400 mt-2 font-semibold"><i data-lucide="alert-circle" class="w-3 h-3 inline"></i> 12 <span class="text-gray-400 font-normal">due this week</span></p>
-                </div>
-            </div>
 
-            <div class="card flex flex-col justify-between">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
-                        <i data-lucide="zap" class="w-6 h-6"></i>
+                <div class="card flex flex-col justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600">
+                            <i data-lucide="clipboard-list" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 font-semibold uppercase">Tasks</p>
+                            <h3 class="text-2xl font-bold text-gray-800">45</h3>
+                        </div>
                     </div>
-                    <div>
-                        <p class="text-xs text-gray-500 font-semibold uppercase">Team Efficiency</p>
-                        <h3 class="text-2xl font-bold text-gray-800">92%</h3>
+                    <div class="mt-4">
+                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-orange-500 w-3/4"></div>
+                        </div>
+                        <p class="text-xs text-orange-400 mt-2 font-semibold">12 due this week</p>
                     </div>
                 </div>
-                <div class="mt-4">
-                    <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full bg-purple-500 w-[92%]"></div>
+
+                <div class="card flex flex-col justify-between">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center text-purple-600">
+                            <i data-lucide="zap" class="w-6 h-6"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-500 font-semibold uppercase">Efficiency</p>
+                            <h3 class="text-2xl font-bold text-gray-800">92%</h3>
+                        </div>
                     </div>
-                    <p class="text-xs text-emerald-500 mt-2 font-semibold"><i data-lucide="trending-up" class="w-3 h-3 inline"></i> +5% <span class="text-gray-400 font-normal">from last month</span></p>
+                    <div class="mt-4">
+                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                            <div class="h-full bg-purple-500 w-[92%]"></div>
+                        </div>
+                        <p class="text-xs text-emerald-500 mt-2 font-semibold">+5% growth</p>
+                    </div>
+                </div>
+            
+                <div class="card col-span-1 md:col-span-2 lg:col-span-2">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-lg">Task Progress</h3>
+                        <div class="flex gap-2 text-xs">
+                             <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-orange-500 mr-1"></span> Assigned</span>
+                             <span class="flex items-center"><span class="w-2 h-2 rounded-full bg-emerald-500 mr-1"></span> Done</span>
+                        </div>
+                    </div>
+                    <div id="taskPerformanceChart" style="min-height: 220px;"></div>
+                </div>
+
+                <div class="card col-span-1 md:col-span-2 lg:col-span-2">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-lg">Presence</h3>
+                    </div>
+                    <div id="presenceHeatmap" style="min-height: 220px;"></div>
                 </div>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <div class="card col-span-2">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Task Progress Tracker</h3>
-                    <div class="flex gap-2">
-                        <button class="btn btn-sm border text-xs">This Month</button>
-                    </div>
-                </div>
-                <div class="flex gap-6 mb-4">
-                    <div><span class="block w-2 h-2 rounded-full bg-orange-500 inline-block mr-1"></span><span class="text-xs text-gray-500">Assigned</span><div class="font-bold">128</div></div>
-                    <div><span class="block w-2 h-2 rounded-full bg-emerald-500 inline-block mr-1"></span><span class="text-xs text-gray-500">Completed</span><div class="font-bold">112</div></div>
-                    <div><span class="block w-2 h-2 rounded-full bg-blue-500 inline-block mr-1"></span><span class="text-xs text-gray-500">Backlog</span><div class="font-bold">16</div></div>
-                </div>
-                <div id="taskPerformanceChart" style="min-height: 300px;"></div>
-            </div>
-
+            
             <div class="card">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Presence Heatmap</h3>
-                    <button class="btn btn-sm border text-xs">Last 4 Weeks</button>
-                </div>
-                <div id="presenceHeatmap" style="min-height: 300px;"></div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-            <div class="card">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Task Priority Breakdown</h3>
-                </div>
+                <h3 class="font-bold text-lg mb-4">Task Priority</h3>
                 <div id="priorityDonutChart" class="flex justify-center"></div>
-                <div class="grid grid-cols-2 gap-2 mt-4 text-xs text-gray-600">
-                    <div class="flex items-center"><span class="w-2 h-2 rounded-full bg-red-500 mr-2"></span> High (15)</div>
-                    <div class="flex items-center"><span class="w-2 h-2 rounded-full bg-yellow-400 mr-2"></span> Medium (22)</div>
-                    <div class="flex items-center"><span class="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span> Low (8)</div>
+                <div class="grid grid-cols-3 gap-1 mt-4 text-xs text-gray-600 text-center">
+                    <div><span class="block text-red-500 font-bold">15</span>High</div>
+                    <div><span class="block text-yellow-500 font-bold">22</span>Med</div>
+                    <div><span class="block text-emerald-500 font-bold">8</span>Low</div>
                 </div>
             </div>
 
             <div class="card">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Top Active Projects</h3>
-                    <button class="btn btn-sm border text-xs">View All</button>
+                    <h3 class="font-bold text-lg">Active Projects</h3>
+                    <button class="text-xs text-blue-500 hover:underline">View All</button>
                 </div>
                 <div class="space-y-4">
                     <div class="p-3 border rounded-lg hover:bg-gray-50 transition">
@@ -237,111 +310,44 @@ if (!isset($_SESSION['user_id'])) {
                             <h5 class="font-bold text-sm">ERP Migration</h5>
                             <span class="text-xs font-bold text-emerald-600">75%</span>
                         </div>
-                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-emerald-500 w-3/4"></div>
+                        <div class="h-1.5 w-full bg-gray-100 rounded-full">
+                            <div class="h-full bg-emerald-500 w-3/4 rounded-full"></div>
                         </div>
-                        <p class="text-[10px] text-gray-400 mt-2">Leader: Alexander J.</p>
                     </div>
                     <div class="p-3 border rounded-lg hover:bg-gray-50 transition">
                         <div class="flex justify-between mb-2">
-                            <h5 class="font-bold text-sm">Mobile UI Redesign</h5>
+                            <h5 class="font-bold text-sm">Mobile UI</h5>
                             <span class="text-xs font-bold text-orange-600">42%</span>
                         </div>
-                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-orange-500 w-[42%]"></div>
+                        <div class="h-1.5 w-full bg-gray-100 rounded-full">
+                            <div class="h-full bg-orange-500 w-[42%] rounded-full"></div>
                         </div>
-                        <p class="text-[10px] text-gray-400 mt-2">Leader: Rebecca S.</p>
-                    </div>
-                    <div class="p-3 border rounded-lg hover:bg-gray-50 transition">
-                        <div class="flex justify-between mb-2">
-                            <h5 class="font-bold text-sm">Cloud Security Audit</h5>
-                            <span class="text-xs font-bold text-blue-600">90%</span>
-                        </div>
-                        <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-blue-500 w-[90%]"></div>
-                        </div>
-                        <p class="text-[10px] text-gray-400 mt-2">Leader: Connie W.</p>
                     </div>
                 </div>
             </div>
 
             <div class="card">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Pending Approvals</h3>
-                    <button class="btn btn-sm border text-xs">Review</button>
+                    <h3 class="font-bold text-lg">Approvals</h3>
+                    <span class="badge badge-high bg-red-50 text-red-500 px-2 py-1 rounded">2 New</span>
                 </div>
                 <div class="space-y-4">
-                    <div class="flex gap-3 items-center p-2 rounded-lg bg-orange-50/50 border border-orange-100">
-                        <img src="https://i.pravatar.cc/150?img=5" class="w-10 h-10 rounded-full border-2 border-white">
+                    <div class="flex gap-3 items-center p-2 rounded-lg bg-orange-50 border border-orange-100">
+                        <img src="https://i.pravatar.cc/150?img=5" class="w-10 h-10 rounded-full">
                         <div class="flex-1">
-                            <p class="text-sm text-gray-800"><span class="font-bold">Lori B.</span> applied for WFH</p>
-                            <span class="text-[10px] text-gray-400">Reason: Power outage</span>
+                            <p class="text-sm font-bold">Lori B.</p>
+                            <span class="text-[10px] text-gray-500">WFH Request</span>
                         </div>
-                        <div class="flex gap-1">
-                            <button class="w-7 h-7 rounded bg-white border border-emerald-500 text-emerald-500 flex items-center justify-center hover:bg-emerald-500 hover:text-white transition"><i data-lucide="check" class="w-4 h-4"></i></button>
-                            <button class="w-7 h-7 rounded bg-white border border-red-500 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition"><i data-lucide="x" class="w-4 h-4"></i></button>
-                        </div>
+                        <button class="text-emerald-500 hover:bg-emerald-100 p-1 rounded"><i data-lucide="check" class="w-4 h-4"></i></button>
+                        <button class="text-red-500 hover:bg-red-100 p-1 rounded"><i data-lucide="x" class="w-4 h-4"></i></button>
                     </div>
-                    <div class="flex gap-3 items-center p-2 rounded-lg bg-blue-50/50 border border-blue-100">
-                        <img src="https://i.pravatar.cc/150?img=12" class="w-10 h-10 rounded-full border-2 border-white">
+                    <div class="flex gap-3 items-center p-2 rounded-lg bg-blue-50 border border-blue-100">
+                        <img src="https://i.pravatar.cc/150?img=12" class="w-10 h-10 rounded-full">
                         <div class="flex-1">
-                            <p class="text-sm text-gray-800"><span class="font-bold">John D.</span> leave request</p>
-                            <span class="text-[10px] text-gray-400">Casual Leave (2 Days)</span>
+                            <p class="text-sm font-bold">John D.</p>
+                            <span class="text-[10px] text-gray-500">Leave (2 Days)</span>
                         </div>
-                        <div class="flex gap-1">
-                            <button class="w-7 h-7 rounded bg-white border border-emerald-500 text-emerald-500 flex items-center justify-center"><i data-lucide="check" class="w-4 h-4"></i></button>
-                            <button class="w-7 h-7 rounded bg-white border border-red-500 text-red-500 flex items-center justify-center"><i data-lucide="x" class="w-4 h-4"></i></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-            <div class="card">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Recent Team Activity</h3>
-                    <button class="btn btn-sm border text-xs">Full Log</button>
-                </div>
-                <div class="pl-4 border-l border-dashed border-gray-200 ml-4 relative">
-                    <div class="timeline-item">
-                        <div class="timeline-icon bg-emerald-500"><i data-lucide="upload" class="w-3 h-3"></i></div>
-                        <p class="text-sm font-medium">Lori B. uploaded project assets</p>
-                        <span class="text-xs text-gray-400">10:45 AM</span>
-                    </div>
-                    <div class="timeline-item">
-                        <div class="timeline-icon bg-blue-500"><i data-lucide="message-square" class="w-3 h-3"></i></div>
-                        <p class="text-sm font-medium">Group chat: Daily Standup started</p>
-                        <span class="text-xs text-gray-400">09:15 AM</span>
-                    </div>
-                    <div class="timeline-item">
-                        <div class="timeline-icon bg-purple-500"><i data-lucide="clock" class="w-3 h-3"></i></div>
-                        <p class="text-sm font-medium">Arthur D. logged 4.5 hours on Task #402</p>
-                        <span class="text-xs text-gray-400">Yesterday</span>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Team Notifications</h3>
-                </div>
-                <div class="space-y-4">
-                    <div class="flex gap-3 items-start border-b pb-3">
-                        <div class="w-8 h-8 rounded bg-red-100 text-red-600 flex items-center justify-center shrink-0"><i data-lucide="bell" class="w-4 h-4"></i></div>
-                        <div>
-                            <p class="text-sm font-bold text-gray-800">Deadline Approaching</p>
-                            <p class="text-xs text-gray-500">ERP Migration milestone is due in 24 hours.</p>
-                            <span class="text-[10px] text-gray-400">2h ago</span>
-                        </div>
-                    </div>
-                    <div class="flex gap-3 items-start">
-                        <div class="w-8 h-8 rounded bg-blue-100 text-blue-600 flex items-center justify-center shrink-0"><i data-lucide="info" class="w-4 h-4"></i></div>
-                        <div>
-                            <p class="text-sm font-bold text-gray-800">New Task Assigned</p>
-                            <p class="text-xs text-gray-500">Manager assigned "Security Review" to your team.</p>
-                            <span class="text-[10px] text-gray-400">5h ago</span>
-                        </div>
+                        <button class="text-emerald-500 hover:bg-emerald-100 p-1 rounded"><i data-lucide="check" class="w-4 h-4"></i></button>
                     </div>
                 </div>
             </div>
@@ -352,44 +358,197 @@ if (!isset($_SESSION['user_id'])) {
     <script>
         lucide.createIcons();
 
-        // 1. TASK PERFORMANCE (Assigned vs Completed)
+        /* ==============================
+           1. LIVE CLOCK & DATE LOGIC
+           ============================== */
+        function updateClock() {
+            const now = new Date();
+            let hours = now.getHours();
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            
+            hours = hours % 12;
+            hours = hours ? hours : 12; // the hour '0' should be '12'
+            hours = String(hours).padStart(2, '0');
+
+            document.getElementById('liveClock').textContent = `${hours}:${minutes} ${ampm}`;
+            
+            // Date Format: 11 Mar 2025
+            const options = { day: 'numeric', month: 'short', year: 'numeric' };
+            document.getElementById('liveDate').textContent = now.toLocaleDateString('en-GB', options);
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        /* ==============================
+           2. ATTENDANCE & TIMER LOGIC
+           ============================== */
+        let timerInterval;
+        let secondsElapsed = 0;
+        let isPunchedIn = false;
+        let isOnBreak = false;
+
+        // Restore state from LocalStorage on load (Simulating Database)
+        window.addEventListener('load', () => {
+            const savedState = localStorage.getItem('attendanceState');
+            const savedTime = localStorage.getItem('punchTime');
+            const savedSeconds = localStorage.getItem('secondsElapsed');
+
+            if (savedSeconds) secondsElapsed = parseInt(savedSeconds);
+
+            if (savedState === 'punchedIn') {
+                isPunchedIn = true;
+                setUIState('in', savedTime);
+                startTimer();
+            } else if (savedState === 'onBreak') {
+                isPunchedIn = true;
+                isOnBreak = true;
+                setUIState('break', savedTime);
+                // Don't start timer on break
+            }
+            updateTimerDisplay();
+        });
+
+        function handlePunch() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            if (!isPunchedIn) {
+                // ACTION: PUNCH IN
+                isPunchedIn = true;
+                localStorage.setItem('attendanceState', 'punchedIn');
+                localStorage.setItem('punchTime', timeString);
+                setUIState('in', timeString);
+                startTimer();
+            } else {
+                // ACTION: PUNCH OUT
+                stopTimer();
+                isPunchedIn = false;
+                isOnBreak = false;
+                secondsElapsed = 0; // Reset or save to DB
+                localStorage.removeItem('attendanceState');
+                localStorage.removeItem('punchTime');
+                localStorage.removeItem('secondsElapsed');
+                setUIState('out');
+                updateTimerDisplay();
+            }
+        }
+
+        function toggleBreak() {
+            if (!isPunchedIn) return;
+
+            if (!isOnBreak) {
+                // START BREAK
+                isOnBreak = true;
+                stopTimer(); // Pause production timer
+                localStorage.setItem('attendanceState', 'onBreak');
+                setUIState('break', localStorage.getItem('punchTime'));
+            } else {
+                // END BREAK
+                isOnBreak = false;
+                startTimer(); // Resume production timer
+                localStorage.setItem('attendanceState', 'punchedIn');
+                setUIState('in', localStorage.getItem('punchTime'));
+            }
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                secondsElapsed++;
+                localStorage.setItem('secondsElapsed', secondsElapsed);
+                updateTimerDisplay();
+            }, 1000);
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+        }
+
+        function updateTimerDisplay() {
+            // Convert seconds to decimal hours (like 3.45 hrs) or HH:MM
+            // The image shows "3.45 hrs", which usually means 3 hours and 45% of an hour OR 3h 45m.
+            // Let's do Standard HH.mm format for clarity or decimal.
+            // Decimal: (seconds / 3600).toFixed(2)
+            
+            const hours = Math.floor(secondsElapsed / 3600);
+            const minutes = Math.floor((secondsElapsed % 3600) / 60);
+            
+            // Format: 3.45 (meaning 3 hours 45 mins loosely, or actually decimal)
+            // Let's stick to the image style:
+            let displayVal = `${hours}.${String(minutes).padStart(2, '0')}`;
+            document.getElementById('productionTimer').textContent = displayVal;
+        }
+
+        function setUIState(state, time = '') {
+            const mainBtn = document.getElementById('mainPunchBtn');
+            const breakBtn = document.getElementById('breakBtn');
+            const statusTxt = document.getElementById('statusDisplay');
+
+            if (state === 'in') {
+                mainBtn.textContent = "Punch Out";
+                mainBtn.className = "btn-punch bg-slate-900 hover:bg-slate-800"; // Dark
+                breakBtn.classList.remove('hidden');
+                breakBtn.innerHTML = '<i data-lucide="coffee" class="w-4 h-4 mr-2"></i> Take a Break';
+                
+                statusTxt.innerHTML = `<i data-lucide="clock" class="w-5 h-5 text-emerald-500"></i> Punch In at ${time}`;
+            } else if (state === 'break') {
+                mainBtn.textContent = "Punch Out"; 
+                breakBtn.classList.remove('hidden');
+                breakBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4 mr-2"></i> Resume Work';
+                
+                statusTxt.innerHTML = `<i data-lucide="coffee" class="w-5 h-5 text-orange-500"></i> On Break`;
+            } else {
+                // Out
+                mainBtn.textContent = "Punch In";
+                mainBtn.className = "btn-punch bg-emerald-600 hover:bg-emerald-700"; // Green for Start
+                breakBtn.classList.add('hidden');
+                
+                statusTxt.innerHTML = `<i data-lucide="fingerprint" class="w-5 h-5 text-gray-400"></i> Not Punched In`;
+            }
+            lucide.createIcons();
+        }
+
+        /* ==============================
+           3. APEXCHARTS CONFIG
+           ============================== */
+        // Task Chart
         new ApexCharts(document.querySelector("#taskPerformanceChart"), {
             series: [
                 { name: 'Assigned', data: [80, 95, 87, 100, 110, 128] },
                 { name: 'Completed', data: [75, 85, 82, 90, 105, 112] }
             ],
-            chart: { type: 'bar', height: 300, toolbar: { show: false }, stacked: false },
+            chart: { type: 'bar', height: 220, toolbar: { show: false }, stacked: false },
             colors: ['#F97316', '#10B981'],
             plotOptions: { bar: { borderRadius: 4, columnWidth: '50%' } },
             dataLabels: { enabled: false },
-            xaxis: { categories: ['Jan','Feb','Mar','Apr','May','Jun'] },
-            grid: { borderColor: '#f3f4f6' }
+            xaxis: { categories: ['Jan','Feb','Mar','Apr','May','Jun'], labels: {style: {fontSize: '10px'}} },
+            grid: { borderColor: '#f3f4f6', padding: {top: 0, bottom: 0} }
         }).render();
 
-        // 2. PRESENCE HEATMAP
+        // Heatmap
         new ApexCharts(document.querySelector("#presenceHeatmap"), {
             series: [
-                { name: 'Week 1', data: [12, 11, 12, 10, 12] },
-                { name: 'Week 2', data: [10, 12, 12, 12, 11] },
-                { name: 'Week 3', data: [12, 12, 10, 12, 12] },
-                { name: 'Week 4', data: [11, 10, 12, 12, 12] }
+                { name: 'W1', data: [12, 11, 12, 10, 12] },
+                { name: 'W2', data: [10, 12, 12, 12, 11] },
+                { name: 'W3', data: [12, 12, 10, 12, 12] },
             ],
-            chart: { type: 'heatmap', height: 300, toolbar: { show: false } },
+            chart: { type: 'heatmap', height: 220, toolbar: { show: false } },
             colors: ['#F97316'],
             plotOptions: { heatmap: { radius: 2, enableShades: true, shadeIntensity: 0.5 } },
             dataLabels: { enabled: false },
-            xaxis: { categories: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'] }
+            xaxis: { categories: ['M', 'T', 'W', 'T', 'F'], labels: {style: {fontSize: '10px'}} }
         }).render();
 
-        // 3. PRIORITY DONUT
+        // Priority Donut
         new ApexCharts(document.querySelector("#priorityDonutChart"), {
             series: [15, 22, 8],
             labels: ['High', 'Medium', 'Low'],
-            chart: { type: 'donut', height: 280 },
+            chart: { type: 'donut', height: 200 },
             colors: ['#EF4444', '#FBBF24', '#10B981'],
             legend: { show: false },
             dataLabels: { enabled: false },
-            plotOptions: { pie: { donut: { size: '75%' } } }
+            plotOptions: { pie: { donut: { size: '65%' } } }
         }).render();
     </script>
 </body>
