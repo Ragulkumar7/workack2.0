@@ -1,5 +1,5 @@
 <?php
-// sidebar.php is one level up from the Accounts folder
+// purchase_order.php
 include '../sidebars.php'; 
 include '../header.php';
 ?>
@@ -21,17 +21,12 @@ include '../header.php';
             --border: #e4e4e7;
         }
 
-        /* Shift content when sidebar is open */
         .main-content {
             margin-left: 95px; 
             padding: 30px;
             transition: all 0.3s ease;
             min-height: 100vh;
             background: var(--bg-light);
-        }
-
-        .main-shifted {
-            margin-left: 315px; 
         }
 
         .header-section { margin-bottom: 25px; }
@@ -127,19 +122,18 @@ include '../header.php';
         .btn-view { color: #3b82f6; cursor: pointer; font-size: 18px; }
         .btn-delete { color: #ef4444; cursor: pointer; font-size: 18px; }
 
-        /* MODAL STYLES */
-        .modal-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.5); display: none; justify-content: center;
-            align-items: center; z-index: 2000;
+        /* NEW STYLES */
+        .alert-box {
+            background: #fff7ed; border-left: 4px solid #f97316; padding: 15px;
+            margin-bottom: 20px; color: #9a3412; font-size: 13px;
+            display: flex; align-items: center; gap: 10px; border-radius: 4px;
         }
-        .modal-content {
-            background: #fff; padding: 30px; border-radius: 12px;
-            width: 90%; max-width: 600px; position: relative;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        .btn-request {
+            background: #d97706; color: #fff; border: none; padding: 12px 30px;
+            border-radius: 8px; font-weight: 700; cursor: pointer; width: 100%;
+            display: flex; justify-content: center; align-items: center; gap: 8px; transition: 0.2s;
         }
-        .modal-header { border-bottom: 1px solid var(--border); padding-bottom: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;}
-        .close-modal { cursor: pointer; color: #71717a; font-size: 20px; }
+        .btn-request:hover { background: #b45309; }
         
         .success-popup {
             position: fixed; top: 20px; right: 20px; background: #10b981; color: white;
@@ -148,7 +142,7 @@ include '../header.php';
         }
 
         @media (max-width: 768px) {
-            .main-content, .main-shifted { margin-left: 0; padding: 15px; }
+            .main-content { margin-left: 0; padding: 15px; }
             .form-grid { grid-template-columns: 1fr; }
             .summary-box { width: 100%; }
         }
@@ -156,27 +150,31 @@ include '../header.php';
 </head>
 <body>
 
-<div id="msgPopup" class="success-popup">Purchase Order Saved Successfully!</div>
+<div id="msgPopup" class="success-popup">Request Submitted to CFO!</div>
 
-<div id="viewModal" class="modal-overlay">
-    <div class="modal-content">
-        <div class="modal-header">
+<div id="viewModal" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:2000; justify-content:center; align-items:center;">
+    <div class="modal-content" style="background:#fff; padding:30px; border-radius:12px; width:90%; max-width:600px;">
+        <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e4e4e7; padding-bottom:15px; margin-bottom:15px;">
             <h3 style="color: var(--primary-color); margin:0;">Purchase Order Details</h3>
-            <i class="ph ph-x close-modal" onclick="closeModal()"></i>
+            <i class="ph ph-x close-modal" onclick="closeModal()" style="cursor:pointer; font-size:20px;"></i>
         </div>
-        <div id="modalBody">
-            </div>
+        <div id="modalBody"></div>
         <button class="btn-save" style="margin-top:20px;" onclick="closeModal()">Close</button>
     </div>
 </div>
 
 <main class="main-content" id="mainContent">
     <div class="header-section">
-        <h2>Purchase Order Management</h2>
-        <p>Create and manage vendor purchase orders for the company.</p>
+        <h2>Purchase Order & Fund Request</h2>
+        <p>Create purchase orders and request withdrawal authorization.</p>
     </div>
 
-    <form onsubmit="event.preventDefault(); addPOtoTable();">
+    <div class="alert-box">
+        <i class="ph-fill ph-info" style="font-size: 20px;"></i>
+        <span><strong>Process Note:</strong> Amount withdrawal is only possible after the CFO approves this request. Please ensure vendor bill details are accurate.</span>
+    </div>
+
+    <form onsubmit="event.preventDefault(); submitRequest();">
         <div class="card">
             <div class="card-header">
                 <h3><i class="ph ph-file-plus"></i> New Purchase Order</h3>
@@ -270,7 +268,9 @@ include '../header.php';
                             <span id="grandTotalDisplay">₹ 0.00</span>
                         </div>
                         <div style="margin-top: 15px;">
-                            <button type="submit" class="btn-save">Save Purchase Order</button>
+                            <button type="submit" class="btn-request">
+                                <i class="ph-bold ph-paper-plane-tilt"></i> Submit Request
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -358,6 +358,22 @@ include '../header.php';
         document.getElementById('grandTotalDisplay').innerText = '₹ ' + grandTotal.toLocaleString('en-IN', {minimumFractionDigits: 2});
     }
 
+    // UPDATED SUBMIT LOGIC
+    function submitRequest() {
+        const vendor = document.getElementById('vendor_name').value;
+        const total = document.getElementById('grandTotalDisplay').innerText;
+        
+        if(confirm(`Send request for ${total} to CFO?\n\nVendor: ${vendor}`)) {
+            // Show Message Popup
+            const popup = document.getElementById('msgPopup');
+            popup.style.display = 'block';
+            setTimeout(() => { popup.style.display = 'none'; }, 3000);
+
+            // Add to table with 'Pending' simulation
+            addPOtoTable();
+        }
+    }
+
     function addPOtoTable() {
         const poNum = document.getElementById('po_number').value;
         const vendor = document.getElementById('vendor_name').value;
@@ -381,23 +397,21 @@ include '../header.php';
                 </td>
             </tr>`;
         historyBody.insertAdjacentHTML('afterbegin', newRow);
-        
-        // Show Message Popup (Custom notification instead of alert)
-        const popup = document.getElementById('msgPopup');
-        popup.style.display = 'block';
-        setTimeout(() => { popup.style.display = 'none'; }, 3000);
     }
 
     function viewPO(po, vendor, contact, date, total, bank) {
         const body = document.getElementById('modalBody');
         body.innerHTML = `
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px; margin-top:20px;">
-                <div><label>PO Number:</label><p><strong>${po}</strong></p></div>
-                <div><label>Date:</label><p>${date}</p></div>
-                <div><label>Vendor:</label><p>${vendor}</p></div>
-                <div><label>Contact:</label><p>${contact}</p></div>
-                <div><label>Bank:</label><p>${bank}</p></div>
-                <div><label>Grand Total:</label><p style="color:var(--primary-color); font-weight:700;">${total}</p></div>
+                <div><label style="font-weight:700; font-size:11px; color:#52525b; text-transform:uppercase;">PO Number:</label><p style="margin:0;"><strong>${po}</strong></p></div>
+                <div><label style="font-weight:700; font-size:11px; color:#52525b; text-transform:uppercase;">Date:</label><p style="margin:0;">${date}</p></div>
+                <div><label style="font-weight:700; font-size:11px; color:#52525b; text-transform:uppercase;">Vendor:</label><p style="margin:0;">${vendor}</p></div>
+                <div><label style="font-weight:700; font-size:11px; color:#52525b; text-transform:uppercase;">Contact:</label><p style="margin:0;">${contact}</p></div>
+                <div><label style="font-weight:700; font-size:11px; color:#52525b; text-transform:uppercase;">Bank:</label><p style="margin:0;">${bank}</p></div>
+                <div><label style="font-weight:700; font-size:11px; color:#52525b; text-transform:uppercase;">Grand Total:</label><p style="color:var(--primary-color); font-weight:700; margin:0;">${total}</p></div>
+            </div>
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #e4e4e7; font-size: 13px; color: #d97706;">
+                <strong>Status:</strong> Request sent to CFO. Pending Approval.
             </div>
         `;
         document.getElementById('viewModal').style.display = 'flex';

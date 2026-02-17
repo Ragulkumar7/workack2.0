@@ -3,9 +3,9 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- FIXED PATHS FOR YOUR ENVIRONMENT ---
-$dbPath = 'C:\xampp\htdocs\workack2.0\include\db_connect.php';
-$sidebarPath = 'C:\xampp\htdocs\workack2.0\sidebars.php';
-$headerPath = 'C:\xampp\htdocs\workack2.0\header.php';
+$dbPath = './include/db_connect.php';
+$sidebarPath = './sidebars.php';
+$headerPath = './header.php';
 
 if (file_exists($dbPath)) {
     include_once($dbPath);
