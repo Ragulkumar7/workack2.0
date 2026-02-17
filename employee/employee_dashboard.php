@@ -55,6 +55,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         mysqli_stmt_execute($upd_stmt);
         header("Location: " . $_SERVER['PHP_SELF']); 
         exit();
+    } elseif ($_POST['action'] == 'take_break') {
+        // Logic for break start can be added here (e.g., updating DB status to 'On Break')
+        // For now, it refreshes to show button interaction
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
     }
 }
 
@@ -441,9 +446,14 @@ if ($attendance_record && $attendance_record['punch_out']) {
                                         <i class="fa-solid fa-right-to-bracket mr-2"></i> Punch In
                                     </button>
                                 <?php elseif (!$attendance_record['punch_out']): ?>
-                                    <button type="submit" name="action" value="punch_out" class="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-orange-300 transition-all">
-                                        <i class="fa-solid fa-right-from-bracket mr-2"></i> Punch Out
-                                    </button>
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <button type="submit" name="action" value="take_break" class="w-full bg-gradient-to-r from-amber-400 to-amber-500 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-amber-200 transition-all">
+                                            <i class="fa-solid fa-mug-hot mr-2"></i> Take Break
+                                        </button>
+                                        <button type="submit" name="action" value="punch_out" class="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-orange-300 transition-all">
+                                            <i class="fa-solid fa-right-from-bracket mr-2"></i> Punch Out
+                                        </button>
+                                    </div>
                                 <?php else: ?>
                                     <button disabled class="w-full bg-gray-200 text-gray-500 font-bold py-4 rounded-xl text-sm cursor-not-allowed">
                                         <i class="fa-solid fa-check mr-2"></i> Shift Completed
@@ -765,55 +775,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                     </div>
                 </div>
 
-                <div class="col-span-12 lg:col-span-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Team Members</h3>
-                            <button class="text-xs font-bold text-teal-custom bg-teal-50 px-4 py-2 rounded-lg hover:bg-teal-100 transition">View All</button>
-                        </div>
-                        <div class="space-y-4">
-                            <?php 
-                            $team = [
-                                ['name' => 'Alexander Jermai', 'role' => 'UI/UX Designer', 'status' => 'online'],
-                                ['name' => 'Douglas Martini', 'role' => 'Product Designer', 'status' => 'online'],
-                                ['name' => 'Daniel Esbella', 'role' => 'Project Manager', 'status' => 'away'],
-                                ['name' => 'Sarah Connor', 'role' => 'Team Lead', 'status' => 'offline'],
-                                ['name' => 'Stephan Peralt', 'role' => 'Senior Designer', 'status' => 'online'],
-                                ['name' => 'Andrew Jermia', 'role' => 'Project Lead', 'status' => 'online']
-                            ];
-                            $statusColors = [
-                                'online' => 'bg-green-500',
-                                'away' => 'bg-yellow-500',
-                                'offline' => 'bg-gray-300'
-                            ];
-                            foreach($team as $member): ?>
-                            <div class="flex items-center justify-between p-3 hover:bg-slate-50 rounded-xl transition">
-                                <div class="flex items-center gap-3">
-                                    <div class="relative">
-                                        <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($member['name']); ?>&background=random" class="w-11 h-11 rounded-full">
-                                        <div class="absolute bottom-0 right-0 w-3 h-3 <?php echo $statusColors[$member['status']]; ?> rounded-full border-2 border-white"></div>
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($member['name']); ?></p>
-                                        <p class="text-[10px] text-gray-400"><?php echo htmlspecialchars($member['role']); ?></p>
-                                    </div>
-                                </div>
-                                <div class="flex gap-1">
-                                    <button class="p-2 border border-gray-100 rounded-lg text-gray-400 hover:text-teal-600 hover:border-teal-200 transition">
-                                        <i class="fa-solid fa-phone text-xs"></i>
-                                    </button>
-                                    <button class="p-2 border border-gray-100 rounded-lg text-gray-400 hover:text-teal-600 hover:border-teal-200 transition">
-                                        <i class="fa-solid fa-envelope text-xs"></i>
-                                    </button>
-                                    <button class="p-2 border border-gray-100 rounded-lg text-gray-400 hover:text-teal-600 hover:border-teal-200 transition">
-                                        <i class="fa-solid fa-comment-dots text-xs"></i>
-                                    </button>
-                                </div>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                </div>
+                
 
                 <div class="col-span-12 lg:col-span-4">
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
@@ -845,10 +807,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                                 <div>
                                     <p class="text-sm font-semibold text-slate-800">Admin requested leave approval</p>
                                     <p class="text-[10px] text-gray-400 mb-3">Today at 10:50 AM</p>
-                                    <div class="flex gap-2">
-                                        <button class="bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold px-5 py-2 rounded-lg transition shadow-sm">Approve</button>
-                                        <button class="border border-teal-600 text-teal-600 text-xs font-bold px-5 py-2 rounded-lg hover:bg-teal-50 transition">Decline</button>
-                                    </div>
+                                    
                                 </div>
                             </div>
                         </div>
