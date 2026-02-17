@@ -80,6 +80,8 @@ $managerProjects = [
             min-height: 100vh;
             box-sizing: border-box;
             transition: all 0.3s ease;
+            padding-top: 0 !important;
+
         }
 
         /* --- HEADER --- */
@@ -240,6 +242,10 @@ $managerProjects = [
     ?>
 
     <div id="mainContent">
+        <?php 
+        $path_to_root = '../'; // Set this so header links (settings/logout) work correctly
+        include('../header.php'); 
+        ?>
         
         <div class="page-header">
             <div>
