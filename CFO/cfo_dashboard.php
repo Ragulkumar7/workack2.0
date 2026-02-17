@@ -14,13 +14,14 @@ $months = [
 ];
 
 // --- 2. MOCK DATA (Simulating dynamic changes based on filter) ---
-$multiplier = ($selected_month == date('m')) ? 1 : ($selected_month % 3 + 0.8); 
+// In production, you would run SQL queries here using $selected_month and $selected_year
+$multiplier = ($selected_month == date('m')) ? 1 : ($selected_month % 3 + 0.8); // Just to make numbers change for the demo
 
 $kpi = [
     'income' => 1250000 * $multiplier,
     'expense' => 450000 * $multiplier,
     'profit' => (1250000 - 450000) * $multiplier,
-    'ar' => 380000 * $multiplier, 
+    'ar' => 380000 * $multiplier, // Accounts Receivable
 ];
 
 $recent_invoices = [
@@ -40,7 +41,7 @@ $recent_pos = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CFO Executive Dashboard - Neoera</title>
+    <title>CFO Executive Dashboard - Workack</title>
     
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -94,7 +95,9 @@ $recent_pos = [
         .kpi-trend { font-size: 12px; margin-top: 8px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
 
         /* Layout Grids */
-        .dashboard-split { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 24px; }
+        .top-layout { display: grid; grid-template-columns: 350px 1fr; gap: 20px; margin-bottom: 24px; align-items: stretch; }
+        .bottom-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        
         .dashboard-card { background: white; padding: 24px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0,0,0,0.02); height: 100%; display: flex; flex-direction: column; }
         .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .card-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--theme-color); display: flex; align-items: center; gap: 8px; }
@@ -110,22 +113,27 @@ $recent_pos = [
         .st-overdue { background: #fee2e2; color: #b91c1c; }
 
         /* =========================================================
-           NEW ATTENDANCE WIDGET STYLES (Pure CSS Translation)
+           ATTENDANCE PUNCH CARD CSS
            ========================================================= */
         .punch-card {
             background: white;
-            border-radius: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
             width: 100%;
+            height: 100%;
             padding: 30px 20px;
             text-align: center;
-            border: 1px solid #edf2f7;
+            border: 1px solid var(--border);
             font-family: 'Inter', sans-serif;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
 
         .punch-card p.subtitle { color: #64748b; font-weight: 500; font-size: 14px; margin: 0; }
         .punch-card h2.clock-time { font-size: 30px; font-weight: 700; color: #1f2937; margin: 5px 0; }
-        .punch-card p.date-text { font-size: 12px; color: #9ca3af; font-weight: 500; margin: 0 0 25px 0; }
+        .punch-card p.date-text { font-size: 12px; color: #9ca3af; font-weight: 500; margin: 0 0 25px 0; text-transform: uppercase;}
 
         .profile-ring-container {
             position: relative;
@@ -166,8 +174,13 @@ $recent_pos = [
         .btn-punch-in { background-color: #f97316; color: white; width: 100%; padding: 14px; border-radius: 8px; font-weight: 600; font-size: 16px; transition: background 0.3s; border: none; cursor: pointer; }
         .btn-punch-in:hover { background-color: #ea580c; }
 
-        @media (max-width: 1024px) { .dashboard-split { grid-template-columns: 1fr; } }
-        @media (max-width: 768px) { .main-content { margin-left: 0 !important; width: 100% !important; padding: 15px; } .global-filter { width: 100%; justify-content: center; } }
+        @media (max-width: 1024px) { 
+            .top-layout, .bottom-layout { grid-template-columns: 1fr; } 
+        }
+        @media (max-width: 768px) { 
+            .main-content { margin-left: 0 !important; width: 100% !important; padding: 15px; } 
+            .global-filter { width: 100%; justify-content: center; } 
+        }
     </style>
 </head>
 <body>
@@ -217,17 +230,9 @@ $recent_pos = [
         </div>
     </div>
 
-    <div class="dashboard-split">
-        <div class="dashboard-card">
-            <div class="card-header">
-                <h3><i class="ph ph-chart-bar"></i> Income vs Expense Trend</h3>
-            </div>
-            <div style="flex-grow: 1; position: relative;">
-                <canvas id="cashFlowChart"></canvas>
-            </div>
-        </div>
-
-        <div style="display: flex; align-items: stretch;">
+    <div class="top-layout">
+        
+        <div style="display: flex; align-items: stretch; width: 100%;">
             <div class="punch-card">
                 <div style="margin-bottom: 24px;">
                     <p class="subtitle">Good Morning, CFO</p>
@@ -254,9 +259,19 @@ $recent_pos = [
                     </div>
             </div>
         </div>
+
+        <div class="dashboard-card">
+            <div class="card-header">
+                <h3><i class="ph ph-chart-bar"></i> Income vs Expense Trend</h3>
+            </div>
+            <div style="flex-grow: 1; position: relative;">
+                <canvas id="cashFlowChart"></canvas>
+            </div>
+        </div>
+
     </div>
 
-    <div class="dashboard-split" style="grid-template-columns: 1fr 1fr;">
+    <div class="bottom-layout">
         
         <div class="dashboard-card">
             <div class="card-header">

@@ -1,16 +1,26 @@
-<?php 
-// accounts_reports.php
-
-// --- 1. INCLUDE COMMON FILES ---
+<?php
+// cfo_dashboard.php
 include '../sidebars.php'; 
 include '../header.php';
 
-// --- 2. MOCK DATA GENERATION --- (Preserved Exactly)
+// --- 1. FILTER LOGIC ---
+$selected_month = $_GET['month'] ?? date('m');
+$selected_year = $_GET['year'] ?? date('Y');
+
+$months = [
+    '01' => 'January', '02' => 'February', '03' => 'March', '04' => 'April',
+    '05' => 'May', '06' => 'June', '07' => 'July', '08' => 'August',
+    '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
+];
+
+// --- 2. MOCK DATA (Simulating dynamic changes based on filter) ---
+$multiplier = ($selected_month == date('m')) ? 1 : ($selected_month % 3 + 0.8); 
+
 $kpi = [
-    'total_income' => 1250000,
-    'total_expense' => 450000,
-    'net_profit' => 800000,
-    'pending_invoices' => 125000,
+    'total_income' => 1250000 * $multiplier,
+    'total_expense' => 450000 * $multiplier,
+    'net_profit' => (1250000 - 450000) * $multiplier,
+    'pending_invoices' => 125000 * $multiplier,
     'active_employees' => 24,
     'total_clients' => 12
 ];
@@ -83,7 +93,7 @@ $mock_invoices = [
         }
 
         body { background: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); margin: 0; padding: 0; }
-        .main-content { margin-left: var(--sidebar-width); padding: 30px; width: calc(100% - var(--sidebar-width)); }
+        .main-content { margin-left: var(--sidebar-width); padding: 30px; width: calc(100% - var(--sidebar-width)); box-sizing: border-box; }
 
         /* KPI Cards */
         .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
@@ -111,9 +121,24 @@ $mock_invoices = [
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        /* Charts Section */
+        /* --- FIX: Charts Section --- */
         .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
-        .chart-container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); height: 320px; }
+        .chart-container { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.03); 
+            height: 350px; 
+            display: flex; 
+            flex-direction: column; /* Force flex column so children fit properly */
+        }
+        /* Wrapper to strictly contain the canvas */
+        .canvas-wrapper {
+            position: relative;
+            flex-grow: 1;
+            min-height: 0; /* Required to prevent flex overflow */
+            width: 100%;
+        }
 
         /* Table Styling */
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
@@ -133,7 +158,10 @@ $mock_invoices = [
             display: flex; align-items: center; gap: 6px; float: right; margin-bottom: 15px;
         }
 
-        @media (max-width: 768px) { .main-content { margin-left: 0; width: 100%; } .charts-row { grid-template-columns: 1fr; } }
+        @media (max-width: 768px) { 
+            .main-content { margin-left: 0; width: 100%; padding: 15px; } 
+            .charts-row { grid-template-columns: 1fr; } 
+        }
     </style>
 </head>
 <body>
@@ -142,9 +170,9 @@ $mock_invoices = [
     <div class="page-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px;">
         <div>
             <h2 style="color: var(--theme-color); font-weight: 700; margin: 0;">Financial Intelligence</h2>
-            <p style="color: var(--text-light); font-size: 13px;">Executive Overview & Overall Growth</p>
+            <p style="color: var(--text-light); font-size: 13px; margin: 5px 0 0 0;">Executive Overview & Overall Growth</p>
         </div>
-        <button class="btn-export-excel" onclick="exportFullReport()" style="background: var(--theme-color);">
+        <button class="btn-export-excel" onclick="exportFullReport()" style="background: var(--theme-color); float: none; margin: 0;">
             <i class="ph ph-file-arrow-down"></i> Export All Data
         </button>
     </div>
@@ -170,12 +198,16 @@ $mock_invoices = [
 
     <div class="charts-row">
         <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px;"><i class="ph ph-chart-bar"></i> Income vs Expense Trend</div>
-            <canvas id="financeChart"></canvas>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px; color: var(--text-main);"><i class="ph ph-chart-bar"></i> Income vs Expense Trend</div>
+            <div class="canvas-wrapper">
+                <canvas id="financeChart"></canvas>
+            </div>
         </div>
         <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px;"><i class="ph ph-chart-pie"></i> Payment Status</div>
-            <canvas id="invoiceChart"></canvas>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px; color: var(--text-main);"><i class="ph ph-chart-pie"></i> Payment Status</div>
+            <div class="canvas-wrapper">
+                <canvas id="invoiceChart"></canvas>
+            </div>
         </div>
     </div>
 
@@ -279,18 +311,28 @@ $mock_invoices = [
         evt.currentTarget.className += " active";
     }
 
-    // Charting (Preserved)
+    // Charting
     const ctxFinance = document.getElementById('financeChart').getContext('2d');
     new Chart(ctxFinance, {
         type: 'bar',
         data: {
             labels: <?php echo json_encode($chart_months); ?>,
             datasets: [
-                { label: 'Income', data: <?php echo json_encode($chart_income); ?>, backgroundColor: '#059669' },
-                { label: 'Expenses', data: <?php echo json_encode($chart_expense); ?>, backgroundColor: '#dc2626' }
+                { label: 'Income', data: <?php echo json_encode($chart_income); ?>, backgroundColor: '#059669', borderRadius: 4 },
+                { label: 'Expenses', data: <?php echo json_encode($chart_expense); ?>, backgroundColor: '#dc2626', borderRadius: 4 }
             ]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true, grid: { borderDash: [2, 2] } },
+                x: { grid: { display: false } }
+            },
+            plugins: {
+                legend: { position: 'top', align: 'end' }
+            }
+        }
     });
 
     const ctxInvoice = document.getElementById('invoiceChart').getContext('2d');
@@ -298,12 +340,19 @@ $mock_invoices = [
         type: 'doughnut',
         data: {
             labels: ['Paid', 'Unpaid', 'Pending'],
-            datasets: [{ data: [65, 20, 15], backgroundColor: ['#059669', '#dc2626', '#d97706'] }]
+            datasets: [{ data: [65, 20, 15], backgroundColor: ['#059669', '#dc2626', '#d97706'], borderWidth: 0 }]
         },
-        options: { responsive: true, maintainAspectRatio: false }
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false,
+            cutout: '70%',
+            plugins: {
+                legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } }
+            }
+        }
     });
 
-    // Excel Logic (Preserved)
+    // Excel Logic
     function exportTable(tableId, filename) {
         const table = document.getElementById(tableId);
         const wb = XLSX.utils.table_to_book(table, {sheet: "Report"});
