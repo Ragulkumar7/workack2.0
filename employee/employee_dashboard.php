@@ -1,47 +1,94 @@
 <?php
-// --- PATH & SESSION LOGIC ---
- $path_to_root = '../'; 
+// -------------------------------------------------------------------------
+// 1. SESSION & CONFIGURATION
+// -------------------------------------------------------------------------
+$path_to_root = '../'; 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// --- DATABASE CONNECTION ---
-// Using the corrected path
+// 1. FIX TIMEZONE (Crucial for correct punch times)
+date_default_timezone_set('Asia/Kolkata');
+
+// Database Connection
 require_once '../include/db_connect.php'; 
 
-// Check if user is logged in
+// Security Check
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
     exit();
 }
 
- $current_user_id = $_SESSION['user_id'];
+$current_user_id = $_SESSION['user_id'];
+$today = date('Y-m-d');
 
-// --- MYSQL QUERY TO FETCH USER DATA ---
- $sql = "SELECT username, role FROM users WHERE id = ?";
- $stmt = mysqli_prepare($conn, $sql);
+// -------------------------------------------------------------------------
+// 2. INITIALIZE ALL VARIABLES (Prevents "Undefined Variable" Errors)
+// -------------------------------------------------------------------------
+$employee_name = "Employee";
+$employee_role = "Role";
+$employee_phone = "Not Set";
+$employee_email = "";
+$joining_date = "Not Set";
+$profile_img = "";
+$attendance_record = null;
+$total_hours_today = "00:00:00";
+$display_punch_in = "--:--";
+$total_seconds_worked = 0;
+
+// Stats Counters
+$stats_ontime = 0;
+$stats_late = 0;
+$stats_wfh = 0;
+$stats_absent = 0;
+$stats_sick = 0;
+
+// Leave Balance Defaults
+$leaves_total = 16;
+$leaves_taken = 0;
+$leaves_remaining = 16;
+
+// -------------------------------------------------------------------------
+// 3. DATABASE QUERIES
+// -------------------------------------------------------------------------
+
+// A. Fetch User Profile
+// 2. FIX SQL QUERY: Added department, experience_label, emergency_contacts
+$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, 
+                p.department, p.experience_label, p.emergency_contacts 
+                FROM users u 
+                LEFT JOIN employee_profiles p ON u.id = p.user_id 
+                WHERE u.id = ?";
+$stmt = mysqli_prepare($conn, $sql_profile);
 mysqli_stmt_bind_param($stmt, "i", $current_user_id);
 mysqli_stmt_execute($stmt);
- $user_result = mysqli_stmt_get_result($stmt);
- $user_info = mysqli_fetch_assoc($user_result);
+$user_res = mysqli_stmt_get_result($stmt);
 
-// Dynamic variables from database
- $employee_name = $user_info['username']; 
- $employee_role = $user_info['role']; 
+if ($user_info = mysqli_fetch_assoc($user_res)) {
+    $employee_name = $user_info['full_name'] ?? $user_info['username'];
+    $employee_role = $user_info['designation'] ?? $user_info['role'];
+    $employee_phone = $user_info['phone'] ?? '+1 234 567 890';
+    $employee_email = $user_info['email'] ?? $user_info['username'];
+    $joining_date = $user_info['joining_date'] ? date("d M Y", strtotime($user_info['joining_date'])) : "Not Set";
+    
+    // Generate Avatar URL if no image
+    if(empty($user_info['profile_img'])) {
+        $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($employee_name) . "&background=ffffff&color=0d9488&size=128&bold=true";
+    } else {
+        $profile_img = $user_info['profile_img'];
+    }
+}
 
-// --- ATTENDANCE LOGIC (PUNCH IN/OUT) ---
- $today = date('Y-m-d');
-
-// Check for existing record for today
- $check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
- $check_stmt = mysqli_prepare($conn, $check_sql);
+// B. Attendance Logic (Punch In/Out)
+$check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
+$check_stmt = mysqli_prepare($conn, $check_sql);
 mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
 mysqli_stmt_execute($check_stmt);
- $attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
+$attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
 
-// Handle Punch Button Clicks
+// Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] == 'punch_in' && !$attendance_record) {
         $punch_in_time = date('Y-m-d H:i:s');
-        $ins_sql = "INSERT INTO attendance (user_id, punch_in, date) VALUES (?, ?, ?)";
+        $ins_sql = "INSERT INTO attendance (user_id, punch_in, date, status) VALUES (?, ?, ?, 'On Time')";
         $ins_stmt = mysqli_prepare($conn, $ins_sql);
         mysqli_stmt_bind_param($ins_stmt, "iss", $current_user_id, $punch_in_time, $today);
         mysqli_stmt_execute($ins_stmt);
@@ -49,32 +96,92 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit();
     } elseif ($_POST['action'] == 'punch_out' && $attendance_record && !$attendance_record['punch_out']) {
         $punch_out_time = date('Y-m-d H:i:s');
-        $upd_sql = "UPDATE attendance SET punch_out = ? WHERE id = ?";
+        
+        // Calculate Production Hours
+        $start = new DateTime($attendance_record['punch_in']);
+        $end = new DateTime($punch_out_time);
+        $diff = $start->diff($end);
+        $hours = $diff->h + ($diff->i / 60);
+
+        $upd_sql = "UPDATE attendance SET punch_out = ?, production_hours = ? WHERE id = ?";
         $upd_stmt = mysqli_prepare($conn, $upd_sql);
-        mysqli_stmt_bind_param($upd_stmt, "si", $punch_out_time, $attendance_record['id']);
+        mysqli_stmt_bind_param($upd_stmt, "sdi", $punch_out_time, $hours, $attendance_record['id']);
         mysqli_stmt_execute($upd_stmt);
         header("Location: " . $_SERVER['PHP_SELF']); 
-        exit();
-    } elseif ($_POST['action'] == 'take_break') {
-        // Logic for break start can be added here (e.g., updating DB status to 'On Break')
-        // For now, it refreshes to show button interaction
-        header("Location: " . $_SERVER['PHP_SELF']);
         exit();
     }
 }
 
-// Display Variables for Attendance section
- $display_punch_in = $attendance_record ? date('h:i A', strtotime($attendance_record['punch_in'])) : '--:--';
- $total_hours_today = "0:00:00";
-if ($attendance_record && $attendance_record['punch_out']) {
-    $start = new DateTime($attendance_record['punch_in']);
-    $end = new DateTime($attendance_record['punch_out']);
-    $total_hours_today = $start->diff($end)->format('%H:%I:%S');
-} elseif ($attendance_record && !$attendance_record['punch_out']) {
-    $start = new DateTime($attendance_record['punch_in']);
-    $end = new DateTime();
-    $total_hours_today = $start->diff($end)->format('%H:%I:%S');
+// Calculate Display Time
+if ($attendance_record) {
+    $display_punch_in = date('h:i A', strtotime($attendance_record['punch_in']));
+    
+    $start_t = new DateTime($attendance_record['punch_in']);
+    $end_t = ($attendance_record['punch_out']) ? new DateTime($attendance_record['punch_out']) : new DateTime();
+    
+    $diff = $start_t->diff($end_t);
+    $total_hours_today = $diff->format('%H:%I:%S');
+    $total_seconds_worked = ($diff->h * 3600) + ($diff->i * 60) + $diff->s;
 }
+
+// C. Fetch Statistics
+$stat_sql = "SELECT status, COUNT(*) as count FROM attendance WHERE user_id = ? GROUP BY status";
+$stat_stmt = mysqli_prepare($conn, $stat_sql);
+mysqli_stmt_bind_param($stat_stmt, "i", $current_user_id);
+mysqli_stmt_execute($stat_stmt);
+$stat_res = mysqli_stmt_get_result($stat_stmt);
+while ($row = mysqli_fetch_assoc($stat_res)) {
+    if ($row['status'] == 'On Time') $stats_ontime = $row['count'];
+    if ($row['status'] == 'Late') $stats_late = $row['count'];
+    if ($row['status'] == 'WFH') $stats_wfh = $row['count'];
+    if ($row['status'] == 'Absent') $stats_absent = $row['count'];
+    if ($row['status'] == 'Sick Leave' || $row['status'] == 'Sick') $stats_sick = $row['count'];
+}
+
+// D. Fetch Leave Balance
+$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
+$leave_stmt = mysqli_prepare($conn, $leave_sql);
+mysqli_stmt_bind_param($leave_stmt, "i", $current_user_id);
+mysqli_stmt_execute($leave_stmt);
+$leave_res = mysqli_stmt_get_result($leave_stmt);
+if($leave_data = mysqli_fetch_assoc($leave_res)) {
+    $leaves_taken = $leave_data['taken'] ?? 0;
+    $leaves_remaining = $leaves_total - $leaves_taken;
+}
+
+// E. Projects
+$proj_sql = "SELECT * FROM projects WHERE leader_id = ? OR leader_id IS NOT NULL LIMIT 2";
+$proj_stmt = mysqli_prepare($conn, $proj_sql);
+mysqli_stmt_bind_param($proj_stmt, "i", $current_user_id);
+mysqli_stmt_execute($proj_stmt);
+$projects_result = mysqli_stmt_get_result($proj_stmt);
+
+// F. Tasks (Personal Taskboard)
+$task_sql = "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 5";
+$task_stmt = mysqli_prepare($conn, $task_sql);
+mysqli_stmt_bind_param($task_stmt, "i", $current_user_id);
+mysqli_stmt_execute($task_stmt);
+$tasks_result = mysqli_stmt_get_result($task_stmt);
+
+// G. Skills
+$skill_sql = "SELECT * FROM employee_skills WHERE user_id = ?";
+$skill_stmt = mysqli_prepare($conn, $skill_sql);
+mysqli_stmt_bind_param($skill_stmt, "i", $current_user_id);
+mysqli_stmt_execute($skill_stmt);
+$skills_result = mysqli_stmt_get_result($skill_stmt);
+
+// H. Performance
+$perf_sql = "SELECT * FROM employee_performance WHERE user_id = ?";
+$perf_stmt = mysqli_prepare($conn, $perf_sql);
+mysqli_stmt_bind_param($perf_stmt, "i", $current_user_id);
+mysqli_stmt_execute($perf_stmt);
+$perf_data = mysqli_fetch_assoc(mysqli_stmt_get_result($perf_stmt));
+$perf_score = $perf_data['total_score'] ?? 0;
+$perf_grade = $perf_data['performance_grade'] ?? 'N/A';
+
+// I. Notifications & Meetings
+$notif_result = mysqli_query($conn, "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 3");
+$meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 3");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -84,9 +191,8 @@ if ($attendance_record && $attendance_record['punch_out']) {
     <title>Employee Dashboard - <?php echo htmlspecialchars($employee_name); ?></title>
     
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 
     <style>
@@ -96,871 +202,567 @@ if ($attendance_record && $attendance_record['punch_out']) {
             color: #1e293b; 
         }
         
-        .stat-card { 
-            transition: transform 0.2s, box-shadow 0.2s; 
+        /* Card Styles */
+        .card {
+            background: white;
+            border-radius: 1rem;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+            height: 100%; 
+            display: flex;
+            flex-direction: column;
         }
-        .stat-card:hover { 
-            transform: translateY(-3px); 
+        .card:hover {
+            transform: translateY(-3px);
             box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
         }
-        
-        .timeline-bar { 
-            height: 24px; 
-            border-radius: 50px; 
-            background: #f1f5f9; 
+        .card-body {
+            padding: 1.5rem;
+            flex-grow: 1;
+        }
+
+        /* Progress Ring for Punch In */
+        .progress-ring-circle {
+            transition: stroke-dashoffset 0.35s;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+
+        /* Timeline for Meetings - FIXED ALIGNMENT */
+        .meeting-timeline { 
             position: relative; 
-            overflow: hidden; 
-            display: flex; 
-            gap: 3px; 
-            padding: 0 3px; 
-            align-items: center; 
         }
-        .segment { 
-            height: 16px; 
-            border-radius: 8px; 
-            transition: all 0.3s;
-        }
-        .segment:hover {
-            transform: scaleY(1.2);
-        }
-        
-        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; }
-        
-        /* Dark Teal Theme Colors */
-        .bg-teal-custom { background-color: #0d9488; }
-        .text-teal-custom { color: #0d9488; }
-        .border-teal-custom { border-color: #0d9488; }
-        .bg-teal-dark { background-color: #115e59; }
-        
-        .meeting-timeline { position: relative; }
+
+        /* The vertical line - fixed at exactly 80px from the left */
         .meeting-timeline::before { 
             content: ''; 
             position: absolute; 
-            left: 85px; 
+            left: 80px; 
             top: 0; 
             bottom: 0; 
             width: 2px; 
-            background: linear-gradient(to bottom, #e2e8f0, #f1f5f9); 
+            background: #e2e8f0; 
         }
 
-        /* Sidebar Layout */
+        /* Individual row wrapper */
+        .meeting-row-wrapper {
+            position: relative;
+            margin-bottom: 1.5rem; 
+        }
+
+        /* The dot sits exactly on the line */
+        .meeting-dot { 
+            position: absolute; 
+            left: 76px; 
+            top: 10px; 
+            width: 10px; 
+            height: 10px; 
+            border-radius: 50%; 
+            z-index: 10; 
+            border: 2px solid white; 
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.05);
+        }
+
+        /* Flex container for the content */
+        .meeting-flex-container {
+            display: flex;
+            align-items: flex-start;
+            gap: 24px; 
+        }
+
+        /* Time label - fixed width to stay strictly to the left of the 80px line */
+        .meeting-time-label { 
+            width: 68px; 
+            text-align: right; 
+            flex-shrink: 0; 
+            font-weight: 700; 
+            font-size: 12px;
+            color: #64748b; 
+            padding-top: 4px;
+        }
+
+        /* Content box */
+        .meeting-content-box {
+            background-color: #f8fafc;
+            padding: 12px;
+            border-radius: 0.75rem;
+            border: 1px solid #f1f5f9;
+            flex-grow: 1;
+        }
+
+        /* Scrollbars */
+        .custom-scroll::-webkit-scrollbar { width: 5px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+
+        /* Dashboard Grid System */
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 1.5rem;
+            align-items: stretch; 
+        }
+
+        /* Sidebar Adjustment */
         #mainContent {
             margin-left: 90px;
             width: calc(100% - 90px);
-            transition: margin-left 0.3s ease, width 0.3s ease;
-        }
-        
-        #mainContent.main-shifted {
-            margin-left: 310px;
-            width: calc(100% - 310px);
-        }
-
-        /* Card Hover Effects */
-        .hover-card {
-            transition: all 0.3s ease;
-        }
-        .hover-card:hover {
-            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.1);
-        }
-
-        /* Progress Circle Animation */
-        @keyframes progressFill {
-            from { stroke-dashoffset: 314; }
-        }
-        .progress-ring {
-            animation: progressFill 1s ease-out;
-        }
-
-        /* Skill Bar Animation */
-        @keyframes slideIn {
-            from { width: 0; }
-        }
-        .skill-progress {
-            animation: slideIn 0.8s ease-out;
-        }
-        
-        /* Grid improvements */
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(12, minmax(0, 1fr));
-            gap: 1.5rem;
-            align-items: start;
-        }
-        
-        /* Equal height cards */
-        .equal-height-card {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
+            transition: all 0.3s;
         }
         
         @media (max-width: 1024px) {
-            .dashboard-grid {
-                grid-template-columns: repeat(1, minmax(0, 1fr));
-            }
+            .dashboard-container { grid-template-columns: 1fr; }
+            #mainContent { margin-left: 0; width: 100%; }
+            .col-span-3, .col-span-4, .col-span-5, .col-span-6 { grid-column: span 12 !important; }
         }
     </style>
 </head>
 <body class="bg-slate-100">
-    
+
     <?php include $path_to_root . 'sidebars.php'; ?>
     <?php include $path_to_root . 'header.php'; ?>
 
-    <div class="min-h-screen">
+    <main id="mainContent" class="p-6 lg:p-8 min-h-screen">
         
-        <main id="mainContent" class="p-6 lg:p-8">
-
-            <?php
-            // Configuration & Data
-            $attendance_date = date("d M Y");
-            $attendance_time_display = date("h:i A"); // Current time for display if not fetched
-            
-            // Date & Resignation Data
-            $joining_date = "15 Jan 2024";
-            $status = "Resigned"; 
-            $notice_period_days = 18; 
-            $last_working_day = "25 Feb 2026";
-            
-            // Data for Charts
-            $stats_ontime = 1254;
-            $stats_late = 32;
-            $stats_wfh = 658;
-            $stats_absent = 14;
-            $stats_sick = 68;
-            ?>
-
-            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
-                <div>
-                    <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Employee Dashboard</h1>
-                    <nav class="flex text-sm text-gray-500 mt-2">
-                        <ol class="inline-flex items-center space-x-2">
-                            <li class="flex items-center"><i class="fa-solid fa-house text-xs text-teal-custom"></i></li>
-                            <li class="flex items-center"><i class="fa-solid fa-chevron-right text-[10px] text-gray-300"></i> Dashboard</li>
-                            <li class="flex items-center"><i class="fa-solid fa-chevron-right text-[10px] text-gray-300"></i> <span class="text-teal-custom font-semibold">Employee Dashboard</span></li>
-                        </ol>
-                    </nav>
-                </div>
-                <div class="flex gap-3 flex-wrap">
-                    
-                    <button class="bg-white border border-gray-200 px-5 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm hover:shadow-md transition-shadow">
-                        <i class="fa-regular fa-calendar text-gray-400"></i> <?php echo date("d-m-Y"); ?>
-                    </button>
-                    <button class="bg-white border border-gray-200 p-2.5 rounded-xl text-sm flex items-center shadow-sm hover:shadow-md transition-shadow">
-                        <i class="fa-solid fa-angles-up text-gray-400"></i>
-                    </button>
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Employee Dashboard</h1>
+                <p class="text-slate-500 text-sm mt-1">Welcome back, <b><?php echo htmlspecialchars($employee_name); ?></b></p>
+            </div>
+            <div class="flex gap-3">
+                <div class="bg-white border border-gray-200 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 shadow-sm flex items-center gap-2">
+                    <i class="fa-regular fa-calendar"></i> <?php echo date("d M Y"); ?>
                 </div>
             </div>
+        </div>
 
-            <div class="dashboard-grid">
-                
-                <div class="col-span-12 lg:col-span-3">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover-card equal-height-card h-full">
-                        <div class="bg-gradient-to-r from-teal-600 to-teal-700 p-8 pb-10">
-                            <div class="flex flex-col items-center text-center">
-                                <div class="relative">
-                                    <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($employee_name); ?>&background=ffffff&color=0d9488&size=100&font-size=0.4&bold=true" class="w-24 h-24 rounded-full border-4 border-white shadow-lg">
-                                    <div class="absolute bottom-1 right-1 w-5 h-5 bg-green-500 rounded-full border-2 border-white"></div>
-                                </div>
-                                <h2 class="text-white font-bold text-xl mt-4"><?php echo htmlspecialchars($employee_name); ?></h2>
-                                <p class="text-teal-100 text-sm mt-1"><?php echo htmlspecialchars($employee_role); ?></p>
-                                <span class="inline-block bg-white/20 text-white text-xs px-3 py-1 rounded-full mt-2">Verified Account</span>
+        <div class="dashboard-container">
+
+            <div class="col-span-12 lg:col-span-3">
+                <div class="card overflow-hidden">
+                    <div class="bg-teal-700 p-8 flex flex-col items-center text-center">
+                        <div class="relative mb-3">
+                            <img src="<?php echo $profile_img; ?>" class="w-24 h-24 rounded-full border-4 border-white shadow-lg">
+                            <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-400 border-2 border-white rounded-full"></div>
+                        </div>
+                        <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($employee_name); ?></h2>
+                        <p class="text-teal-200 text-sm mb-3"><?php echo htmlspecialchars($employee_role); ?></p>
+                        <span class="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-bold">Verified Account</span>
+                    </div>
+                    <div class="card-body space-y-6">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700">
+                                <i class="fa-solid fa-phone"></i>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 font-bold uppercase">Phone</p>
+                                <p class="text-sm font-semibold text-slate-800"><?php echo htmlspecialchars($employee_phone); ?></p>
                             </div>
                         </div>
-                        <div class="p-6 space-y-5 flex-grow">
-                            <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
-                                    <i class="fa-solid fa-phone text-teal-custom"></i>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Phone</p>
-                                    <p class="font-semibold text-sm text-slate-800">+1 324 3453 545</p>
-                                </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700">
+                                <i class="fa-solid fa-envelope"></i>
                             </div>
-                            
-                            <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
-                                    <i class="fa-solid fa-envelope text-teal-custom"></i>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Email</p>
-                                    <p class="font-semibold text-sm text-slate-800"><?php echo htmlspecialchars($employee_name); ?></p>
-                                </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 font-bold uppercase">Email</p>
+                                <p class="text-sm font-semibold text-slate-800 truncate w-40" title="<?php echo htmlspecialchars($employee_email); ?>">
+                                    <?php echo htmlspecialchars($employee_email); ?>
+                                </p>
                             </div>
-                            
-                            <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
-                                    <i class="fa-solid fa-user-tie text-teal-custom"></i>
-                                </div>
-                                <div>
-                                    <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Reports To</p>
-                                    <p class="font-semibold text-sm text-slate-800">System Admin</p>
-                                </div>
+                        </div>
+                        <hr class="border-dashed border-gray-200">
+                        <div class="bg-green-50 p-3 rounded-lg flex justify-between items-center">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-calendar-check text-green-600"></i>
+                                <span class="text-xs font-bold text-gray-600">Joined</span>
                             </div>
-                            
-                            <div class="border-t border-dashed border-gray-200 pt-5 space-y-4">
-                                <div class="flex items-center justify-between p-3 bg-green-50 rounded-xl">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-9 h-9 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
-                                            <i class="fa-solid fa-calendar-check text-green-600 text-sm"></i>
-                                        </div>
-                                        <span class="text-xs text-gray-600 font-medium">Joined On</span>
-                                    </div>
-                                    <span class="font-bold text-sm text-slate-800"><?php echo $joining_date; ?></span>
-                                </div>
+                            <span class="text-xs font-bold text-slate-800"><?php echo $joining_date; ?></span>
+                        </div>
 
-                                <div class="flex items-center justify-between p-3 bg-orange-50 rounded-xl">
-                                    <div class="flex items-center gap-3">
-                                        <div class="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
-                                            <i class="fa-solid fa-file-signature text-orange-600 text-sm"></i>
-                                        </div>
-                                        <span class="text-xs text-gray-600 font-medium">Status</span>
-                                    </div>
-                                    <span class="font-bold text-sm text-orange-600"><?php echo $status; ?></span>
+                        <div class="mt-6 pt-6 border-t border-dashed border-gray-200">
+                            <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Professional Info</h4>
+                            <div class="grid grid-cols-2 gap-2 mb-4">
+                                <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <p class="text-[9px] text-gray-400 font-bold uppercase">Experience</p>
+                                    <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($user_info['experience_label'] ?? 'Fresher'); ?></p>
                                 </div>
-
-                                <?php if($status == "Resigned"): ?>
-                                <div class="p-4 bg-gradient-to-r from-red-50 to-orange-50 rounded-xl border border-red-100">
-                                    <div class="flex justify-between items-center mb-2">
-                                        <span class="text-xs text-red-600 font-bold uppercase flex items-center gap-1">
-                                            <i class="fa-solid fa-triangle-exclamation"></i> Resignation Info
-                                        </span>
-                                        <span class="text-[10px] bg-white text-orange-600 px-2.5 py-1 rounded-full border border-orange-200 font-bold shadow-sm"><?php echo $notice_period_days; ?> Days Notice</span>
-                                    </div>
-                                    <div class="flex justify-between items-center mt-3 pt-3 border-t border-red-100">
-                                        <span class="text-xs text-gray-500 font-medium">Last Working Day:</span>
-                                        <span class="text-sm font-bold text-red-700"><?php echo $last_working_day; ?></span>
-                                    </div>
+                                <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <p class="text-[9px] text-gray-400 font-bold uppercase">Department</p>
+                                    <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($user_info['department'] ?? 'General'); ?></p>
                                 </div>
-                                <?php endif; ?>
                             </div>
+                            
+                            <?php
+                            $emergency = json_decode($user_info['emergency_contacts'] ?? '[]', true);
+                            if (!empty($emergency)): 
+                                $primary = $emergency[0]; ?>
+                                <div class="p-3 bg-red-50 rounded-xl border border-red-100">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <i class="fa-solid fa-heart-pulse text-red-500 text-[10px]"></i>
+                                        <span class="text-[10px] font-bold text-red-700 uppercase">Emergency Contact</span>
+                                    </div>
+                                    <p class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($primary['name']); ?></p>
+                                    <p class="text-[10px] text-slate-500"><?php echo htmlspecialchars($primary['phone']); ?></p>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="col-span-12 lg:col-span-5 space-y-6">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
+            <div class="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                
+                <div class="card">
+                    <div class="card-body">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
-                                <i class="fa-regular fa-calendar"></i> 2026
-                            </div>
+                            <span class="text-xs font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded">2026</span>
                         </div>
-                        <div class="flex items-center justify-between gap-8 flex-wrap lg:flex-nowrap">
-                            <div class="space-y-4 flex-1 min-w-[200px]">
+                        <div class="flex items-center justify-between">
+                            <div class="space-y-4">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-teal-600 shrink-0"></div>
-                                    <span class="text-teal-600 font-bold w-16 shrink-0"><?php echo $stats_ontime; ?></span>
-                                    <span class="text-gray-600 text-sm">On Time</span>
+                                    <div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_ontime; ?></span>
+                                    <span class="text-sm text-gray-500">On Time</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-green-500 shrink-0"></div>
-                                    <span class="text-green-500 font-bold w-16 shrink-0"><?php echo $stats_late; ?></span>
-                                    <span class="text-gray-600 text-sm">Late Attendance</span>
+                                    <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_late; ?></span>
+                                    <span class="text-sm text-gray-500">Late Attendance</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-orange-500 shrink-0"></div>
-                                    <span class="text-orange-500 font-bold w-16 shrink-0"><?php echo $stats_wfh; ?></span>
-                                    <span class="text-gray-600 text-sm">Work From Home</span>
+                                    <div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_wfh; ?></span>
+                                    <span class="text-sm text-gray-500">Work From Home</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-red-500 shrink-0"></div>
-                                    <span class="text-red-500 font-bold w-16 shrink-0"><?php echo $stats_absent; ?></span>
-                                    <span class="text-gray-600 text-sm">Absent</span>
+                                    <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_absent; ?></span>
+                                    <span class="text-sm text-gray-500">Absent</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-yellow-500 shrink-0"></div>
-                                    <span class="text-yellow-500 font-bold w-16 shrink-0"><?php echo $stats_sick; ?></span>
-                                    <span class="text-gray-600 text-sm">Sick Leave</span>
-                                </div>
-                                <div class="pt-3 mt-3 border-t border-gray-100">
-                                    <p class="text-xs text-gray-500 flex items-center gap-2">
-                                        <i class="fa-solid fa-check-circle text-teal-600"></i> 
-                                        Better than <span class="text-slate-800 font-bold">85%</span> of Employees
-                                    </p>
+                                    <div class="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_sick; ?></span>
+                                    <span class="text-sm text-gray-500">Sick Leave</span>
                                 </div>
                             </div>
-                            
-                            <div class="flex-shrink-0 flex justify-center">
-                                <div id="attendanceChart" class="w-44 h-44"></div>
+                            <div class="relative">
+                                <div id="attendanceChart" class="w-32 h-32"></div>
                             </div>
                         </div>
-                    </div>
-
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
-                                <i class="fa-regular fa-calendar"></i> 2026
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-3 gap-6 mb-6">
-                            <div class="text-center p-4 bg-gradient-to-br from-teal-50 to-teal-100 rounded-xl">
-                                <p class="text-gray-500 text-xs font-medium mb-1">Total Leaves</p>
-                                <p class="font-bold text-2xl text-teal-700">16</p>
-                            </div>
-                            <div class="text-center p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl">
-                                <p class="text-gray-500 text-xs font-medium mb-1">Taken</p>
-                                <p class="font-bold text-2xl text-blue-700">10</p>
-                            </div>
-                            <div class="text-center p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-xl">
-                                <p class="text-gray-500 text-xs font-medium mb-1">Remaining</p>
-                                <p class="font-bold text-2xl text-green-700">6</p>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-3 gap-6 mb-6">
-                            <div class="text-center p-3 bg-slate-50 rounded-xl">
-                                <p class="text-gray-500 text-xs">Absent</p>
-                                <p class="font-bold text-lg text-slate-800">2</p>
-                            </div>
-                            <div class="text-center p-3 bg-slate-50 rounded-xl">
-                                <p class="text-gray-500 text-xs">Request</p>
-                                <p class="font-bold text-lg text-slate-800">0</p>
-                            </div>
-                            <div class="text-center p-3 bg-slate-50 rounded-xl">
-                                <p class="text-gray-500 text-xs">Loss of Pay</p>
-                                <p class="font-bold text-lg text-red-500">2</p>
-                            </div>
-                        </div>
-                        <button onclick="window.location.href='leave_request.php'" class="w-full bg-gradient-to-r from-teal-600 to-teal-700 text-white py-4 rounded-xl font-bold text-sm uppercase tracking-wider shadow-lg shadow-teal-200 hover:shadow-xl hover:shadow-teal-300 transition-all">
-                            <i class="fa-solid fa-plus mr-2"></i> Apply New Leave
-                        </button>
                     </div>
                 </div>
 
-                <div class="col-span-12 lg:col-span-4 space-y-6">
-                    <!-- Today's Attendance Card -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="font-bold text-slate-800 text-lg mb-4">Leave Balance</h3>
+                        <div class="grid grid-cols-3 gap-4 mb-6">
+                            <div class="bg-teal-50 p-3 rounded-xl text-center">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
+                                <p class="text-2xl font-bold text-teal-700"><?php echo $leaves_total; ?></p>
+                            </div>
+                            <div class="bg-blue-50 p-3 rounded-xl text-center">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Taken</p>
+                                <p class="text-2xl font-bold text-blue-700"><?php echo $leaves_taken; ?></p>
+                            </div>
+                            <div class="bg-green-50 p-3 rounded-xl text-center">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Left</p>
+                                <p class="text-2xl font-bold text-green-700"><?php echo $leaves_remaining; ?></p>
+                            </div>
+                        </div>
+                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 rounded-lg text-center transition shadow-lg shadow-teal-200">
+                            <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
+                        </a>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+                
+                <div class="card">
+                    <div class="card-body flex flex-col items-center">
                         <div class="text-center mb-6">
-                            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest mb-2">Today's Attendance</h3>
-                            <p class="text-slate-800 font-bold text-lg"><?php echo date('h:i A, d M Y'); ?></p>
+                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Today's Attendance</h3>
+                            <p class="text-lg font-bold text-slate-800 mt-1"><?php echo date("h:i A, d M Y"); ?></p>
                         </div>
-                        
-                        <div class="relative flex items-center justify-center my-8">
-                            <svg class="w-40 h-40 transform -rotate-90">
-                                <circle cx="80" cy="80" r="70" stroke="#f1f5f9" stroke-width="12" fill="transparent" />
+
+                        <div class="relative w-40 h-40 mb-6">
+                            <svg class="w-full h-full transform -rotate-90">
+                                <circle cx="80" cy="80" r="70" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
+                                <?php 
+                                    // 9 hours = 32400 seconds. 
+                                    // Circumference = 2 * pi * 70 ≈ 440
+                                    $pct = min(1, $total_seconds_worked / 32400); 
+                                    $dashoffset = 440 - ($pct * 440);
+                                ?>
                                 <circle cx="80" cy="80" r="70" stroke="#0d9488" stroke-width="12" fill="transparent" 
-                                    stroke-dasharray="440" stroke-dashoffset="<?php echo ($attendance_record && $attendance_record['punch_out']) ? '0' : '154'; ?>" 
-                                    stroke-linecap="round" class="progress-ring" />
+                                    stroke-dasharray="440" stroke-dashoffset="<?php echo ($attendance_record && $attendance_record['punch_out']) ? '0' : max(0, $dashoffset); ?>" 
+                                    stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
                             </svg>
-                            <div class="absolute text-center">
-                                <p class="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Total Hours</p>
-                                <p class="text-slate-800 font-bold text-2xl leading-tight mt-1"><?php echo $total_hours_today; ?></p>
+                            <div class="absolute inset-0 flex flex-col items-center justify-center">
+                                <p class="text-[10px] text-gray-400 font-bold uppercase">Total Hours</p>
+                                <p class="text-2xl font-bold text-slate-800" id="liveTimer" 
+                                   data-start="<?php echo ($attendance_record && !$attendance_record['punch_out']) ? strtotime($attendance_record['punch_in']) * 1000 : ''; ?>"
+                                   data-total="<?php echo $total_seconds_worked; ?>">
+                                   <?php echo $total_hours_today; ?>
+                                </p>
                             </div>
                         </div>
-                        
-                        <div class="space-y-4 mt-auto">
-                            <div class="flex justify-center">
-                                <div class="inline-block bg-teal-100 text-teal-700 px-4 py-2 rounded-lg text-xs font-bold">
-                                    <i class="fa-solid fa-clock mr-1"></i> 
-                                    Status: <?php echo !$attendance_record ? 'Not Punched In' : ($attendance_record['punch_out'] ? 'Shift Ended' : 'On Duty'); ?>
+
+                        <form method="POST" class="w-full">
+                            <?php if (!$attendance_record): ?>
+                                <button type="submit" name="action" value="punch_in" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-right-to-bracket"></i> Punch In
+                                </button>
+                            <?php elseif (!$attendance_record['punch_out']): ?>
+                                <div class="grid grid-cols-2 gap-3 w-full">
+                                    <button type="submit" name="action" value="take_break" class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-3 rounded-xl shadow transition">
+                                        <i class="fa-solid fa-mug-hot"></i> Break
+                                    </button>
+                                    <button type="submit" name="action" value="punch_out" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow transition">
+                                        <i class="fa-solid fa-right-from-bracket"></i> Out
+                                    </button>
                                 </div>
-                            </div>
-                            <p class="text-center text-xs text-gray-500">
-                                <i class="fa-solid fa-fingerprint text-orange-500 mr-1"></i> 
-                                Punch In at <?php echo $display_punch_in; ?>
-                            </p>
+                            <?php else: ?>
+                                <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-3 rounded-xl cursor-not-allowed">
+                                    <i class="fa-solid fa-check-circle"></i> Shift Completed
+                                </button>
+                            <?php endif; ?>
+                        </form>
 
-                            <form method="POST">
-                                <?php if (!$attendance_record): ?>
-                                    <button type="submit" name="action" value="punch_in" class="w-full bg-gradient-to-r from-teal-500 to-teal-600 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-teal-300 transition-all">
-                                        <i class="fa-solid fa-right-to-bracket mr-2"></i> Punch In
-                                    </button>
-                                <?php elseif (!$attendance_record['punch_out']): ?>
-                                    <div class="grid grid-cols-2 gap-3">
-                                        <button type="submit" name="action" value="take_break" class="w-full bg-gradient-to-r from-amber-400 to-amber-500 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-amber-200 transition-all">
-                                            <i class="fa-solid fa-mug-hot mr-2"></i> Take Break
-                                        </button>
-                                        <button type="submit" name="action" value="punch_out" class="w-full bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold py-4 rounded-xl text-sm shadow-lg hover:shadow-orange-300 transition-all">
-                                            <i class="fa-solid fa-right-from-bracket mr-2"></i> Punch Out
-                                        </button>
-                                    </div>
-                                <?php else: ?>
-                                    <button disabled class="w-full bg-gray-200 text-gray-500 font-bold py-4 rounded-xl text-sm cursor-not-allowed">
-                                        <i class="fa-solid fa-check mr-2"></i> Shift Completed
-                                    </button>
-                                <?php endif; ?>
-                            </form>
-                        </div>
+                        <p class="text-xs text-gray-400 mt-4 flex items-center gap-1">
+                            <i class="fa-solid fa-fingerprint text-orange-500"></i> 
+                            Punched In at: <span class="font-bold text-slate-600"><?php echo $display_punch_in; ?></span>
+                        </p>
                     </div>
+                </div>
 
-                    <!-- Notifications Section (Moved Here) -->
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
-                        <div class="flex justify-between items-center mb-6">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-4">
                             <h3 class="font-bold text-slate-800 text-lg">Notifications</h3>
-                            <button class="text-xs font-bold text-teal-custom bg-teal-50 px-4 py-2 rounded-lg hover:bg-teal-100 transition shrink-0">View All</button>
-                        </div>
-                        <div class="space-y-5">
-                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
-                                <img src="https://ui-avatars.com/api/?name=Lex+Murphy&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
-                                <div class="min-w-0">
-                                    <p class="text-sm font-semibold text-slate-800 truncate">Lex Murphy requested access to UNIX</p>
-                                    <p class="text-[10px] text-gray-400 mb-2">Today at 9:42 AM</p>
-                                    <div class="flex items-center gap-2 p-2 border border-gray-100 rounded-lg bg-slate-50">
-                                        <i class="fa-solid fa-file-pdf text-red-500 text-sm shrink-0"></i>
-                                        <span class="text-xs font-medium text-slate-600 truncate">EY_review.pdf</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
-                                <img src="https://ui-avatars.com/api/?name=John+Doe&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
-                                <div>
-                                    <p class="text-sm font-semibold text-slate-800 truncate">John Doe commented on your task</p>
-                                    <p class="text-[10px] text-gray-400">Today at 10:00 AM</p>
-                                </div>
-                            </div>
-                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
-                                <img src="https://ui-avatars.com/api/?name=Admin&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
-                                <div>
-                                    <p class="text-sm font-semibold text-slate-800 truncate">Admin requested leave approval</p>
-                                    <p class="text-[10px] text-gray-400 mb-3">Today at 10:50 AM</p>
-                                    
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-12">
-                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
-                            <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white shadow-lg shadow-orange-200 shrink-0">
-                                    <i class="fa-regular fa-clock text-lg"></i>
-                                </div>
-                                <div>
-                                    <p class="text-2xl font-black text-slate-800">8.36 <span class="text-gray-300 text-lg">/ 9</span></p>
-                                </div>
-                            </div>
-                            <p class="text-gray-500 text-xs font-semibold uppercase tracking-wider">Total Hours Today</p>
-                            <div class="text-xs text-green-500 font-bold mt-2 flex items-center gap-1">
-                                <i class="fa-solid fa-arrow-up"></i> 5% This Week
-                            </div>
-                        </div>
-                        
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
-                            <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-teal-200 shrink-0">
-                                    <i class="fa-solid fa-rotate text-lg"></i>
-                                </div>
-                                <div>
-                                    <p class="text-2xl font-black text-slate-800">10 <span class="text-gray-300 text-lg">/ 40</span></p>
-                                </div>
-                            </div>
-                            <p class="text-gray-500 text-xs font-semibold uppercase tracking-wider">Total Hours Week</p>
-                            <div class="text-xs text-green-500 font-bold mt-2 flex items-center gap-1">
-                                <i class="fa-solid fa-arrow-up"></i> 7% Last Week
-                            </div>
-                        </div>
-                        
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
-                            <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-200 shrink-0">
-                                    <i class="fa-regular fa-calendar-check text-lg"></i>
-                                </div>
-                                <div>
-                                    <p class="text-2xl font-black text-slate-800">75 <span class="text-gray-300 text-lg">/ 98</span></p>
-                                </div>
-                            </div>
-                            <p class="text-gray-500 text-xs font-semibold uppercase tracking-wider">Total Hours Month</p>
-                            <div class="text-xs text-red-500 font-bold mt-2 flex items-center gap-1">
-                                <i class="fa-solid fa-arrow-down"></i> 8% Last Month
-                            </div>
-                        </div>
-                        
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
-                            <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-400 to-pink-600 flex items-center justify-center text-white shadow-lg shadow-pink-200 shrink-0">
-                                    <i class="fa-solid fa-briefcase text-lg"></i>
-                                </div>
-                                <div>
-                                    <p class="text-2xl font-black text-slate-800">16 <span class="text-gray-300 text-lg">/ 28</span></p>
-                                </div>
-                            </div>
-                            <p class="text-gray-500 text-xs font-semibold uppercase tracking-wider">Overtime This Month</p>
-                            <div class="text-xs text-red-500 font-bold mt-2 flex items-center gap-1">
-                                <i class="fa-solid fa-arrow-down"></i> 6% Last Month
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-12">
-                    <div class="bg-white rounded-2xl border border-gray-100 p-7 shadow-sm hover-card equal-height-card">
-                        <div class="flex flex-col lg:flex-row justify-between mb-6 gap-4">
-                            <h3 class="font-bold text-slate-800 text-lg">Work Timeline</h3>
-                            <div class="flex flex-wrap gap-6">
-                                <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-green-500 shrink-0"></div>
-                                    <span class="text-xs text-gray-600">Productive Hours</span>
-                                    <span class="text-sm font-bold text-slate-800">08h 36m</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-yellow-500 shrink-0"></div>
-                                    <span class="text-xs text-gray-600">Break Hours</span>
-                                    <span class="text-sm font-bold text-slate-800">22m 15s</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-blue-500 shrink-0"></div>
-                                    <span class="text-xs text-gray-600">Overtime</span>
-                                    <span class="text-sm font-bold text-slate-800">02h 15m</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-slate-300 shrink-0"></div>
-                                    <span class="text-xs text-gray-600">Total</span>
-                                    <span class="text-sm font-bold text-slate-800">12h 36m</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="timeline-bar mb-3">
-                            <div class="segment bg-green-500" style="width: 20%;"></div>
-                            <div class="segment bg-yellow-500" style="width: 4%;"></div>
-                            <div class="segment bg-green-500" style="width: 18%;"></div>
-                            <div class="segment bg-yellow-500" style="width: 3%;"></div>
-                            <div class="segment bg-green-500" style="width: 22%;"></div>
-                            <div class="segment bg-yellow-500" style="width: 5%;"></div>
-                            <div class="segment bg-green-500" style="width: 15%;"></div>
-                            <div class="segment bg-blue-500" style="width: 8%;"></div>
-                            <div class="segment bg-slate-200" style="width: 5%;"></div>
-                        </div>
-                        <div class="flex justify-between text-[10px] text-gray-400 font-bold px-1 overflow-x-auto">
-                            <span class="shrink-0">06:00</span><span class="shrink-0">07:00</span><span class="shrink-0">08:00</span><span class="shrink-0">09:00</span><span class="shrink-0">10:00</span><span class="shrink-0">11:00</span><span class="shrink-0">12:00</span><span class="shrink-0">13:00</span><span class="shrink-0">14:00</span><span class="shrink-0">15:00</span><span class="shrink-0">16:00</span><span class="shrink-0">17:00</span><span class="shrink-0">18:00</span><span class="shrink-0">19:00</span><span class="shrink-0">20:00</span><span class="shrink-0">21:00</span><span class="shrink-0">22:00</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-12 lg:col-span-6">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Projects</h3>
-                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition shrink-0">
-                                Ongoing Projects <i class="fa-solid fa-chevron-down text-[10px]"></i>
-                            </button>
-                        </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
-                            <?php for($i=0; $i<2; $i++): ?>
-                            <div class="border border-gray-100 rounded-xl p-5 bg-gradient-to-br from-white to-slate-50 shadow-sm hover:shadow-md transition h-full flex flex-col">
-                                <div class="flex justify-between mb-4">
-                                    <h4 class="font-bold text-sm text-slate-800">Office Management</h4>
-                                    <button class="text-gray-300 hover:text-gray-500 shrink-0"><i class="fa-solid fa-ellipsis-vertical"></i></button>
-                                </div>
-                                <div class="flex items-center gap-3 mb-4">
-                                    <img src="https://ui-avatars.com/api/?name=Anthony+Lewis&background=0d9488&color=fff" class="w-10 h-10 rounded-full shadow shrink-0">
-                                    <div>
-                                        <p class="text-sm font-bold text-slate-800">Anthony Lewis</p>
-                                        <p class="text-[10px] text-gray-400">Project Leader</p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-3 mb-4 p-3 bg-slate-50 rounded-lg">
-                                    <div class="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center text-orange-500 shrink-0">
-                                        <i class="fa-regular fa-calendar"></i>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs font-bold text-slate-800">14 Jan 2024</p>
-                                        <p class="text-[10px] text-gray-400">Deadline</p>
-                                    </div>
-                                </div>
-                                <div class="flex justify-between items-center pt-3 border-t border-gray-100 mt-auto">
-                                    <div class="flex items-center gap-2 text-xs text-green-600 font-bold">
-                                        <i class="fa-solid fa-clipboard-list"></i> Tasks: 6/10
-                                    </div>
-                                    <div class="flex -space-x-2">
-                                        <img src="https://ui-avatars.com/api/?name=A&background=0d9488&color=fff&size=24" class="w-6 h-6 rounded-full border-2 border-white">
-                                        <img src="https://ui-avatars.com/api/?name=B&background=3b82f6&color=fff&size=24" class="w-6 h-6 rounded-full border-2 border-white">
-                                        <div class="w-6 h-6 rounded-full bg-orange-500 text-[10px] text-white flex items-center justify-center border-2 border-white font-bold">+2</div>
-                                    </div>
-                                </div>
-                                <div class="mt-4 bg-slate-100 rounded-lg p-3 flex justify-between items-center">
-                                    <span class="text-xs font-medium text-gray-500">Time Spent</span>
-                                    <span class="text-sm font-bold text-slate-800">65/120 <span class="text-gray-400 font-normal text-xs">Hrs</span></span>
-                                </div>
-                            </div>
-                            <?php endfor; ?>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-12 lg:col-span-6">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Tasks</h3>
-                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition shrink-0">
-                                All Projects <i class="fa-solid fa-chevron-down text-[10px]"></i>
-                            </button>
-                        </div>
-                        <div class="space-y-3 custom-scrollbar overflow-y-auto max-h-[400px] pr-2">
-                            <?php 
-                            $tasks = [
-                                ['title' => 'Patient appointment booking', 'status' => 'Onhold', 'color' => 'pink'],
-                                ['title' => 'Appointment booking with payment', 'status' => 'Inprogress', 'color' => 'purple'],
-                                ['title' => 'Patient and Doctor video conferencing', 'status' => 'Completed', 'color' => 'green'],
-                                ['title' => 'Private chat module', 'status' => 'Pending', 'color' => 'slate'],
-                                ['title' => 'Go-Live and Post-Implementation Support', 'status' => 'Inprogress', 'color' => 'purple'],
-                            ];
-                            foreach($tasks as $task): ?>
-                            <div class="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:bg-slate-50 transition-colors hover:border-teal-200">
-                                <div class="flex items-center gap-3 min-w-0">
-                                    <i class="fa-solid fa-grip-vertical text-gray-200 text-xs cursor-move shrink-0"></i>
-                                    <input type="checkbox" class="w-4 h-4 rounded text-teal-600 border-gray-300 focus:ring-teal-500 shrink-0">
-                                    <span class="text-sm font-medium text-slate-800 truncate"><?php echo htmlspecialchars($task['title']); ?></span>
-                                </div>
-                                <div class="flex items-center gap-3 shrink-0">
-                                    <?php 
-                                    $colors = [
-                                        'pink' => 'bg-pink-100 text-pink-600',
-                                        'purple' => 'bg-purple-100 text-purple-600',
-                                        'green' => 'bg-green-100 text-green-600',
-                                        'slate' => 'bg-slate-100 text-slate-600'
-                                    ];
-                                    ?>
-                                    <span class="text-[10px] font-bold px-3 py-1 rounded-full <?php echo $colors[$task['color']]; ?> whitespace-nowrap">
-                                        ● <?php echo htmlspecialchars($task['status']); ?>
-                                    </span>
-                                    <div class="flex -space-x-1">
-                                        <img src="https://ui-avatars.com/api/?name=X&background=0d9488&color=fff&size=24" class="w-6 h-6 rounded-full border-2 border-white">
-                                        <img src="https://ui-avatars.com/api/?name=Y&background=3b82f6&color=fff&size=24" class="w-6 h-6 rounded-full border-2 border-white">
-                                    </div>
-                                </div>
-                            </div>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-12 lg:col-span-5">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Performance</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
-                                <i class="fa-regular fa-calendar"></i> 2026
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-3 mb-6">
-                            <span class="text-4xl font-black text-slate-800">98%</span>
-                            <span class="text-xs font-bold text-green-600 bg-green-100 px-3 py-1 rounded-full flex items-center gap-1 shrink-0">
-                                <i class="fa-solid fa-arrow-up text-[10px]"></i> 12% vs last year
-                            </span>
-                        </div>
-                        <div class="h-56 w-full relative">
-                            <div class="absolute left-0 top-0 h-full flex flex-col justify-between text-[10px] text-gray-400 font-bold py-2">
-                                <span>60K</span><span>50K</span><span>40K</span><span>30K</span><span>20K</span><span>10K</span>
-                            </div>
-                            <svg class="w-full h-full pl-10" viewBox="0 0 400 180">
-                                <defs>
-                                    <linearGradient id="chartGradient" x1="0" x2="0" y1="0" y2="1">
-                                        <stop offset="0%" stop-color="#0d9488" stop-opacity="0.3" />
-                                        <stop offset="100%" stop-color="#0d9488" stop-opacity="0.02" />
-                                    </linearGradient>
-                                </defs>
-                                <path d="M0 150 L 50 140 L 100 100 L 150 110 L 200 80 L 250 60 L 300 50 L 350 40 L 400 30 L 400 180 L 0 180 Z" fill="url(#chartGradient)" />
-                                <path d="M0 150 L 50 140 L 100 100 L 150 110 L 200 80 L 250 60 L 300 50 L 350 40 L 400 30" fill="none" stroke="#0d9488" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-                                <circle cx="400" cy="30" r="5" fill="#0d9488" />
-                            </svg>
-                            <div class="flex justify-between mt-3 text-[10px] font-semibold text-gray-400 pl-10">
-                                <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span><span>Jun</span><span>Jul</span><span>Aug</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-12 lg:col-span-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">My Skills</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
-                                <i class="fa-regular fa-calendar"></i> 2026
-                            </div>
+                            <button class="text-xs text-teal-600 font-bold bg-teal-50 px-2 py-1 rounded">View All</button>
                         </div>
                         <div class="space-y-4">
-                            <?php 
-                            $skills = [
-                                ['name' => 'Figma', 'date' => '15 May 2025', 'pct' => 95, 'color' => '#f97316'],
-                                ['name' => 'HTML', 'date' => '12 May 2025', 'pct' => 85, 'color' => '#22c55e'],
-                                ['name' => 'CSS', 'date' => '12 May 2025', 'pct' => 70, 'color' => '#8b5cf6'],
-                                ['name' => 'WordPress', 'date' => '15 May 2025', 'pct' => 61, 'color' => '#3b82f6'],
-                                ['name' => 'Javascript', 'date' => '13 May 2025', 'pct' => 58, 'color' => '#1e293b']
-                            ];
-                            foreach($skills as $skill): ?>
-                            <div class="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-teal-200 transition">
-                                <div class="flex items-center gap-4 min-w-0">
-                                    <div class="w-1.5 h-10 rounded-full shrink-0" style="background-color: <?php echo $skill['color']; ?>"></div>
+                            <?php if($notif_result && mysqli_num_rows($notif_result) > 0) { 
+                                while($notif = mysqli_fetch_assoc($notif_result)): 
+                                    $icon_bg = ($notif['type'] == 'file') ? 'bg-red-50 text-red-500' : 'bg-teal-50 text-teal-600';
+                                    $initial = strtoupper(substr($notif['title'], 0, 1));
+                            ?>
+                            <div class="flex gap-3 items-start border-b border-gray-50 pb-3 last:border-0">
+                                <div class="w-8 h-8 rounded-full <?php echo $icon_bg; ?> flex items-center justify-center font-bold text-xs shrink-0">
+                                    <?php echo $initial; ?>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
+                                    <p class="text-xs text-gray-400"><?php echo date("h:i A", strtotime($notif['created_at'])); ?></p>
+                                    <?php if($notif['type'] == 'file'): ?>
+                                        <div class="flex items-center gap-1 mt-1 text-xs text-slate-500 bg-slate-50 p-1 rounded">
+                                            <i class="fa-solid fa-file-pdf text-red-500"></i> <?php echo htmlspecialchars($notif['message']); ?>
+                                        </div>
+                                    <?php else: ?>
+                                        <p class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($notif['message']); ?></p>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <?php endwhile; } else { echo "<p class='text-sm text-gray-400'>No notifications.</p>"; } ?>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="col-span-12 lg:col-span-4">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-slate-800 text-lg">Projects</h3>
+                        </div>
+                        <div class="space-y-4 custom-scroll overflow-y-auto max-h-[300px] pr-2">
+                            <?php if(mysqli_num_rows($projects_result) > 0) {
+                                while($proj = mysqli_fetch_assoc($projects_result)): 
+                                $pct = ($proj['total_tasks'] > 0) ? round(($proj['completed_tasks'] / $proj['total_tasks']) * 100) : 0;
+                            ?>
+                            <div class="border border-gray-100 rounded-xl p-4 shadow-sm hover:border-teal-200 transition">
+                                <h4 class="font-bold text-sm text-slate-800 mb-1"><?php echo htmlspecialchars($proj['project_name']); ?></h4>
+                                <p class="text-[10px] text-gray-400 mb-2">Deadline: <?php echo date("d M Y", strtotime($proj['deadline'])); ?></p>
+                                <div class="flex justify-between text-xs font-bold text-teal-600 mb-1">
+                                    <span><?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?> Tasks</span>
+                                    <span><?php echo $pct; ?>%</span>
+                                </div>
+                                <div class="w-full bg-gray-100 rounded-full h-1.5">
+                                    <div class="bg-teal-600 h-1.5 rounded-full" style="width: <?php echo $pct; ?>%"></div>
+                                </div>
+                            </div>
+                            <?php endwhile; } else { echo "<p class='text-sm text-gray-500'>No active projects.</p>"; } ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-4">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-slate-800 text-lg">My Tasks</h3>
+                        </div>
+                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[300px] pr-2">
+                            <?php if(mysqli_num_rows($tasks_result) > 0) {
+                                while($task = mysqli_fetch_assoc($tasks_result)): 
+                                    $badge_bg = ($task['priority'] == 'High') ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-600';
+                            ?>
+                            <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition">
+                                <div class="flex items-center gap-3">
+                                    <input type="checkbox" <?php echo ($task['status'] == 'completed') ? 'checked' : ''; ?> class="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-gray-300">
+                                    <span class="text-sm font-medium text-slate-700 truncate w-32"><?php echo htmlspecialchars($task['title']); ?></span>
+                                </div>
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
+                            </div>
+                            <?php endwhile; } else { echo "<p class='text-sm text-gray-500'>No tasks found.</p>"; } ?>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-4">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-slate-800 text-lg">Performance</h3>
+                            <span class="text-xs bg-slate-100 px-2 py-1 rounded font-bold text-gray-500">2026</span>
+                        </div>
+                        <div class="flex items-center gap-4 mb-2">
+                            <span class="text-4xl font-black text-slate-800"><?php echo $perf_score; ?>%</span>
+                            <span class="text-xs font-bold text-green-600 bg-green-100 px-2 py-1 rounded-full flex items-center gap-1">
+                                <i class="fa-solid fa-arrow-up"></i> Grade: <?php echo $perf_grade; ?>
+                            </span>
+                        </div>
+                        <div id="perfChart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="font-bold text-slate-800 text-lg mb-4">Skills</h3>
+                        <div class="space-y-4">
+                            <?php if(mysqli_num_rows($skills_result) > 0) { 
+                                while($skill = mysqli_fetch_assoc($skills_result)): ?>
+                            <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:border-teal-200 transition">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-1.5 h-8 rounded-full" style="background-color: <?php echo $skill['color_hex']; ?>"></div>
                                     <div>
-                                        <p class="text-sm font-bold text-slate-800 truncate"><?php echo htmlspecialchars($skill['name']); ?></p>
-                                        <p class="text-[10px] text-gray-400">Updated: <?php echo htmlspecialchars($skill['date']); ?></p>
+                                        <p class="text-sm font-bold text-slate-700"><?php echo htmlspecialchars($skill['skill_name']); ?></p>
                                     </div>
                                 </div>
-                                <div class="relative w-12 h-12 flex items-center justify-center shrink-0">
-                                    <svg class="w-full h-full -rotate-90">
-                                        <circle cx="24" cy="24" r="20" fill="none" stroke="#f1f5f9" stroke-width="4" />
-                                        <circle cx="24" cy="24" r="20" fill="none" stroke="<?php echo $skill['color']; ?>" stroke-width="4" 
-                                            stroke-dasharray="126" stroke-dashoffset="<?php echo 126 - (126 * $skill['pct'] / 100); ?>" stroke-linecap="round" />
-                                    </svg>
-                                    <span class="absolute text-[10px] font-bold text-slate-800"><?php echo htmlspecialchars($skill['pct']); ?>%</span>
-                                </div>
+                                <span class="text-sm font-bold text-slate-800"><?php echo $skill['proficiency']; ?>%</span>
                             </div>
-                            <?php endforeach; ?>
+                            <?php endwhile; } else { echo "<p class='text-sm text-gray-400'>No skills added.</p>"; } ?>
                         </div>
                     </div>
                 </div>
-
-                <div class="col-span-12 lg:col-span-3 space-y-5">
-                    <div class="bg-gradient-to-br from-teal-600 to-teal-700 rounded-2xl p-6 text-center text-white relative overflow-hidden shadow-lg">
-                        <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2"></div>
-                        <p class="text-xs font-bold uppercase mb-4 tracking-wider opacity-80">Team Birthday</p>
-                        <img src="https://ui-avatars.com/api/?name=Andrew+Jermia&background=ffedd5&color=9a3412&size=80" class="w-20 h-20 rounded-full mx-auto border-4 border-white/30 shadow-lg mb-4">
-                        <h4 class="font-bold text-lg">Andrew Jermia</h4>
-                        <p class="text-xs opacity-70 mb-4">IOS Developer</p>
-                        <button class="w-full bg-orange-500 hover:bg-orange-600 py-3 rounded-xl text-sm font-bold transition shadow-lg">
-                            <i class="fa-solid fa-gift mr-2"></i> Send Wishes
-                        </button>
-                    </div>
-                    
-                    <div class="bg-gradient-to-r from-teal-600 to-teal-700 rounded-2xl p-5 flex justify-between items-center text-white shadow-lg">
-                        <div class="min-w-0">
-                            <p class="text-sm font-bold">Leave Policy</p>
-                            <p class="text-[10px] opacity-70 mt-1">Last Updated : Today</p>
-                        </div>
-                        <button class="bg-white text-teal-700 text-xs font-bold px-4 py-2 rounded-lg shadow hover:shadow-md transition shrink-0">View All</button>
-                    </div>
-
-                    <div class="bg-gradient-to-r from-yellow-400 to-amber-500 rounded-2xl p-5 flex justify-between items-center text-slate-800 shadow-lg">
-                        <div class="min-w-0">
-                            <p class="text-sm font-bold">Next Holiday</p>
-                            <p class="text-[10px] font-medium mt-1">Diwali, 15 Sep 2025</p>
-                        </div>
-                        <button class="bg-white text-slate-800 text-xs font-bold px-4 py-2 rounded-lg shadow hover:shadow-md transition shrink-0">View All</button>
-                    </div>
-                </div>
-
-                <!-- Meetings Schedule (Moved down since notifications took the space above, keeping it in the flow) -->
-                <div class="col-span-12 lg:col-span-8">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Meetings Schedule</h3>
-                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg shrink-0">
-                                <i class="fa-regular fa-calendar"></i> Today
-                            </button>
-                        </div>
-                        <div class="meeting-timeline space-y-5">
-                            <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">09:25 AM</span>
-                                <div class="w-3 h-3 rounded-full bg-orange-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
-                                <div class="bg-gradient-to-r from-orange-50 to-amber-50 p-4 rounded-xl flex-1 border border-orange-100 min-w-0">
-                                    <p class="text-sm font-bold text-slate-800 truncate">Marketing Strategy Presentation</p>
-                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-briefcase text-orange-500 shrink-0"></i> Marketing</p>
-                                </div>
-                            </div>
-                            <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">11:20 AM</span>
-                                <div class="w-3 h-3 rounded-full bg-teal-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
-                                <div class="bg-gradient-to-r from-teal-50 to-cyan-50 p-4 rounded-xl flex-1 border border-teal-100 min-w-0">
-                                    <p class="text-sm font-bold text-slate-800 truncate">Design Review Project</p>
-                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-eye text-teal-500 shrink-0"></i> Review</p>
-                                </div>
-                            </div>
-                            <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">02:18 PM</span>
-                                <div class="w-3 h-3 rounded-full bg-yellow-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
-                                <div class="bg-gradient-to-r from-yellow-50 to-amber-50 p-4 rounded-xl flex-1 border border-yellow-100 min-w-0">
-                                    <p class="text-sm font-bold text-slate-800 truncate">Birthday Celebration</p>
-                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-cake-candles text-yellow-500 shrink-0"></i> Celebration</p>
-                                </div>
-                            </div>
-                            <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">04:10 PM</span>
-                                <div class="w-3 h-3 rounded-full bg-green-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
-                                <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-xl flex-1 border border-green-100 min-w-0">
-                                    <p class="text-sm font-bold text-slate-800 truncate">Update of Project Flow</p>
-                                    <p class="text-[10px] text-gray-400 mt-1 flex items-center gap-1"><i class="fa-solid fa-code text-green-500 shrink-0"></i> Development</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
             </div>
-            
-            <div class="fixed right-0 top-1/2 -translate-y-1/2 bg-teal-600 text-white p-3 rounded-l-xl shadow-xl cursor-pointer hover:bg-teal-700 transition z-50">
-                <i class="fa-solid fa-gear text-lg"></i>
+
+            <div class="col-span-12 lg:col-span-6">
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
+                            <button class="text-xs text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold">Today</button>
+                        </div>
+                        <div class="meeting-timeline space-y-6">
+                            <?php if($meet_result && mysqli_num_rows($meet_result) > 0) {
+                                while($meet = mysqli_fetch_assoc($meet_result)): 
+                                    $dot_color = ($meet['type_color']=='orange') ? 'bg-orange-500' : (($meet['type_color']=='teal') ? 'bg-teal-500' : 'bg-yellow-500');
+                            ?>
+                            <div class="meeting-row-wrapper">
+                                <div class="meeting-dot <?php echo $dot_color; ?>"></div>
+                                <div class="meeting-flex-container">
+                                    <div class="meeting-time-label">
+                                        <?php echo date("h:i A", strtotime($meet['meeting_time'])); ?>
+                                    </div>
+                                    <div class="meeting-content-box">
+                                        <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
+                                        <p class="text-[10px] text-gray-500 mt-1"><?php echo htmlspecialchars($meet['department']); ?></p>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endwhile; } else { echo "<p class='text-sm text-gray-400 pl-4'>No meetings scheduled today.</p>"; } ?>
+                        </div>
+                    </div>
+                </div>
             </div>
-        </main>
-    </div>
+
+        </div> 
+    </main>
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            var options = {
-                series: [
-                    <?php echo $stats_ontime; ?>, 
-                    <?php echo $stats_late; ?>, 
-                    <?php echo $stats_wfh; ?>, 
-                    <?php echo $stats_absent; ?>, 
-                    <?php echo $stats_sick; ?>
-                ],
-                chart: {
-                    type: 'donut',
-                    width: '100%',
-                    height: 180,
-                    fontFamily: 'Inter, sans-serif'
-                },
-                labels: ['On Time', 'Late Attendance', 'Work From Home', 'Absent', 'Sick Leave'],
+            // Attendance Donut Chart
+            var attOptions = {
+                series: [<?php echo $stats_ontime; ?>, <?php echo $stats_late; ?>, <?php echo $stats_wfh; ?>, <?php echo $stats_absent; ?>, <?php echo $stats_sick; ?>],
+                chart: { type: 'donut', width: 100, height: 100, sparkline: { enabled: true } },
+                labels: ['On Time', 'Late', 'WFH', 'Absent', 'Sick'],
                 colors: ['#0d9488', '#22c55e', '#f97316', '#ef4444', '#eab308'],
-                plotOptions: {
-                    pie: {
-                        donut: {
-                            size: '72%',
-                            labels: {
-                                show: true,
-                                name: {
-                                    show: true,
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    color: '#64748b'
-                                },
-                                value: {
-                                    show: true,
-                                    fontSize: '16px',
-                                    fontWeight: 700,
-                                    color: '#1e293b',
-                                    formatter: function(val) {
-                                        return val;
-                                    }
-                                },
-                                total: {
-                                    show: true,
-                                    label: 'Total',
-                                    fontSize: '10px',
-                                    fontWeight: 600,
-                                    color: '#94a3b8',
-                                    formatter: function (w) {
-                                        return w.globals.seriesTotals.reduce((a, b) => a + b, 0);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                dataLabels: {
-                    enabled: false
-                },
-                legend: {
-                    show: false
-                },
-                stroke: {
-                    show: false
-                },
-                tooltip: {
-                    enabled: true,
-                    y: {
-                        formatter: function(val) {
-                            return val + " days";
-                        }
+                stroke: { width: 0 },
+                tooltip: { fixed: { enabled: false }, x: { show: false }, marker: { show: false } }
+            };
+            new ApexCharts(document.querySelector("#attendanceChart"), attOptions).render();
+
+            // Performance Area Chart
+            var perfOptions = {
+                series: [{ name: 'Score', data: [65, 72, 78, 85, 92, 98] }],
+                chart: { type: 'area', height: 130, toolbar: { show: false }, sparkline: { enabled: true } },
+                colors: ['#0d9488'],
+                stroke: { curve: 'smooth', width: 2 },
+                fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.05, stops: [0, 100] } },
+                tooltip: { fixed: { enabled: false }, x: { show: false }, marker: { show: false } }
+            };
+            new ApexCharts(document.querySelector("#perfChart"), perfOptions).render();
+
+            // Live Timer Logic
+            const timerElement = document.getElementById('liveTimer');
+            const progressRing = document.getElementById('progressRing');
+            const startTimeAttr = timerElement.getAttribute('data-start');
+            
+            if (startTimeAttr) {
+                const startTime = parseInt(startTimeAttr); // Timestamp in milliseconds
+                
+                function updateTimer() {
+                    const now = new Date().getTime();
+                    const diff = now - startTime;
+                    
+                    // Calculate hours, minutes, seconds
+                    const totalSeconds = Math.floor(diff / 1000);
+                    const hours = Math.floor(totalSeconds / 3600);
+                    const minutes = Math.floor((totalSeconds % 3600) / 60);
+                    const seconds = totalSeconds % 60;
+                    
+                    // Format with leading zeros
+                    const formattedTime = 
+                        String(hours).padStart(2, '0') + ':' + 
+                        String(minutes).padStart(2, '0') + ':' + 
+                        String(seconds).padStart(2, '0');
+                    
+                    timerElement.innerText = formattedTime;
+
+                    // Update Progress Ring (Based on 9 hours = 32400 seconds)
+                    const maxSeconds = 32400; 
+                    const circumference = 440;
+                    const progress = Math.min(totalSeconds / maxSeconds, 1);
+                    const offset = circumference - (progress * circumference);
+                    if(progressRing) {
+                        progressRing.style.strokeDashoffset = offset;
                     }
                 }
-            };
 
-            var chart = new ApexCharts(document.querySelector("#attendanceChart"), options);
-            chart.render();
+                // Run immediately and then every second
+                updateTimer();
+                setInterval(updateTimer, 1000);
+            }
         });
     </script>
 </body>
