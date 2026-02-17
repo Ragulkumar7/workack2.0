@@ -71,7 +71,7 @@ $attendanceRecords = [
 
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
-                <h1 class="text-2xl font-bold text-slate-800">Employee Attendance Details</h1>
+                <h1 class="text-2xl font-bold text-slate-800"> Attendance Details</h1>
                 <nav class="flex text-slate-500 text-xs mt-1 gap-2">
                     <a href="#" class="hover:text-orange-500">Attendance</a>
                     <span>/</span>
@@ -80,11 +80,7 @@ $attendanceRecords = [
                     <span class="text-slate-800 font-semibold"><?php echo $employeeName; ?></span>
                 </nav>
             </div>
-            <div class="flex gap-2 w-full md:w-auto">
-                <button class="flex-1 md:flex-none btn btn-light border text-sm shadow-sm" onclick="exportToCSV()">
-                    <i class="fa-solid fa-download mr-2 text-orange-500"></i> Export CSV
-                </button>
-            </div>
+            
         </div>
 
         <div class="grid grid-cols-12 gap-6 mb-8">
