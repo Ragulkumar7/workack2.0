@@ -1,6 +1,6 @@
 <?php
 // --- PATH & SESSION LOGIC ---
-$path_to_root = '../'; 
+ $path_to_root = '../'; 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- DATABASE CONNECTION ---
@@ -13,29 +13,29 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-$current_user_id = $_SESSION['user_id'];
+ $current_user_id = $_SESSION['user_id'];
 
 // --- MYSQL QUERY TO FETCH USER DATA ---
-$sql = "SELECT username, role FROM users WHERE id = ?";
-$stmt = mysqli_prepare($conn, $sql);
+ $sql = "SELECT username, role FROM users WHERE id = ?";
+ $stmt = mysqli_prepare($conn, $sql);
 mysqli_stmt_bind_param($stmt, "i", $current_user_id);
 mysqli_stmt_execute($stmt);
-$user_result = mysqli_stmt_get_result($stmt);
-$user_info = mysqli_fetch_assoc($user_result);
+ $user_result = mysqli_stmt_get_result($stmt);
+ $user_info = mysqli_fetch_assoc($user_result);
 
 // Dynamic variables from database
-$employee_name = $user_info['username']; 
-$employee_role = $user_info['role']; 
+ $employee_name = $user_info['username']; 
+ $employee_role = $user_info['role']; 
 
 // --- ATTENDANCE LOGIC (PUNCH IN/OUT) ---
-$today = date('Y-m-d');
+ $today = date('Y-m-d');
 
 // Check for existing record for today
-$check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
-$check_stmt = mysqli_prepare($conn, $check_sql);
+ $check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
+ $check_stmt = mysqli_prepare($conn, $check_sql);
 mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
 mysqli_stmt_execute($check_stmt);
-$attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
+ $attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
 
 // Handle Punch Button Clicks
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -64,8 +64,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // Display Variables for Attendance section
-$display_punch_in = $attendance_record ? date('h:i A', strtotime($attendance_record['punch_in'])) : '--:--';
-$total_hours_today = "0:00:00";
+ $display_punch_in = $attendance_record ? date('h:i A', strtotime($attendance_record['punch_in'])) : '--:--';
+ $total_hours_today = "0:00:00";
 if ($attendance_record && $attendance_record['punch_out']) {
     $start = new DateTime($attendance_record['punch_in']);
     $end = new DateTime($attendance_record['punch_out']);
@@ -180,6 +180,27 @@ if ($attendance_record && $attendance_record['punch_out']) {
         .skill-progress {
             animation: slideIn 0.8s ease-out;
         }
+        
+        /* Grid improvements */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
+            gap: 1.5rem;
+            align-items: start;
+        }
+        
+        /* Equal height cards */
+        .equal-height-card {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+        
+        @media (max-width: 1024px) {
+            .dashboard-grid {
+                grid-template-columns: repeat(1, minmax(0, 1fr));
+            }
+        }
     </style>
 </head>
 <body class="bg-slate-100">
@@ -232,10 +253,10 @@ if ($attendance_record && $attendance_record['punch_out']) {
                 </div>
             </div>
 
-            <div class="grid grid-cols-12 gap-6">
+            <div class="dashboard-grid">
                 
                 <div class="col-span-12 lg:col-span-3">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover-card h-full">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover-card equal-height-card h-full">
                         <div class="bg-gradient-to-r from-teal-600 to-teal-700 p-8 pb-10">
                             <div class="flex flex-col items-center text-center">
                                 <div class="relative">
@@ -247,9 +268,9 @@ if ($attendance_record && $attendance_record['punch_out']) {
                                 <span class="inline-block bg-white/20 text-white text-xs px-3 py-1 rounded-full mt-2">Verified Account</span>
                             </div>
                         </div>
-                        <div class="p-6 space-y-5">
+                        <div class="p-6 space-y-5 flex-grow">
                             <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center">
+                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
                                     <i class="fa-solid fa-phone text-teal-custom"></i>
                                 </div>
                                 <div>
@@ -259,7 +280,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             </div>
                             
                             <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center">
+                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
                                     <i class="fa-solid fa-envelope text-teal-custom"></i>
                                 </div>
                                 <div>
@@ -269,7 +290,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             </div>
                             
                             <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
-                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center">
+                                <div class="w-10 h-10 rounded-xl bg-teal-50 flex items-center justify-center shrink-0">
                                     <i class="fa-solid fa-user-tie text-teal-custom"></i>
                                 </div>
                                 <div>
@@ -281,7 +302,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             <div class="border-t border-dashed border-gray-200 pt-5 space-y-4">
                                 <div class="flex items-center justify-between p-3 bg-green-50 rounded-xl">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-9 h-9 rounded-xl bg-green-100 flex items-center justify-center">
+                                        <div class="w-9 h-9 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
                                             <i class="fa-solid fa-calendar-check text-green-600 text-sm"></i>
                                         </div>
                                         <span class="text-xs text-gray-600 font-medium">Joined On</span>
@@ -291,7 +312,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
 
                                 <div class="flex items-center justify-between p-3 bg-orange-50 rounded-xl">
                                     <div class="flex items-center gap-3">
-                                        <div class="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center">
+                                        <div class="w-9 h-9 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
                                             <i class="fa-solid fa-file-signature text-orange-600 text-sm"></i>
                                         </div>
                                         <span class="text-xs text-gray-600 font-medium">Status</span>
@@ -319,38 +340,38 @@ if ($attendance_record && $attendance_record['punch_out']) {
                 </div>
 
                 <div class="col-span-12 lg:col-span-5 space-y-6">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
                                 <i class="fa-regular fa-calendar"></i> 2026
                             </div>
                         </div>
-                        <div class="flex items-center justify-between gap-8">
-                            <div class="space-y-4 flex-1">
+                        <div class="flex items-center justify-between gap-8 flex-wrap lg:flex-nowrap">
+                            <div class="space-y-4 flex-1 min-w-[200px]">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-teal-600"></div>
-                                    <span class="text-teal-600 font-bold w-16"><?php echo $stats_ontime; ?></span>
+                                    <div class="w-3 h-3 rounded-full bg-teal-600 shrink-0"></div>
+                                    <span class="text-teal-600 font-bold w-16 shrink-0"><?php echo $stats_ontime; ?></span>
                                     <span class="text-gray-600 text-sm">On Time</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
-                                    <span class="text-green-500 font-bold w-16"><?php echo $stats_late; ?></span>
+                                    <div class="w-3 h-3 rounded-full bg-green-500 shrink-0"></div>
+                                    <span class="text-green-500 font-bold w-16 shrink-0"><?php echo $stats_late; ?></span>
                                     <span class="text-gray-600 text-sm">Late Attendance</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-orange-500"></div>
-                                    <span class="text-orange-500 font-bold w-16"><?php echo $stats_wfh; ?></span>
+                                    <div class="w-3 h-3 rounded-full bg-orange-500 shrink-0"></div>
+                                    <span class="text-orange-500 font-bold w-16 shrink-0"><?php echo $stats_wfh; ?></span>
                                     <span class="text-gray-600 text-sm">Work From Home</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-red-500"></div>
-                                    <span class="text-red-500 font-bold w-16"><?php echo $stats_absent; ?></span>
+                                    <div class="w-3 h-3 rounded-full bg-red-500 shrink-0"></div>
+                                    <span class="text-red-500 font-bold w-16 shrink-0"><?php echo $stats_absent; ?></span>
                                     <span class="text-gray-600 text-sm">Absent</span>
                                 </div>
                                 <div class="flex items-center gap-3">
-                                    <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
-                                    <span class="text-yellow-500 font-bold w-16"><?php echo $stats_sick; ?></span>
+                                    <div class="w-3 h-3 rounded-full bg-yellow-500 shrink-0"></div>
+                                    <span class="text-yellow-500 font-bold w-16 shrink-0"><?php echo $stats_sick; ?></span>
                                     <span class="text-gray-600 text-sm">Sick Leave</span>
                                 </div>
                                 <div class="pt-3 mt-3 border-t border-gray-100">
@@ -361,16 +382,16 @@ if ($attendance_record && $attendance_record['punch_out']) {
                                 </div>
                             </div>
                             
-                            <div class="flex-shrink-0">
+                            <div class="flex-shrink-0 flex justify-center">
                                 <div id="attendanceChart" class="w-44 h-44"></div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
                                 <i class="fa-regular fa-calendar"></i> 2026
                             </div>
                         </div>
@@ -408,8 +429,9 @@ if ($attendance_record && $attendance_record['punch_out']) {
                     </div>
                 </div>
 
-                <div class="col-span-12 lg:col-span-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
+                <div class="col-span-12 lg:col-span-4 space-y-6">
+                    <!-- Today's Attendance Card -->
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
                         <div class="text-center mb-6">
                             <h3 class="text-gray-500 text-xs font-bold uppercase tracking-widest mb-2">Today's Attendance</h3>
                             <p class="text-slate-800 font-bold text-lg"><?php echo date('h:i A, d M Y'); ?></p>
@@ -428,7 +450,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             </div>
                         </div>
                         
-                        <div class="space-y-4">
+                        <div class="space-y-4 mt-auto">
                             <div class="flex justify-center">
                                 <div class="inline-block bg-teal-100 text-teal-700 px-4 py-2 rounded-lg text-xs font-bold">
                                     <i class="fa-solid fa-clock mr-1"></i> 
@@ -462,13 +484,49 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             </form>
                         </div>
                     </div>
+
+                    <!-- Notifications Section (Moved Here) -->
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-bold text-slate-800 text-lg">Notifications</h3>
+                            <button class="text-xs font-bold text-teal-custom bg-teal-50 px-4 py-2 rounded-lg hover:bg-teal-100 transition shrink-0">View All</button>
+                        </div>
+                        <div class="space-y-5">
+                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
+                                <img src="https://ui-avatars.com/api/?name=Lex+Murphy&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
+                                <div class="min-w-0">
+                                    <p class="text-sm font-semibold text-slate-800 truncate">Lex Murphy requested access to UNIX</p>
+                                    <p class="text-[10px] text-gray-400 mb-2">Today at 9:42 AM</p>
+                                    <div class="flex items-center gap-2 p-2 border border-gray-100 rounded-lg bg-slate-50">
+                                        <i class="fa-solid fa-file-pdf text-red-500 text-sm shrink-0"></i>
+                                        <span class="text-xs font-medium text-slate-600 truncate">EY_review.pdf</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
+                                <img src="https://ui-avatars.com/api/?name=John+Doe&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
+                                <div>
+                                    <p class="text-sm font-semibold text-slate-800 truncate">John Doe commented on your task</p>
+                                    <p class="text-[10px] text-gray-400">Today at 10:00 AM</p>
+                                </div>
+                            </div>
+                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
+                                <img src="https://ui-avatars.com/api/?name=Admin&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
+                                <div>
+                                    <p class="text-sm font-semibold text-slate-800 truncate">Admin requested leave approval</p>
+                                    <p class="text-[10px] text-gray-400 mb-3">Today at 10:50 AM</p>
+                                    
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="col-span-12">
                     <div class="grid grid-cols-2 lg:grid-cols-4 gap-5">
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card">
+                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
                             <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white shadow-lg shadow-orange-200">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white shadow-lg shadow-orange-200 shrink-0">
                                     <i class="fa-regular fa-clock text-lg"></i>
                                 </div>
                                 <div>
@@ -481,9 +539,9 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             </div>
                         </div>
                         
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card">
+                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
                             <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-teal-200">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-teal-400 to-teal-600 flex items-center justify-center text-white shadow-lg shadow-teal-200 shrink-0">
                                     <i class="fa-solid fa-rotate text-lg"></i>
                                 </div>
                                 <div>
@@ -496,9 +554,9 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             </div>
                         </div>
                         
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card">
+                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
                             <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-200">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-200 shrink-0">
                                     <i class="fa-regular fa-calendar-check text-lg"></i>
                                 </div>
                                 <div>
@@ -511,9 +569,9 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             </div>
                         </div>
                         
-                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card">
+                        <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover-card equal-height-card">
                             <div class="flex items-center gap-3 mb-3">
-                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-400 to-pink-600 flex items-center justify-center text-white shadow-lg shadow-pink-200">
+                                <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-pink-400 to-pink-600 flex items-center justify-center text-white shadow-lg shadow-pink-200 shrink-0">
                                     <i class="fa-solid fa-briefcase text-lg"></i>
                                 </div>
                                 <div>
@@ -529,27 +587,27 @@ if ($attendance_record && $attendance_record['punch_out']) {
                 </div>
 
                 <div class="col-span-12">
-                    <div class="bg-white rounded-2xl border border-gray-100 p-7 shadow-sm hover-card">
+                    <div class="bg-white rounded-2xl border border-gray-100 p-7 shadow-sm hover-card equal-height-card">
                         <div class="flex flex-col lg:flex-row justify-between mb-6 gap-4">
                             <h3 class="font-bold text-slate-800 text-lg">Work Timeline</h3>
                             <div class="flex flex-wrap gap-6">
                                 <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-green-500"></div>
+                                    <div class="w-3 h-3 rounded-full bg-green-500 shrink-0"></div>
                                     <span class="text-xs text-gray-600">Productive Hours</span>
                                     <span class="text-sm font-bold text-slate-800">08h 36m</span>
                                 </div>
                                 <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-yellow-500"></div>
+                                    <div class="w-3 h-3 rounded-full bg-yellow-500 shrink-0"></div>
                                     <span class="text-xs text-gray-600">Break Hours</span>
                                     <span class="text-sm font-bold text-slate-800">22m 15s</span>
                                 </div>
                                 <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-blue-500"></div>
+                                    <div class="w-3 h-3 rounded-full bg-blue-500 shrink-0"></div>
                                     <span class="text-xs text-gray-600">Overtime</span>
                                     <span class="text-sm font-bold text-slate-800">02h 15m</span>
                                 </div>
                                 <div class="flex items-center gap-2">
-                                    <div class="w-3 h-3 rounded-full bg-slate-300"></div>
+                                    <div class="w-3 h-3 rounded-full bg-slate-300 shrink-0"></div>
                                     <span class="text-xs text-gray-600">Total</span>
                                     <span class="text-sm font-bold text-slate-800">12h 36m</span>
                                 </div>
@@ -566,36 +624,36 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             <div class="segment bg-blue-500" style="width: 8%;"></div>
                             <div class="segment bg-slate-200" style="width: 5%;"></div>
                         </div>
-                        <div class="flex justify-between text-[10px] text-gray-400 font-bold px-1">
-                            <span>06:00</span><span>07:00</span><span>08:00</span><span>09:00</span><span>10:00</span><span>11:00</span><span>12:00</span><span>13:00</span><span>14:00</span><span>15:00</span><span>16:00</span><span>17:00</span><span>18:00</span><span>19:00</span><span>20:00</span><span>21:00</span><span>22:00</span>
+                        <div class="flex justify-between text-[10px] text-gray-400 font-bold px-1 overflow-x-auto">
+                            <span class="shrink-0">06:00</span><span class="shrink-0">07:00</span><span class="shrink-0">08:00</span><span class="shrink-0">09:00</span><span class="shrink-0">10:00</span><span class="shrink-0">11:00</span><span class="shrink-0">12:00</span><span class="shrink-0">13:00</span><span class="shrink-0">14:00</span><span class="shrink-0">15:00</span><span class="shrink-0">16:00</span><span class="shrink-0">17:00</span><span class="shrink-0">18:00</span><span class="shrink-0">19:00</span><span class="shrink-0">20:00</span><span class="shrink-0">21:00</span><span class="shrink-0">22:00</span>
                         </div>
                     </div>
                 </div>
 
                 <div class="col-span-12 lg:col-span-6">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Projects</h3>
-                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition">
+                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition shrink-0">
                                 Ongoing Projects <i class="fa-solid fa-chevron-down text-[10px]"></i>
                             </button>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                             <?php for($i=0; $i<2; $i++): ?>
-                            <div class="border border-gray-100 rounded-xl p-5 bg-gradient-to-br from-white to-slate-50 shadow-sm hover:shadow-md transition">
+                            <div class="border border-gray-100 rounded-xl p-5 bg-gradient-to-br from-white to-slate-50 shadow-sm hover:shadow-md transition h-full flex flex-col">
                                 <div class="flex justify-between mb-4">
                                     <h4 class="font-bold text-sm text-slate-800">Office Management</h4>
-                                    <button class="text-gray-300 hover:text-gray-500"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                    <button class="text-gray-300 hover:text-gray-500 shrink-0"><i class="fa-solid fa-ellipsis-vertical"></i></button>
                                 </div>
                                 <div class="flex items-center gap-3 mb-4">
-                                    <img src="https://ui-avatars.com/api/?name=Anthony+Lewis&background=0d9488&color=fff" class="w-10 h-10 rounded-full shadow">
+                                    <img src="https://ui-avatars.com/api/?name=Anthony+Lewis&background=0d9488&color=fff" class="w-10 h-10 rounded-full shadow shrink-0">
                                     <div>
                                         <p class="text-sm font-bold text-slate-800">Anthony Lewis</p>
                                         <p class="text-[10px] text-gray-400">Project Leader</p>
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-3 mb-4 p-3 bg-slate-50 rounded-lg">
-                                    <div class="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center text-orange-500">
+                                    <div class="w-9 h-9 rounded-lg bg-orange-100 flex items-center justify-center text-orange-500 shrink-0">
                                         <i class="fa-regular fa-calendar"></i>
                                     </div>
                                     <div>
@@ -603,7 +661,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                                         <p class="text-[10px] text-gray-400">Deadline</p>
                                     </div>
                                 </div>
-                                <div class="flex justify-between items-center pt-3 border-t border-gray-100">
+                                <div class="flex justify-between items-center pt-3 border-t border-gray-100 mt-auto">
                                     <div class="flex items-center gap-2 text-xs text-green-600 font-bold">
                                         <i class="fa-solid fa-clipboard-list"></i> Tasks: 6/10
                                     </div>
@@ -624,10 +682,10 @@ if ($attendance_record && $attendance_record['punch_out']) {
                 </div>
 
                 <div class="col-span-12 lg:col-span-6">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Tasks</h3>
-                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition">
+                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg hover:bg-slate-200 transition shrink-0">
                                 All Projects <i class="fa-solid fa-chevron-down text-[10px]"></i>
                             </button>
                         </div>
@@ -642,12 +700,12 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             ];
                             foreach($tasks as $task): ?>
                             <div class="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:bg-slate-50 transition-colors hover:border-teal-200">
-                                <div class="flex items-center gap-3">
-                                    <i class="fa-solid fa-grip-vertical text-gray-200 text-xs cursor-move"></i>
-                                    <input type="checkbox" class="w-4 h-4 rounded text-teal-600 border-gray-300 focus:ring-teal-500">
-                                    <span class="text-sm font-medium text-slate-700"><?php echo htmlspecialchars($task['title']); ?></span>
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <i class="fa-solid fa-grip-vertical text-gray-200 text-xs cursor-move shrink-0"></i>
+                                    <input type="checkbox" class="w-4 h-4 rounded text-teal-600 border-gray-300 focus:ring-teal-500 shrink-0">
+                                    <span class="text-sm font-medium text-slate-800 truncate"><?php echo htmlspecialchars($task['title']); ?></span>
                                 </div>
-                                <div class="flex items-center gap-3">
+                                <div class="flex items-center gap-3 shrink-0">
                                     <?php 
                                     $colors = [
                                         'pink' => 'bg-pink-100 text-pink-600',
@@ -656,7 +714,7 @@ if ($attendance_record && $attendance_record['punch_out']) {
                                         'slate' => 'bg-slate-100 text-slate-600'
                                     ];
                                     ?>
-                                    <span class="text-[10px] font-bold px-3 py-1 rounded-full <?php echo $colors[$task['color']]; ?>">
+                                    <span class="text-[10px] font-bold px-3 py-1 rounded-full <?php echo $colors[$task['color']]; ?> whitespace-nowrap">
                                         ● <?php echo htmlspecialchars($task['status']); ?>
                                     </span>
                                     <div class="flex -space-x-1">
@@ -671,16 +729,16 @@ if ($attendance_record && $attendance_record['punch_out']) {
                 </div>
 
                 <div class="col-span-12 lg:col-span-5">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Performance</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
                                 <i class="fa-regular fa-calendar"></i> 2026
                             </div>
                         </div>
                         <div class="flex items-center gap-3 mb-6">
                             <span class="text-4xl font-black text-slate-800">98%</span>
-                            <span class="text-xs font-bold text-green-600 bg-green-100 px-3 py-1 rounded-full flex items-center gap-1">
+                            <span class="text-xs font-bold text-green-600 bg-green-100 px-3 py-1 rounded-full flex items-center gap-1 shrink-0">
                                 <i class="fa-solid fa-arrow-up text-[10px]"></i> 12% vs last year
                             </span>
                         </div>
@@ -707,10 +765,10 @@ if ($attendance_record && $attendance_record['punch_out']) {
                 </div>
 
                 <div class="col-span-12 lg:col-span-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">My Skills</h3>
-                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1">
+                            <div class="text-xs font-bold text-gray-500 bg-slate-100 px-3 py-1.5 rounded-lg flex items-center gap-1 shrink-0">
                                 <i class="fa-regular fa-calendar"></i> 2026
                             </div>
                         </div>
@@ -725,14 +783,14 @@ if ($attendance_record && $attendance_record['punch_out']) {
                             ];
                             foreach($skills as $skill): ?>
                             <div class="flex items-center justify-between p-4 border border-gray-100 rounded-xl hover:border-teal-200 transition">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-1.5 h-10 rounded-full" style="background-color: <?php echo $skill['color']; ?>"></div>
+                                <div class="flex items-center gap-4 min-w-0">
+                                    <div class="w-1.5 h-10 rounded-full shrink-0" style="background-color: <?php echo $skill['color']; ?>"></div>
                                     <div>
-                                        <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($skill['name']); ?></p>
+                                        <p class="text-sm font-bold text-slate-800 truncate"><?php echo htmlspecialchars($skill['name']); ?></p>
                                         <p class="text-[10px] text-gray-400">Updated: <?php echo htmlspecialchars($skill['date']); ?></p>
                                     </div>
                                 </div>
-                                <div class="relative w-12 h-12 flex items-center justify-center">
+                                <div class="relative w-12 h-12 flex items-center justify-center shrink-0">
                                     <svg class="w-full h-full -rotate-90">
                                         <circle cx="24" cy="24" r="20" fill="none" stroke="#f1f5f9" stroke-width="4" />
                                         <circle cx="24" cy="24" r="20" fill="none" stroke="<?php echo $skill['color']; ?>" stroke-width="4" 
@@ -759,105 +817,68 @@ if ($attendance_record && $attendance_record['punch_out']) {
                     </div>
                     
                     <div class="bg-gradient-to-r from-teal-600 to-teal-700 rounded-2xl p-5 flex justify-between items-center text-white shadow-lg">
-                        <div>
+                        <div class="min-w-0">
                             <p class="text-sm font-bold">Leave Policy</p>
                             <p class="text-[10px] opacity-70 mt-1">Last Updated : Today</p>
                         </div>
-                        <button class="bg-white text-teal-700 text-xs font-bold px-4 py-2 rounded-lg shadow hover:shadow-md transition">View All</button>
+                        <button class="bg-white text-teal-700 text-xs font-bold px-4 py-2 rounded-lg shadow hover:shadow-md transition shrink-0">View All</button>
                     </div>
 
                     <div class="bg-gradient-to-r from-yellow-400 to-amber-500 rounded-2xl p-5 flex justify-between items-center text-slate-800 shadow-lg">
-                        <div>
+                        <div class="min-w-0">
                             <p class="text-sm font-bold">Next Holiday</p>
                             <p class="text-[10px] font-medium mt-1">Diwali, 15 Sep 2025</p>
                         </div>
-                        <button class="bg-white text-slate-800 text-xs font-bold px-4 py-2 rounded-lg shadow hover:shadow-md transition">View All</button>
+                        <button class="bg-white text-slate-800 text-xs font-bold px-4 py-2 rounded-lg shadow hover:shadow-md transition shrink-0">View All</button>
                     </div>
                 </div>
 
-                
-
-                <div class="col-span-12 lg:col-span-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Notifications</h3>
-                            <button class="text-xs font-bold text-teal-custom bg-teal-50 px-4 py-2 rounded-lg hover:bg-teal-100 transition">View All</button>
-                        </div>
-                        <div class="space-y-5">
-                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
-                                <img src="https://ui-avatars.com/api/?name=Lex+Murphy&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
-                                <div>
-                                    <p class="text-sm font-semibold text-slate-800">Lex Murphy requested access to UNIX</p>
-                                    <p class="text-[10px] text-gray-400 mb-2">Today at 9:42 AM</p>
-                                    <div class="flex items-center gap-2 p-2 border border-gray-100 rounded-lg bg-slate-50">
-                                        <i class="fa-solid fa-file-pdf text-red-500 text-sm"></i>
-                                        <span class="text-xs font-medium text-slate-600">EY_review.pdf</span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
-                                <img src="https://ui-avatars.com/api/?name=John+Doe&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
-                                <div>
-                                    <p class="text-sm font-semibold text-slate-800">John Doe commented on your task</p>
-                                    <p class="text-[10px] text-gray-400">Today at 10:00 AM</p>
-                                </div>
-                            </div>
-                            <div class="flex gap-4 p-3 hover:bg-slate-50 rounded-xl transition">
-                                <img src="https://ui-avatars.com/api/?name=Admin&background=random" class="w-11 h-11 rounded-full flex-shrink-0">
-                                <div>
-                                    <p class="text-sm font-semibold text-slate-800">Admin requested leave approval</p>
-                                    <p class="text-[10px] text-gray-400 mb-3">Today at 10:50 AM</p>
-                                    
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="col-span-12 lg:col-span-4">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card h-full">
+                <!-- Meetings Schedule (Moved down since notifications took the space above, keeping it in the flow) -->
+                <div class="col-span-12 lg:col-span-8">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-7 hover-card equal-height-card h-full">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Meetings Schedule</h3>
-                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg">
+                            <button class="text-xs font-semibold text-gray-500 flex items-center gap-2 bg-slate-100 px-4 py-2 rounded-lg shrink-0">
                                 <i class="fa-regular fa-calendar"></i> Today
                             </button>
                         </div>
                         <div class="meeting-timeline space-y-5">
                             <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right">09:25 AM</span>
-                                <div class="w-3 h-3 rounded-full bg-orange-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow"></div>
-                                <div class="bg-gradient-to-r from-orange-50 to-amber-50 p-4 rounded-xl flex-1 border border-orange-100">
-                                    <p class="text-sm font-bold text-slate-800">Marketing Strategy Presentation</p>
-                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-briefcase text-orange-500"></i> Marketing</p>
+                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">09:25 AM</span>
+                                <div class="w-3 h-3 rounded-full bg-orange-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
+                                <div class="bg-gradient-to-r from-orange-50 to-amber-50 p-4 rounded-xl flex-1 border border-orange-100 min-w-0">
+                                    <p class="text-sm font-bold text-slate-800 truncate">Marketing Strategy Presentation</p>
+                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-briefcase text-orange-500 shrink-0"></i> Marketing</p>
                                 </div>
                             </div>
                             <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right">11:20 AM</span>
-                                <div class="w-3 h-3 rounded-full bg-teal-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow"></div>
-                                <div class="bg-gradient-to-r from-teal-50 to-cyan-50 p-4 rounded-xl flex-1 border border-teal-100">
-                                    <p class="text-sm font-bold text-slate-800">Design Review Project</p>
-                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-eye text-teal-500"></i> Review</p>
+                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">11:20 AM</span>
+                                <div class="w-3 h-3 rounded-full bg-teal-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
+                                <div class="bg-gradient-to-r from-teal-50 to-cyan-50 p-4 rounded-xl flex-1 border border-teal-100 min-w-0">
+                                    <p class="text-sm font-bold text-slate-800 truncate">Design Review Project</p>
+                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-eye text-teal-500 shrink-0"></i> Review</p>
                                 </div>
                             </div>
                             <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right">02:18 PM</span>
-                                <div class="w-3 h-3 rounded-full bg-yellow-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow"></div>
-                                <div class="bg-gradient-to-r from-yellow-50 to-amber-50 p-4 rounded-xl flex-1 border border-yellow-100">
-                                    <p class="text-sm font-bold text-slate-800">Birthday Celebration</p>
-                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-cake-candles text-yellow-500"></i> Celebration</p>
+                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">02:18 PM</span>
+                                <div class="w-3 h-3 rounded-full bg-yellow-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
+                                <div class="bg-gradient-to-r from-yellow-50 to-amber-50 p-4 rounded-xl flex-1 border border-yellow-100 min-w-0">
+                                    <p class="text-sm font-bold text-slate-800 truncate">Birthday Celebration</p>
+                                    <p class="text-[10px] text-gray-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-cake-candles text-yellow-500 shrink-0"></i> Celebration</p>
                                 </div>
                             </div>
                             <div class="flex items-start gap-4 relative">
-                                <span class="text-xs font-bold text-gray-500 w-16 text-right">04:10 PM</span>
-                                <div class="w-3 h-3 rounded-full bg-green-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow"></div>
-                                <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-xl flex-1 border border-green-100">
-                                    <p class="text-sm font-bold text-slate-800">Update of Project Flow</p>
-                                    <p class="text-[10px] text-gray-400 mt-1 flex items-center gap-1"><i class="fa-solid fa-code text-green-500"></i> Development</p>
+                                <span class="text-xs font-bold text-gray-500 w-16 text-right shrink-0">04:10 PM</span>
+                                <div class="w-3 h-3 rounded-full bg-green-500 absolute left-[76px] top-1 z-10 border-2 border-white shadow shrink-0"></div>
+                                <div class="bg-gradient-to-r from-green-50 to-emerald-50 p-4 rounded-xl flex-1 border border-green-100 min-w-0">
+                                    <p class="text-sm font-bold text-slate-800 truncate">Update of Project Flow</p>
+                                    <p class="text-[10px] text-gray-400 mt-1 flex items-center gap-1"><i class="fa-solid fa-code text-green-500 shrink-0"></i> Development</p>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+
             </div>
             
             <div class="fixed right-0 top-1/2 -translate-y-1/2 bg-teal-600 text-white p-3 rounded-l-xl shadow-xl cursor-pointer hover:bg-teal-700 transition z-50">
