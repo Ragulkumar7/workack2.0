@@ -61,11 +61,19 @@ include '../header.php';
         .btn-break:hover { background-color: #f0fdfa; }
         .btn-punch-in { background-color: #134e4a; color: white; width: 100%; padding: 12px; border-radius: 8px; font-weight: 600; transition: 0.3s; }
         .btn-punch-in:hover { background-color: #0f3d3a; }
+
+        /* FIXED OVERLAP HERE */
+        @media (min-width: 1024px) {
+            main { 
+                margin-left: 100px; /* Adjust this value to match your exact sidebar width */
+                width: calc(100% - 100px); 
+            }
+        }
     </style>
 </head>
 <body class="min-h-screen">
 
-    <main class="w-full">
+    <main>
         <div class="p-8">
             <div class="mb-6">
                 <h1 class="text-2xl font-bold text-slate-800">HR Executive</h1>
