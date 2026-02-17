@@ -47,6 +47,8 @@ if(!isset($_SESSION['user_id'])) { $_SESSION['user_id'] = 1; }
     width: calc(100% - var(--primary-sidebar-width));
     transition: all 0.3s ease; /* Smooth movement when secondary opens */
     padding: 25px 35px;
+    padding-top: 0 !important;
+
 }
 #mainContent.main-shifted {
     margin-left: calc(var(--primary-sidebar-width) + var(--secondary-sidebar-width));
@@ -140,6 +142,10 @@ if(!isset($_SESSION['user_id'])) { $_SESSION['user_id'] = 1; }
     <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
 
     <main id="mainContent">
+        <?php 
+        $path_to_root = '../'; // Set this so header links (settings/logout) work correctly
+        include('../header.php'); 
+        ?>
         
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
