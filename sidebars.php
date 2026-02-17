@@ -357,7 +357,31 @@ $sections = [
             ],
         ]
     ],
-    
+    // --- FIX: Corrected Reports Section Syntax ---
+    [
+        'label' => 'Reports',
+        'items' => [
+            [
+                'name' => 'Reports', 
+                'path' => $base . 'Accounts/accounts_reports.php', 
+                'icon' => 'pie-chart', 
+                'allowed' => ['Accounts', 'CFO']
+            ]
+        ]
+    ],
+    //Auditor report for CFO only
+     [
+     'label' => 'Auditor Report',
+        'items' => [
+    [
+    'name' => 'Auditor Report', 
+    'path' => $base . 'CFO/cfo_auditor_report.php', 
+    'icon' => 'file-check-2', // அல்லது 'clipboard-check'
+    'allowed' => ['CFO']
+   ]
+        ]
+     ],
+
     [
         'label' => 'Support & Tools',
         'items' => [

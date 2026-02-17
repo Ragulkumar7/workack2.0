@@ -155,7 +155,7 @@ $recent_transactions = [
         .k-expense .kpi-icon { background: #fee2e2; color: #dc2626; }
         .k-pending .kpi-icon { background: #ffedd5; color: #d97706; }
 
-        /* --- TOP ROW (Fixed Height Logic) --- */
+        /* --- TOP ROW (Equal Height Logic) --- */
         .top-row-grid { 
             display: grid; 
             grid-template-columns: 340px 1fr; 
@@ -195,7 +195,7 @@ $recent_transactions = [
             box-shadow: 0 4px 10px rgba(249, 115, 22, 0.2);
         }
 
-        /* --- QUICK ACTIONS (FULL HEIGHT FIX) --- */
+        /* --- QUICK ACTIONS (FULL FILL) --- */
         .actions-card { 
             background: white; padding: 24px; border-radius: 16px; 
             border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.04);
