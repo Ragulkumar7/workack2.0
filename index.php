@@ -214,11 +214,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         <option value="Manager">Manager</option>
                         <option value="Team Lead">Team Lead</option>
                         <option value="Employee" selected>Employee</option>
-                        <option value="Accounts">Accounts</option>
+                        <option value="Accountant">Accountant</option>
                         <option value="Sales">Sales</option>
                         <option value="Digital Marketing">Digital Marketing</option>
                         <option value="IT Admin">IT Admin</option>
                         <option value="IT Executive">IT Executive</option>
+                        <option value="CFO">CFO</option>
+
                     </select>
                 </div>
                 <button type="submit" name="auth_action" class="btn-primary">Sign In to Workack</button>

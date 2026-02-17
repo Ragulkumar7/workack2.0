@@ -1,8 +1,74 @@
-<?php
-// 1. SESSION START
+<?php 
+// 1. SESSION & DATABASE CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-// Check Login
-if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
+
+// FIXED PATH LOGIC
+// We look for db_connect.php inside: C:\xampp\htdocs\workack2.0\include\
+$dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
+
+if (file_exists($dbPath)) {
+    include_once($dbPath);
+} else {
+    // Fallback if the above fails: try relative path
+    $dbPath = __DIR__ . '/include/db_connect.php';
+    if(file_exists($dbPath)) {
+        include_once($dbPath);
+    } else {
+        die("<div style='color:red; padding:20px; border:1px solid red;'>
+            <b>Error:</b> db_connect.php not found.<br>
+            Please ensure your file is at: <b>C:\xampp\htdocs\workack2.0\include\db_connect.php</b>
+        </div>");
+    }
+}
+
+// Check Login (Using your existing session variable)
+if (!isset($_SESSION['user_id'])) { 
+    // If you use 'id' in other pages, ensure they match.
+    $current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : null;
+    if(!$current_user_id) {
+        header("Location: index.php"); 
+        exit(); 
+    }
+} else {
+    $current_user_id = $_SESSION['user_id'];
+}
+
+// 2. HANDLE NEW TASK SUBMISSION
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['add_task'])) {
+    $title = mysqli_real_escape_string($conn, $_POST['title']);
+    $priority = mysqli_real_escape_string($conn, $_POST['priority']);
+    $due_date = mysqli_real_escape_string($conn, $_POST['due_date']);
+    $desc = mysqli_real_escape_string($conn, $_POST['description']);
+
+    $stmt = $conn->prepare("INSERT INTO personal_taskboard (user_id, title, priority, due_date, description, status) VALUES (?, ?, ?, ?, ?, 'todo')");
+    $stmt->bind_param("issss", $current_user_id, $title, $priority, $due_date, $desc);
+    $stmt->execute();
+    $stmt->close();
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// 3. HANDLE STATUS UPDATE
+if (isset($_GET['update_id']) && isset($_GET['new_status'])) {
+    $tid = intval($_GET['update_id']);
+    $stat = mysqli_real_escape_string($conn, $_GET['new_status']);
+    
+    $stmt = $conn->prepare("UPDATE personal_taskboard SET status = ? WHERE id = ? AND user_id = ?");
+    $stmt->bind_param("sii", $stat, $tid, $current_user_id);
+    $stmt->execute();
+    $stmt->close();
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit;
+}
+
+// 4. FETCH TASKS
+$tasks_result = $conn->query("SELECT * FROM personal_taskboard WHERE user_id = $current_user_id ORDER BY created_at DESC");
+$tasks = ['todo' => [], 'inprogress' => [], 'completed' => []];
+if($tasks_result) {
+    while($row = $tasks_result->fetch_assoc()) {
+        $tasks[$row['status']][] = $row;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -10,223 +76,147 @@ if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SmartHR | My Tasks</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { primary: '#1b5a5a', primaryDark: '#144343', bgLight: '#f8fafc' },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+
     <style>
-        :root {
-            --bg-light: #f7f7f7;
-            --white: #ffffff;
-            --primary-orange: #ff5b37; 
-            --text-dark: #333333;
-            --text-muted: #666666;
-            --border-light: #e3e3e3;
-        }
-
-        /* BODY LAYOUT FIX: display:flex ஐ எடுத்துவிட்டு block ஆக வைக்கிறோம், அப்போதான் margin வேலை செய்யும் */
-        body { 
-            background-color: var(--bg-light); 
-            color: var(--text-dark); 
-            font-family: 'Inter', sans-serif; 
-            margin: 0; 
-            overflow-x: hidden; 
-            display: block; 
-        }
-        
-        /* --- SIDEBAR INTEGRATION CSS (OVERLAP FIX) --- */
-        #mainContent { 
-            margin-left: 95px; /* Sidebar-க்கு இடம் ஒதுக்குகிறோம் */
-            padding: 30px; 
-            transition: margin-left 0.3s ease;
-            width: calc(100% - 95px);
-            min-height: 100vh;
-            box-sizing: border-box;
-        }
-        /* Sidebar விரியும் போது Content நகர (Shift ஆக) இது உதவும் */
-        #mainContent.main-shifted {
-            margin-left: 315px; /* 95px + 220px */
-            width: calc(100% - 315px);
-        }
-        /* ----------------------------------------------- */
-        
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .page-header h1 { font-size: 24px; margin: 0; font-weight: 600; }
-        .breadcrumb { font-size: 13px; color: var(--text-muted); margin-top: 5px; }
-
-        /* Task Board Layout */
-        .task-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 25px; align-items: start; }
-        .task-column { background: #f1f3f5; border-radius: 12px; padding: 20px; min-height: 80vh; border: 1px solid var(--border-light); }
-        .column-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e0e0e0; }
-        .column-header h3 { font-size: 15px; font-weight: 700; margin: 0; color: var(--text-dark); text-transform: uppercase; letter-spacing: 0.5px; }
-        .task-count { background: var(--white); color: var(--primary-orange); padding: 2px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; border: 1px solid var(--border-light); }
-
-        /* Task Cards */
-        .task-card { background: var(--white); padding: 18px; border-radius: 10px; border: 1px solid var(--border-light); margin-bottom: 15px; transition: 0.3s; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-        .task-card:hover { border-color: var(--primary-orange); transform: translateY(-2px); }
-
-        .priority-label { font-size: 10px; font-weight: 800; text-transform: uppercase; padding: 4px 10px; border-radius: 4px; margin-bottom: 12px; display: inline-block; }
-        .high { background: #ffe5e5; color: #ff5b37; }
-        .medium { background: #fff4e5; color: #ff9b44; }
-        .low { background: #e5f9ed; color: #28c76f; }
-
-        .task-title { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--text-dark); }
-        .task-desc { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; margin-bottom: 15px; }
-        
-        .task-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 12px; border-top: 1px solid #f9f9f9; }
-        .task-info { font-size: 11px; color: var(--text-muted); font-weight: 500; }
-        .task-info i { margin-right: 5px; color: var(--primary-orange); }
-
-        /* Action Buttons */
-        .task-actions { display: flex; gap: 8px; margin-top: 15px; padding-top: 12px; border-top: 1px solid #f0f0f0; }
-        .btn-status { flex: 1; padding: 8px; border-radius: 6px; font-size: 11px; font-weight: 700; border: 1px solid var(--border-light); background: #fff; cursor: pointer; transition: 0.2s; }
-        .btn-status:hover { background: #f9f9f9; border-color: var(--primary-orange); color: var(--primary-orange); }
-        .btn-finish { background: #e5f9ed; color: #28c76f; border-color: #28c76f; }
-        .btn-finish:hover { background: #28c76f; color: #fff; }
-
-        .btn-add { background: var(--primary-orange); color: white; padding: 12px 25px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.3s; }
-        .btn-add:hover { background: #e54e2d; box-shadow: 0 4px 10px rgba(255, 91, 55, 0.3); }
-
-        /* Modal Styling */
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
-        .modal-content { background: white; margin: 10% auto; padding: 30px; border-radius: 8px; width: 500px; }
-        .input-group { margin-bottom: 15px; }
-        label { display: block; font-size: 13px; margin-bottom: 5px; font-weight: 600; }
-        input, select, textarea { width: 100%; padding: 10px; border: 1px solid var(--border-light); border-radius: 6px; font-family: inherit; }
+        #mainContent { margin-left: 95px; width: calc(100% - 95px); transition: all 0.3s ease; }
+        #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
+        .task-col-scroll::-webkit-scrollbar { width: 4px; }
+        .task-col-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     </style>
 </head>
-<body>
+<body class="bg-slate-50 text-slate-800">
 
-    <?php include('sidebars.php'); ?>
+    <?php 
+    // Including files from the root workack2.0 folder
+    include_once('sidebars.php'); 
+    include_once('header.php'); 
+    ?>
 
-    <div id="mainContent">
-            <?php include 'header.php'; ?>
-
-        <div class="page-header">
+    <div id="mainContent" class="p-8 min-h-screen">
+        <div class="flex justify-between items-end mb-8">
             <div>
-                <h1>My Tasks</h1>
-                <div class="breadcrumb">Dashboard / HRM / My Tasks</div>
+                <h1 class="text-2xl font-bold text-slate-800 tracking-tight">My Tasks</h1>
+                <nav class="flex text-sm text-gray-500 mt-1 gap-2 items-center">
+                    <span>Dashboard</span>
+                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                    <span class="text-primary font-medium">Personal Task Board</span>
+                </nav>
             </div>
-            <button class="btn-add" onclick="openModal('addTaskModal')">
+            <button onclick="openModal('addTaskModal')" class="bg-primary hover:bg-primaryDark text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg flex items-center gap-2 transform active:scale-95">
                 <i class="fas fa-plus"></i> New Task
             </button>
         </div>
 
-        <div class="task-board">
-            <div class="task-column" id="todo-col">
-                <div class="column-header">
-                    <h3>To Do</h3>
-                    <span class="task-count" id="todo-count">1</span>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start h-[calc(100vh-180px)]">
+            
+            <div class="bg-slate-100/80 rounded-2xl p-4 h-full flex flex-col border border-slate-200/60" id="todo-col">
+                <div class="flex justify-between items-center mb-4 px-1">
+                    <h3 class="font-bold text-slate-700 uppercase text-xs tracking-wider flex items-center gap-2">To Do</h3>
+                    <span class="bg-white text-slate-600 px-2.5 py-0.5 rounded-md text-xs font-bold border border-slate-200"><?php echo count($tasks['todo']); ?></span>
                 </div>
-                
-                <div class="task-card" id="task-1">
-                    <span class="priority-label high">High Priority</span>
-                    <div class="task-title">Complete HRMS Dashboard UI</div>
-                    <p class="task-desc">Finish the announcement view and self-task page integration for all user levels.</p>
-                    <div class="task-footer">
-                        <div class="task-info"><i class="far fa-calendar-alt"></i> 06 Feb 2026</div>
+                <div class="overflow-y-auto flex-1 task-col-scroll pr-1 space-y-3">
+                    <?php foreach($tasks['todo'] as $t): ?>
+                    <div class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:border-primary/50 transition-all">
+                        <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 uppercase mb-2 inline-block"><?php echo $t['priority']; ?></span>
+                        <h4 class="font-bold text-slate-800 text-sm mb-1"><?php echo htmlspecialchars($t['title']); ?></h4>
+                        <p class="text-xs text-gray-500 line-clamp-2 mb-3"><?php echo htmlspecialchars($t['description']); ?></p>
+                        <div class="pt-3 border-t border-gray-50 flex justify-between items-center">
+                            <span class="text-[10px] text-gray-400"><?php echo date('d M', strtotime($t['due_date'])); ?></span>
+                            <a href="?update_id=<?php echo $t['id']; ?>&new_status=inprogress" class="text-xs font-bold text-primary hover:underline">Start</a>
+                        </div>
                     </div>
-                    <div class="task-actions">
-                        <button class="btn-status" onclick="updateTaskStatus('task-1', 'inprogress-col')">Start Work</button>
-                    </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
 
-            <div class="task-column" id="inprogress-col">
-                <div class="column-header">
-                    <h3>In Progress</h3>
-                    <span class="task-count" id="inprogress-count">1</span>
+            <div class="bg-slate-100/80 rounded-2xl p-4 h-full flex flex-col border border-slate-200/60" id="inprogress-col">
+                <div class="flex justify-between items-center mb-4 px-1">
+                    <h3 class="font-bold text-blue-700 uppercase text-xs tracking-wider">In Progress</h3>
+                    <span class="bg-white text-blue-600 px-2.5 py-0.5 rounded-md text-xs font-bold border border-blue-100"><?php echo count($tasks['inprogress']); ?></span>
                 </div>
-                
-                <div class="task-card" id="task-2">
-                    <span class="priority-label medium">Medium</span>
-                    <div class="task-title">Database Schema Setup</div>
-                    <p class="task-desc">Create tables for candidates, roles, and system announcements.</p>
-                    <div class="task-footer">
-                        <div class="task-info"><i class="far fa-calendar-alt"></i> 07 Feb 2026</div>
+                <div class="overflow-y-auto flex-1 task-col-scroll pr-1 space-y-3">
+                    <?php foreach($tasks['inprogress'] as $t): ?>
+                    <div class="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
+                        <h4 class="font-bold text-slate-800 text-sm mb-1"><?php echo htmlspecialchars($t['title']); ?></h4>
+                        <a href="?update_id=<?php echo $t['id']; ?>&new_status=completed" class="block w-full text-center mt-3 py-1.5 rounded-lg bg-green-50 text-green-700 text-xs font-bold border border-green-100 hover:bg-green-600 hover:text-white transition-all">Finish</a>
                     </div>
-                    <div class="task-actions">
-                        <button class="btn-status btn-finish" onclick="updateTaskStatus('task-2', 'completed-col')">Mark Finished</button>
-                    </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
 
-            <div class="task-column" id="completed-col">
-                <div class="column-header">
-                    <h3>Completed</h3>
-                    <span class="task-count" id="completed-count">0</span>
+            <div class="bg-slate-100/80 rounded-2xl p-4 h-full flex flex-col border border-slate-200/60" id="completed-col">
+                <div class="flex justify-between items-center mb-4 px-1">
+                    <h3 class="font-bold text-green-700 uppercase text-xs tracking-wider">Completed</h3>
+                    <span class="bg-white text-green-600 px-2.5 py-0.5 rounded-md text-xs font-bold border border-green-100"><?php echo count($tasks['completed']); ?></span>
+                </div>
+                <div class="overflow-y-auto flex-1 task-col-scroll pr-1 space-y-3">
+                    <?php foreach($tasks['completed'] as $t): ?>
+                    <div class="bg-white p-4 rounded-xl border border-gray-100 opacity-70">
+                        <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                            <i class="fas fa-check-circle text-green-500"></i> <?php echo htmlspecialchars($t['title']); ?>
+                        </h4>
+                    </div>
+                    <?php endforeach; ?>
                 </div>
             </div>
+
         </div>
     </div>
 
-    <div id="addTaskModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 style="margin:0; font-size: 18px;">Create New Task</h3>
-                <span style="cursor:pointer; font-size: 20px;" onclick="closeModal('addTaskModal')">&times;</span>
+    <div id="addTaskModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" id="modalPanel">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                <h3 class="font-bold text-lg text-slate-800">Create New Task</h3>
+                <button onclick="closeModal('addTaskModal')" class="text-gray-400 hover:text-red-500"><i class="fa-solid fa-xmark text-xl"></i></button>
             </div>
-            <form>
-                <div class="input-group" style="margin-top:20px;">
-                    <label>Task Title</label>
-                    <input type="text" placeholder="e.g., Update PHP Mailer" required>
+            <form class="p-6 space-y-4" method="POST">
+                <input type="hidden" name="add_task" value="1">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Task Title *</label>
+                    <input type="text" name="title" required class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:border-primary focus:outline-none">
                 </div>
-                <div style="display: flex; gap: 15px; margin-top:15px;">
-                    <div style="flex:1;">
-                        <label>Priority</label>
-                        <select>
-                            <option>Low</option>
-                            <option>Medium</option>
-                            <option>High</option>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Priority</label>
+                        <select name="priority" class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm">
+                            <option>Low</option><option selected>Medium</option><option>High</option>
                         </select>
                     </div>
-                    <div style="flex:1;">
-                        <label>Due Date</label>
-                        <input type="date" required>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Due Date</label>
+                        <input type="date" name="due_date" required class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm">
                     </div>
                 </div>
-                <div style="margin-top:15px;">
-                    <label>Description</label>
-                    <textarea rows="4" placeholder="Task details..."></textarea>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Description</label>
+                    <textarea name="description" rows="3" class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm resize-none"></textarea>
                 </div>
-                <div style="text-align:right; margin-top:25px;">
-                    <button type="button" style="background:#eee; border:none; padding:10px 20px; border-radius:6px; margin-right:10px; cursor:pointer;" onclick="closeModal('addTaskModal')">Cancel</button>
-                    <button type="submit" class="btn-add">Save Task</button>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeModal('addTaskModal')" class="text-sm font-semibold text-gray-500">Cancel</button>
+                    <button type="submit" class="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg">Save Task</button>
                 </div>
             </form>
         </div>
     </div>
 
     <script>
-        function openModal(id) { document.getElementById(id).style.display = 'block'; }
-        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
-        
-        function updateTaskStatus(taskId, targetColId) {
-            const taskCard = document.getElementById(taskId);
-            const targetCol = document.getElementById(targetColId);
-            const actionContainer = taskCard.querySelector('.task-actions');
-
-            // Move the card
-            targetCol.appendChild(taskCard);
-
-            // Update buttons based on the new column
-            if (targetColId === 'inprogress-col') {
-                actionContainer.innerHTML = `<button class="btn-status btn-finish" onclick="updateTaskStatus('${taskId}', 'completed-col')">Mark Finished</button>`;
-            } else if (targetColId === 'completed-col') {
-                actionContainer.innerHTML = `<span style="color:#28c76f; font-size:11px; font-weight:700;"><i class="fas fa-check-circle"></i> Work Finished</span>`;
-                taskCard.style.opacity = '0.8';
-            }
-
-            // Simple count update
-            updateCounts();
-        }
-
-        function updateCounts() {
-            document.getElementById('todo-count').innerText = document.getElementById('todo-col').querySelectorAll('.task-card').length;
-            document.getElementById('inprogress-count').innerText = document.getElementById('inprogress-col').querySelectorAll('.task-card').length;
-            document.getElementById('completed-count').innerText = document.getElementById('completed-col').querySelectorAll('.task-card').length;
-        }
-
-        window.onclick = function(event) { if (event.target.className === 'modal') { closeModal(event.target.id); } }
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
     </script>
 </body>
 </html>

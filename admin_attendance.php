@@ -2,7 +2,6 @@
 
 include 'sidebars.php'; 
 include 'header.php';
-// Uncomment in production
 
 // attendance_admin.php
 
@@ -17,7 +16,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // Generate data for the last 30 days
 for ($i = 1; $i <= 50; $i++) {
-    $day = rand(1, 30); // Random day of current month
+    $day = rand(1, 30); 
     $month = date('m');
     $year = date('Y');
     $dateStr = sprintf("%04d-%02d-%02d", $year, $month, $day);
@@ -48,13 +47,13 @@ for ($i = 1; $i <= 50; $i++) {
     }
 
     $attendanceData[] = [
-        "id" => $i,          // Internal ID
-        "emp_id" => $displayId, // ADDED: Display Employee ID
+        "id" => $i,
+        "emp_id" => $displayId,
         "name" => "Employee " . $i,
         "avatar" => "https://i.pravatar.cc/150?img=" . ($i + 10),
         "role" => "Staff Member",
         "dept" => $departments[array_rand($departments)],
-        "date" => $dateStr, // YYYY-MM-DD
+        "date" => $dateStr,
         "status" => $status,
         "checkin" => $checkIn,
         "checkout" => $checkOut,
@@ -88,15 +87,22 @@ for ($i = 1; $i <= 50; $i++) {
             --bg-body: #f1f5f9; 
             --text-dark: #1e293b;
             --text-muted: #64748b;
+            --sidebar-width: 95px; /* Start matching sidebars.php width */
         }
         body { 
             background-color: var(--bg-body); 
             font-family: 'Inter', sans-serif; 
             color: var(--text-dark);
+            overflow-x: hidden; 
         }
 
-        /* Layout Adjustments */
-        .main-wrapper { margin-left: 80px; padding: 2rem; transition: all 0.3s; }
+        /* DYNAMIC LAYOUT */
+        .main-wrapper { 
+            margin-left: var(--sidebar-width); 
+            padding: 2rem; 
+            width: calc(100% - var(--sidebar-width));
+            transition: margin-left 0.3s ease, width 0.3s ease; 
+        }
         
         /* Card Styling */
         .stat-card { border: none; border-radius: 12px; background: white; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); transition: transform 0.2s; }
@@ -154,11 +160,7 @@ for ($i = 1; $i <= 50; $i++) {
 </head>
 <body>
 
-    <!-- Sidebar & Header Placeholders (Simulated for standalone) -->
-    <!-- <?php include('sidebars.php'); ?> -->
-    <!-- <?php include('header.php'); ?> -->
-
-    <div class="main-wrapper">
+    <div class="main-wrapper" id="mainWrapper">
         
         <!-- Page Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
@@ -261,7 +263,7 @@ for ($i = 1; $i <= 50; $i++) {
                     <thead>
                         <tr>
                             <th>Employee</th>
-                            <th>Emp ID</th> <!-- NEW COLUMN -->
+                            <th>Emp ID</th>
                             <th>Date</th>
                             <th>Department</th>
                             <th>Status</th>
@@ -292,7 +294,7 @@ for ($i = 1; $i <= 50; $i++) {
         </div>
     </div>
 
-    <!-- 1. VIEW REPORT MODAL -->
+    <!-- VIEW REPORT MODAL -->
     <div id="viewModal" class="custom-modal fixed-top modal-backdrop w-100 h-100 align-items-center justify-content-center z-50">
         <div class="bg-white rounded-4 shadow-lg w-100" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
             <div class="p-4 border-bottom d-flex justify-content-between align-items-center bg-primary text-white rounded-top-4">
@@ -362,66 +364,6 @@ for ($i = 1; $i <= 50; $i++) {
         </div>
     </div>
 
-    <!-- 2. EDIT ATTENDANCE MODAL -->
-    <div id="editModal" class="custom-modal fixed-top modal-backdrop w-100 h-100 align-items-center justify-content-center z-50">
-        <div class="bg-white rounded-4 shadow-lg w-100" style="max-width: 500px;">
-            <div class="p-4 border-bottom d-flex justify-content-between align-items-center">
-                <h5 class="fw-bold">Mark Attendance</h5>
-                <button onclick="closeModal('editModal')" class="btn btn-sm text-secondary">&times;</button>
-            </div>
-            <div class="p-4">
-                <form id="editForm" onsubmit="event.preventDefault(); saveAttendance();">
-                    <input type="hidden" id="editId">
-                    
-                    <div class="mb-3">
-                        <label class="small text-muted fw-bold">Employee</label>
-                        <div class="input-group">
-                            <span class="input-group-text bg-light" id="editDisplayId">EMP-001</span>
-                            <input type="text" id="editName" class="form-control" readonly style="background: #f8fafc;">
-                        </div>
-                    </div>
-
-                    <div class="row mb-3">
-                        <div class="col-6">
-                            <label class="small text-muted fw-bold">Status</label>
-                            <select id="editStatus" class="form-select">
-                                <option value="Present">Present</option>
-                                <option value="Absent">Absent</option>
-                                <option value="Late">Late</option>
-                                <option value="Half Day">Half Day</option>
-                            </select>
-                        </div>
-                        <div class="col-6">
-                            <label class="small text-muted fw-bold">Date</label>
-                            <input type="date" id="editDate" class="form-control" readonly style="background: #f8fafc;">
-                        </div>
-                    </div>
-
-                    <div class="row mb-3">
-                        <div class="col-6">
-                            <label class="small text-muted fw-bold">Check In</label>
-                            <input type="time" id="editIn" class="form-control">
-                        </div>
-                        <div class="col-6">
-                            <label class="small text-muted fw-bold">Check Out</label>
-                            <input type="time" id="editOut" class="form-control">
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="small text-muted fw-bold">Notes (Reason for late/absence)</label>
-                        <textarea id="editNotes" class="form-control" rows="2"></textarea>
-                    </div>
-
-                    <div class="d-flex gap-2">
-                        <button type="button" onclick="closeModal('editModal')" class="btn btn-light flex-grow-1">Cancel</button>
-                        <button type="submit" class="btn btn-primary flex-grow-1">Save Changes</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <!-- Toast Notification -->
     <div id="toast">Action Successful</div>
 
@@ -429,7 +371,57 @@ for ($i = 1; $i <= 50; $i++) {
         // 1. INITIALIZE DATA
         let allRecords = <?php echo $jsonData; ?>;
 
-        // 2. DOM ELEMENTS
+        // 2. AUTO-ADJUST LAYOUT BASED ON SIDEBAR WIDTH (UPDATED LOGIC)
+        function setupLayoutObserver() {
+            const primarySidebar = document.querySelector('.sidebar-primary');
+            const secondarySidebar = document.querySelector('.sidebar-secondary');
+            const mainWrapper = document.getElementById('mainWrapper');
+            
+            if (!primarySidebar || !mainWrapper) return;
+
+            // Function to calculate total width based on sidebar state
+            const updateMargin = () => {
+                let totalWidth = 0;
+
+                // Always add primary sidebar width
+                totalWidth += primarySidebar.offsetWidth;
+
+                // If secondary sidebar is open (has class 'open'), add its width
+                if (secondarySidebar && secondarySidebar.classList.contains('open')) {
+                    totalWidth += secondarySidebar.offsetWidth;
+                }
+
+                // Update CSS Variable
+                document.documentElement.style.setProperty('--sidebar-width', totalWidth + 'px');
+            };
+
+            // A. Observe Primary Sidebar for size changes (e.g. window resize)
+            const ro = new ResizeObserver(() => { 
+                updateMargin(); 
+            });
+            ro.observe(primarySidebar);
+
+            // B. Observe Secondary Sidebar for class changes (Opening/Closing)
+            // MutationObserver detects when the 'open' class is toggled via JS
+            if (secondarySidebar) {
+                const mo = new MutationObserver((mutations) => {
+                    mutations.forEach((mutation) => {
+                        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                            updateMargin();
+                        }
+                    });
+                });
+                mo.observe(secondarySidebar, { attributes: true, attributeFilter: ['class'] });
+            }
+
+            // Initial set
+            updateMargin();
+        }
+
+        // Run observer on load
+        document.addEventListener('DOMContentLoaded', setupLayoutObserver);
+
+        // 3. DOM ELEMENTS
         const tableBody = document.getElementById('attendanceTableBody');
         const filterMonth = document.getElementById('filterMonth');
         const filterDept = document.getElementById('filterDept');
@@ -442,7 +434,7 @@ for ($i = 1; $i <= 50; $i++) {
         const statLate = document.getElementById('statLate');
         const statAbsent = document.getElementById('statAbsent');
 
-        // 3. RENDER FUNCTION
+        // 4. RENDER FUNCTION
         function renderTable() {
             tableBody.innerHTML = '';
             
@@ -463,7 +455,6 @@ for ($i = 1; $i <= 50; $i++) {
                 const matchMonth = monthVal === "" || recordMonth === monthVal;
                 const matchDept = deptVal === "" || record.dept === deptVal;
                 const matchStatus = statusVal === "" || record.status === statusVal;
-                // Updated Search Logic: Search by Name OR Emp ID
                 const matchSearch = record.name.toLowerCase().includes(searchVal) || record.emp_id.toLowerCase().includes(searchVal);
 
                 return matchMonth && matchDept && matchStatus && matchSearch;
@@ -506,7 +497,6 @@ for ($i = 1; $i <= 50; $i++) {
                             </div>
                         </td>
                         <td>
-                            <!-- NEW COLUMN: Emp ID -->
                             <span class="badge bg-light text-secondary border font-monospace">${rec.emp_id}</span>
                         </td>
                         <td>${rec.date}</td>
@@ -516,11 +506,9 @@ for ($i = 1; $i <= 50; $i++) {
                         <td>${rec.checkout}</td>
                         <td><span class="fw-bold text-dark">${rec.production}</span></td>
                         <td class="text-end">
-                            <button onclick="openViewModal(${rec.id})" class="btn btn-sm btn-light text-primary me-1" title="View Report">
+                            <!-- VIEW BUTTON ONLY (EDIT REMOVED) -->
+                            <button onclick="openViewModal(${rec.id})" class="btn btn-sm btn-light text-primary" title="View Report">
                                 <i class="fa-solid fa-eye"></i>
-                            </button>
-                            <button onclick="openEditModal(${rec.id})" class="btn btn-sm btn-light text-dark" title="Edit Attendance">
-                                <i class="fa-solid fa-pen"></i>
                             </button>
                         </td>
                     </tr>
@@ -529,13 +517,13 @@ for ($i = 1; $i <= 50; $i++) {
             });
         }
 
-        // 4. EVENT LISTENERS
+        // 5. EVENT LISTENERS
         filterMonth.addEventListener('change', renderTable);
         filterDept.addEventListener('change', renderTable);
         filterStatus.addEventListener('change', renderTable);
         searchInput.addEventListener('input', renderTable);
 
-        // 5. MODAL LOGIC
+        // 6. MODAL LOGIC
         function openModal(id) {
             document.getElementById(id).classList.add('active');
             document.body.style.overflow = 'hidden';
@@ -552,7 +540,7 @@ for ($i = 1; $i <= 50; $i++) {
             if(!rec) return;
 
             document.getElementById('vm-name').innerText = rec.name;
-            document.getElementById('vm-id').innerText = rec.emp_id; // Set ID in Modal
+            document.getElementById('vm-id').innerText = rec.emp_id;
             document.getElementById('vm-dept').innerText = rec.dept;
             document.getElementById('vm-avatar').src = rec.avatar;
             document.getElementById('vm-date').innerText = rec.date;
@@ -564,43 +552,9 @@ for ($i = 1; $i <= 50; $i++) {
             openModal('viewModal');
         }
 
-        // Open Edit Form
-        function openEditModal(id) {
-            const rec = allRecords.find(r => r.id === id);
-            if(!rec) return;
-
-            document.getElementById('editId').value = rec.id;
-            document.getElementById('editDisplayId').innerText = rec.emp_id; // Set ID in Edit Form
-            document.getElementById('editName').value = rec.name;
-            document.getElementById('editDate').value = rec.date;
-            document.getElementById('editStatus').value = rec.status;
-            
-            // Mock time parsing
-            document.getElementById('editIn').value = rec.checkin.includes('AM') ? '09:00' : '18:00'; 
-            document.getElementById('editOut').value = rec.checkout.includes('PM') ? '18:00' : '09:00';
-
-            openModal('editModal');
-        }
-
-        // 6. SAVE ATTENDANCE (Mock Update)
-        function saveAttendance() {
-            const id = parseInt(document.getElementById('editId').value);
-            const newStatus = document.getElementById('editStatus').value;
-            
-            const index = allRecords.findIndex(r => r.id === id);
-            if(index !== -1) {
-                allRecords[index].status = newStatus;
-                
-                closeModal('editModal');
-                showToast(`Attendance updated for ${allRecords[index].emp_id}`);
-                renderTable(); 
-            }
-        }
-
         // 7. EXPORT TO CSV
         function exportCSV() {
             let csvContent = "data:text/csv;charset=utf-8,";
-            // Updated Header to include Emp ID
             csvContent += "Employee ID,Name,Department,Date,Status,CheckIn,CheckOut,Production\n";
 
             const rows = document.querySelectorAll("#attendanceTableBody tr");
@@ -608,8 +562,8 @@ for ($i = 1; $i <= 50; $i++) {
                 const cols = row.querySelectorAll("td");
                 if(cols.length > 1) { 
                     const rowData = [
-                        cols[1].innerText.trim(),       // Emp ID (Col index 1)
-                        cols[0].innerText.replace(/\n/g, ' '), // Name (Col index 0)
+                        cols[1].innerText.trim(),       // Emp ID
+                        cols[0].innerText.replace(/\n/g, ' '), // Name
                         cols[3].innerText.trim(),       // Dept
                         cols[2].innerText,              // Date
                         cols[4].innerText.trim(),       // Status

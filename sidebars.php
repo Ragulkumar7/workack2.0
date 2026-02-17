@@ -33,9 +33,15 @@ $sections = [
             // --- DASHBOARDS ---
             [
                 'name' => 'Dashboard', 
-                'path' => $base . 'dashboard.php', 
+                'path' => $base . 'manager_dashboard.php', 
                 'icon' => 'layout-dashboard', 
-                'allowed' => ['Manager', 'System Admin', 'HR'] 
+                'allowed' => ['Manager'] 
+            ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'HR/hr_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['HR'] 
             ],
             [
                 'name' => 'Dashboard', 
@@ -72,6 +78,12 @@ $sections = [
                 'path' => $base . 'HR_executive/HR_executive_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['HR Executive'] 
+            ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'CFO/cfo_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['CFO'] 
             ],
 
             // --- TEAM CHAT (Common) ---
@@ -137,8 +149,9 @@ $sections = [
                 'icon' => 'clipboard-check', 
                 'allowed' => ['Manager', 'System Admin'],
                 'subItems' => [
-                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'Self Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
+                    ['name' => 'Projects', 'path' => $base . 'manager/manager_projects.php', 'icon' => 'layers'],
                 ]
             ],
 
@@ -163,7 +176,8 @@ $sections = [
                 'allowed' => ['Employee'],
                 'subItems' => [
                     ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
-                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'],
+                    ['name' => 'Efficiency', 'path' => $base . 'employee/emp_efficiency.php', 'icon' => 'gauge']
                 ]
             ],
 
@@ -207,7 +221,7 @@ $sections = [
                 'name' => 'Performance', 
                 'path' => $base . 'performance_list.php', 
                 'icon' => 'trending-up', 
-                'allowed' => ['Manager', 'System Admin', 'HR'],
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead'],
             ],
             [
                 'name' => 'Productivity', 
@@ -218,7 +232,7 @@ $sections = [
             
             // --- HR EXECUTIVE PAGES ---
             [
-                'name' => 'Jobs', 
+                'name' => 'Recruitment', 
                 'path' => $base . 'HR_executive/jobs.php', 
                 'icon' => 'briefcase', 
                 'allowed' => ['HR', 'HR Executive']
@@ -241,13 +255,13 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin']
+                'allowed' => ['Manager', 'System Admin', 'HR Executive']
             ],
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive']
+                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive']
             ],
 
             // --- TICKETS ---
@@ -272,7 +286,7 @@ $sections = [
             [
                 'name' => 'Payslip <br>Management', 
                 'icon' => 'file-text', 
-                'allowed' => ['HR', 'System Admin', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
+                'allowed' => ['HR', 'System Admin', 'Accounts', 'Team Lead', 'Employee', 'IT Admin', 'IT Executive', 'HR Executive', 'Manager'],
                 'subItems' => [
                     ['name' => 'Generate Payslip', 'path' => $base . 'payslip_management.php?view=generate', 'icon' => 'plus-circle'],
                     ['name' => 'Pending Approvals', 'path' => $base . 'payslip_management.php?view=approvals', 'icon' => 'clock'],
