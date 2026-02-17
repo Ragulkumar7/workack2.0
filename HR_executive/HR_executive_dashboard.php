@@ -12,245 +12,321 @@ include '../header.php';
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
+        :root {
+            --primary: #0d9488;
+            --primary-dark: #134e4a;
+            --bg-main: #f8fafc;
+        }
+
         body { 
             font-family: 'Plus Jakarta Sans', sans-serif; 
-            background-color: #f8fafc; 
-            color: #0f172a;
-            margin: 0;
-            padding: 0;
+            background-color: #f1f5f9; 
+            color: #1e293b;
         }
-        /* FIXED OVERLAP: Added margin-left to prevent sidebar overlap */
+
         .dashboard-container {
-            width: auto;
-            margin-left: 80px; /* Adjust this value to match your sidebar width exactly */
+            margin-left: 80px;
             min-height: 100vh;
-            transition: all 0.3s ease;
+            padding: 2rem;
         }
         
         @media (max-width: 1024px) {
-            .dashboard-container {
-                margin-left: 0; /* Stack on mobile if sidebar becomes a drawer */
-            }
+            .dashboard-container { margin-left: 0; }
         }
 
         .glass-card { 
-            @apply bg-white rounded-[24px] border border-slate-100 shadow-sm p-6 transition-all duration-300;
+            background-color: white;
+            border-radius: 20px;
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+            border: 1px solid #f1f5f9;
+            padding: 1.5rem;
         }
-        .glass-card:hover {
-            @apply shadow-xl shadow-slate-200/50 transform -translate-y-1;
+
+        /* Specific styles for the Workforce Graph */
+        .bar-container {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            height: 60px;
         }
-        .status-pill {
-            @apply px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest;
+        .bar {
+            width: 8px;
+            background: #134e4a;
+            border-radius: 10px;
+        }
+        .bar-light {
+            background: #e2e8f0;
+        }
+
+        .btn-approve { background: #134e4a; color: white; }
+        .btn-decline { border: 1px solid #e2e8f0; color: #64748b; }
+
+        /* Punch UI Specifics */
+        .attendance-circle {
+            position: relative;
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: conic-gradient(var(--primary) 70%, #f1f5f9 0);
+            margin: 0 auto;
+        }
+        .attendance-circle::before {
+            content: "";
+            position: absolute;
+            width: 130px;
+            height: 130px;
+            background: white;
+            border-radius: 50%;
         }
     </style>
 </head>
-<body class="min-h-screen">
+<body class="antialiased">
 
-    <div class="dashboard-container p-6 lg:p-10">
-        
-        <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+    <div class="dashboard-container">
+        <div class="flex justify-between items-center mb-8">
             <div>
-                <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">HR Executive Dashboard</h1>
-                <div class="flex items-center gap-2 text-slate-400 text-sm font-medium mt-1">
-                    <i data-lucide="home" class="w-4 h-4"></i>
-                    <span>Dashboard</span>
-                    <i data-lucide="chevron-right" class="w-3 h-3"></i>
-                    <span class="text-slate-600">HR Executive</span>
-                </div>
+                <h1 class="text-3xl font-bold text-slate-800">HR Executive</h1>
+                <nav class="flex text-sm text-slate-400 mt-1 font-medium">
+                    <i data-lucide="layout-grid" class="w-4 h-4 mr-2"></i>
+                    <span>Intelligence</span>
+                    <span class="mx-2">/</span>
+                    <span class="text-teal-600">Overview</span>
+                </nav>
             </div>
+        </div>
 
-            <div class="flex flex-wrap items-center gap-4 bg-white p-2 px-3 rounded-3xl shadow-sm border border-slate-100">
-                <div class="flex -space-x-3 pr-4 border-r border-slate-100">
-                    <img class="w-9 h-9 rounded-full border-4 border-white shadow-sm" src="https://i.pravatar.cc/150?u=1">
-                    <img class="w-9 h-9 rounded-full border-4 border-white shadow-sm" src="https://i.pravatar.cc/150?u=2">
-                    <img class="w-9 h-9 rounded-full border-4 border-white shadow-sm" src="https://i.pravatar.cc/150?u=3">
-                    <div class="w-9 h-9 rounded-full bg-slate-900 border-4 border-white flex items-center justify-center text-[10px] font-bold text-white shadow-sm">+12</div>
-                </div>
-                <div class="flex items-center gap-2 px-2 text-sm font-bold text-slate-600">
-                    <i data-lucide="calendar" class="w-4 h-4 text-[#1e4d57]"></i> 02/10/2026 - 02/16/2026
-                </div>
-                <button class="bg-[#1e4d57] text-white px-5 py-2.5 rounded-2xl font-bold text-sm flex items-center gap-2 shadow-lg shadow-teal-900/20 hover:bg-[#153a42] transition-all">
-                    <i data-lucide="plus" class="w-4 h-4"></i> Add New
-                </button>
-            </div>
-        </header>
-
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 max-w-[1600px]">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             <div class="lg:col-span-8 space-y-6">
                 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="glass-card">
+                    <div class="flex justify-between items-start mb-6">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-lg">Employment Workforce</h3>
+                            <p class="text-xs text-slate-400">Distribution across all sectors</p>
+                        </div>
+                        <button class="text-xs font-bold text-slate-400 border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors">Download Report</button>
+                    </div>
                     
-                    <div class="glass-card md:col-span-2">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-lg font-bold flex items-center gap-2">
-                                <span class="w-1 h-6 bg-[#1e4d57] rounded-full"></span> Employee Status & Type
-                            </h2>
-                            <button class="text-xs font-bold text-slate-400 border px-4 py-1.5 rounded-xl hover:bg-slate-50">View All</button>
-                        </div>
-                        <div class="flex gap-1 mb-8 overflow-hidden">
-                            <?php 
-                                for($i=0; $i<45; $i++) echo '<div class="h-12 w-1.5 rounded-full bg-[#1e4d57]"></div>'; 
-                                for($i=0; $i<25; $i++) echo '<div class="h-12 w-1.5 rounded-full bg-slate-300"></div>';
-                                for($i=0; $i<10; $i++) echo '<div class="h-12 w-1.5 rounded-full bg-slate-100"></div>';
-                            ?>
-                        </div>
-                        <div class="grid grid-cols-3 gap-8">
-                            <div>
-                                <p class="text-2xl font-black">1,054</p>
-                                <p class="text-[11px] font-bold text-slate-400 mt-1 border-l-2 border-[#1e4d57] pl-3 uppercase">Full-Time</p>
-                            </div>
-                            <div>
-                                <p class="text-2xl font-black">568</p>
-                                <p class="text-[11px] font-bold text-slate-400 mt-1 border-l-2 border-slate-300 pl-3 uppercase">Contract</p>
-                            </div>
-                            <div>
-                                <p class="text-2xl font-black">80</p>
-                                <p class="text-[11px] font-bold text-slate-400 mt-1 border-l-2 border-slate-100 pl-3 uppercase">Probation</p>
-                            </div>
-                        </div>
+                    <div class="bar-container mb-8">
+                        <div class="bar" style="height: 40%"></div><div class="bar" style="height: 60%"></div><div class="bar" style="height: 30%"></div><div class="bar" style="height: 70%"></div><div class="bar" style="height: 50%"></div><div class="bar" style="height: 80%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 65%"></div><div class="bar" style="height: 45%"></div><div class="bar" style="height: 90%"></div><div class="bar" style="height: 35%"></div><div class="bar" style="height: 75%"></div><div class="bar" style="height: 55%"></div><div class="bar" style="height: 85%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 60%"></div><div class="bar" style="height: 30%"></div><div class="bar" style="height: 70%"></div><div class="bar" style="height: 50%"></div><div class="bar" style="height: 80%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 65%"></div><div class="bar" style="height: 45%"></div><div class="bar" style="height: 90%"></div><div class="bar" style="height: 35%"></div><div class="bar" style="height: 75%"></div><div class="bar" style="height: 55%"></div><div class="bar" style="height: 85%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 60%"></div>
+                        <div class="bar bar-light" style="height: 40%"></div><div class="bar bar-light" style="height: 60%"></div><div class="bar bar-light" style="height: 30%"></div><div class="bar bar-light" style="height: 70%"></div><div class="bar bar-light" style="height: 50%"></div><div class="bar bar-light" style="height: 80%"></div><div class="bar bar-light" style="height: 40%"></div><div class="bar bar-light" style="height: 65%"></div><div class="bar bar-light" style="height: 45%"></div><div class="bar bar-light" style="height: 90%"></div><div class="bar bar-light" style="height: 35%"></div>
                     </div>
 
-                    <div class="glass-card">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-lg font-bold">Overview Statistics</h2>
-                            <span class="status-pill bg-slate-100 text-slate-500">Monthly</span>
+                    <div class="grid grid-cols-3 gap-4">
+                        <div>
+                            <p class="text-2xl font-bold text-slate-800">1,054</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-slate-800"></span> Full-time
+                            </p>
                         </div>
-                        <div class="space-y-4">
-                            <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-xl bg-teal-50 text-[#1e4d57] flex items-center justify-center"><i data-lucide="users" class="w-5 h-5"></i></div>
-                                    <div><p class="text-[10px] font-bold text-slate-400 uppercase">Total Employees</p><p class="text-lg font-black">1,848</p></div>
-                                </div>
-                                <span class="text-emerald-600 font-bold text-[10px] bg-emerald-50 px-2 py-1 rounded-lg">+18% ↑</span>
-                            </div>
-                            <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-100">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center"><i data-lucide="user-plus" class="w-5 h-5"></i></div>
-                                    <div><p class="text-[10px] font-bold text-slate-400 uppercase">New Joinees</p><p class="text-lg font-black">1,248</p></div>
-                                </div>
-                                <span class="text-emerald-600 font-bold text-[10px] bg-emerald-50 px-2 py-1 rounded-lg">+22% ↑</span>
-                            </div>
+                        <div>
+                            <p class="text-2xl font-bold text-slate-800">568</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span> Contract
+                            </p>
+                        </div>
+                        <div>
+                            <p class="text-2xl font-bold text-slate-800">80</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-slate-100"></span> Probation
+                            </p>
                         </div>
                     </div>
+                </div>
 
-                    <div class="glass-card">
-                        <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-lg font-bold">Top Distribution</h2>
-                            <i data-lucide="more-horizontal" class="text-slate-300 w-5 h-5"></i>
-                        </div>
-                        <div class="flex items-end justify-between h-36 gap-2">
-                            <?php 
-                            $skills = [['Sales', 70], ['Front End', 30], ['React', 60], ['UI/UX', 20]];
-                            foreach($skills as $s): ?>
-                            <div class="flex-1 flex flex-col items-center gap-3 group">
-                                <div class="w-full bg-slate-50 rounded-xl relative overflow-hidden flex flex-col justify-end" style="height: 100px;">
-                                    <div class="bg-teal-100 group-hover:bg-[#1e4d57] transition-all duration-500 w-full" style="height: <?php echo $s[1]; ?>%"></div>
-                                </div>
-                                <span class="text-[9px] font-black text-slate-400 uppercase tracking-tighter"><?php echo $s[0]; ?></span>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass-card relative">
+                        <div class="flex justify-between items-start">
+                            <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center">
+                                <i data-lucide="users" class="w-5 h-5 text-slate-600"></i>
                             </div>
-                            <?php endforeach; ?>
+                            <span class="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">+18.5% ↑</span>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Total Employees</p>
+                            <p class="text-3xl font-extrabold text-slate-800">1,848</p>
                         </div>
                     </div>
-
+                    <div class="glass-card relative">
+                        <div class="flex justify-between items-start">
+                            <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center">
+                                <i data-lucide="user-plus" class="w-5 h-5 text-indigo-600"></i>
+                            </div>
+                            <span class="text-xs font-bold text-emerald-500 bg-emerald-50 px-2 py-1 rounded-full">+22.4% ↑</span>
+                        </div>
+                        <div class="mt-4">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">New Joinees</p>
+                            <p class="text-3xl font-extrabold text-slate-800">1,248</p>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="glass-card">
-                    <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-lg font-bold">Recruitment Statistics</h2>
-                        <span class="status-pill bg-slate-100 text-slate-500">Weekly</span>
-                    </div>
-                    <div class="grid grid-cols-3 gap-4 mb-6 text-center">
-                        <div><p class="text-xl font-black">487</p><p class="text-[10px] font-bold text-slate-400 uppercase">Applicants</p></div>
-                        <div><p class="text-xl font-black">24</p><p class="text-[10px] font-bold text-slate-400 uppercase">Hired</p></div>
-                        <div><p class="text-xl font-black">28d</p><p class="text-[10px] font-bold text-slate-400 uppercase">Avg Time</p></div>
-                    </div>
-                    <div class="h-4 w-full bg-slate-100 rounded-full overflow-hidden flex mb-6">
-                        <div class="bg-[#1e4d57]" style="width: 40%"></div>
-                        <div class="bg-teal-700" style="width: 25%"></div>
-                        <div class="bg-pink-500" style="width: 20%"></div>
-                        <div class="bg-emerald-500" style="width: 15%"></div>
-                    </div>
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase">
-                            <div class="w-2 h-2 rounded-sm bg-[#1e4d57]"></div> 40% Applications
+                    <div class="flex justify-between items-center mb-8">
+                        <div>
+                            <h3 class="font-bold text-slate-800 text-lg">Recruitment Funnel</h3>
+                            <p class="text-xs text-slate-400">Conversion rate this month</p>
                         </div>
-                        <div class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase">
-                            <div class="w-2 h-2 rounded-sm bg-teal-700"></div> 25% Screening
+                        <select class="text-xs font-bold text-slate-500 bg-slate-50 border-none outline-none p-2 rounded-lg">
+                            <option>Last 7 Days</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-3 gap-6 mb-8">
+                        <div class="bg-slate-50 p-6 rounded-2xl text-center">
+                            <p class="text-2xl font-extrabold text-slate-800">487</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Applicants</p>
                         </div>
-                        <div class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase">
-                            <div class="w-2 h-2 rounded-sm bg-pink-500"></div> 20% Interview
+                        <div class="bg-slate-50 p-6 rounded-2xl text-center">
+                            <p class="text-2xl font-extrabold text-slate-800">24</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Hired</p>
                         </div>
-                        <div class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase">
-                            <div class="w-2 h-2 rounded-sm bg-emerald-500"></div> 15% Hired
+                        <div class="bg-slate-50 p-6 rounded-2xl text-center">
+                            <p class="text-2xl font-extrabold text-slate-800">28d</p>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Avg. Time</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div class="flex h-3 w-full rounded-full overflow-hidden">
+                            <div class="bg-slate-800" style="width: 30%"></div>
+                            <div class="bg-teal-600" style="width: 25%"></div>
+                            <div class="bg-pink-400" style="width: 15%"></div>
+                            <div class="bg-emerald-400" style="width: 30%"></div>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase"><span class="w-2 h-2 rounded-full bg-slate-800"></span> Applications</span>
+                            <span class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase"><span class="w-2 h-2 rounded-full bg-teal-600"></span> Screening</span>
+                            <span class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase"><span class="w-2 h-2 rounded-full bg-pink-400"></span> Interview</span>
+                            <span class="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase"><span class="w-2 h-2 rounded-full bg-emerald-400"></span> Final Hired</span>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="lg:col-span-4 space-y-6">
-                
+                <div class="glass-card text-center">
+                    <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">Today's Attendance</p>
+                    <h3 class="text-xl font-bold text-slate-800 mb-6"><?php echo date('h:i A, d M Y'); ?></h3>
+                    
+                    <div class="attendance-circle mb-6">
+                        <div class="relative z-10">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase">Total Hours</p>
+                            <p class="text-2xl font-extrabold text-slate-800">0:00:00</p>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-center mb-6">
+                        <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold border border-emerald-100">
+                            <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                            Status: Not Punched In
+                        </div>
+                    </div>
+
+                    <p class="text-[11px] text-slate-400 mb-4 flex items-center justify-center gap-1">
+                        <i data-lucide="fingerprint" class="w-3 h-3 text-orange-400"></i>
+                        Punch In at --:--
+                    </p>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <button class="w-full py-4 bg-[#f59e0b] hover:bg-[#d97706] text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-orange-100">
+                            <i data-lucide="coffee" class="w-5 h-5"></i>
+                            Take Break
+                        </button>
+                        <button class="w-full py-4 bg-[#0d9488] hover:bg-[#0b7a6f] text-white rounded-2xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-teal-100">
+                            <i data-lucide="log-in" class="w-5 h-5"></i>
+                            Punch In
+                        </button>
+                    </div>
+                </div>
                 <div class="glass-card">
                     <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-lg font-bold">Upcoming Interview</h2>
-                        <span class="status-pill bg-teal-50 text-[#1e4d57]">Today</span>
+                        <h3 class="font-bold text-slate-800">Interviews</h3>
+                        <span class="text-xs font-bold text-teal-600 underline cursor-pointer">Today</span>
                     </div>
+                    
                     <div class="space-y-4">
                         <?php for($i=0; $i<2; $i++): ?>
-                        <div class="p-5 rounded-[20px] bg-slate-50 border border-slate-100 hover:border-teal-100 transition-all">
+                        <div class="border border-slate-50 rounded-2xl p-4 bg-slate-50/30">
                             <div class="flex justify-between items-start mb-4">
                                 <div>
-                                    <h3 class="font-bold text-sm text-slate-900">UI/UX Design Interview</h3>
-                                    <p class="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-tight">12:00 PM - 01:50 PM</p>
+                                    <h4 class="text-sm font-bold text-slate-800">UI/UX Design Interview</h4>
+                                    <p class="text-[10px] text-slate-400 mt-1 flex items-center">
+                                        <i data-lucide="clock" class="w-3 h-3 mr-1"></i> 12:00 PM — 01:30 PM
+                                    </p>
                                 </div>
                                 <div class="flex -space-x-2">
-                                    <img class="w-6 h-6 rounded-full border-2 border-white" src="https://i.pravatar.cc/150?u=x<?php echo $i; ?>">
-                                    <div class="w-6 h-6 rounded-full bg-slate-200 border-2 border-white flex items-center justify-center text-[7px] font-black">+9</div>
+                                    <div class="w-6 h-6 rounded-full bg-slate-200 border-2 border-white overflow-hidden">
+                                        <img src="https://i.pravatar.cc/100?u=1" alt="">
+                                    </div>
+                                    <div class="w-6 h-6 rounded-full bg-slate-800 border-2 border-white flex items-center justify-center text-[8px] text-white font-bold">
+                                        +4
+                                    </div>
                                 </div>
                             </div>
-                            <div class="grid grid-cols-2 gap-2">
-                                <button class="py-2.5 bg-white border border-slate-200 text-[9px] font-black rounded-xl uppercase hover:bg-slate-100">Calendar</button>
-                                <button class="py-2.5 bg-[#1e4d57] text-white text-[9px] font-black rounded-xl uppercase hover:bg-[#153a42] transition-all">Join Now</button>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button class="py-2 text-xs font-bold border border-slate-200 rounded-xl bg-white">Details</button>
+                                <button class="py-2 text-xs font-bold bg-slate-800 text-white rounded-xl">Join Meet</button>
                             </div>
                         </div>
                         <?php endfor; ?>
                     </div>
-                    <button class="w-full mt-6 text-xs font-bold text-slate-400 flex items-center justify-center gap-2 hover:text-[#1e4d57]">
-                        View All Interviews <i data-lucide="arrow-right" class="w-3 h-3"></i>
+
+                    <button class="w-full mt-6 text-xs font-bold text-slate-400 flex items-center justify-center gap-2">
+                        View Full Schedule <i data-lucide="arrow-right" class="w-3 h-3"></i>
                     </button>
                 </div>
 
                 <div class="glass-card">
                     <div class="flex justify-between items-center mb-6">
-                        <h2 class="text-lg font-bold">Pending Approvals</h2>
-                        <button class="text-xs font-bold text-[#1e4d57]">View All</button>
+                        <h3 class="font-bold text-slate-800">Approvals</h3>
+                        <span class="text-[10px] font-bold text-slate-400 underline cursor-pointer uppercase">See all requests</span>
                     </div>
-                    <div class="space-y-4">
-                        <?php 
-                        $approvals = [
-                            ['name' => 'Hendrita Merkel', 'role' => 'Manager', 'reason' => 'Family trip'],
-                            ['name' => 'Michael Brown', 'role' => 'Senior Dev', 'reason' => 'Medical appointment']
-                        ];
-                        foreach($approvals as $user): ?>
-                        <div class="flex flex-col gap-3 p-4 bg-slate-50/50 rounded-2xl border border-slate-50">
-                            <div class="flex items-center gap-3">
-                                <img class="w-10 h-10 rounded-full border-2 border-white shadow-sm" src="https://i.pravatar.cc/150?u=<?php echo urlencode($user['name']); ?>">
+
+                    <div class="space-y-8">
+                        <div>
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="relative">
+                                    <img src="https://i.pravatar.cc/100?u=9" class="w-10 h-10 rounded-full" alt="">
+                                    <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full"></span>
+                                </div>
                                 <div>
-                                    <p class="font-bold text-sm text-slate-900 leading-tight"><?php echo $user['name']; ?></p>
-                                    <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest"><?php echo $user['role']; ?></p>
+                                    <p class="text-sm font-bold text-slate-800 leading-tight">Hendrita Merkel</p>
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase">Project Manager</p>
                                 </div>
                             </div>
-                            <p class="text-[11px] text-slate-500 italic line-clamp-1">"<?php echo $user['reason']; ?>"</p>
-                            <div class="flex gap-2">
-                                <button class="flex-1 py-2 bg-[#1e4d57] text-white text-[9px] font-extrabold rounded-lg uppercase">Approve</button>
-                                <button class="flex-1 py-2 bg-white border border-slate-200 text-slate-400 text-[9px] font-extrabold rounded-lg uppercase">Decline</button>
+                            <p class="text-xs italic text-slate-500 mb-4 bg-slate-50 p-3 rounded-xl">"Family annual trip"</p>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button class="py-2.5 text-xs font-bold bg-slate-800 text-white rounded-xl">Approve</button>
+                                <button class="py-2.5 text-xs font-bold border border-slate-100 text-slate-400 rounded-xl">Decline</button>
                             </div>
                         </div>
-                        <?php endforeach; ?>
+
+                        <div>
+                            <div class="flex items-center gap-3 mb-4">
+                                <div class="relative">
+                                    <img src="https://i.pravatar.cc/100?u=5" class="w-10 h-10 rounded-full" alt="">
+                                    <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full"></span>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-bold text-slate-800 leading-tight">Michael Brown</p>
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase">Senior Developer</p>
+                                </div>
+                            </div>
+                            <p class="text-xs italic text-slate-500 mb-4 bg-slate-50 p-3 rounded-xl">"Medical checkup"</p>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button class="py-2.5 text-xs font-bold bg-slate-800 text-white rounded-xl">Approve</button>
+                                <button class="py-2.5 text-xs font-bold border border-slate-100 text-slate-400 rounded-xl">Decline</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
-
             </div>
+
         </div>
     </div>
 
