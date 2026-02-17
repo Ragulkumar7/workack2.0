@@ -1,39 +1,67 @@
 <?php
-// TL/task_tl.php
+// TL/task_tl.php - Team Leader Task Management
 
-// 1. SESSION START
+// 1. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// Check Login (Uncomment for production)
+// CHECK LOGIN (Uncomment for production)
 // if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
+
+// --- SIMULATED DATA (Replace this with SQL Query later) ---
+$managerProjects = [
+    [
+        'id' => 101,
+        'title' => 'Workack HRMS API Integration',
+        'desc' => 'Integrate Stripe Payment Gateway and biometric attendance sync.',
+        'deadline' => '15 Feb 2026',
+        'progress' => 65,
+        'status' => 'In Progress',
+        'team' => ['Suresh', 'Anitha', 'Karthik']
+    ],
+    [
+        'id' => 102,
+        'title' => 'Client Dashboard Redesign',
+        'desc' => 'Revamp the UI/UX for the main client portal using React.',
+        'deadline' => '28 Feb 2026',
+        'progress' => 30,
+        'status' => 'Pending',
+        'team' => ['Ramesh', 'Suresh']
+    ],
+    [
+        'id' => 103,
+        'title' => 'Mobile App Optimization',
+        'desc' => 'Fix performance issues in the Android build regarding login latency.',
+        'deadline' => '10 Mar 2026',
+        'progress' => 85,
+        'status' => 'Completed',
+        'team' => ['Karthik']
+    ]
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Team Task Management - Workack HRMS</title>
+    <title>Team Task Management - Workack</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
         :root {
-            /* --- THEME COLORS (Matched to Image 1) --- */
-            --primary: #1b5a5a; /* Orange */
-            --primary-hover: #113c3c;
-            --secondary: #64748b;
-            --success: #10b981; /* Green for Active/Add buttons */
-            --danger: #ef4444;
-            --warning-bg: #fffbeb;
-            --warning-border: #fcd34d;
-            
-            /* --- LAYOUT COLORS --- */
-            --bg-body: #f8f9fa;
+            /* --- COLOR PALETTE --- */
+            --primary: #0f766e; /* Teal 700 */
+            --primary-hover: #115e59;
+            --bg-body: #f1f5f9;
             --bg-card: #ffffff;
-            --text-main: #1f2937;
-            --text-muted: #6b7280;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
             --border: #e2e8f0;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --sidebar-width: 95px;
         }
            
         body { 
@@ -44,177 +72,169 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
             overflow-x: hidden;
         }
         
-        /* --- LAYOUT & SIDEBAR --- */
+        /* --- SIDEBAR ALIGNMENT --- */
         #mainContent { 
-            margin-left: 95px; /* Sidebar width */
-            padding: 24px 32px; 
-            transition: all 0.3s ease;
-            width: calc(100% - 95px);
+            margin-left: var(--sidebar-width);
+            padding: 30px 40px; 
+            width: calc(100% - var(--sidebar-width));
             min-height: 100vh;
             box-sizing: border-box;
+            transition: all 0.3s ease;
         }
-        
+
         /* --- HEADER --- */
         .page-header { 
             display: flex; justify-content: space-between; align-items: center; 
-            margin-bottom: 24px; flex-wrap: wrap; gap: 15px; 
+            margin-bottom: 30px; gap: 15px; flex-wrap: wrap;
         }
-        .page-header h1 { font-size: 24px; margin: 0; font-weight: 700; color: #1e293b; }
-        .breadcrumb { 
-            font-size: 13px; color: var(--text-muted); margin-top: 5px; 
-            display: flex; align-items: center; gap: 6px; 
+        .page-header h1 { font-size: 24px; font-weight: 700; color: #1e293b; letter-spacing: -0.5px; margin: 0; }
+        .breadcrumb { font-size: 13px; color: var(--text-muted); display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+
+        /* --- 1. ACTIVE PROJECTS GRID (Refined) --- */
+        .section-header { 
+            font-size: 13px; font-weight: 700; color: var(--text-muted); 
+            text-transform: uppercase; margin-bottom: 16px; letter-spacing: 0.8px; 
+            display: flex; align-items: center; gap: 8px;
+        }
+        
+        .projects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
         }
 
-        /* --- PROJECT CARD --- */
-        .project-overview { 
-            background: var(--bg-card); border-radius: 10px; border: 1px solid var(--border); 
-            padding: 24px; margin-bottom: 30px; border-left: 5px solid var(--primary); 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02); 
+        .project-card {
+            background: var(--bg-card);
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            border-top: 4px solid var(--primary); /* TOP ACCENT */
+            padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
-        .project-overview h4 { margin: 0 0 8px; color: var(--primary); text-transform: uppercase; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-        .project-overview h2 { margin: 0; font-size: 20px; font-weight: 700; color: #0f172a; }
+        .project-card:hover { 
+            transform: translateY(-3px); 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
+        }
 
-        /* --- CONTENT CARD & TABLE --- */
-        .content-card { 
+        .card-top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px; }
+        .proj-title { font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 6px 0; line-height: 1.4; }
+        .proj-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+        .card-meta { margin-top: 20px; padding-top: 15px; border-top: 1px dashed var(--border); }
+        .meta-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 8px; }
+        
+        /* Progress Bar */
+        .progress-container { width: 100%; background: #f1f5f9; height: 6px; border-radius: 10px; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--primary); border-radius: 10px; transition: width 0.4s ease; }
+
+        /* Status Badges */
+        .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .badge-In { background: #eff6ff; color: #2563eb; } /* In Progress */
+        .badge-Pending { background: #fff7ed; color: #c2410c; }
+        .badge-Completed { background: #ecfdf5; color: #059669; }
+
+        /* --- 2. TASK TABLE SECTION --- */
+        .task-container { 
             background: var(--bg-card); border: 1px solid var(--border); 
-            border-radius: 10px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.02); 
+            border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden;
         }
-        .card-header {
-            padding: 16px 24px; border-bottom: 1px solid var(--border);
-            display: flex; justify-content: space-between; align-items: center;
+        
+        .task-header-row {
+            padding: 20px 24px; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;
         }
-        .card-title { font-size: 16px; font-weight: 600; margin: 0; }
+        .task-title h3 { margin: 0; font-size: 16px; font-weight: 700; color: #1e293b; }
 
-        /* Table Styling (Matched to Image 1) */
-        .table-responsive { overflow-x: auto; width: 100%; }
-        table { width: 100%; border-collapse: collapse; min-width: 900px; }
-        
-        thead { background-color: #f8fafc; border-bottom: 1px solid var(--border); }
-        th { 
-            text-align: left; padding: 14px 24px; font-size: 12px; 
-            font-weight: 600; color: #64748b; text-transform: uppercase; 
+        .search-wrapper { position: relative; width: 100%; max-width: 320px; }
+        .search-wrapper input {
+            width: 100%; padding: 10px 10px 10px 36px; border-radius: 8px;
+            border: 1px solid var(--border); font-size: 13px; outline: none; transition: 0.2s;
+            background: #f8fafc;
         }
-        
-        td { 
-            padding: 16px 24px; border-bottom: 1px solid #f1f5f9; 
-            font-size: 14px; vertical-align: middle; color: #334155;
-        }
-        tr:last-child td { border-bottom: none; }
+        .search-wrapper input:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1); }
+        .search-icon { position: absolute; left: 12px; top: 11px; color: #94a3b8; width: 15px; }
+
+        /* Table Styling */
+        .table-responsive { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+        thead { background: #f8fafc; border-bottom: 1px solid var(--border); }
+        th { text-align: left; padding: 14px 24px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+        td { padding: 16px 24px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #334155; vertical-align: middle; }
         tr:hover { background-color: #f8fafc; }
+        tr:last-child td { border-bottom: none; }
 
-        /* --- BUTTONS --- */
+        /* Common Elements */
         .btn { 
             display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-            padding: 9px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; 
-            cursor: pointer; transition: 0.2s; border: none; outline: none;
+            padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; 
+            cursor: pointer; border: none; transition: 0.2s;
         }
-        .btn-primary { background-color: var(--primary); color: white; }
-        .btn-primary:hover { background-color: var(--primary-hover); }
-
-        .btn-success { background-color: var(--success); color: white; padding: 8px 14px; }
-        .btn-success:hover { background-color: #059669; }
-
-        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
-        .btn-outline:hover { background: #f8fafc; }
-
-        .icon-btn { 
-            padding: 6px; border-radius: 4px; border: none; background: transparent; 
-            cursor: pointer; color: var(--secondary); transition: 0.2s; 
+        .btn-primary { background-color: var(--primary); color: white; box-shadow: 0 2px 4px rgba(15, 118, 110, 0.2); }
+        .btn-primary:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
+        
+        .btn-icon { 
+            width: 32px; height: 32px; border-radius: 6px; border: 1px solid transparent; 
+            background: transparent; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; 
         }
-        .icon-btn:hover { background: #f1f5f9; color: var(--primary); }
-        .icon-btn.delete:hover { color: var(--danger); background: #fef2f2; }
+        .btn-icon:hover { background: #f1f5f9; color: var(--primary); border-color: #e2e8f0; }
+        .btn-icon.delete:hover { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
 
-        /* --- BADGES & TAGS --- */
-        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
-        .status-Pending { background: #fff7ed; color: #c2410c; }
-        .status-Completed { background: #dcfce7; color: #166534; }
-
-        .assignee-chip { 
-            display: inline-flex; align-items: center; gap: 6px;
-            background: #f1f5f9; color: #475569; padding: 4px 10px; 
-            border-radius: 20px; font-size: 12px; font-weight: 500; margin-right: 5px;
+        .user-chip { 
+            background: #f1f5f9; color: #334155; padding: 5px 10px; 
+            border-radius: 6px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #e2e8f0;
         }
 
-        /* --- MODAL STYLING (Matched to Image 2) --- */
-        .modal { 
-            display: none; position: fixed; z-index: 1000; left: 0; top: 0; 
+        /* --- MODAL --- */
+        .modal-overlay { 
+            display: none; position: fixed; z-index: 9999; left: 0; top: 0; 
             width: 100%; height: 100%; background: rgba(0,0,0,0.5); 
-            backdrop-filter: blur(2px); align-items: center; justify-content: center; 
+            backdrop-filter: blur(4px); align-items: center; justify-content: center; 
         }
-        .modal.active { display: flex; }
-
-        .modal-content { 
-            background: white; width: 600px; max-width: 90%; 
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+        
+        .modal-box { 
+            background: white; width: 550px; max-width: 90%; 
             border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); 
-            animation: slideIn 0.2s ease-out; overflow: hidden;
-        }
-        @keyframes slideIn { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-        .modal-header { 
-            padding: 16px 24px; border-bottom: 1px solid var(--border); 
-            display: flex; justify-content: space-between; align-items: center; 
-        }
-        .modal-header h3 { font-size: 18px; font-weight: 600; margin: 0; }
-
-        .modal-body { padding: 24px; max-height: 70vh; overflow-y: auto; }
-
-        /* Form Inputs */
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: #374151; }
-        .form-group label span { color: var(--danger); }
-        
-        .form-control { 
-            width: 100%; padding: 10px 12px; border: 1px solid var(--border); 
-            border-radius: 6px; font-size: 14px; font-family: inherit; color: #1e293b;
-            box-sizing: border-box; transition: 0.2s;
-        }
-        .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1); }
-
-        /* External Toggle Box */
-        .external-box {
-            background: var(--warning-bg); border: 1px solid var(--warning-border);
-            padding: 12px; border-radius: 6px; display: flex; align-items: center; gap: 10px;
-            margin-bottom: 20px;
-        }
-        .external-box label { margin: 0; font-weight: 500; color: #92400e; cursor: pointer; }
-        .external-box input { accent-color: #d97706; width: 16px; height: 16px; cursor: pointer; }
-
-        /* Add Member Row */
-        .add-member-row { display: flex; gap: 10px; }
-        .add-member-row .form-control { flex: 1; }
-        
-        /* Dashed Empty State */
-        .empty-assignees {
-            border: 1px dashed var(--border); border-radius: 6px; padding: 15px;
-            text-align: center; color: var(--text-muted); font-size: 13px; margin-top: 10px;
+            display: flex; flex-direction: column; overflow: hidden;
         }
         
-        /* Assignee Chips inside Modal */
-        .modal-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-        .modal-chip {
-            background: #f1f5f9; border: 1px solid var(--border); padding: 5px 10px;
-            border-radius: 6px; font-size: 13px; display: flex; align-items: center; gap: 8px;
-        }
+        .modal-head { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fcfcfc; }
+        .modal-head h3 { margin: 0; font-size: 17px; font-weight: 700; color: #1e293b; }
+        
+        .modal-content { padding: 24px; overflow-y: auto; max-height: 70vh; }
+        .modal-foot { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; background: #f8fafc; }
 
-        .modal-footer {
-            padding: 16px 24px; border-top: 1px solid var(--border); 
-            background: #f8fafc; display: flex; justify-content: flex-end; gap: 10px;
+        .input-group { margin-bottom: 16px; }
+        .input-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #475569; }
+        .form-input { 
+            width: 100%; padding: 10px; border: 1px solid var(--border); 
+            border-radius: 6px; font-size: 14px; box-sizing: border-box; transition: 0.2s;
         }
+        .form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1); }
+
+        .add-row { display: flex; gap: 8px; }
+        .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 10px; background: #f8fafc; border: 1px dashed var(--border); border-radius: 6px; min-height: 38px; }
+        .chip-removable { background: white; border: 1px solid var(--border); padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
 
         /* --- RESPONSIVE --- */
         @media (max-width: 768px) {
-            #mainContent { margin-left: 0; padding: 16px; width: 100%; }
+            #mainContent { margin-left: 0; width: 100%; padding: 20px; }
+            .projects-grid { grid-template-columns: 1fr; }
             .page-header { flex-direction: column; align-items: flex-start; }
-            .row-split { flex-direction: column; }
-            .add-member-row { flex-direction: column; }
-            .add-member-row button { width: 100%; }
+            .page-header button { width: 100%; }
         }
     </style>
 </head>
 <body>
 
     <?php 
-    // Use the robust include method
     $sidebarPath = __DIR__ . '/../sidebars.php'; 
     if (file_exists($sidebarPath)) { include($sidebarPath); }
     ?>
@@ -225,60 +245,95 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
             <div>
                 <h1>Team Task Management</h1>
                 <div class="breadcrumb">
-                    <i data-lucide="home" style="width:14px;"></i>
-                    <span>/</span> Performance <span>/</span> Task Management
+                    <i data-lucide="layout-dashboard" style="width:14px;"></i>
+                    <span>/</span> Performance <span>/</span> Task Board
                 </div>
             </div>
             <button class="btn btn-primary" onclick="openModal('taskModal')">
-                <i data-lucide="plus-circle" style="width:18px;"></i> Split Task
+                <i data-lucide="plus" style="width:16px;"></i> Split New Task
             </button>
         </div>
 
-        <div class="project-overview">
-            <h4>Assigned Master Project</h4>
-            <h2>Workack HRMS API Integration</h2>
-            <div style="margin-top: 12px; font-size: 13px; color: #64748b; display:flex; gap: 20px; align-items:center; flex-wrap:wrap;">
-                <span style="display:flex; align-items:center; gap:6px;"><i data-lucide="calendar" style="width:14px;"></i> Deadline: <b>15 Feb 2026</b></span>
-                <span style="display:flex; align-items:center; gap:6px;"><i data-lucide="user" style="width:14px;"></i> Assigned by: <b>Manager</b></span>
-            </div>
+        <div class="section-header">
+            <i data-lucide="layers" style="width:14px;"></i> Active Projects (Assigned by Manager)
         </div>
+        
+        <div class="projects-grid">
+            <?php foreach($managerProjects as $proj): 
+                $statusClass = explode(' ', $proj['status'])[0]; // Gets 'In', 'Pending', etc.
+            ?>
+            <div class="project-card">
+                <div>
+                    <div class="card-top">
+                        <div class="badge badge-<?= $statusClass ?>"><?= $proj['status'] ?></div>
+                        </div>
+                    <h3 class="proj-title"><?= $proj['title'] ?></h3>
+                    <p class="proj-desc"><?= $proj['desc'] ?></p>
+                </div>
 
-        <div class="content-card">
-            <div class="card-header">
-                <h3 class="card-title">Employee Task Distribution</h3>
-                <div style="position:relative; width:250px;">
-                    <input type="text" placeholder="Search tasks..." class="form-control" style="padding-left:35px; height:36px;">
-                    <i data-lucide="search" style="width:16px; position:absolute; left:10px; top:10px; color:#94a3b8;"></i>
+                <div class="card-meta">
+                    <div class="meta-row">
+                        <span>Deadline: <b><?= $proj['deadline'] ?></b></span>
+                        <span><?= $proj['progress'] ?>%</span>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: <?= $proj['progress'] ?>%"></div>
+                    </div>
+                    <div style="margin-top: 12px; display:flex;">
+                        <?php foreach(array_slice($proj['team'], 0, 3) as $member): ?>
+                        <div style="width:24px; height:24px; background:#e2e8f0; border-radius:50%; border:2px solid #fff; margin-right:-8px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#64748b;" title="<?= $member ?>">
+                            <?= substr($member, 0, 1) ?>
+                        </div>
+                        <?php endforeach; ?>
+                        <?php if(count($proj['team']) > 3): ?>
+                            <div style="width:24px; height:24px; background:#f1f5f9; border-radius:50%; border:2px solid #fff; margin-left:0; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:600; color:#64748b;">+<?= count($proj['team'])-3 ?></div>
+                        <?php endif; ?>
+                    </div>
                 </div>
             </div>
-            
+            <?php endforeach; ?>
+        </div>
+
+        <div class="section-header">
+            <i data-lucide="list-todo" style="width:14px;"></i> Team Task Split
+        </div>
+
+        <div class="task-container">
+            <div class="task-header-row">
+                <div class="task-title">
+                    <h3>Sub-Task List</h3>
+                </div>
+                <div class="search-wrapper">
+                    <i data-lucide="search" class="search-icon"></i>
+                    <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search tasks, employees or status...">
+                </div>
+            </div>
+
             <div class="table-responsive">
-                <table>
+                <table id="taskTable">
                     <thead>
                         <tr>
-                            <th style="width: 25%;">Sub-Task Name</th>
-                            <th style="width: 30%;">Assigned To</th>
-                            <th style="width: 15%;">Status</th>
-                            <th style="width: 15%;">Due Date</th>
-                            <th style="width: 15%; text-align: right;">Action</th>
+                            <th width="35%">Sub-Task Details</th>
+                            <th width="25%">Assigned To</th>
+                            <th width="15%">Priority</th>
+                            <th width="15%">Due Date</th>
+                            <th width="10%" style="text-align:right;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="taskTableBody">
                         <tr id="row-1">
                             <td>
-                                <div style="font-weight:600; color:#1e293b;">Database Schema Design</div>
-                                <div style="font-size:12px; color:#64748b; margin-top:2px;">Create SQL Tables for Users</div>
+                                <div style="font-weight:600; color:#0f172a; font-size:14px;">Database Schema Design</div>
+                                <div style="font-size:12px; color:#64748b; margin-top:2px;">Create SQL tables for user modules</div>
                             </td>
                             <td>
-                                <div class="assignee-list">
-                                    <span class="assignee-chip"><i data-lucide="user" style="width:12px;"></i> Suresh Babu</span>
-                                </div>
+                                <div class="user-chip"><i data-lucide="user" style="width:12px;"></i> Suresh Babu</div>
                             </td>
-                            <td><span class="status-badge status-Pending">Pending</span></td>
-                            <td>08 Feb 2026</td>
+                            <td><span style="font-size:12px; font-weight:600; color:#eab308;">Medium</span></td>
+                            <td>12 Feb 2026</td>
                             <td style="text-align: right;">
-                                <button class="icon-btn" title="Edit" onclick="editTask('row-1')"><i data-lucide="edit-3" style="width:16px;"></i></button>
-                                <button class="icon-btn delete" title="Delete" onclick="deleteTask('row-1')"><i data-lucide="trash-2" style="width:16px;"></i></button>
+                                <button class="btn-icon" onclick="editTask('row-1')" title="Edit"><i data-lucide="pencil" style="width:14px;"></i></button>
+                                <button class="btn-icon delete" onclick="deleteTask('row-1')" title="Delete"><i data-lucide="trash-2" style="width:14px;"></i></button>
                             </td>
                         </tr>
                     </tbody>
@@ -288,104 +343,82 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
     </div>
 
-    <div id="taskModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
+    <div id="taskModal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-head">
                 <h3 id="modalTitle">Split Task to Employees</h3>
-                <button class="icon-btn" onclick="closeModal('taskModal')"><i data-lucide="x" style="width:20px;"></i></button>
+                <button class="btn-icon" onclick="closeModal('taskModal')"><i data-lucide="x" style="width:18px;"></i></button>
             </div>
             
-            <div class="modal-body">
-                <form id="taskForm">
+            <div class="modal-content">
+                <form id="taskForm" onsubmit="event.preventDefault(); saveTask();">
                     <input type="hidden" id="editRowId">
 
-                    <div class="form-group">
-                        <label>Sub-Task Title <span>*</span></label>
-                        <input type="text" id="tTitle" class="form-control" placeholder="e.g., UI Login Screen Design" required>
+                    <div class="input-group">
+                        <label>Sub-Task Title <span style="color:red">*</span></label>
+                        <input type="text" id="tTitle" class="form-input" placeholder="e.g. Frontend Login Page" required>
                     </div>
 
-                    <div class="form-group">
-                        <label>Task Description <span>*</span></label>
-                        <textarea id="tDesc" class="form-control" rows="3" placeholder="Explain what needs to be done..." required></textarea>
+                    <div class="input-group">
+                        <label>Description <span style="color:red">*</span></label>
+                        <textarea id="tDesc" class="form-input" rows="3" placeholder="Explain the task requirements..." required></textarea>
                     </div>
 
-                    <div class="external-box">
-                        <input type="checkbox" id="isExternal" onchange="toggleExternal()">
-                        <label for="isExternal">Assign to another department?</label>
-                    </div>
-
-                    <div class="form-group" id="deptSelectGroup" style="display:none;">
-                        <label>Select Department</label>
-                        <select class="form-control" id="deptSelect" onchange="updateEmpPlaceholder()">
-                            <option>Marketing</option>
-                            <option>Design</option>
-                            <option>Finance</option>
-                        </select>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Add Team Member</label>
-                        <div class="add-member-row">
-                            <input type="text" id="empInput" class="form-control" placeholder="Search employee..." list="empList">
-                            <datalist id="empList">
-                                <option value="Suresh Babu">
-                                <option value="Karthik">
-                                <option value="Anitha">
-                            </datalist>
-                            <button type="button" class="btn btn-success" onclick="addAssignee()">
-                                <i data-lucide="plus" style="width:16px;"></i> Add
-                            </button>
+                    <div class="input-group">
+                        <label>Assign Team Members <span style="color:red">*</span></label>
+                        <div class="add-row">
+                            <input type="text" id="empInput" class="form-input" placeholder="Search employee..." list="empList">
+                            <button type="button" class="btn btn-primary" style="padding: 0 16px;" onclick="addAssignee()"><i data-lucide="plus" style="width:16px;"></i></button>
                         </div>
+                        <datalist id="empList">
+                            <option value="Suresh Babu">
+                            <option value="Karthik">
+                            <option value="Anitha">
+                            <option value="Ramesh">
+                        </datalist>
                         
-                        <div id="assigneeContainer" class="empty-assignees">
-                            No employees added yet
+                        <div id="chipContainer" class="chip-container">
+                            <span style="font-size:12px; color:#94a3b8; width:100%; text-align:center; margin:auto;">No members added</span>
                         </div>
                     </div>
 
-                    <div style="display:flex; gap:15px;" class="row-split">
-                        <div class="form-group" style="flex:1;">
-                            <label>Due Date <span>*</span></label>
-                            <input type="date" id="tDate" class="form-control" required>
+                    <div style="display:flex; gap:20px;">
+                        <div class="input-group" style="flex:1;">
+                            <label>Due Date <span style="color:red">*</span></label>
+                            <input type="date" id="tDate" class="form-input" required>
                         </div>
-                        <div class="form-group" style="flex:1;">
+                        <div class="input-group" style="flex:1;">
                             <label>Priority</label>
-                            <select id="tPriority" class="form-control">
-                                <option>Medium</option>
-                                <option>High</option>
-                                <option>Low</option>
+                            <select id="tPriority" class="form-input">
+                                <option value="High">High</option>
+                                <option value="Medium" selected>Medium</option>
+                                <option value="Low">Low</option>
                             </select>
                         </div>
                     </div>
                 </form>
             </div>
 
-            <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeModal('taskModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveTask()">Assign Task</button>
+            <div class="modal-foot">
+                <button type="button" class="btn" style="background:#fff; border:1px solid #e2e8f0;" onclick="closeModal('taskModal')">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveTask()">Assign Task</button>
             </div>
         </div>
     </div>
 
     <script>
-        // Initialize Icons
         lucide.createIcons();
-
-        // State
         let selectedAssignees = [];
-        let rowCounter = 2;
+        let rowCounter = 2; // Start after static rows
 
-        // Modal Functions
         function openModal(id) {
             document.getElementById(id).classList.add('active');
-            // Reset for new task
-            if (!document.getElementById('editRowId').value) {
-                resetForm();
-            }
+            if (!document.getElementById('editRowId').value) resetForm();
         }
 
         function closeModal(id) {
             document.getElementById(id).classList.remove('active');
-            setTimeout(resetForm, 300); // Clear after animation
+            setTimeout(resetForm, 300);
         }
 
         function resetForm() {
@@ -393,150 +426,124 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
             document.getElementById('editRowId').value = '';
             document.getElementById('modalTitle').innerText = "Split Task to Employees";
             selectedAssignees = [];
-            renderAssignees();
-            document.getElementById('isExternal').checked = false;
-            toggleExternal();
+            renderChips();
         }
 
-        // Toggle External Department Logic
-        function toggleExternal() {
-            const isExt = document.getElementById('isExternal').checked;
-            const deptGroup = document.getElementById('deptSelectGroup');
-            const empInput = document.getElementById('empInput');
-
-            if (isExt) {
-                deptGroup.style.display = 'block';
-                empInput.placeholder = "Search Marketing employee...";
-            } else {
-                deptGroup.style.display = 'none';
-                empInput.placeholder = "Search employee...";
-            }
-        }
-
-        function updateEmpPlaceholder() {
-            const dept = document.getElementById('deptSelect').value;
-            document.getElementById('empInput').placeholder = "Search " + dept + " employee...";
-        }
-
-        // Assignee Logic
+        // --- ASSIGNEE LOGIC ---
         function addAssignee() {
             const input = document.getElementById('empInput');
             const val = input.value.trim();
             if (val && !selectedAssignees.includes(val)) {
                 selectedAssignees.push(val);
-                renderAssignees();
+                renderChips();
                 input.value = '';
-            } else if (selectedAssignees.includes(val)) {
-                alert('Employee already added!');
             }
         }
 
         function removeAssignee(index) {
             selectedAssignees.splice(index, 1);
-            renderAssignees();
+            renderChips();
         }
 
-        function renderAssignees() {
-            const container = document.getElementById('assigneeContainer');
-            
+        function renderChips() {
+            const container = document.getElementById('chipContainer');
             if (selectedAssignees.length === 0) {
-                container.innerHTML = 'No employees added yet';
-                container.className = 'empty-assignees';
+                container.innerHTML = '<span style="font-size:12px; color:#94a3b8; width:100%; text-align:center; margin:auto;">No members added</span>';
                 return;
             }
-
-            container.className = 'modal-chips';
             container.innerHTML = selectedAssignees.map((name, i) => `
-                <div class="modal-chip">
-                    <span>${name}</span>
-                    <i data-lucide="x" style="width:14px; cursor:pointer; color:#ef4444;" onclick="removeAssignee(${i})"></i>
+                <div class="chip-removable">
+                    ${name} <i data-lucide="x" style="width:12px; cursor:pointer; color:#ef4444;" onclick="removeAssignee(${i})"></i>
                 </div>
             `).join('');
             lucide.createIcons();
         }
 
-        // Save Task (Create/Edit)
+        // --- SAVE TASK LOGIC ---
         function saveTask() {
             const title = document.getElementById('tTitle').value;
             const desc = document.getElementById('tDesc').value;
             const date = document.getElementById('tDate').value;
+            const priority = document.getElementById('tPriority').value;
             const editId = document.getElementById('editRowId').value;
 
-            if(!title || !date) return alert("Please fill required fields");
-            if(selectedAssignees.length === 0) return alert("Please assign at least one member");
+            if (!title || !date || selectedAssignees.length === 0) {
+                alert("Please fill all required fields and add at least one member.");
+                return;
+            }
 
-            // Format Date
-            const dateObj = new Date(date);
-            const dateStr = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-
-            // Create Assignee HTML for Table
+            // Generate Assignee HTML
             const assigneeHtml = selectedAssignees.map(name => 
-                `<span class="assignee-chip"><i data-lucide="user" style="width:12px;"></i> ${name}</span>`
-            ).join('');
+                `<div class="user-chip"><i data-lucide="user" style="width:12px;"></i> ${name}</div>`
+            ).join(' ');
 
-            if(editId) {
+            const pColor = priority === 'High' ? '#ef4444' : (priority === 'Medium' ? '#eab308' : '#10b981');
+            const dateStr = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+            if (editId) {
                 // Update
                 const row = document.getElementById(editId);
-                row.cells[0].innerHTML = `<div style="font-weight:600; color:#1e293b;">${title}</div><div style="font-size:12px; color:#64748b; margin-top:2px;">${desc}</div>`;
-                row.cells[1].innerHTML = `<div class="assignee-list">${assigneeHtml}</div>`;
+                row.cells[0].innerHTML = `<div style="font-weight:600; color:#0f172a; font-size:14px;">${title}</div><div style="font-size:12px; color:#64748b; margin-top:2px;">${desc}</div>`;
+                row.cells[1].innerHTML = assigneeHtml;
+                row.cells[2].innerHTML = `<span style="font-size:12px; font-weight:600; color:${pColor};">${priority}</span>`;
                 row.cells[3].innerText = dateStr;
             } else {
                 // Create
-                const newId = 'row-' + rowCounter++;
                 const tbody = document.getElementById('taskTableBody');
-                const tr = document.createElement('tr');
-                tr.id = newId;
-                tr.innerHTML = `
+                const newRow = document.createElement('tr');
+                newRow.id = 'row-' + rowCounter++;
+                newRow.innerHTML = `
                     <td>
-                        <div style="font-weight:600; color:#1e293b;">${title}</div>
+                        <div style="font-weight:600; color:#0f172a; font-size:14px;">${title}</div>
                         <div style="font-size:12px; color:#64748b; margin-top:2px;">${desc}</div>
                     </td>
-                    <td><div class="assignee-list">${assigneeHtml}</div></td>
-                    <td><span class="status-badge status-Pending">Pending</span></td>
+                    <td>${assigneeHtml}</td>
+                    <td><span style="font-size:12px; font-weight:600; color:${pColor};">${priority}</span></td>
                     <td>${dateStr}</td>
                     <td style="text-align: right;">
-                        <button class="icon-btn" onclick="editTask('${newId}')"><i data-lucide="edit-3" style="width:16px;"></i></button>
-                        <button class="icon-btn delete" onclick="deleteTask('${newId}')"><i data-lucide="trash-2" style="width:16px;"></i></button>
+                        <button class="btn-icon" onclick="editTask('${newRow.id}')"><i data-lucide="pencil" style="width:14px;"></i></button>
+                        <button class="btn-icon delete" onclick="deleteTask('${newRow.id}')"><i data-lucide="trash-2" style="width:14px;"></i></button>
                     </td>
                 `;
-                tbody.appendChild(tr);
+                tbody.appendChild(newRow);
             }
 
             closeModal('taskModal');
             lucide.createIcons();
         }
 
-        // Table Actions
         function deleteTask(id) {
-            if(confirm('Delete this task?')) {
+            if(confirm("Are you sure you want to delete this task?")) {
                 document.getElementById(id).remove();
             }
         }
 
         function editTask(id) {
             const row = document.getElementById(id);
-            // In a real app, you would fetch data from ID. Here we scrape the DOM for demo.
             const title = row.cells[0].querySelector('div:first-child').innerText;
             const desc = row.cells[0].querySelector('div:last-child').innerText;
             
             document.getElementById('tTitle').value = title;
             document.getElementById('tDesc').value = desc;
             document.getElementById('editRowId').value = id;
-            document.getElementById('modalTitle').innerText = "Edit Sub-Task";
-
-            // Reset assignees for demo scraping
-            selectedAssignees = []; 
-            const chips = row.cells[1].querySelectorAll('.assignee-chip');
-            chips.forEach(c => selectedAssignees.push(c.innerText.trim()));
-            renderAssignees();
-
+            document.getElementById('modalTitle').innerText = "Edit Task";
+            
+            selectedAssignees = [];
+            row.cells[1].querySelectorAll('.user-chip').forEach(chip => {
+                selectedAssignees.push(chip.innerText.trim());
+            });
+            renderChips();
             openModal('taskModal');
         }
 
-        // Close on outside click
-        window.onclick = function(e) {
-            if(e.target.classList.contains('modal')) {
-                closeModal('taskModal');
+        function filterTable() {
+            const input = document.getElementById('searchInput');
+            const filter = input.value.toLowerCase();
+            const rows = document.getElementById('taskTableBody').getElementsByTagName('tr');
+
+            for (let i = 0; i < rows.length; i++) {
+                let text = rows[i].textContent || rows[i].innerText;
+                rows[i].style.display = text.toLowerCase().indexOf(filter) > -1 ? "" : "none";
             }
         }
     </script>

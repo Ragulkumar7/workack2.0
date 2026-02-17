@@ -240,10 +240,7 @@ $teamMembers = [
                     <div class="view-btn active" onclick="switchView('list')" id="btnList"><i data-lucide="list" style="width:18px;"></i></div>
                     <div class="view-btn" onclick="switchView('grid')" id="btnGrid"><i data-lucide="layout-grid" style="width:18px;"></i></div>
                 </div>
-                <button class="btn btn-primary" onclick="openAddModal()">
-                    <i data-lucide="user-plus" style="width:16px;"></i> 
-                    <span class="btn-text">Add Member</span>
-                </button>
+               
             </div>
         </div>
 
