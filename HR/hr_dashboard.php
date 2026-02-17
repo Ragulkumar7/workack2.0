@@ -7,7 +7,7 @@ include '../header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HR Executive Dashboard | Premium UI</title>
+    <title>HR Dashboard | Premium UI</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -88,7 +88,7 @@ include '../header.php';
     <div class="dashboard-container">
         <div class="flex justify-between items-center mb-8">
             <div>
-                <h1 class="text-3xl font-bold text-slate-800">HR Executive</h1>
+                <h1 class="text-3xl font-bold text-slate-800">HR Dashboard</h1>
                 <nav class="flex text-sm text-slate-400 mt-1 font-medium">
                     <i data-lucide="layout-grid" class="w-4 h-4 mr-2"></i>
                     <span>Intelligence</span>

@@ -91,7 +91,7 @@ $sections = [
                 'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO']
             ],
 
             // --- EMPLOYEE DETAILS ---
@@ -261,7 +261,7 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive']
+                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO']
             ],
 
             // --- TICKETS ---
@@ -334,7 +334,30 @@ $sections = [
             ],
         ]
     ],
-
+    [
+        'label' => 'CFO Management',
+        'items' => [
+            [
+                'name' => 'Approvals',
+                'path' => $base . 'CFO/cfo_approvals.php',
+                'icon' => 'check-square', // Icon for Approvals
+                'allowed' => ['CFO', 'System Admin']
+            ],
+            [
+                'name' => 'Financials',
+                'path' => $base . 'CFO/cfo_financials.php',
+                'icon' => 'trending-up', // Icon for Financials
+                'allowed' => ['CFO', 'System Admin']
+            ],
+            [
+                'name' => 'Payroll Review',
+                'path' => $base . 'CFO/cfo_payroll.php',
+                'icon' => 'banknote', // Icon for Payroll
+                'allowed' => ['CFO', 'System Admin']
+            ],
+        ]
+    ],
+    
     [
         'label' => 'Support & Tools',
         'items' => [
@@ -342,13 +365,13 @@ $sections = [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO']
             ],
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO']
             ],
         ]
     ]
