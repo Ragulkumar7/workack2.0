@@ -335,6 +335,17 @@ $sections = [
         ]
     ],
     [
+        'label' => 'Salary Management',
+        'items' => [
+    [
+    'name' => 'Salary Revisions', 
+    'path' => $base . 'Accounts/salary_revisions.php', 
+    'icon' => 'trending-up', // அல்லது 'history'
+    'allowed' => ['Accounts', 'HR', 'CFO']
+]
+        ]
+    ],  
+    [
         'label' => 'CFO Management',
         'items' => [
             [
