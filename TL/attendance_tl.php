@@ -3,25 +3,84 @@
 
 // 1. SESSION START
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
-
-// 2. MOCK DATA (Simulating "My Team" - e.g., Web Development Team)
-// In a real DB, you would query: SELECT * FROM attendance WHERE reporter_id = [Current_TL_ID]
-$myTeam = [
-    ["id" => 201, "name" => "Sarah Jenkins", "role" => "Frontend Dev", "status" => "Present", "in" => "09:02 AM", "out" => "06:05 PM", "prod" => "8.5 Hrs", "late" => "-"],
-    ["id" => 202, "name" => "Mike Ross", "role" => "Backend Dev", "status" => "Late", "in" => "09:45 AM", "out" => "07:15 PM", "prod" => "8.0 Hrs", "late" => "45 Min"],
-    ["id" => 203, "name" => "Rachel Zane", "role" => "UI Designer", "status" => "Present", "in" => "08:55 AM", "out" => "06:00 PM", "prod" => "9.0 Hrs", "late" => "-"],
-    ["id" => 204, "name" => "Louis Litt", "role" => "QA Tester", "status" => "Absent", "in" => "-", "out" => "-", "prod" => "0 Hrs", "late" => "-"],
-    ["id" => 205, "name" => "Donna Paulsen", "role" => "Scrum Master", "status" => "Present", "in" => "09:10 AM", "out" => "In Office", "prod" => "Running", "late" => "10 Min"],
-];
-
-// Stats Calculation
-$present = 0; $late = 0; $absent = 0;
-foreach($myTeam as $member) {
-    if($member['status'] == 'Present') $present++;
-    if($member['status'] == 'Late') $late++;
-    if($member['status'] == 'Absent') $absent++;
+if (!isset($_SESSION['user_id'])) { 
+    header("Location: index.php"); 
+    exit(); 
 }
+
+// 2. DATABASE CONNECTION
+require_once '../include/db_connect.php'; // Ensure path is correct
+
+// 3. GET TL ID & FILTER DATE
+$tl_user_id = $_SESSION['user_id']; // ID of logged-in TL (e.g., Frank is 19)
+$selected_date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
+
+// 4. FETCH DYNAMIC DATA
+// COALESCE checks if the first value is NULL, and if it is, it uses the second value.
+$query = "
+    SELECT 
+        u.id AS user_id, 
+        COALESCE(ep.full_name, u.name, 'Unknown Employee') AS final_name, 
+        COALESCE(ep.emp_id_code, u.employee_id, 'N/A') AS final_emp_id, 
+        ep.designation AS role, 
+        a.punch_in, 
+        a.punch_out, 
+        a.production_hours, 
+        a.status 
+    FROM users u
+    JOIN employee_profiles ep ON u.id = ep.user_id
+    LEFT JOIN attendance a ON u.id = a.user_id AND a.date = ?
+    WHERE ep.reporting_to = ?
+";
+
+$stmt = $conn->prepare($query);
+if (!$stmt) {
+    die("Database Error: " . $conn->error); 
+}
+
+$stmt->bind_param("si", $selected_date, $tl_user_id);
+$stmt->execute();
+$result = $stmt->get_result();
+
+$myTeam = [];
+$present = 0; 
+$late = 0; 
+$absent = 0;
+
+while ($row = $result->fetch_assoc()) {
+    // Format times
+    $in_time = $row['punch_in'] ? date("h:i A", strtotime($row['punch_in'])) : "-";
+    $out_time = $row['punch_out'] ? date("h:i A", strtotime($row['punch_out'])) : ($row['punch_in'] ? "Working" : "-");
+    
+    // Format Production Hours
+    $prod_hours = ($row['production_hours'] > 0) ? $row['production_hours'] . " Hrs" : "0 Hrs";
+
+    // Determine Status
+    $status = $row['status'] ?? 'Absent'; 
+    
+    if ($status === 'On Time' || $status === 'WFH') {
+        $present++;
+        $display_status = 'Present'; 
+    } elseif ($status === 'Late') {
+        $late++;
+        $display_status = 'Late';
+    } else {
+        $absent++;
+        $display_status = 'Absent';
+    }
+
+    $myTeam[] = [
+        "id" => $row['user_id'],
+        "name" => $row['final_name'],
+        "emp_id" => $row['final_emp_id'],
+        "role" => $row['role'] ?? 'Unassigned',
+        "status" => $display_status,
+        "in" => $in_time,
+        "out" => $out_time,
+        "prod" => $prod_hours
+    ];
+}
+$stmt->close();
 ?>
 
 <!DOCTYPE html>
@@ -70,7 +129,7 @@ foreach($myTeam as $member) {
 <body class="bg-slate-50">
 
     <?php include('../sidebars.php'); ?>
-     <?php include('../header.php'); ?>
+    <?php include('../header.php'); ?>
 
     <main id="mainContent">
         
@@ -78,12 +137,11 @@ foreach($myTeam as $member) {
             <div>
                 <div class="d-flex align-items-center gap-3">
                     <h4 class="fw-bold mb-0 text-dark">My Team Attendance</h4>
-                    <span class="badge bg-dark text-white rounded-pill px-3">Web Dev Dept</span>
                 </div>
-                <p class="text-muted small mb-0">Overview of your reporting employees today</p>
+                <p class="text-muted small mb-0">Overview of your reporting employees for <?php echo date("F j, Y", strtotime($selected_date)); ?></p>
             </div>
             <div class="d-flex gap-2">
-                <input type="date" class="form-control form-control-sm" value="<?php echo date('Y-m-d'); ?>" style="width: 150px;">
+                <input type="date" class="form-control form-control-sm" value="<?php echo $selected_date; ?>" style="width: 150px;" onchange="window.location.href='?date='+this.value">
                 <button class="btn btn-light border btn-sm shadow-sm"><i class="fa-solid fa-download text-secondary"></i> Export</button>
             </div>
         </div>
@@ -145,56 +203,57 @@ foreach($myTeam as $member) {
                             <th>Check In</th>
                             <th>Check Out</th>
                             <th>Production</th>
-                            <th>Late By</th>
                             <th class="text-end">Action</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach($myTeam as $member): 
-                            $statusClass = 'bg-present';
-                            $icon = '<i class="fa-solid fa-check-circle me-1"></i>';
-                            
-                            if($member['status'] == 'Late') { $statusClass = 'bg-late'; $icon = '<i class="fa-solid fa-circle-exclamation me-1"></i>'; }
-                            if($member['status'] == 'Absent') { $statusClass = 'bg-absent'; $icon = '<i class="fa-solid fa-times-circle me-1"></i>'; }
-                        ?>
-                        <tr>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <img src="https://i.pravatar.cc/150?u=<?php echo $member['id']; ?>" class="avatar-img">
-                                    <div>
-                                        <div class="fw-bold text-dark"><?php echo $member['name']; ?></div>
-                                        <small class="text-muted"><?php echo $member['role']; ?></small>
+                        <?php if (count($myTeam) > 0): ?>
+                            <?php foreach($myTeam as $member): 
+                                $statusClass = 'bg-present';
+                                $icon = '<i class="fa-solid fa-check-circle me-1"></i>';
+                                
+                                if($member['status'] == 'Late') { $statusClass = 'bg-late'; $icon = '<i class="fa-solid fa-circle-exclamation me-1"></i>'; }
+                                if($member['status'] == 'Absent') { $statusClass = 'bg-absent'; $icon = '<i class="fa-solid fa-times-circle me-1"></i>'; }
+                            ?>
+                            <tr>
+                                <td>
+                                    <div class="d-flex align-items-center">
+                                        <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($member['name']); ?>&background=random" class="avatar-img">
+                                        <div>
+                                            <div class="fw-bold text-dark"><?php echo htmlspecialchars($member['name']); ?></div>
+                                            <small class="text-muted"><?php echo htmlspecialchars($member['emp_id']); ?> - <?php echo htmlspecialchars($member['role']); ?></small>
+                                        </div>
                                     </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="status-badge <?php echo $statusClass; ?>">
-                                    <?php echo $icon . $member['status']; ?>
-                                </span>
-                            </td>
-                            <td class="text-slate-600"><?php echo $member['in']; ?></td>
-                            <td class="text-slate-600"><?php echo $member['out']; ?></td>
-                            <td>
-                                <?php if($member['prod'] != '0 Hrs'): ?>
-                                    <span class="text-emerald-600 font-bold"><?php echo $member['prod']; ?></span>
-                                <?php else: ?>
-                                    <span class="text-slate-400">-</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
-                                <?php if($member['late'] != '-'): ?>
-                                    <span class="text-danger fw-bold"><?php echo $member['late']; ?></span>
-                                <?php else: ?>
-                                    <span class="text-slate-400">-</span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="text-end">
-                                <button class="btn btn-sm btn-white border shadow-sm" onclick="openDetails('<?php echo $member['name']; ?>')">
-                                    <i class="fa-regular fa-eye text-secondary"></i> Details
-                                </button>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
+                                </td>
+                                <td>
+                                    <span class="status-badge <?php echo $statusClass; ?>">
+                                        <?php echo $icon . $member['status']; ?>
+                                    </span>
+                                </td>
+                                <td class="text-slate-600"><?php echo $member['in']; ?></td>
+                                <td class="text-slate-600"><?php echo $member['out']; ?></td>
+                                <td>
+                                    <?php if($member['prod'] != '0 Hrs'): ?>
+                                        <span class="text-emerald-600 font-bold"><?php echo $member['prod']; ?></span>
+                                    <?php else: ?>
+                                        <span class="text-slate-400">-</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-white border shadow-sm" onclick="openDetails('<?php echo htmlspecialchars($member['name']); ?>', '<?php echo $member['in']; ?>', '<?php echo $member['out']; ?>', '<?php echo $member['prod']; ?>')">
+                                        <i class="fa-regular fa-eye text-secondary"></i> Details
+                                    </button>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <tr>
+                                <td colspan="6" class="text-center py-5 text-muted">
+                                    <i class="fa-solid fa-users-slash text-3xl mb-3 text-slate-300 block"></i>
+                                    No team members are assigned to you yet.
+                                </td>
+                            </tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -212,28 +271,25 @@ foreach($myTeam as $member) {
                     <i class="fa-solid fa-user text-3xl text-slate-400"></i>
                 </div>
                 <h3 class="text-xl font-bold" id="modalName">Employee Name</h3>
-                <p class="text-muted mb-6">Detailed report for today</p>
+                <p class="text-muted mb-6">Detailed report</p>
                 
                 <div class="grid grid-cols-3 gap-4 text-left">
                     <div class="bg-slate-50 p-3 rounded border">
                         <small class="text-muted">Punch In</small>
-                        <div class="font-bold">09:02 AM</div>
-                        <div class="text-xs text-muted">IP: 192.168.1.1</div>
+                        <div class="font-bold" id="modalIn">--:--</div>
                     </div>
                     <div class="bg-slate-50 p-3 rounded border">
                         <small class="text-muted">Punch Out</small>
-                        <div class="font-bold">06:05 PM</div>
-                        <div class="text-xs text-muted">IP: 192.168.1.1</div>
+                        <div class="font-bold" id="modalOut">--:--</div>
                     </div>
                     <div class="bg-slate-50 p-3 rounded border">
-                        <small class="text-muted">Avg. Hours</small>
-                        <div class="font-bold text-emerald-600">8.5 Hrs</div>
+                        <small class="text-muted">Total Hours</small>
+                        <div class="font-bold text-emerald-600" id="modalProd">0 Hrs</div>
                     </div>
                 </div>
 
                 <div class="mt-6 pt-4 border-t flex justify-end">
                     <button class="btn btn-secondary btn-sm me-2" onclick="closeDetails()">Close</button>
-                    <button class="btn btn-primary btn-sm">Download Report</button>
                 </div>
             </div>
         </div>
@@ -242,8 +298,12 @@ foreach($myTeam as $member) {
     <script>
         const modal = document.getElementById('detailModal');
 
-        function openDetails(name) {
+        function openDetails(name, punchIn, punchOut, prodHours) {
             document.getElementById('modalName').innerText = name;
+            document.getElementById('modalIn').innerText = punchIn;
+            document.getElementById('modalOut').innerText = punchOut;
+            document.getElementById('modalProd').innerText = prodHours;
+            
             modal.classList.add('modal-active');
             document.body.style.overflow = 'hidden';
         }
