@@ -455,15 +455,17 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
             for (let i = 0; i < rows.length; i++) {
                 if(rows[i].cells.length < 7) continue; // skip "No requests" empty row
 
-                // Cell Indexes changed because we removed the checkbox
+                // Cell Indexes updated for removed checkbox column
                 const idTxt = rows[i].cells[0].textContent.toUpperCase();
                 const nameTxt = rows[i].cells[1].textContent.toUpperCase();
+                const reasonTxt = rows[i].cells[4].textContent.toUpperCase(); // Added reason to search
                 const statusTxt = rows[i].cells[5].textContent.toUpperCase();
                 
                 // Get the start date we embedded in the TR tag
                 const rowStartDate = rows[i].getAttribute('data-start'); // YYYY-MM-DD format
 
-                const matchesSearch = nameTxt.includes(search) || idTxt.includes(search);
+                // More precise matching: search must be found in name, id, OR reason
+                const matchesSearch = nameTxt.includes(search) || idTxt.includes(search) || reasonTxt.includes(search);
                 const matchesStatus = status === "" || statusTxt.includes(status);
                 
                 // Date Logic: Check if the row's start date falls between chosen From and To dates
