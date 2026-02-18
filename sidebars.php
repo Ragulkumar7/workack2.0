@@ -244,17 +244,14 @@ $sections = [
                 'icon' => 'file-search',
                 'allowed' => ['HR Executive']
             ],  
+            
             [
-                'label' => 'Employee Requirements', // Employee Requirements is a sub-item under manager
-                'items' => [
-                    [
-                        'name' => 'Employee Requirements', 
-                        'path' => $base . 'manager/employee_requirements.php', 
-                        'icon' => 'user-plus', // Lucide icon name
-                        'allowed' => ['Manager']
-                    ]
-                ]
+                'name' => 'Employee <br> Requirements', 
+                'path' => $base . './manager/employee_requirements.php', 
+                'icon' => 'user-plus', // Lucide icon name
+                'allowed' => ['Manager']
             ],
+           
              // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 
