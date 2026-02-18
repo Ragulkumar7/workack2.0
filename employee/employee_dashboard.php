@@ -33,6 +33,7 @@ $attendance_record = null;
 $total_hours_today = "00:00:00";
 $display_punch_in = "--:--";
 $total_seconds_worked = 0;
+$is_on_break = false; // New variable for break status
 
 // Stats Counters
 $stats_ontime = 0;
@@ -51,7 +52,6 @@ $leaves_remaining = 16;
 // -------------------------------------------------------------------------
 
 // A. Fetch User Profile
-// 2. FIX SQL QUERY: Added department, experience_label, emergency_contacts
 $sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, 
                 p.department, p.experience_label, p.emergency_contacts 
                 FROM users u 
@@ -77,51 +77,118 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
     }
 }
 
-// B. Attendance Logic (Punch In/Out)
+// B. Attendance Logic (Punch In/Out/Break)
 $check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
 $check_stmt = mysqli_prepare($conn, $check_sql);
 mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
 mysqli_stmt_execute($check_stmt);
 $attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
 
+// --- NEW BREAK LOGIC START ---
+$total_break_seconds = 0;
+$break_start_ts = 0;
+
+if ($attendance_record) {
+    // 1. Check if currently on break
+    $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
+    $bk_stmt = mysqli_prepare($conn, $bk_sql);
+    mysqli_stmt_bind_param($bk_stmt, "i", $attendance_record['id']);
+    mysqli_stmt_execute($bk_stmt);
+    if ($bk_row = mysqli_fetch_assoc(mysqli_stmt_get_result($bk_stmt))) {
+        $is_on_break = true;
+        $break_start_ts = strtotime($bk_row['break_start']);
+    }
+
+    // 2. Calculate total duration of completed breaks
+    $sum_sql = "SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as total FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NOT NULL";
+    $sum_stmt = mysqli_prepare($conn, $sum_sql);
+    mysqli_stmt_bind_param($sum_stmt, "i", $attendance_record['id']);
+    mysqli_stmt_execute($sum_stmt);
+    $sum_res = mysqli_fetch_assoc(mysqli_stmt_get_result($sum_stmt));
+    $total_break_seconds = $sum_res['total'] ?? 0;
+}
+// --- NEW BREAK LOGIC END ---
+
 // Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $now_db = date('Y-m-d H:i:s');
+
     if ($_POST['action'] == 'punch_in' && !$attendance_record) {
-        $punch_in_time = date('Y-m-d H:i:s');
         $ins_sql = "INSERT INTO attendance (user_id, punch_in, date, status) VALUES (?, ?, ?, 'On Time')";
         $ins_stmt = mysqli_prepare($conn, $ins_sql);
-        mysqli_stmt_bind_param($ins_stmt, "iss", $current_user_id, $punch_in_time, $today);
+        mysqli_stmt_bind_param($ins_stmt, "iss", $current_user_id, $now_db, $today);
         mysqli_stmt_execute($ins_stmt);
         header("Location: " . $_SERVER['PHP_SELF']); 
         exit();
-    } elseif ($_POST['action'] == 'punch_out' && $attendance_record && !$attendance_record['punch_out']) {
-        $punch_out_time = date('Y-m-d H:i:s');
+    } 
+    // Start Break Logic
+    elseif ($_POST['action'] == 'break_start' && $attendance_record && !$is_on_break) {
+        $ins_bk = "INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)";
+        $stmt = mysqli_prepare($conn, $ins_bk);
+        mysqli_stmt_bind_param($stmt, "is", $attendance_record['id'], $now_db);
+        mysqli_stmt_execute($stmt);
+        header("Location: " . $_SERVER['PHP_SELF']); exit();
+    }
+    // End Break Logic
+    elseif ($_POST['action'] == 'break_end' && $attendance_record && $is_on_break) {
+        $upd_bk = "UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL";
+        $stmt = mysqli_prepare($conn, $upd_bk);
+        mysqli_stmt_bind_param($stmt, "si", $now_db, $attendance_record['id']);
+        mysqli_stmt_execute($stmt);
+        header("Location: " . $_SERVER['PHP_SELF']); exit();
+    }
+    // Punch Out Logic (Updated to subtract breaks)
+    elseif ($_POST['action'] == 'punch_out' && $attendance_record && !$attendance_record['punch_out']) {
+        // Close break if open
+        if ($is_on_break) {
+            mysqli_query($conn, "UPDATE attendance_breaks SET break_end = '$now_db' WHERE attendance_id = {$attendance_record['id']} AND break_end IS NULL");
+            // Add this last break duration to total
+            $last_break_seconds = strtotime($now_db) - $break_start_ts;
+            $total_break_seconds += $last_break_seconds;
+        }
+
+        // Calculate Production (Total Duration - Total Breaks)
+        $start_ts = strtotime($attendance_record['punch_in']);
+        $end_ts = strtotime($now_db);
+        $total_duration = $end_ts - $start_ts;
+        $production_seconds = $total_duration - $total_break_seconds;
+        if($production_seconds < 0) $production_seconds = 0;
         
-        // Calculate Production Hours
-        $start = new DateTime($attendance_record['punch_in']);
-        $end = new DateTime($punch_out_time);
-        $diff = $start->diff($end);
-        $hours = $diff->h + ($diff->i / 60);
+        $hours = $production_seconds / 3600; // Decimal hours
 
         $upd_sql = "UPDATE attendance SET punch_out = ?, production_hours = ? WHERE id = ?";
         $upd_stmt = mysqli_prepare($conn, $upd_sql);
-        mysqli_stmt_bind_param($upd_stmt, "sdi", $punch_out_time, $hours, $attendance_record['id']);
+        mysqli_stmt_bind_param($upd_stmt, "sdi", $now_db, $hours, $attendance_record['id']);
         mysqli_stmt_execute($upd_stmt);
         header("Location: " . $_SERVER['PHP_SELF']); 
         exit();
     }
 }
 
-// Calculate Display Time
+// Calculate Display Time (Updated for Breaks)
 if ($attendance_record) {
     $display_punch_in = date('h:i A', strtotime($attendance_record['punch_in']));
     
-    $start_t = new DateTime($attendance_record['punch_in']);
-    $end_t = ($attendance_record['punch_out']) ? new DateTime($attendance_record['punch_out']) : new DateTime();
+    $start_ts = strtotime($attendance_record['punch_in']);
     
-    $diff = $start_t->diff($end_t);
-    $total_hours_today = $diff->format('%H:%I:%S');
-    $total_seconds_worked = ($diff->h * 3600) + ($diff->i * 60) + $diff->s;
+    if ($is_on_break) {
+        // Timer paused at break start
+        $now_ts = $break_start_ts;
+    } elseif ($attendance_record['punch_out']) {
+        // Timer stopped at punch out
+        $now_ts = strtotime($attendance_record['punch_out']);
+    } else {
+        // Timer running
+        $now_ts = time();
+    }
+    
+    $total_seconds_worked = ($now_ts - $start_ts) - $total_break_seconds;
+    if ($total_seconds_worked < 0) $total_seconds_worked = 0;
+
+    $hours = floor($total_seconds_worked / 3600);
+    $mins = floor(($total_seconds_worked % 3600) / 60);
+    $secs = $total_seconds_worked % 60;
+    $total_hours_today = sprintf('%02d:%02d:%02d', $hours, $mins, $secs);
 }
 
 // C. Fetch Statistics
@@ -493,18 +560,20 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                 <circle cx="80" cy="80" r="70" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
                                 <?php 
                                     // 9 hours = 32400 seconds. 
-                                    // Circumference = 2 * pi * 70 ≈ 440
                                     $pct = min(1, $total_seconds_worked / 32400); 
                                     $dashoffset = 440 - ($pct * 440);
+                                    
+                                    // Ring color: Orange if on Break, Teal if Working
+                                    $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
                                 ?>
-                                <circle cx="80" cy="80" r="70" stroke="#0d9488" stroke-width="12" fill="transparent" 
+                                <circle cx="80" cy="80" r="70" stroke="<?php echo $ringColor; ?>" stroke-width="12" fill="transparent" 
                                     stroke-dasharray="440" stroke-dashoffset="<?php echo ($attendance_record && $attendance_record['punch_out']) ? '0' : max(0, $dashoffset); ?>" 
                                     stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
                             </svg>
                             <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <p class="text-[10px] text-gray-400 font-bold uppercase">Total Hours</p>
+                                <p class="text-[10px] text-gray-400 font-bold uppercase"><?php echo $is_on_break ? 'ON BREAK' : 'Total Hours'; ?></p>
                                 <p class="text-2xl font-bold text-slate-800" id="liveTimer" 
-                                   data-start="<?php echo ($attendance_record && !$attendance_record['punch_out']) ? strtotime($attendance_record['punch_in']) * 1000 : ''; ?>"
+                                   data-running="<?php echo ($attendance_record && !$attendance_record['punch_out'] && !$is_on_break) ? 'true' : 'false'; ?>"
                                    data-total="<?php echo $total_seconds_worked; ?>">
                                    <?php echo $total_hours_today; ?>
                                 </p>
@@ -518,9 +587,16 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                 </button>
                             <?php elseif (!$attendance_record['punch_out']): ?>
                                 <div class="grid grid-cols-2 gap-3 w-full">
-                                    <button type="submit" name="action" value="take_break" class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-3 rounded-xl shadow transition">
-                                        <i class="fa-solid fa-mug-hot"></i> Break
-                                    </button>
+                                    <?php if ($is_on_break): ?>
+                                        <button type="submit" name="action" value="break_end" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow transition">
+                                            <i class="fa-solid fa-play"></i> Resume
+                                        </button>
+                                    <?php else: ?>
+                                        <button type="submit" name="action" value="break_start" class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-3 rounded-xl shadow transition">
+                                            <i class="fa-solid fa-mug-hot"></i> Break
+                                        </button>
+                                    <?php endif; ?>
+                                    
                                     <button type="submit" name="action" value="punch_out" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow transition">
                                         <i class="fa-solid fa-right-from-bracket"></i> Out
                                     </button>
@@ -726,41 +802,41 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             // Live Timer Logic
             const timerElement = document.getElementById('liveTimer');
             const progressRing = document.getElementById('progressRing');
-            const startTimeAttr = timerElement.getAttribute('data-start');
+            const isRunning = timerElement.getAttribute('data-running') === 'true';
             
-            if (startTimeAttr) {
-                const startTime = parseInt(startTimeAttr); // Timestamp in milliseconds
+            // Initial Time from PHP calculation
+            let totalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
+            const startTime = new Date().getTime(); // Browser time when page loaded
+
+            function updateTimer() {
+                if (!isRunning) return; // Stop updating if paused/break
+
+                const now = new Date().getTime();
+                const diffSeconds = Math.floor((now - startTime) / 1000);
+                const currentTotal = totalSeconds + diffSeconds;
                 
-                function updateTimer() {
-                    const now = new Date().getTime();
-                    const diff = now - startTime;
-                    
-                    // Calculate hours, minutes, seconds
-                    const totalSeconds = Math.floor(diff / 1000);
-                    const hours = Math.floor(totalSeconds / 3600);
-                    const minutes = Math.floor((totalSeconds % 3600) / 60);
-                    const seconds = totalSeconds % 60;
-                    
-                    // Format with leading zeros
-                    const formattedTime = 
-                        String(hours).padStart(2, '0') + ':' + 
-                        String(minutes).padStart(2, '0') + ':' + 
-                        String(seconds).padStart(2, '0');
-                    
-                    timerElement.innerText = formattedTime;
+                const hours = Math.floor(currentTotal / 3600);
+                const minutes = Math.floor((currentTotal % 3600) / 60);
+                const seconds = currentTotal % 60;
+                
+                const formattedTime = 
+                    String(hours).padStart(2, '0') + ':' + 
+                    String(minutes).padStart(2, '0') + ':' + 
+                    String(seconds).padStart(2, '0');
+                
+                timerElement.innerText = formattedTime;
 
-                    // Update Progress Ring (Based on 9 hours = 32400 seconds)
-                    const maxSeconds = 32400; 
-                    const circumference = 440;
-                    const progress = Math.min(totalSeconds / maxSeconds, 1);
-                    const offset = circumference - (progress * circumference);
-                    if(progressRing) {
-                        progressRing.style.strokeDashoffset = offset;
-                    }
+                // Update Progress Ring
+                const maxSeconds = 32400; // 9 hours
+                const circumference = 440;
+                const progress = Math.min(currentTotal / maxSeconds, 1);
+                const offset = circumference - (progress * circumference);
+                if(progressRing) {
+                    progressRing.style.strokeDashoffset = offset;
                 }
+            }
 
-                // Run immediately and then every second
-                updateTimer();
+            if (isRunning) {
                 setInterval(updateTimer, 1000);
             }
         });
