@@ -4,7 +4,7 @@
 // 1. SESSION START & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 if (!isset($_SESSION['user_id'])) { 
-    header("Location: index.php"); // Fixed path to index.php
+    header("Location: index.php"); 
     exit(); 
 }
 
@@ -61,32 +61,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset(
     }
     
     $update_stmt->close();
-    $conn->close(); // EXPLICITLY CLOSE CONNECTION TO SAVE SERVER LIMITS
+    $conn->close(); 
     exit(); 
 }
 
 // =========================================================================
 // 3. FETCH DATA FOR UI DISPLAY
 // =========================================================================
+// Fetching the user's name from profile table, falling back to users table if null
+$base_select = "SELECT lr.*, 
+                COALESCE(ep.full_name, u.name, 'Unknown Employee') as emp_name, 
+                COALESCE(ep.designation, u.role, 'Employee') as emp_role,
+                (SELECT COALESCE(SUM(total_days), 0) FROM leave_requests 
+                 WHERE user_id = lr.user_id 
+                   AND status = 'Approved' 
+                   AND MONTH(start_date) = MONTH(CURRENT_DATE()) 
+                   AND YEAR(start_date) = YEAR(CURRENT_DATE())
+                ) as current_month_leaves
+              FROM leave_requests lr 
+              JOIN users u ON lr.user_id = u.id 
+              LEFT JOIN employee_profiles ep ON u.id = ep.user_id";
+
 $query = "";
 if ($user_role === 'Team Lead') {
-    $query = "SELECT lr.*, u.name as emp_name, ep.designation as emp_role 
-              FROM leave_requests lr 
-              JOIN users u ON lr.user_id = u.id 
-              LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
-              WHERE lr.tl_id = ? ORDER BY lr.created_at DESC";
+    $query = "$base_select WHERE lr.tl_id = ? ORDER BY lr.created_at DESC";
 } elseif ($user_role === 'Manager') {
-    $query = "SELECT lr.*, u.name as emp_name, ep.designation as emp_role 
-              FROM leave_requests lr 
-              JOIN users u ON lr.user_id = u.id 
-              LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
-              WHERE lr.manager_id = ? AND lr.tl_status = 'Approved' ORDER BY lr.created_at DESC";
+    $query = "$base_select WHERE lr.manager_id = ? AND lr.tl_status = 'Approved' ORDER BY lr.created_at DESC";
 } elseif ($user_role === 'HR' || $user_role === 'HR Executive') {
-    $query = "SELECT lr.*, u.name as emp_name, ep.designation as emp_role 
-              FROM leave_requests lr 
-              JOIN users u ON lr.user_id = u.id 
-              LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
-              WHERE lr.manager_status = 'Approved' ORDER BY lr.created_at DESC";
+    $query = "$base_select WHERE lr.manager_status = 'Approved' ORDER BY lr.created_at DESC";
 } else {
     die("Access Denied.");
 }
@@ -99,7 +101,9 @@ $stmt->execute();
 $result = $stmt->get_result();
 
 $leave_requests = [];
-$pending_count = 0; $approved_count = 0; $rejected_count = 0;
+$pending_count = 0; 
+$approved_count = 0; 
+$rejected_count = 0;
 
 while ($row = $result->fetch_assoc()) {
     $display_status = 'Pending';
@@ -111,11 +115,23 @@ while ($row = $result->fetch_assoc()) {
     if ($display_status === 'Approved') $approved_count++;
     if ($display_status === 'Rejected') $rejected_count++;
 
-    $row['display_status'] = $display_status;
-    $leave_requests[] = $row;
+    // Explicitly mapping the keys to make sure they pass to the HTML below
+    $leave_requests[] = [
+        'id' => $row['id'],
+        'emp_name' => $row['emp_name'],
+        'emp_role' => $row['emp_role'],
+        'leave_type' => $row['leave_type'],
+        'start_date' => $row['start_date'],
+        'end_date' => $row['end_date'],
+        'total_days' => $row['total_days'],
+        'created_at' => $row['created_at'],
+        'reason' => $row['reason'],
+        'current_month_leaves' => $row['current_month_leaves'],
+        'display_status' => $display_status
+    ];
 }
 $stmt->close();
-$conn->close(); // EXPLICITLY CLOSE CONNECTION TO SAVE SERVER LIMITS
+$conn->close(); 
 
 $sidebarPath = __DIR__ . '/sidebars.php'; 
 if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
@@ -156,8 +172,9 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
         td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; font-size: 13px; vertical-align: middle; }
         tr:hover { background-color: #fcfcfc; }
         .emp-profile { display: flex; align-items: center; gap: 12px; }
-        .emp-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #64748b; }
-        .emp-info { display: flex; flex-direction: column; } .emp-name { font-weight: 600; color: #0f172a; } .emp-dept { font-size: 11px; color: #64748b; }
+        .emp-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #64748b; flex-shrink: 0;}
+        .emp-info { display: flex; flex-direction: column; gap: 2px;} .emp-name { font-weight: 600; color: #0f172a; } .emp-dept { font-size: 11px; color: #64748b; }
+        .leave-month-badge { font-size: 10px; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px; display: inline-block; width: fit-content; margin-top: 2px; }
         .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
         .status-Pending { background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; } .status-Approved { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; } .status-Rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
         .leave-type { font-weight: 500; padding: 4px 8px; border-radius: 4px; background: #f1f5f9; color: #334155; font-size: 12px; }
@@ -268,6 +285,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                                             <div class="emp-info">
                                                 <span class="emp-name"><?php echo htmlspecialchars($leave['emp_name']); ?></span>
                                                 <span class="emp-dept"><?php echo htmlspecialchars($leave['emp_role']); ?></span>
+                                                <span class="leave-month-badge"><i data-lucide="calendar-check" style="width:10px; height:10px; display:inline; margin-right:2px;"></i> Taken this month: <?php echo $leave['current_month_leaves']; ?> days</span>
                                             </div>
                                         </div>
                                     </td>
@@ -288,7 +306,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                                                 <button class="btn-icon btn-approve" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Approved')" title="Approve"><i data-lucide="check" style="width:16px;"></i></button>
                                                 <button class="btn-icon btn-reject" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Rejected')" title="Reject"><i data-lucide="x" style="width:16px;"></i></button>
                                             <?php endif; ?>
-                                            <button class="btn-icon" onclick="viewDetails('<?php echo addslashes($leave['emp_name']); ?>', '<?php echo $leave['leave_type']; ?>', '<?php echo date('d M Y', strtotime($leave['start_date'])) . ' - ' . date('d M Y', strtotime($leave['end_date'])); ?>', '<?php echo addslashes($leave['reason']); ?>', '<?php echo $leave['total_days']; ?>')" title="View Details"><i data-lucide="eye" style="width:16px;"></i></button>
+                                            <button class="btn-icon" onclick="viewDetails('<?php echo htmlspecialchars(addslashes($leave['emp_name'])); ?>', '<?php echo htmlspecialchars($leave['leave_type']); ?>', '<?php echo date('d M Y', strtotime($leave['start_date'])) . ' - ' . date('d M Y', strtotime($leave['end_date'])); ?>', '<?php echo htmlspecialchars(addslashes($leave['reason'])); ?>', '<?php echo $leave['total_days']; ?>', '<?php echo $leave['current_month_leaves']; ?>')" title="View Details"><i data-lucide="eye" style="width:16px;"></i></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -325,8 +343,12 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                         <p id="mDate">--</p>
                     </div>
                     <div class="detail-item">
-                        <label>Total Days</label>
+                        <label>Requesting Days</label>
                         <p id="mDays">--</p>
+                    </div>
+                    <div class="detail-item">
+                        <label>Approved Leaves (This Month)</label>
+                        <p id="mMonthLeaves" style="color:#2563eb;">--</p>
                     </div>
                 </div>
 
@@ -373,12 +395,13 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
 
         const modal = document.getElementById('approvalModal');
 
-        function viewDetails(name, type, date, reason, days) {
+        function viewDetails(name, type, date, reason, days, monthLeaves) {
             document.getElementById('mName').innerText = name;
             document.getElementById('mType').innerText = type;
             document.getElementById('mDate').innerText = date;
             document.getElementById('mReason').innerText = reason;
-            document.getElementById('mDays').innerText = days + " Days";
+            document.getElementById('mDays').innerText = days + " Day(s)";
+            document.getElementById('mMonthLeaves').innerText = monthLeaves + " Day(s)";
             
             modal.classList.add('active');
             document.body.style.overflow = 'hidden';
@@ -400,7 +423,6 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                 confirmButtonText: 'Yes, ' + newStatus + ' it!'
             }).then((result) => {
                 if (result.isConfirmed) {
-                    // Posts back to the exact same file
                     fetch(window.location.href, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },

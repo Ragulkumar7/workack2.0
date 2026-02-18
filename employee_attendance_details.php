@@ -166,10 +166,10 @@ if ($grand_total_hours > 0) {
 </head>
 <body class="bg-slate-50">
 
-    <?php include('C:\xampp\htdocs\workack2.0\sidebars.php'); ?>
+    <?php include('./sidebars.php'); ?>
 
     <main id="mainContent">
-        <?php include('C:\xampp\htdocs\workack2.0\header.php'); ?>
+        <?php include('./header.php'); ?>
 
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
