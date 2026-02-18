@@ -5,14 +5,13 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- ROBUST DATABASE CONNECTION ---
-// Using absolute path for XAMPP environment
 $dbPath = './include/db_connect.php';
 
 if (file_exists($dbPath)) {
     include_once($dbPath);
 } else {
     die("Error: db_connect.php not found at " . htmlspecialchars($dbPath));
-}   
+}
 
 // Check Login
 if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) { 
@@ -35,23 +34,38 @@ $employeeName = $profile_data['full_name'] ?? "Unknown Employee";
 $employeeID   = $profile_data['emp_id_code'] ?? "EMP-0000";
 $designation  = $profile_data['designation'] ?? "Staff";
 
-$currentDateRange = date('d M Y', strtotime('-7 days')) . " - " . date('d M Y');
 
-// B. Fetch Attendance Records & Calculate Graph Data
+// --- DATE FILTER LOGIC ---
+$filter_date = isset($_GET['date']) ? $_GET['date'] : '';
+if($filter_date) {
+    // If a date is selected, show just that date
+    $currentDateRange = date('d M Y', strtotime($filter_date));
+    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY date DESC";
+} else {
+    // Default: Last 7 Days
+    $currentDateRange = date('d M Y', strtotime('-7 days')) . " - " . date('d M Y');
+    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) ORDER BY date DESC";
+}
+
+// B. Fetch Attendance Records
 $attendanceRecords = [];
 $total_production = 0;
 $late_days = 0;
 $total_overtime = 0;
 $days_count = 0;
 
-// Variables for Weekly Performance Graph
 $sum_work = 0;
 $sum_break = 0;
 $sum_overtime = 0;
 
-$sql_att = "SELECT * FROM attendance WHERE user_id = ? ORDER BY date DESC LIMIT 10";
 $stmt = $conn->prepare($sql_att);
-$stmt->bind_param("i", $view_user_id);
+
+if($filter_date) {
+    $stmt->bind_param("is", $view_user_id, $filter_date);
+} else {
+    $stmt->bind_param("i", $view_user_id);
+}
+
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -71,29 +85,25 @@ while ($row = $result->fetch_assoc()) {
     $overtime = ($prod > 9) ? ($prod - 9) : 0;
     $total_overtime += $overtime;
 
-    // Calculate Break (Difference between punch times minus production)
-    // Assuming standard break logic if exact punch times exist
+    // Calculate Break
     $break_min = 0;
     $daily_break_hours = 0;
     
     if ($row['punch_in'] && $row['punch_out']) {
         $in = strtotime($row['punch_in']);
         $out = strtotime($row['punch_out']);
-        $total_duration = ($out - $in) / 3600; // Total hours in office
+        $total_duration = ($out - $in) / 3600; 
         
-        // Break is difference between time-in-office and actual production
         $daily_break_hours = $total_duration - $prod;
         if($daily_break_hours < 0) $daily_break_hours = 0;
         
         $break_min = round($daily_break_hours * 60);
     }
 
-    // Add to Weekly Graph Totals
-    $sum_work += ($prod - $overtime); // Base work without overtime
+    $sum_work += ($prod - $overtime);
     $sum_overtime += $overtime;
     $sum_break += $daily_break_hours;
 
-    // Add to array for display table
     $attendanceRecords[] = [
         "date" => date('d M Y', strtotime($row['date'])),
         "checkin" => $row['punch_in'] ? date('h:i A', strtotime($row['punch_in'])) : "-",
@@ -111,7 +121,7 @@ while ($row = $result->fetch_assoc()) {
 // C. Calculate Final Averages
 $avg_production = ($days_count > 0) ? number_format($total_production / $days_count, 1) : 0;
 
-// D. Calculate Graph Percentages (FIXED: Defaults to 0 if no data)
+// D. Calculate Graph Percentages
 $grand_total_hours = $sum_work + $sum_break + $sum_overtime;
 
 if ($grand_total_hours > 0) {
@@ -119,10 +129,7 @@ if ($grand_total_hours > 0) {
     $pct_break = ($sum_break / $grand_total_hours) * 100;
     $pct_overtime = ($sum_overtime / $grand_total_hours) * 100;
 } else {
-    // If no data, graph should be empty
-    $pct_work = 0;
-    $pct_break = 0;
-    $pct_overtime = 0;
+    $pct_work = 0; $pct_break = 0; $pct_overtime = 0;
 }
 ?>
 
@@ -141,26 +148,14 @@ if ($grand_total_hours > 0) {
     <style>
         :root { --primary-orange: #ff5e3a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
         body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
-        
-        #mainContent { 
-            margin-left: 95px; 
-            padding: 25px 35px; 
-            transition: all 0.3s ease;
-            min-height: 100vh;
-        }
-        
-        @media (max-width: 768px) {
-            #mainContent { margin-left: 0 !important; padding: 15px; }
-        }
-
+        #mainContent { margin-left: 95px; padding: 25px 35px; transition: all 0.3s ease; min-height: 100vh; }
+        @media (max-width: 768px) { #mainContent { margin-left: 0 !important; padding: 15px; } }
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); margin-bottom: 24px; background: #fff; }
         .status-pill { padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
         .bg-present { background: #dcfce7; color: #166534; }
         .bg-absent { background: #fee2e2; color: #991b1b; }
-        .bg-late { background: #fee2e2; color: #b91c1c; } /* Added Red for Late */
+        .bg-late { background: #fee2e2; color: #b91c1c; }
         .modal-backdrop-custom { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
-        
-        /* Break Animation */
         @keyframes pulse-orange {
             0% { box-shadow: 0 0 0 0 rgba(255, 165, 0, 0.7); }
             70% { box-shadow: 0 0 0 10px rgba(255, 165, 0, 0); }
@@ -171,10 +166,10 @@ if ($grand_total_hours > 0) {
 </head>
 <body class="bg-slate-50">
 
-    <?php include('./sidebars.php'); ?>
+    <?php include('C:\xampp\htdocs\workack2.0\sidebars.php'); ?>
 
     <main id="mainContent">
-        <?php include('./header.php'); ?>
+        <?php include('C:\xampp\htdocs\workack2.0\header.php'); ?>
 
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
@@ -264,7 +259,21 @@ if ($grand_total_hours > 0) {
                     <div class="p-4 border-b flex flex-col md:flex-row justify-between items-center gap-4">
                         <h3 class="text-lg font-bold text-slate-800">Attendance History Log</h3>
                         <div class="flex items-center gap-2">
-                            <input type="text" class="pl-4 pr-4 py-2 border border-slate-200 rounded-lg text-xs font-semibold bg-slate-50" value="<?php echo $currentDateRange; ?>" readonly>
+                            <form action="" method="GET" class="flex items-center">
+                                <input type="hidden" name="id" value="<?php echo $view_user_id; ?>">
+                                <input type="date" name="date" class="pl-4 pr-2 py-2 border border-slate-200 rounded-lg text-xs font-semibold bg-slate-50 cursor-pointer hover:bg-slate-100 focus:outline-none focus:border-orange-500 transition-colors" 
+                                       value="<?php echo isset($_GET['date']) ? $_GET['date'] : ''; ?>" 
+                                       onchange="this.form.submit()" 
+                                       title="Select a date to filter records">
+                                
+                                <?php if(isset($_GET['date'])): ?>
+                                    <a href="employee_attendance_details.php?id=<?php echo $view_user_id; ?>" class="ml-2 text-xs text-red-500 font-bold hover:underline">Clear Filter</a>
+                                <?php endif; ?>
+                            </form>
+                            
+                            <span class="text-xs text-slate-400 font-medium ml-2 border-l pl-2 border-slate-200">
+                                <?php echo $currentDateRange; ?>
+                            </span>
                         </div>
                     </div>
                     <div class="table-responsive">
@@ -302,7 +311,7 @@ if ($grand_total_hours > 0) {
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr><td colspan="8" class="text-center p-4 text-slate-400">No attendance records found.</td></tr>
+                                    <tr><td colspan="8" class="text-center p-4 text-slate-400">No attendance records found for this period.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
