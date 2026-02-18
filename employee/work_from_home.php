@@ -3,15 +3,21 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- FIXED PATHS FOR YOUR ENVIRONMENT ---
-$db_connect_path = 'C:\xampp\htdocs\workack2.0\include\db_connect.php';
-$sidebar_path    = 'C:\xampp\htdocs\workack2.0\sidebars.php';
-$header_path     = 'C:\xampp\htdocs\workack2.0\header.php';
+$db_connect_path = '../include/db_connect.php';
+$sidebar_path    = '../sidebars.php';
+$header_path     = '../header.php';
 
 // Include DB
 if (file_exists($db_connect_path)) {
     include_once($db_connect_path);
 } else {
-    die("Error: db_connect.php not found at " . htmlspecialchars($db_connect_path));
+    // Fallback to absolute path
+    $db_connect_path = 'C:/xampp/htdocs/workack2.0/include/db_connect.php';
+    if (file_exists($db_connect_path)) {
+        include_once($db_connect_path);
+    } else {
+        die("Error: db_connect.php not found. Please check your folder structure.");
+    }
 }
 
 // 3. CHECK LOGIN
@@ -23,14 +29,18 @@ $current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : $_SESSION['user_id
 
 // --- HANDLE FORM SUBMISSION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_wfh'])) {
+    // 1. Capture the manually entered name
+    $emp_name_manual = mysqli_real_escape_string($conn, $_POST['employee_name']);
     $shift = mysqli_real_escape_string($conn, $_POST['shift']);
     $start_date = mysqli_real_escape_string($conn, $_POST['start_date']);
     $end_date = mysqli_real_escape_string($conn, $_POST['end_date']);
     $reason = mysqli_real_escape_string($conn, $_POST['reason']);
 
-    $sql = "INSERT INTO wfh_requests (user_id, start_date, end_date, shift, reason, status) VALUES (?, ?, ?, ?, ?, 'Pending')";
+    // 2. Update Insert Query to include employee_name
+    // Note: Ensure you ran the SQL ALTER command to add 'employee_name' column
+    $sql = "INSERT INTO wfh_requests (user_id, employee_name, start_date, end_date, shift, reason, status) VALUES (?, ?, ?, ?, ?, ?, 'Pending')";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("issss", $current_user_id, $start_date, $end_date, $shift, $reason);
+    $stmt->bind_param("isssss", $current_user_id, $emp_name_manual, $start_date, $end_date, $shift, $reason);
     
     if ($stmt->execute()) {
         header("Location: " . $_SERVER['PHP_SELF'] . "?success=1");
@@ -39,26 +49,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_wfh'])) {
 }
 
 // --- FETCH STATS ---
-// Pending Count
-$res_pending = $conn->query("SELECT COUNT(*) as total FROM wfh_requests WHERE user_id = $current_user_id AND status = 'Pending'");
-$pending_count = $res_pending->fetch_assoc()['total'];
+if ($conn) {
+    $res_pending = $conn->query("SELECT COUNT(*) as total FROM wfh_requests WHERE user_id = $current_user_id AND status = 'Pending'");
+    $pending_count = ($res_pending) ? $res_pending->fetch_assoc()['total'] : 0;
 
-// Days Used this month
-$res_used = $conn->query("SELECT SUM(DATEDIFF(end_date, start_date) + 1) as total FROM wfh_requests WHERE user_id = $current_user_id AND status = 'Approved' AND MONTH(start_date) = MONTH(CURRENT_DATE())");
-$days_used = $res_used->fetch_assoc()['total'] ?? 0;
+    $res_used = $conn->query("SELECT SUM(DATEDIFF(end_date, start_date) + 1) as total FROM wfh_requests WHERE user_id = $current_user_id AND status = 'Approved' AND MONTH(start_date) = MONTH(CURRENT_DATE())");
+    $days_used = ($res_used) ? ($res_used->fetch_assoc()['total'] ?? 0) : 0;
 
-// --- FETCH HISTORY ---
-$history = [];
-$res_history = $conn->query("SELECT * FROM wfh_requests WHERE user_id = $current_user_id ORDER BY applied_date DESC");
-while($row = $res_history->fetch_assoc()) {
-    $history[] = $row;
+    // --- FETCH HISTORY ---
+    $history = [];
+    $res_history = $conn->query("SELECT * FROM wfh_requests WHERE user_id = $current_user_id ORDER BY applied_date DESC");
+    if ($res_history) {
+        while($row = $res_history->fetch_assoc()) {
+            $history[] = $row;
+        }
+    }
+
+    // --- FETCH EMPLOYEE PROFILE (For Designation Only) ---
+    $stmt_profile = $conn->prepare("SELECT designation FROM employee_profiles WHERE user_id = ?");
+    $stmt_profile->bind_param("i", $current_user_id);
+    $stmt_profile->execute();
+    $res_profile = $stmt_profile->get_result();
+    $profile = $res_profile->fetch_assoc();
+} else {
+    die("Database connection failed. Please try again later.");
 }
 
-// Get User Profile Info
-$res_profile = $conn->query("SELECT full_name, designation FROM employee_profiles WHERE user_id = $current_user_id");
-$profile = $res_profile->fetch_assoc();
-$user_name = $profile['full_name'] ?? ($_SESSION['username'] ?? 'Employee');
-$user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
+$user_role = (!empty($profile['designation'])) ? $profile['designation'] : "Staff";
 ?>
 
 <!DOCTYPE html>
@@ -176,8 +193,10 @@ $user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
 </head>
 <body>
 
-    <?php include($sidebar_path); ?>
-    <?php include($header_path); ?>
+    <?php 
+    if (file_exists($sidebar_path)) { include($sidebar_path); } 
+    if (file_exists($header_path)) { include($header_path); } 
+    ?>
 
     <div class="main-content">
         
@@ -278,9 +297,10 @@ $user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
             <div class="modal-body">
                 <form id="wfhForm" method="POST">
                     <input type="hidden" name="submit_wfh" value="1">
+                    
                     <div class="form-group">
                         <label>Employee Name</label>
-                        <input type="text" class="form-control" value="<?= htmlspecialchars($user_name) ?>" readonly style="background:#f9fafb;">
+                        <input type="text" name="employee_name" class="form-control" placeholder="Enter your name" required>
                     </div>
 
                     <div class="form-group">
@@ -310,7 +330,10 @@ $user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
 
                     <div class="form-group">
                         <label>Reason <span style="color:red;">*</span></label>
-                        <textarea name="reason" class="form-control" rows="3" placeholder="Explain the reason for WFH request..." required></textarea>
+                        <textarea name="reason" class="form-control" rows="3" placeholder="Explain the reason for WFH request..." required maxlength="250" oninput="updateCharCount(this)"></textarea>
+                        <div style="text-align:right; font-size:12px; color:#6b7280; margin-top:4px;">
+                            <span id="charCount">0</span>/250 characters
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn" onclick="closeModal()">Cancel</button>
@@ -326,6 +349,12 @@ $user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
 
         function openModal() { document.getElementById('requestModal').classList.add('active'); }
         function closeModal() { document.getElementById('requestModal').classList.remove('active'); }
+
+        // Live Character Count
+        function updateCharCount(textarea) {
+            const count = textarea.value.length;
+            document.getElementById('charCount').innerText = count;
+        }
 
         function filterTable() {
             let input = document.getElementById("personalSearch").value.toUpperCase();

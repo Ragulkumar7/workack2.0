@@ -17,50 +17,45 @@ if (file_exists($sidebarPath)) include_once $sidebarPath;
 if (file_exists($headerPath))  include_once $headerPath;
 
 // Determine current user
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 $current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : 1;
 
-// 3. HANDLE FORM SUBMISSION (Set Personal Target)
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['set_target'])) {
-    $task = mysqli_real_escape_string($conn, $_POST['task']);
-    $date = mysqli_real_escape_string($conn, $_POST['date']);
-    $time = mysqli_real_escape_string($conn, $_POST['time']);
-
-    if (!empty($task) && !empty($date) && !empty($time)) {
-        $stmt = $conn->prepare("INSERT INTO personal_targets (user_id, task_name, target_date, target_time) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("isss", $current_user_id, $task, $date, $time);
-        $stmt->execute();
-        $stmt->close();
-        // Redirect to prevent form resubmission on refresh
-        header("Location: " . $_SERVER['PHP_SELF']);
-        exit;
-    }
-}
-
-// 4. FETCH TASK STATISTICS
+// 3. FETCH TASK STATISTICS
 $stats_query = "SELECT 
     COUNT(*) as total,
     SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
     SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as in_progress,
-    SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending
+    SUM(CASE WHEN status IN ('Pending', 'To Do') THEN 1 ELSE 0 END) as pending
     FROM team_tasks WHERE assigned_to = ?";
 $stmt = $conn->prepare($stats_query);
 $stmt->bind_param("i", $current_user_id);
 $stmt->execute();
 $stats = $stmt->get_result()->fetch_assoc();
 
-// 5. FETCH TEAM ASSIGNMENTS
+// 4. FETCH TASKS (FOR BOTH LIST & KANBAN)
 $tasks_query = "SELECT * FROM team_tasks WHERE assigned_to = ? ORDER BY deadline ASC";
 $stmt = $conn->prepare($tasks_query);
 $stmt->bind_param("i", $current_user_id);
 $stmt->execute();
-$assigned_tasks = $stmt->get_result();
+$all_tasks_result = $stmt->get_result();
 
-// 6. FETCH PERSONAL TARGETS
-$targets_query = "SELECT * FROM personal_targets WHERE user_id = ? ORDER BY id DESC";
-$stmt = $conn->prepare($targets_query);
-$stmt->bind_param("i", $current_user_id);
-$stmt->execute();
-$personal_targets = $stmt->get_result();
+$tasks_todo = [];
+$tasks_progress = [];
+$tasks_completed = [];
+$list_view_tasks = [];
+
+while($task = $all_tasks_result->fetch_assoc()) {
+    $list_view_tasks[] = $task; 
+
+    // Sort into Kanban Columns
+    if($task['status'] == 'Pending' || $task['status'] == 'To Do') {
+        $tasks_todo[] = $task;
+    } elseif($task['status'] == 'In Progress') {
+        $tasks_progress[] = $task;
+    } elseif($task['status'] == 'Completed') {
+        $tasks_completed[] = $task;
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -69,7 +64,7 @@ $personal_targets = $stmt->get_result();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Task Board - Workack</title>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
@@ -98,12 +93,7 @@ $personal_targets = $stmt->get_result();
             width: calc(100% - var(--sidebar-primary-width)); 
         }
 
-        .main-shifted { 
-            margin-left: calc(var(--sidebar-primary-width) + var(--sidebar-secondary-width)) !important;
-            width: calc(100% - (var(--sidebar-primary-width) + var(--sidebar-secondary-width)));
-        }
-
-        .page-header { margin-bottom: 25px; }
+        .page-header { margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
         .page-header h2 { color: var(--theme-color); font-weight: 700; font-size: 24px; }
         .breadcrumb { font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
 
@@ -136,36 +126,94 @@ $personal_targets = $stmt->get_result();
         .badge-completed { background: #f0fdf4; color: #15803d; }
         .badge-priority { border: 1px solid #fee2e2; background: #fef2f2; color: #dc2626; padding: 2px 8px; }
 
-        .target-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-            gap: 15px; 
-            align-items: end; 
-            margin-bottom: 20px; 
+        .kanban-board {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 24px;
+            margin-top: 20px;
+            align-items: start;
         }
-        .form-group { display: flex; flex-direction: column; gap: 6px; }
-        .form-label { font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; }
-        .form-control, .form-select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; outline: none; font-size: 0.9rem; }
-        
-        .btn-theme { 
-            background-color: var(--theme-color); 
-            color: white; 
-            border: none; 
-            padding: 12px 20px; 
-            border-radius: 8px; 
-            font-weight: 600; 
-            cursor: pointer; 
-            display: inline-flex; 
-            align-items: center; 
-            justify-content: center;
-            gap: 8px; 
-            height: 42px;
+
+        .kanban-column {
+            background: #f8fafc; 
+            border-radius: 12px;
+            min-height: 400px;
         }
-        .btn-theme:hover { background-color: #144444; }
+
+        .column-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            padding: 10px 5px;
+        }
+
+        .task-count {
+            background: #e2e8f0;
+            color: #475569;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+        }
+
+        .kanban-card {
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+
+        .card-tag {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+        }
+        .tag-high { background: #fef2f2; color: #dc2626; }
+        .tag-medium { background: #fff7ed; color: #ea580c; }
+        .tag-low { background: #f0fdf4; color: #16a34a; }
+
+        .card-title { font-size: 1rem; font-weight: 600; color: #1e293b; margin-bottom: 6px; }
+        .card-desc { font-size: 0.85rem; color: #64748b; margin-bottom: 16px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid #f1f5f9;
+            padding-top: 12px;
+            margin-top: 12px;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+
+        .completed-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 15px;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            margin-bottom: 12px;
+        }
+        .check-icon { color: #10b981; font-size: 1.1rem; }
+        .completed-text { font-weight: 600; color: #1e293b; }
 
         @media (max-width: 768px) {
             .main-content { margin-left: 0; width: 100%; padding: 15px; }
-            .main-shifted { margin-left: 0 !important; width: 100%; }
+            .kanban-board { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -210,7 +258,7 @@ $personal_targets = $stmt->get_result();
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while($row = $assigned_tasks->fetch_assoc()): ?>
+                    <?php foreach($list_view_tasks as $row): ?>
                     <tr>
                         <td>
                             <strong><?php echo htmlspecialchars($row['task_title']); ?></strong><br>
@@ -233,66 +281,52 @@ $personal_targets = $stmt->get_result();
                             <span class="status-badge <?php echo $badgeClass; ?>"><?php echo $row['status']; ?></span>
                         </td>
                     </tr>
-                    <?php endwhile; ?>
+                    <?php endforeach; ?>
                 </tbody>
             </table>
         </div>
     </div>
 
-    <div class="card">
-        <div style="font-weight: 700; margin-bottom: 20px; color: var(--theme-color); font-size: 1.1rem;">Set Personal Execution Target</div>
-        <form method="POST" action="">
-            <div class="target-grid">
-                <div class="form-group">
-                    <label class="form-label">Select Task</label>
-                    <select name="task" id="targetTask" class="form-control" required>
-                        <option value="">Choose assigned task...</option>
-                        <?php 
-                        // Reset pointer and loop again for dropdown
-                        $assigned_tasks->data_seek(0);
-                        while($opt = $assigned_tasks->fetch_assoc()): 
-                        ?>
-                        <option value="<?php echo htmlspecialchars($opt['task_title']); ?>"><?php echo htmlspecialchars($opt['task_title']); ?></option>
-                        <?php endwhile; ?>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Target Date</label>
-                    <input type="date" name="date" id="targetDate" class="form-control" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Target Time</label>
-                    <input type="time" name="time" id="targetTime" class="form-control" required>
-                </div>
-                <button type="submit" name="set_target" class="btn-theme">
-                    <i class="fa-solid fa-bullseye"></i> Set Target
-                </button>
+    <div style="font-weight: 700; margin-bottom: 15px; color: var(--theme-color); font-size: 1.1rem;">Execution Targets</div>
+    <div class="kanban-board">
+        <div class="kanban-column">
+            <div class="column-header"><span>To Do</span><span class="task-count"><?php echo count($tasks_todo); ?></span></div>
+            <?php foreach($tasks_todo as $task): ?>
+            <div class="kanban-card">
+                <?php 
+                    $prioClass = 'tag-low';
+                    if($task['priority'] == 'High' || $task['priority'] == 'Critical') $prioClass = 'tag-high';
+                    if($task['priority'] == 'Medium') $prioClass = 'tag-medium';
+                ?>
+                <span class="card-tag <?php echo $prioClass; ?>"><?php echo $task['priority']; ?></span>
+                <div class="card-title"><?php echo htmlspecialchars($task['task_title']); ?></div>
+                <div class="card-desc"><?php echo htmlspecialchars($task['task_description']); ?></div>
+                <div class="card-footer"><span><?php echo date('d M', strtotime($task['deadline'])); ?></span></div>
             </div>
-        </form>
+            <?php endforeach; ?>
+        </div>
 
-        <div class="table-responsive" style="margin-top: 20px;">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Task Commitment</th>
-                        <th>Target Deadline</th>
-                        <th>Alert Status</th>
-                    </tr>
-                </thead>
-                <tbody id="personalTargetBody">
-                    <?php while($target = $personal_targets->fetch_assoc()): ?>
-                    <tr>
-                        <td><strong><?php echo htmlspecialchars($target['task_name']); ?></strong></td>
-                        <td><?php echo date('d M Y', strtotime($target['target_date'])); ?> at <?php echo $target['target_time']; ?></td>
-                        <td><span class="status-badge badge-working">Watching Deadline</span></td>
-                    </tr>
-                    <?php endwhile; ?>
-                </tbody>
-            </table>
+        <div class="kanban-column">
+            <div class="column-header" style="color: #1d4ed8;"><span>In Progress</span><span class="task-count"><?php echo count($tasks_progress); ?></span></div>
+            <?php foreach($tasks_progress as $task): ?>
+            <div class="kanban-card">
+                <div class="card-title"><?php echo htmlspecialchars($task['task_title']); ?></div>
+                <div class="card-desc"><?php echo htmlspecialchars($task['task_description']); ?></div>
+                <div class="card-footer"><span><?php echo date('d M', strtotime($task['deadline'])); ?></span></div>
+            </div>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="kanban-column">
+            <div class="column-header" style="color: #059669;"><span>Completed</span><span class="task-count"><?php echo count($tasks_completed); ?></span></div>
+            <?php foreach($tasks_completed as $task): ?>
+            <div class="completed-item">
+                <i class="fa-solid fa-circle-check check-icon"></i>
+                <span class="completed-text"><?php echo htmlspecialchars($task['task_title']); ?></span>
+            </div>
+            <?php endforeach; ?>
         </div>
     </div>
 </main>
-
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

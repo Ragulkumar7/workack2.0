@@ -24,10 +24,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_leave'])) {
     $reason = mysqli_real_escape_string($conn, $_POST['reason']);
 
     if ($leave_type && $start_date && $end_date && $total_days > 0) {
-        $sql = "INSERT INTO leave_requests (user_id, leave_type, start_date, end_date, total_days, reason, status) 
-                VALUES (?, ?, ?, ?, ?, ?, 'Pending')";
+        
+        // --- NEW LOGIC: FETCH TL AND MANAGER ID ---
+        $tl_id = null;
+        $manager_id = null;
+        
+        $get_managers_sql = "SELECT reporting_to, manager_id FROM employee_profiles WHERE user_id = ?";
+        $stmt_managers = mysqli_prepare($conn, $get_managers_sql);
+        if ($stmt_managers) {
+            mysqli_stmt_bind_param($stmt_managers, "i", $user_id);
+            mysqli_stmt_execute($stmt_managers);
+            $manager_res = mysqli_stmt_get_result($stmt_managers);
+            if ($m_row = mysqli_fetch_assoc($manager_res)) {
+                $tl_id = isset($m_row['reporting_to']) ? $m_row['reporting_to'] : null;
+                $manager_id = isset($m_row['manager_id']) ? $m_row['manager_id'] : null;
+            }
+            mysqli_stmt_close($stmt_managers);
+        }
+
+        // --- UPDATED LOGIC: INSERT LEAVE REQUEST WITH TL AND MANAGER IDs ---
+        $sql = "INSERT INTO leave_requests (user_id, tl_id, manager_id, leave_type, start_date, end_date, total_days, reason, status, tl_status, manager_status, hr_status) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Pending', 'Pending', 'Pending')";
+        
         $stmt = mysqli_prepare($conn, $sql);
-        mysqli_stmt_bind_param($stmt, "isssis", $user_id, $leave_type, $start_date, $end_date, $total_days, $reason);
+        
+        // "iiisssis" stands for Integer, Integer, Integer, String, String, String, Integer, String
+        mysqli_stmt_bind_param($stmt, "iiisssis", $user_id, $tl_id, $manager_id, $leave_type, $start_date, $end_date, $total_days, $reason);
         
         if (mysqli_stmt_execute($stmt)) {
             // Redirect to avoid resubmission
@@ -385,7 +407,7 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
                 <div class="modal-header">
                     <h3>Add Leave Request</h3>
                     <div class="close-icon" onclick="closeModal()">
-                        <i data-lucide="x-circle" style="width:24px; height:24px;"></i>
+                        <i data-lucide="x-circle" style="width:24px; height:24px; cursor:pointer; color:#94a3b8;"></i>
                     </div>
                 </div>
                 
@@ -415,7 +437,10 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
                         </div>
                         <div class="form-group full-width">
                             <label>Reason</label>
-                            <textarea name="reason" class="form-control" rows="3" required></textarea>
+                            <textarea name="reason" class="form-control" rows="3" required maxlength="250" placeholder="Enter reason (max 250 characters)" oninput="updateCharCount(this)"></textarea>
+                            <div style="text-align:right; font-size:11px; color:#64748b; margin-top:4px;">
+                                <span id="charCount">0</span>/250
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -438,6 +463,11 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
         function closeModal() {
             document.getElementById('leaveModal').classList.remove('active');
             document.body.style.overflow = 'auto';
+        }
+
+        // JS for Character Counter
+        function updateCharCount(textarea) {
+            document.getElementById('charCount').textContent = textarea.value.length;
         }
 
         // Calculate Days between two dates

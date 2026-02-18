@@ -1,7 +1,6 @@
 <?php 
 include '../sidebars.php'; 
 include '../header.php';
-// Commented out includes for testing purposes, uncomment in your real file
 ?>
 
 <!DOCTYPE html>
@@ -76,10 +75,11 @@ include '../header.php';
         .btn-add-row { background: var(--theme-color); color: white; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-top: 10px; display: inline-flex; align-items: center; gap: 5px; }
         .btn-remove { background: #ef4444; color: white; width: 24px; height: 24px; border: none; border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
         .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 25px; }
-        .btn-save { background: var(--theme-color); color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
+        .btn-save { background: var(--theme-color); color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         .btn-cancel { background: #f1f5f9; color: var(--text-muted); padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; }
         .badge { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; display: inline-block; }
         .badge-unpaid { background: #fee2e2; color: #dc2626; }
+        .badge-pending { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
         .action-btns i { font-size: 18px; margin-right: 8px; transition: transform 0.2s; cursor:pointer; }
         .action-btns i:hover { transform: scale(1.1); }
 
@@ -102,22 +102,14 @@ include '../header.php';
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 15px; }
         .close-modal { font-size: 24px; cursor: pointer; color: #64748b; }
         
-        /* Invoice Preview Design inside Modal */
-        .invoice-preview-box { border: 1px solid #e2e8f0; padding: 30px; }
-        .preview-header { display: flex; justify-content: space-between; margin-bottom: 30px; }
-        .preview-title { font-size: 24px; font-weight: 700; color: var(--theme-color); }
-        
-        /* --- PRINT STYLES --- */
-        @media print {
-            body * { visibility: hidden; }
-            .modal-content, .modal-content * { visibility: visible; }
-            .modal-overlay { position: absolute; left: 0; top: 0; display: block; background: white; }
-            .modal-content { width: 100%; max-width: 100%; box-shadow: none; border: none; position: absolute; left: 0; top: 0; }
-            .close-modal, .btn-print-action { display: none !important; }
-            /* Hide sidebar and main form during print */
-            .sidebar, .header-area, .invoice-card, .history-section { display: none; }
+        /* Status Pill */
+        .status-pill {
+            background: #f1f5f9; color: #64748b; 
+            padding: 8px 16px; border-radius: 30px; 
+            font-size: 12px; font-weight: 700; border: 1px solid #e2e8f0;
+            display: flex; align-items: center; gap: 6px;
         }
-
+        
         @media (max-width: 768px) {
             .main-content { margin-left: 0; width: 100%; padding: 15px; }
             .invoice-header { grid-template-columns: 1fr; }
@@ -133,16 +125,19 @@ include '../header.php';
             <h2>Invoice Management</h2>
             <p>Create and manage client invoices with bank selection</p>
         </div>
+        <div class="status-pill" id="currentStatus">
+            <i class="ph-fill ph-circle"></i> Status: Draft Mode
+        </div>
     </div>
 
     <div class="invoice-card" id="formCard">
-        <form method="POST" id="invoiceForm">
+        <form method="POST" id="invoiceForm" onsubmit="event.preventDefault(); sendToCFO();">
             <input type="hidden" name="invoice_id" id="invoice_id">
             
             <div class="invoice-header">
                 <div class="form-group">
                     <label>Invoice Number</label>
-                    <input type="text" name="invoice_no" id="invoice_no" value="INV-2026-014" readonly style="background:#f1f5f9; cursor:not-allowed;">
+                    <input type="text" name="invoice_no" id="invoice_no" value="INV-2026-015" readonly style="background:#f1f5f9; cursor:not-allowed;">
                 </div>
                 
                 <div class="form-group">
@@ -244,7 +239,9 @@ include '../header.php';
 
             <div class="form-actions">
                 <button type="button" class="btn-cancel" onclick="resetForm()">Reset</button>
-                <button type="submit" name="save_invoice" id="saveBtn" class="btn-save">Save Invoice</button>
+                <button type="submit" id="saveBtn" class="btn-save">
+                    <i class="ph-bold ph-paper-plane-right"></i> Send to CFO for Approval
+                </button>
             </div>
         </form>
     </div>
@@ -274,11 +271,8 @@ include '../header.php';
                         <td><span class='badge badge-unpaid'>Unpaid</span></td>
                         <td class='action-btns'>
                             <i class='ph ph-pencil-simple' onclick="editInvoice('INV-2026-013', 'Facebook India', '2026-01-30', 'Canara')" title="Edit" style='color: #f59e0b;'></i>
-                            
                             <i class='ph ph-eye' onclick="viewInvoice('INV-2026-013', 'Facebook India', '2026-01-30', '944.00')" title="View" style='color: #3b82f6;'></i>
-                            
-                            <i class='ph ph-printer' onclick="printInvoiceFromTable('INV-2026-013', 'Facebook India', '2026-01-30', '944.00')" title="Print" style='color: #10b981;'></i>
-                            
+                            <i class='ph ph-printer' onclick="alert('Approval Required: You cannot print this invoice until the CFO approves it.')" title="Print Disabled" style='color: #94a3b8; cursor:not-allowed;'></i>
                             <i class='ph ph-trash' onclick="deleteInvoice('INV-2026-013')" title="Delete" style='color:#ef4444;'></i>
                         </td>
                     </tr>
@@ -292,15 +286,10 @@ include '../header.php';
     <div class="modal-content">
         <div class="modal-header">
             <h3 style="margin:0; color:var(--text-main);">Invoice Preview</h3>
-            <div style="display:flex; gap:10px;">
-                <button class="btn-save btn-print-action" onclick="window.print()" style="padding: 8px 15px; font-size:12px;">
-                    <i class="ph ph-printer"></i> Print
-                </button>
-                <i class="ph ph-x close-modal" onclick="closeModal()"></i>
-            </div>
+            <i class="ph ph-x close-modal" onclick="closeModal()"></i>
         </div>
         
-        <div class="invoice-preview-box" id="printableArea">
+        <div class="invoice-preview-box">
             <div class="preview-header">
                 <div>
                     <div class="preview-title">INVOICE</div>
@@ -344,15 +333,38 @@ include '../header.php';
 </div>
 
 <script>
+    // --- WORKFLOW LOGIC ---
+    function sendToCFO() {
+        const btn = document.getElementById('saveBtn');
+        const status = document.getElementById('currentStatus');
+        
+        btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Sending...';
+        btn.style.opacity = '0.8';
+
+        setTimeout(() => {
+            status.style.background = '#fff7ed';
+            status.style.color = '#c2410c';
+            status.style.borderColor = '#ffedd5';
+            status.innerHTML = '<i class="ph-fill ph-clock-counter-clockwise"></i> Pending CFO Approval';
+            
+            btn.innerHTML = '<i class="ph-bold ph-check"></i> Request Sent';
+            btn.style.backgroundColor = '#10b981';
+            btn.disabled = true;
+
+            alert("Request Sent! \n\nThe invoice has been submitted to the CFO. You can print it once approved.");
+        }, 1500);
+    }
+
     // --- FORM LOGIC ---
     let rowCount = 1;
 
     function loadClientDetails() {
-        // ... (Same logic as before) ...
         const clientId = document.getElementById('client_id').value;
         const detailsBox = document.getElementById('clientDetails');
         if (!clientId) { detailsBox.style.display = 'none'; return; }
-        detailsBox.innerHTML = `<h4>Bill To: Selected Client</h4><p>Details loaded...</p>`;
+        const sel = document.getElementById('client_id');
+        const text = sel.options[sel.selectedIndex].text;
+        detailsBox.innerHTML = `<h4>Bill To: ${text}</h4><p>GSTIN associated with this client will load from DB.</p>`;
         detailsBox.style.display = 'block';
     }
 
@@ -407,17 +419,12 @@ include '../header.php';
         document.getElementById('displayGrandTotal').textContent = '₹' + grandTotal.toFixed(2);
     }
 
-    // --- NEW: EDIT IN PLACE LOGIC ---
     function editInvoice(invNo, clientName, date, bank) {
-        // 1. Scroll to top
         document.getElementById('mainContent').scrollIntoView({ behavior: 'smooth' });
-        
-        // 2. Populate basic fields
         document.getElementById('invoice_no').value = invNo;
         document.getElementById('invoice_date').value = date;
         document.getElementById('bank_name').value = bank;
         
-        // Handle Select Box (Text matching - simplified)
         const select = document.getElementById('client_id');
         for (let i = 0; i < select.options.length; i++) {
             if (select.options[i].text === clientName) {
@@ -426,39 +433,24 @@ include '../header.php';
             }
         }
         loadClientDetails();
-
-        // 3. Change Button Text
         const btn = document.getElementById('saveBtn');
-        btn.innerText = "Update Invoice";
-        btn.style.background = "#d97706"; // Change color to orange to indicate edit mode
-        
-        // In a real app, you would fetch the ITEMS via AJAX here.
-        // fetch('get_invoice_items.php?id=' + invNo)...
-        alert("Edit Mode: Data populated in the form above.");
+        btn.innerHTML = "<i class='ph ph-pencil-simple'></i> Update Request";
+        btn.style.background = "#d97706"; 
     }
 
-    // --- NEW: VIEW / PRINT MODAL LOGIC ---
     function viewInvoice(invNo, client, date, amount) {
         document.getElementById('modal_inv_no').innerText = invNo;
         document.getElementById('modal_client').innerText = client;
         document.getElementById('modal_date').innerText = date;
         document.getElementById('modal_amount').innerText = '₹' + amount;
         document.getElementById('modal_total_large').innerText = '₹' + amount;
-        
         document.getElementById('invoiceModal').style.display = 'flex';
-    }
-
-    function printInvoiceFromTable(invNo, client, date, amount) {
-        viewInvoice(invNo, client, date, amount);
-        // Optional: Auto trigger print dialog after small delay
-        setTimeout(() => { window.print(); }, 500);
     }
 
     function closeModal() {
         document.getElementById('invoiceModal').style.display = 'none';
     }
 
-    // Close modal if clicking outside content
     window.onclick = function(event) {
         const modal = document.getElementById('invoiceModal');
         if (event.target == modal) {
@@ -467,17 +459,15 @@ include '../header.php';
     }
 
     function deleteInvoice(id) { 
-        if(confirm('Delete invoice ' + id + '?')) {
-            // Add AJAX delete logic here
-            alert('Deleted ' + id); 
+        if(confirm('Are you sure you want to delete invoice ' + id + '?')) {
+            document.getElementById('row-' + id).remove();
         } 
     }
     
     function resetForm() {
         if(confirm("Reset form?")) {
              document.getElementById('invoiceForm').reset();
-             document.getElementById('saveBtn').innerText = "Save Invoice";
-             document.getElementById('saveBtn').style.background = "var(--theme-color)";
+             document.getElementById('clientDetails').style.display = 'none';
              calculateGrandTotal();
         }
     }

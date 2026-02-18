@@ -93,14 +93,6 @@ $sections = [
                 'icon' => 'message-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO']
             ],
-
-            // --- EMPLOYEE DETAILS ---
-            [
-                'name' => 'Employee Details',
-                'path' => $base . 'employee/employee_details.php', 
-                'icon' => 'user-circle', 
-                'allowed' => ['Employee']
-            ],
             
             // --- ATTENDANCE (Manager/HR) ---
             [
@@ -113,7 +105,8 @@ $sections = [
                     ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_manager.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Overtime', 'path' => $base . 'overtime_management.php', 'icon' => 'hourglass'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
-                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off']
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
+                    ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
                 ]
             ],
 
@@ -127,7 +120,8 @@ $sections = [
                     ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
-                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off']
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
+                    ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
                 ]
             ],
 
@@ -166,7 +160,7 @@ $sections = [
                 'icon' => 'clipboard-check', 
                 'allowed' => ['Team Lead'],
                 'subItems' => [
-                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                    ['name' => 'Self Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
                     ['name' => 'Team Tasks', 'path' => $base . 'TL/task_tl.php', 'icon' => 'users'],
                 ]
             ],
@@ -176,7 +170,7 @@ $sections = [
                 'allowed' => ['Employee'],
                 'subItems' => [
                     ['name' => 'Task Board', 'path' => $base . 'employee/task_tl.php', 'icon' => 'kanban'],
-                    ['name' => 'My Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'],
+                    ['name' => 'Self Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'],
                     ['name' => 'Efficiency', 'path' => $base . 'employee/emp_efficiency.php', 'icon' => 'gauge']
                 ]
             ],
@@ -200,14 +194,6 @@ $sections = [
                 'path' => $base . 'HR/hr_salaryhikes.php', 
                 'icon' => 'banknote', 
                 'allowed' => ['HR'] // Only HR can see Salary Hike option
-            ],
-
-            // --- PROJECTS & CLIENTS ---
-            [
-                'name' => 'Projects', 
-                'path' => $base . 'manager/manager_projects.php', 
-                'icon' => 'layers', 
-                'allowed' => ['Manager', 'System Admin']
             ],
             [
                 'name' => 'Clients', 
@@ -250,18 +236,26 @@ $sections = [
                 'icon' => 'file-search',
                 'allowed' => ['HR Executive']
             ],  
+            
+            [
+                'name' => 'Employee <br> Requirements', 
+                'path' => $base . './manager/employee_requirements.php', 
+                'icon' => 'user-plus', // Lucide icon name
+                'allowed' => ['Manager']
+            ],
+           
              // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR']
             ],
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO']
+                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO']
             ],
 
             // --- TICKETS ---
@@ -335,6 +329,17 @@ $sections = [
         ]
     ],
     [
+        'label' => 'Salary Management',
+        'items' => [
+    [
+    'name' => 'Salary Revisions', 
+    'path' => $base . 'Accounts/salary_revisions.php', 
+    'icon' => 'trending-up', // அல்லது 'history'
+    'allowed' => ['Accounts', 'HR', 'CFO']
+]
+        ]
+    ],  
+    [
         'label' => 'CFO Management',
         'items' => [
             [
@@ -357,6 +362,18 @@ $sections = [
             ],
         ]
     ],
+    //ticket raise
+    [
+        'label' => 'Ticket Raise',
+        'items' => [
+            [
+                'name' => 'Raise Ticket', 
+                'path' => $base . 'ticketraise_form.php', 
+                'icon' => 'plus-circle', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Accounts', 'HR Executive', 'CFO']
+            ],
+        ]
+    ],
     // --- FIX: Corrected Reports Section Syntax ---
     [
         'label' => 'Reports',
@@ -369,7 +386,7 @@ $sections = [
             ]
         ]
     ],
-    //Auditor report for CFO only
+    //Au
      [
      'label' => 'Auditor Report',
         'items' => [
