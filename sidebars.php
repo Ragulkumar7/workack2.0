@@ -106,7 +106,7 @@ $sections = [
                     ['name' => 'Overtime', 'path' => $base . 'overtime_management.php', 'icon' => 'hourglass'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
-                    ['name' => 'WFH Management', 'path' => $base . 'wfh_approval.php', 'icon' => 'home']
+                    ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
                 ]
             ],
 
@@ -121,7 +121,7 @@ $sections = [
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
-                    ['name' => 'WFH Management', 'path' => $base . 'wfh_approval.php', 'icon' => 'home']
+                    ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
                 ]
             ],
 
