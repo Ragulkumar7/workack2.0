@@ -2,52 +2,45 @@
 // 1. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 2. ROBUST INCLUDE FUNCTION
-function includeFile($filename) {
-    $paths = [
-        __DIR__ . '/' . $filename,       // Look in current TL folder
-        __DIR__ . '/../' . $filename     // Look in parent folder (workack2.0)
-    ];
-    
-    foreach ($paths as $path) {
-        if (file_exists($path)) {
-            include $path;
-            return;
-        }
-    }
-    echo "";
+// 2. DATABASE CONNECTION (Using your robust include logic)
+$db_path = __DIR__ . '/../include/db_connect.php';
+if (file_exists($db_path)) {
+    include $db_path;
+} else {
+    die("Database connection file not found at: " . $db_path);
 }
 
-// 3. MOCK DATA (Team Members) - Added 'salary' field
-$teamMembers = [
-    [
-        "id" => "EMP-002", "first_name" => "Brian", "last_name" => "Villalobos", 
-        "email" => "brian@example.com", "phone" => "(179) 7382 829", 
-        "designation" => "Senior Developer", "dept" => "Development", 
-        "join_date" => "2024-10-24", "status" => "Active", "img" => "12",
-        "emp_type" => "Contract", "performance" => "High",
-        "pan" => "FGHIJ5678K", "bank_name" => "SBI", "account_no" => "0987654321",
-        "salary" => "85000"
-    ],
-    [
-        "id" => "EMP-004", "first_name" => "Stephan", "last_name" => "Peralt", 
-        "email" => "stephan@example.com", "phone" => "(929) 1022 222", 
-        "designation" => "Android Developer", "dept" => "Development", 
-        "join_date" => "2025-03-01", "status" => "Active", "img" => "14",
-        "emp_type" => "Intern", "performance" => "Average",
-        "pan" => "", "bank_name" => "", "account_no" => "",
-        "salary" => "25000"
-    ],
-    [
-        "id" => "EMP-009", "first_name" => "Julia", "last_name" => "Gomes", 
-        "email" => "julia@example.com", "phone" => "(929) 555 0192", 
-        "designation" => "UI Designer", "dept" => "Development", 
-        "join_date" => "2025-05-12", "status" => "Inactive", "img" => "25",
-        "emp_type" => "Permanent", "performance" => "N/A",
-        "pan" => "KJHGF8821L", "bank_name" => "ICICI", "account_no" => "5566778899",
-        "salary" => "60000"
-    ],
-];
+// 3. FETCH DYNAMIC STATS FROM DATABASE
+$total_query = "SELECT COUNT(*) as total FROM team_members";
+$total_result = mysqli_query($conn, $total_query);
+$total_count = mysqli_fetch_assoc($total_result)['total'];
+
+$active_query = "SELECT COUNT(*) as active FROM team_members WHERE status = 'Active'";
+$active_result = mysqli_query($conn, $active_query);
+$active_count = mysqli_fetch_assoc($active_result)['active'];
+
+// 4. FETCH FILTERED TEAM MEMBERS
+$search = isset($_GET['search']) ? mysqli_real_escape_string($conn, $_GET['search']) : '';
+$status_filter = isset($_GET['status']) ? mysqli_real_escape_string($conn, $_GET['status']) : '';
+
+// Base SQL
+$sql = "SELECT * FROM team_members WHERE (full_name LIKE '$search%' OR employee_id LIKE '$search%')";
+
+// Add Status Filter to SQL if a specific status is selected
+if ($status_filter !== '' && $status_filter !== 'All Status') {
+    $sql .= " AND status = '$status_filter'";
+}
+
+$sql .= " ORDER BY id DESC";
+$team_result = mysqli_query($conn, $sql);
+
+// Function for path includes
+function includeFile($filename) {
+    $paths = [__DIR__ . '/' . $filename, __DIR__ . '/../' . $filename];
+    foreach ($paths as $path) {
+        if (file_exists($path)) { include $path; return; }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -56,10 +49,8 @@ $teamMembers = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Team Management - TL Dashboard</title>
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
-
     <style>
         :root {
             --primary: #f97316;
@@ -69,84 +60,31 @@ $teamMembers = [
             --border: #e5e7eb;
             --bg-body: #f8f9fa;
             --white: #ffffff;
-            --sidebar-width: 250px;
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: var(--bg-body); 
-            margin: 0; 
-            color: var(--text-main);
-            overflow-x: hidden;
-        }
-
-        .main-content { 
-            margin-left: var(--primary-sidebar-width, 95px); 
-            padding: 24px 32px; 
-            min-height: 100vh; 
-            transition: all 0.3s ease; 
-        }
-
-        .page-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 24px; 
-            gap: 15px; 
-            flex-wrap: wrap; 
-        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; color: var(--text-main); }
+        .main-content { margin-left: var(--primary-sidebar-width, 95px); padding: 24px 32px; min-height: 100vh; transition: all 0.3s ease; }
+        
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; }
         .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
 
-        .btn { 
-            display: inline-flex; align-items: center; justify-content: center;
-            padding: 9px 16px; font-size: 14px; font-weight: 500; 
-            border-radius: 6px; border: 1px solid var(--border); 
-            background: var(--white); cursor: pointer; gap: 8px; transition: 0.2s;
-            text-decoration: none; color: var(--text-main);
-        }
-        .btn:hover { background: #f9fafb; }
-        .btn-primary { background-color: var(--primary); color: white; border-color: var(--primary); }
-        .btn-primary:hover { background-color: var(--primary-hover); }
-
-        .view-toggle { display: flex; gap: 5px; }
-        .view-btn { padding: 8px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: white; color: var(--text-muted); }
-        .view-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
-
-        .stats-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 30px; 
-        }
-        .stat-card { 
-            background: white; border-radius: 12px; padding: 20px; 
-            border: 1px solid var(--border); 
-            display: flex; align-items: center; justify-content: space-between;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-        }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
         .stat-icon-box { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: white; }
-        .stat-info h3 { font-size: 24px; font-weight: 700; margin: 0; }
-        .stat-info span { font-size: 13px; color: var(--text-muted); }
-
         .card-orange .stat-icon-box { background: var(--primary); }
         .card-green .stat-icon-box { background: #10b981; }
         .card-blue .stat-icon-box { background: #3b82f6; }
 
-        .filter-row {
-            background: white; padding: 15px; border-radius: 12px; 
-            border: 1px solid var(--border); margin-bottom: 20px; 
-            display: flex; gap: 15px; align-items: center; flex-wrap: wrap;
-        }
+        .filter-row { background: white; padding: 15px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px; }
+        .filter-form { display: flex; gap: 15px; align-items: center; width: 100%; }
+        .form-control { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; outline: none; }
+        .form-control:focus { border-color: var(--primary); }
 
-        .table-responsive { 
-            background: white; border-radius: 12px; border: 1px solid var(--border); 
-            overflow-x: auto; 
-            -webkit-overflow-scrolling: touch;
-        }
+        .table-responsive { background: white; border-radius: 12px; border: 1px solid var(--border); overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; min-width: 800px; }
         th { text-align: left; padding: 14px 16px; font-size: 12px; font-weight: 600; background: #f9fafb; color: #4b5563; text-transform: uppercase; border-bottom: 1px solid var(--border); }
-        td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+        td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid #f3f4f6; }
         
         .emp-profile { display: flex; align-items: center; gap: 12px; }
         .emp-img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); }
@@ -154,69 +92,20 @@ $teamMembers = [
         .status-active { background: #dcfce7; color: #166534; }
         .status-inactive { background: #fee2e2; color: #991b1b; }
 
-        .grid-view-container { 
-            display: none; 
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
-            gap: 20px; 
-        }
-        .grid-view-container.active { display: grid; }
-        .emp-card { 
-            background: white; border: 1px solid var(--border); border-radius: 12px; 
-            padding: 24px; text-align: center; transition: 0.2s; position: relative;
-        }
-        .emp-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(0,0,0,0.05); }
-        .card-img { width: 80px; height: 80px; border-radius: 50%; margin-bottom: 12px; border: 3px solid #f3f4f6; object-fit: cover; }
+        .view-toggle { display: flex; gap: 5px; }
+        .view-btn { padding: 8px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); background: white; }
+        .view-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
 
-        .modal-overlay { 
-            display: none; position: fixed; inset: 0; 
-            background: rgba(0,0,0,0.5); z-index: 2000; 
-            align-items: center; justify-content: center; 
-            backdrop-filter: blur(2px); 
-            padding: 10px;
-        }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
         .modal-overlay.active { display: flex; }
-        .modal-box { 
-            background: white; width: 700px; max-width: 100%; 
-            border-radius: 12px; overflow: hidden; 
-            display: flex; flex-direction: column;
-            max-height: 90vh;
-        }
-        .modal-header { 
-            padding: 20px; border-bottom: 1px solid var(--border); 
-            display: flex; justify-content: space-between; align-items: center; 
-        }
-        .modal-body { 
-            padding: 24px; overflow-y: auto;
-        }
-        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .form-group { margin-bottom: 5px; }
-        .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
-        .form-control { 
-            width: 100%; padding: 10px; border: 1px solid #d1d5db; 
-            border-radius: 6px; font-size: 14px; box-sizing: border-box; 
-        }
-        .modal-footer { 
-            padding: 16px; border-top: 1px solid var(--border); 
-            display: flex; justify-content: flex-end; gap: 10px; 
-            background: #fff;
-        }
-
-        @media (max-width: 768px) {
-            .main-content { margin-left: 0; padding: 16px; }
-            .page-header { 
-                flex-direction: column; 
-                align-items: flex-start; 
-                gap: 15px; 
-            }
-            .page-header > div:last-child {
-                width: 100%;
-                justify-content: space-between;
-            }
-            .filter-row { flex-direction: column; align-items: stretch; }
-            .filter-row input, .filter-row select { width: 100% !important; }
-            .form-grid { grid-template-columns: 1fr; }
-            .modal-box { width: 100%; }
-        }
+        .modal-box { background: white; width: 600px; border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+        .modal-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-body { padding: 24px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .modal-footer { padding: 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+        
+        .btn { display: inline-flex; align-items: center; padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; font-size: 14px; text-decoration: none; background: white; }
+        .btn-primary { background: var(--primary); color: white; border: none; }
     </style>
 </head>
 <body>
@@ -235,22 +124,19 @@ $teamMembers = [
                     <span style="font-weight:600; color:#111827;">My Team (Development)</span>
                 </div>
             </div>
-            <div style="display:flex; gap:10px;">
-                <div class="view-toggle">
-                    <div class="view-btn active" onclick="switchView('list')" id="btnList"><i data-lucide="list" style="width:18px;"></i></div>
-                    <div class="view-btn" onclick="switchView('grid')" id="btnGrid"><i data-lucide="layout-grid" style="width:18px;"></i></div>
-                </div>
-               
+            <div class="view-toggle">
+                <div class="view-btn active" onclick="switchView('list')" id="btnList"><i data-lucide="list" style="width:18px;"></i></div>
+                <div class="view-btn" onclick="switchView('grid')" id="btnGrid"><i data-lucide="layout-grid" style="width:18px;"></i></div>
             </div>
         </div>
 
         <div class="stats-grid">
             <div class="stat-card card-orange">
-                <div class="stat-info"><span>Total Team Size</span><h3><?= count($teamMembers) ?></h3></div>
+                <div class="stat-info"><span>Total Team Size</span><h3><?= $total_count ?></h3></div>
                 <div class="stat-icon-box"><i data-lucide="users"></i></div>
             </div>
             <div class="stat-card card-green">
-                <div class="stat-info"><span>Active Today</span><h3>2</h3></div>
+                <div class="stat-info"><span>Active Today</span><h3><?= $active_count ?></h3></div>
                 <div class="stat-icon-box"><i data-lucide="user-check"></i></div>
             </div>
             <div class="stat-card card-blue">
@@ -260,11 +146,18 @@ $teamMembers = [
         </div>
 
         <div class="filter-row">
-            <div style="flex:1; position:relative;">
-                <i data-lucide="search" style="position:absolute; left:10px; top:10px; width:16px; color:#9ca3af;"></i>
-                <input type="text" placeholder="Search team member..." class="form-control" style="padding-left:35px;">
-            </div>
-            <select class="form-control" style="width:180px;"><option>All Status</option><option>Active</option><option>Inactive</option></select>
+            <form method="GET" id="filterForm" class="filter-form">
+                <div style="flex:1; position:relative;">
+                    <i data-lucide="search" style="position:absolute; left:10px; top:10px; width:16px; color:#9ca3af;"></i>
+                    <input type="text" name="search" id="searchInput" placeholder="Search team member..." class="form-control" style="padding-left:35px;" value="<?= htmlspecialchars($search) ?>" oninput="liveSearch()">
+                </div>
+                
+                <select name="status" class="form-control" style="width:180px;" onchange="this.form.submit()">
+                    <option value="" <?= $status_filter == '' ? 'selected' : '' ?>>All Status</option>
+                    <option value="Active" <?= $status_filter == 'Active' ? 'selected' : '' ?>>Active</option>
+                    <option value="Inactive" <?= $status_filter == 'Inactive' ? 'selected' : '' ?>>Inactive</option>
+                </select>
+            </form>
         </div>
 
         <div id="listView" class="table-responsive">
@@ -281,49 +174,39 @@ $teamMembers = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach($teamMembers as $member): ?>
-                    <tr>
-                        <td>
-                            <div class="emp-profile">
-                                <img src="https://i.pravatar.cc/150?img=<?= $member['img'] ?>" class="emp-img">
-                                <div>
-                                    <div style="font-weight:600;"><?= $member['first_name'].' '.$member['last_name'] ?></div>
-                                    <div style="font-size:11px; color:var(--text-muted);"><?= $member['id'] ?></div>
+                    <?php if (mysqli_num_rows($team_result) > 0): ?>
+                        <?php while($member = mysqli_fetch_assoc($team_result)): ?>
+                        <tr>
+                            <td>
+                                <div class="emp-profile">
+                                    <img src="../assets/img/<?= $member['profile_image'] ?>" class="emp-img" onerror="this.src='https://i.pravatar.cc/150?u=<?= $member['employee_id'] ?>'">
+                                    <div>
+                                        <div style="font-weight:600;"><?= $member['full_name'] ?></div>
+                                        <div style="font-size:11px; color:var(--text-muted);"><?= $member['employee_id'] ?></div>
+                                    </div>
                                 </div>
-                            </div>
-                        </td>
-                        <td><?= $member['designation'] ?></td>
-                        <td><?= $member['email'] ?></td>
-                        <td><?= date("M d, Y", strtotime($member['join_date'])) ?></td>
-                        <td>
-                            <span style="font-size:12px; font-weight:500; color: <?= $member['performance'] == 'High' ? '#10b981' : '#f59e0b' ?>;">
-                                <?= $member['performance'] ?>
-                            </span>
-                        </td>
-                        <td><span class="status-badge <?= $member['status'] == 'Active' ? 'status-active' : 'status-inactive' ?>"><?= $member['status'] ?></span></td>
-                        <td>
-                            <button class="btn" style="padding:5px;" onclick='openEditModal(<?= json_encode($member) ?>)'>
-                                <i data-lucide="eye" style="width:16px; color:#3b82f6;"></i>
-                            </button>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
+                            </td>
+                            <td><?= $member['designation'] ?></td>
+                            <td><?= $member['email'] ?></td>
+                            <td><?= date("M d, Y", strtotime($member['joined_date'])) ?></td>
+                            <td>
+                                <span style="font-size:12px; font-weight:500; color: <?= $member['performance'] == 'High' ? '#10b981' : ($member['performance'] == 'Average' ? '#f59e0b' : '#6b7280') ?>;">
+                                    <?= $member['performance'] ?>
+                                </span>
+                            </td>
+                            <td><span class="status-badge <?= strtolower($member['status']) == 'active' ? 'status-active' : 'status-inactive' ?>"><?= $member['status'] ?></span></td>
+                            <td>
+                                <button class="btn" style="padding:5px;" onclick='openEditModal(<?= json_encode($member) ?>)'>
+                                    <i data-lucide="eye" style="width:16px; color:#3b82f6;"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        <?php endwhile; ?>
+                    <?php else: ?>
+                        <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--text-muted);">No members found matches your criteria.</td></tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
-        </div>
-
-        <div id="gridView" class="grid-view-container">
-            <?php foreach($teamMembers as $member): ?>
-            <div class="emp-card">
-                <img src="https://i.pravatar.cc/150?img=<?= $member['img'] ?>" class="card-img">
-                <h4 style="margin:0;"><?= $member['first_name'].' '.$member['last_name'] ?></h4>
-                <p style="font-size:13px; color:var(--text-muted); margin:5px 0 15px;"><?= $member['designation'] ?></p>
-                <div style="display:flex; justify-content:center; gap:5px; margin-bottom:15px;">
-                    <span class="status-badge status-active"><?= $member['emp_type'] ?></span>
-                </div>
-                <button class="btn btn-primary" style="width:100%;" onclick='openEditModal(<?= json_encode($member) ?>)'>View Details</button>
-            </div>
-            <?php endforeach; ?>
         </div>
     </div>
 
@@ -334,35 +217,17 @@ $teamMembers = [
                 <i data-lucide="x" style="cursor:pointer;" onclick="closeModal()"></i>
             </div>
             <div class="modal-body">
-                <form id="memberForm">
-                    <div class="form-grid">
-                        <div class="form-group"><label>First Name</label><input type="text" id="fName" class="form-control"></div>
-                        <div class="form-group"><label>Last Name</label><input type="text" id="lName" class="form-control"></div>
-                        <div class="form-group"><label>Email Address</label><input type="email" id="email" class="form-control"></div>
-                        <div class="form-group"><label>Phone</label><input type="text" id="phone" class="form-control"></div>
-                        <div class="form-group"><label>Designation</label>
-                            <select id="desig" class="form-control">
-                                <option>Senior Developer</option>
-                                <option>Android Developer</option>
-                                <option>UI Designer</option>
-                            </select>
-                        </div>
-                        <div class="form-group"><label>Status</label>
-                            <select id="status" class="form-control">
-                                <option>Active</option>
-                                <option>Inactive</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Salary</label>
-                            <input type="text" id="salary" class="form-control" placeholder="Enter Amount">
-                        </div>
-                    </div>
-                </form>
+                <div class="form-grid">
+                    <div class="form-group"><label>Full Name</label><input type="text" id="mName" class="form-control" readonly></div>
+                    <div class="form-group"><label>Employee ID</label><input type="text" id="mID" class="form-control" readonly></div>
+                    <div class="form-group"><label>Email</label><input type="text" id="mEmail" class="form-control" readonly></div>
+                    <div class="form-group"><label>Designation</label><input type="text" id="mDesig" class="form-control" readonly></div>
+                    <div class="form-group"><label>Joined Date</label><input type="text" id="mJoin" class="form-control" readonly></div>
+                    <div class="form-group"><label>Status</label><input type="text" id="mStatus" class="form-control" readonly></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn" onclick="closeModal()">Close</button>
-                <button class="btn btn-primary">Update Profile</button>
             </div>
         </div>
     </div>
@@ -370,50 +235,46 @@ $teamMembers = [
     <script>
         lucide.createIcons();
 
+        let typingTimer;
+        function liveSearch() {
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                document.getElementById('filterForm').submit();
+            }, 600); 
+        }
+
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && searchInput.value.length > 0) {
+            searchInput.focus();
+            searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+        }
+
         function switchView(view) {
             const listBtn = document.getElementById('btnList');
             const gridBtn = document.getElementById('btnGrid');
             const listView = document.getElementById('listView');
-            const gridView = document.getElementById('gridView');
-
             if(view === 'list') {
                 listBtn.classList.add('active'); gridBtn.classList.remove('active');
-                listView.style.display = 'block'; gridView.classList.remove('active');
+                listView.style.display = 'block';
             } else {
                 gridBtn.classList.add('active'); listBtn.classList.remove('active');
-                listView.style.display = 'none'; gridView.classList.add('active');
+                listView.style.display = 'none';
             }
         }
 
         function openEditModal(data) {
-            document.getElementById('modalTitle').innerText = "Team Member: " + data.first_name;
-            document.getElementById('fName').value = data.first_name;
-            document.getElementById('lName').value = data.last_name;
-            document.getElementById('email').value = data.email;
-            document.getElementById('phone').value = data.phone;
-            document.getElementById('desig').value = data.designation;
-            document.getElementById('status').value = data.status;
-            // Pre-fill salary
-            document.getElementById('salary').value = data.salary || "";
-            
-            document.body.style.overflow = 'hidden';
-            document.getElementById('memberModal').classList.add('active');
-        }
-
-        function openAddModal() {
-            document.getElementById('modalTitle').innerText = "Add New Team Member";
-            document.getElementById('memberForm').reset();
-            document.body.style.overflow = 'hidden';
+            document.getElementById('modalTitle').innerText = "Member: " + data.full_name;
+            document.getElementById('mName').value = data.full_name;
+            document.getElementById('mID').value = data.employee_id;
+            document.getElementById('mEmail').value = data.email;
+            document.getElementById('mDesig').value = data.designation;
+            document.getElementById('mJoin').value = data.joined_date;
+            document.getElementById('mStatus').value = data.status;
             document.getElementById('memberModal').classList.add('active');
         }
 
         function closeModal() {
-            document.body.style.overflow = 'auto';
             document.getElementById('memberModal').classList.remove('active');
-        }
-
-        window.onclick = function(e) {
-            if (e.target.classList.contains('modal-overlay')) closeModal();
         }
     </script>
 </body>
