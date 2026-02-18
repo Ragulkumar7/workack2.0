@@ -362,6 +362,18 @@ $sections = [
             ],
         ]
     ],
+    //ticket raise
+    [
+        'label' => 'Ticket Raise',
+        'items' => [
+            [
+                'name' => 'Raise Ticket', 
+                'path' => $base . 'ticketraise_form.php', 
+                'icon' => 'plus-circle', 
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Accounts', 'HR Executive', 'CFO']
+            ],
+        ]
+    ],
     // --- FIX: Corrected Reports Section Syntax ---
     [
         'label' => 'Reports',

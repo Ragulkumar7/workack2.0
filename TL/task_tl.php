@@ -1,249 +1,151 @@
 <?php
 // TL/task_tl.php - Team Leader Task Management
 
-// 1. SESSION & SECURITY
+// 1. SESSION & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include '../include/db_connect.php'; 
 
-// CHECK LOGIN (Uncomment for production)
-// if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
+// CHECK LOGIN & ROLE
+if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
+$tl_id = $_SESSION['user_id'];
 
-// --- SIMULATED DATA (Replace this with SQL Query later) ---
-$managerProjects = [
-    [
-        'id' => 101,
-        'title' => 'Workack HRMS API Integration',
-        'desc' => 'Integrate Stripe Payment Gateway and biometric attendance sync.',
-        'deadline' => '15 Feb 2026',
-        'progress' => 65,
-        'status' => 'In Progress',
-        'team' => ['Suresh', 'Anitha', 'Karthik']
-    ],
-    [
-        'id' => 102,
-        'title' => 'Client Dashboard Redesign',
-        'desc' => 'Revamp the UI/UX for the main client portal using React.',
-        'deadline' => '28 Feb 2026',
-        'progress' => 30,
-        'status' => 'Pending',
-        'team' => ['Ramesh', 'Suresh']
-    ],
-    [
-        'id' => 103,
-        'title' => 'Mobile App Optimization',
-        'desc' => 'Fix performance issues in the Android build regarding login latency.',
-        'deadline' => '10 Mar 2026',
-        'progress' => 85,
-        'status' => 'Completed',
-        'team' => ['Karthik']
-    ]
-];
+// --- HANDLE FORM SUBMISSION (Create Sub-Task) ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_task') {
+    $project_id = $_POST['project_id']; 
+    $title = $_POST['task_title'];
+    $desc = $_POST['task_desc'];
+    $due_date = $_POST['due_date'];
+    $priority = $_POST['priority'];
+    
+    // Employee IDs/Names comma separated ah store panrom
+    $assignees = $_POST['assignees']; 
+
+    // Insert into NEW 'project_tasks' table
+    $stmt = $conn->prepare("INSERT INTO project_tasks (project_id, task_title, description, assigned_to, priority, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')");
+    $stmt->bind_param("isssssi", $project_id, $title, $desc, $assignees, $priority, $due_date, $tl_id);
+    
+    if ($stmt->execute()) {
+        // Success Message
+        echo "<script>alert('Task assigned successfully to employees!'); window.location.href='task_tl.php';</script>";
+    } else {
+        echo "<script>alert('Error assigning task.');</script>";
+    }
+}
+
+// --- HANDLE DELETE TASK ---
+if (isset($_GET['delete_task'])) {
+    $task_id = $_GET['delete_task'];
+    $conn->query("DELETE FROM project_tasks WHERE id = $task_id AND created_by = $tl_id");
+    header("Location: task_tl.php");
+    exit();
+}
+
+// --- 1. FETCH PROJECTS ASSIGNED TO ME (BY MANAGER) ---
+// 'leader_id' column vechu filter panrom
+$projects_sql = "SELECT * FROM projects WHERE leader_id = ? ORDER BY id DESC";
+$p_stmt = $conn->prepare($projects_sql);
+$p_stmt->bind_param("i", $tl_id);
+$p_stmt->execute();
+$projects_result = $p_stmt->get_result();
+
+// --- 2. FETCH TASKS CREATED BY ME (FOR MY TEAM) ---
+$tasks_sql = "SELECT t.*, p.project_name 
+              FROM project_tasks t 
+              JOIN projects p ON t.project_id = p.id 
+              WHERE t.created_by = ? 
+              ORDER BY t.due_date ASC";
+$t_stmt = $conn->prepare($tasks_sql);
+$t_stmt->bind_param("i", $tl_id);
+$t_stmt->execute();
+$tasks_result = $t_stmt->get_result();
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Team Task Management - Workack</title>
+    <title>Team Task Management</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
         :root {
-            /* --- COLOR PALETTE --- */
-            --primary: #0f766e; /* Teal 700 */
+            --primary: #0f766e;
             --primary-hover: #115e59;
             --bg-body: #f1f5f9;
             --bg-card: #ffffff;
             --text-main: #0f172a;
             --text-muted: #64748b;
             --border: #e2e8f0;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
             --sidebar-width: 95px;
         }
            
-        body { 
-            background-color: var(--bg-body); 
-            color: var(--text-main); 
-            font-family: 'Inter', sans-serif; 
-            margin: 0; 
-            overflow-x: hidden;
-        }
+        body { background-color: var(--bg-body); color: var(--text-main); font-family: 'Inter', sans-serif; margin: 0; }
         
-        /* --- SIDEBAR ALIGNMENT --- */
         #mainContent { 
-            margin-left: var(--sidebar-width);
-            padding: 30px 40px; 
-            width: calc(100% - var(--sidebar-width));
-            min-height: 100vh;
-            box-sizing: border-box;
-            transition: all 0.3s ease;
-            padding-top: 0 !important;
-
+            margin-left: var(--sidebar-width); padding: 30px 40px; 
+            width: calc(100% - var(--sidebar-width)); min-height: 100vh;
+            box-sizing: border-box; transition: all 0.3s ease; padding-top: 0 !important;
         }
 
-        /* --- HEADER --- */
-        .page-header { 
-            display: flex; justify-content: space-between; align-items: center; 
-            margin-bottom: 30px; gap: 15px; flex-wrap: wrap;
-        }
-        .page-header h1 { font-size: 24px; font-weight: 700; color: #1e293b; letter-spacing: -0.5px; margin: 0; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .page-header h1 { font-size: 24px; font-weight: 700; color: #1e293b; margin: 0; }
         .breadcrumb { font-size: 13px; color: var(--text-muted); display: flex; gap: 8px; align-items: center; margin-top: 6px; }
 
-        /* --- 1. ACTIVE PROJECTS GRID (Refined) --- */
-        .section-header { 
-            font-size: 13px; font-weight: 700; color: var(--text-muted); 
-            text-transform: uppercase; margin-bottom: 16px; letter-spacing: 0.8px; 
-            display: flex; align-items: center; gap: 8px;
-        }
+        .section-header { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
         
-        .projects-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-            gap: 24px;
-            margin-bottom: 40px;
-        }
-
-        .project-card {
-            background: var(--bg-card);
-            border-radius: 10px;
-            border: 1px solid var(--border);
-            border-top: 4px solid var(--primary); /* TOP ACCENT */
-            padding: 24px;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
-            transition: transform 0.2s, box-shadow 0.2s;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }
-        .project-card:hover { 
-            transform: translateY(-3px); 
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); 
-        }
-
-        .card-top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px; }
-        .proj-title { font-size: 16px; font-weight: 700; color: #0f172a; margin: 0 0 6px 0; line-height: 1.4; }
-        .proj-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-
+        /* Projects Grid */
+        .projects-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 24px; margin-bottom: 40px; }
+        .project-card { background: var(--bg-card); border-radius: 10px; border: 1px solid var(--border); border-top: 4px solid var(--primary); padding: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.2s; }
+        .project-card:hover { transform: translateY(-3px); }
+        .card-top { display: flex; justify-content: space-between; margin-bottom: 12px; }
+        .proj-title { font-size: 16px; font-weight: 700; margin: 0 0 6px 0; }
+        .proj-desc { font-size: 13px; color: var(--text-muted); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         .card-meta { margin-top: 20px; padding-top: 15px; border-top: 1px dashed var(--border); }
-        .meta-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 8px; }
-        
-        /* Progress Bar */
-        .progress-container { width: 100%; background: #f1f5f9; height: 6px; border-radius: 10px; overflow: hidden; }
-        .progress-bar { height: 100%; background: var(--primary); border-radius: 10px; transition: width 0.4s ease; }
-
-        /* Status Badges */
+        .progress-container { width: 100%; background: #f1f5f9; height: 6px; border-radius: 10px; overflow: hidden; margin-top: 8px; }
+        .progress-bar { height: 100%; background: var(--primary); border-radius: 10px; }
         .badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .badge-In { background: #eff6ff; color: #2563eb; } /* In Progress */
+        .badge-Active { background: #eff6ff; color: #2563eb; }
         .badge-Pending { background: #fff7ed; color: #c2410c; }
         .badge-Completed { background: #ecfdf5; color: #059669; }
 
-        /* --- 2. TASK TABLE SECTION --- */
-        .task-container { 
-            background: var(--bg-card); border: 1px solid var(--border); 
-            border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden;
-        }
+        /* Task Table */
+        .task-container { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; }
+        .task-header-row { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .search-wrapper input { padding: 10px 10px 10px 36px; border-radius: 8px; border: 1px solid var(--border); outline: none; width: 250px; }
         
-        .task-header-row {
-            padding: 20px 24px; border-bottom: 1px solid var(--border);
-            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;
-        }
-        .task-title h3 { margin: 0; font-size: 16px; font-weight: 700; color: #1e293b; }
-
-        .search-wrapper { position: relative; width: 100%; max-width: 320px; }
-        .search-wrapper input {
-            width: 100%; padding: 10px 10px 10px 36px; border-radius: 8px;
-            border: 1px solid var(--border); font-size: 13px; outline: none; transition: 0.2s;
-            background: #f8fafc;
-        }
-        .search-wrapper input:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1); }
-        .search-icon { position: absolute; left: 12px; top: 11px; color: #94a3b8; width: 15px; }
-
-        /* Table Styling */
-        .table-responsive { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; white-space: nowrap; }
-        thead { background: #f8fafc; border-bottom: 1px solid var(--border); }
-        th { text-align: left; padding: 14px 24px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-        td { padding: 16px 24px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #334155; vertical-align: middle; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 14px 24px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; background: #f8fafc; }
+        td { padding: 16px 24px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #334155; }
         tr:hover { background-color: #f8fafc; }
-        tr:last-child td { border-bottom: none; }
 
-        /* Common Elements */
-        .btn { 
-            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-            padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; 
-            cursor: pointer; border: none; transition: 0.2s;
-        }
-        .btn-primary { background-color: var(--primary); color: white; box-shadow: 0 2px 4px rgba(15, 118, 110, 0.2); }
-        .btn-primary:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
-        
-        .btn-icon { 
-            width: 32px; height: 32px; border-radius: 6px; border: 1px solid transparent; 
-            background: transparent; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; 
-        }
-        .btn-icon:hover { background: #f1f5f9; color: var(--primary); border-color: #e2e8f0; }
-        .btn-icon.delete:hover { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
+        .btn { display: inline-flex; align-items: center; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background-color: var(--primary); color: white; gap: 8px; }
+        .btn:hover { background-color: var(--primary-hover); }
+        .btn-icon { width: 32px; height: 32px; border-radius: 6px; background: transparent; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: none; }
+        .btn-icon:hover { background: #f1f5f9; color: var(--primary); }
+        .btn-icon.delete:hover { background: #fef2f2; color: #ef4444; }
+        .user-chip { background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 12px; border: 1px solid #e2e8f0; display: inline-block; margin-right: 4px; }
 
-        .user-chip { 
-            background: #f1f5f9; color: #334155; padding: 5px 10px; 
-            border-radius: 6px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #e2e8f0;
-        }
-
-        /* --- MODAL --- */
-        .modal-overlay { 
-            display: none; position: fixed; z-index: 9999; left: 0; top: 0; 
-            width: 100%; height: 100%; background: rgba(0,0,0,0.5); 
-            backdrop-filter: blur(4px); align-items: center; justify-content: center; 
-        }
-        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
-        
-        .modal-box { 
-            background: white; width: 550px; max-width: 90%; 
-            border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); 
-            display: flex; flex-direction: column; overflow: hidden;
-        }
-        
-        .modal-head { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fcfcfc; }
-        .modal-head h3 { margin: 0; font-size: 17px; font-weight: 700; color: #1e293b; }
-        
-        .modal-content { padding: 24px; overflow-y: auto; max-height: 70vh; }
-        .modal-foot { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; background: #f8fafc; }
-
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); align-items: center; justify-content: center; }
+        .modal-overlay.active { display: flex; }
+        .modal-box { background: white; width: 550px; max-width: 90%; border-radius: 12px; padding: 24px; }
         .input-group { margin-bottom: 16px; }
         .input-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #475569; }
-        .form-input { 
-            width: 100%; padding: 10px; border: 1px solid var(--border); 
-            border-radius: 6px; font-size: 14px; box-sizing: border-box; transition: 0.2s;
-        }
-        .form-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1); }
-
-        .add-row { display: flex; gap: 8px; }
-        .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 10px; background: #f8fafc; border: 1px dashed var(--border); border-radius: 6px; min-height: 38px; }
-        .chip-removable { background: white; border: 1px solid var(--border); padding: 4px 10px; border-radius: 15px; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-
-        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
-
-        /* --- RESPONSIVE --- */
-        @media (max-width: 768px) {
-            #mainContent { margin-left: 0; width: 100%; padding: 20px; }
-            .projects-grid { grid-template-columns: 1fr; }
-            .page-header { flex-direction: column; align-items: flex-start; }
-            .page-header button { width: 100%; }
-        }
+        .form-input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
+        .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 10px; background: #f8fafc; border: 1px dashed var(--border); border-radius: 6px; }
+        .chip-removable { background: white; border: 1px solid var(--border); padding: 4px 10px; border-radius: 15px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
     </style>
 </head>
 <body>
 
-    <?php 
-    $sidebarPath = __DIR__ . '/../sidebars.php'; 
-    if (file_exists($sidebarPath)) { include($sidebarPath); }
-    ?>
+    <?php include '../sidebars.php'; ?>
 
     <div id="mainContent">
         <?php 
-        $path_to_root = '../'; // Set this so header links (settings/logout) work correctly
+        $path_to_root = '../'; 
         include('../header.php'); 
         ?>
         
@@ -255,7 +157,7 @@ $managerProjects = [
                     <span>/</span> Performance <span>/</span> Task Board
                 </div>
             </div>
-            <button class="btn btn-primary" onclick="openModal('taskModal')">
+            <button class="btn" onclick="openModal('taskModal')">
                 <i data-lucide="plus" style="width:16px;"></i> Split New Task
             </button>
         </div>
@@ -265,53 +167,49 @@ $managerProjects = [
         </div>
         
         <div class="projects-grid">
-            <?php foreach($managerProjects as $proj): 
-                $statusClass = explode(' ', $proj['status'])[0]; // Gets 'In', 'Pending', etc.
+            <?php 
+            if ($projects_result->num_rows > 0):
+                while($proj = $projects_result->fetch_assoc()): 
+                    // Handle missing column defaults for existing rows if needed
+                    $status = $proj['status'] ?? 'Active';
+                    $progress = $proj['progress'] ?? 0;
             ?>
             <div class="project-card">
                 <div>
                     <div class="card-top">
-                        <div class="badge badge-<?= $statusClass ?>"><?= $proj['status'] ?></div>
-                        </div>
-                    <h3 class="proj-title"><?= $proj['title'] ?></h3>
-                    <p class="proj-desc"><?= $proj['desc'] ?></p>
+                        <div class="badge badge-<?= $status ?>"><?= $status ?></div>
+                    </div>
+                    <h3 class="proj-title"><?= htmlspecialchars($proj['project_name']) ?></h3>
+                    <p class="proj-desc"><?= htmlspecialchars($proj['description'] ?? 'No description') ?></p>
                 </div>
 
                 <div class="card-meta">
-                    <div class="meta-row">
-                        <span>Deadline: <b><?= $proj['deadline'] ?></b></span>
-                        <span><?= $proj['progress'] ?>%</span>
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 8px;">
+                        <span>Deadline: <b><?= date('d M Y', strtotime($proj['deadline'] ?? date('Y-m-d'))) ?></b></span>
+                        <span><?= $progress ?>%</span>
                     </div>
                     <div class="progress-container">
-                        <div class="progress-bar" style="width: <?= $proj['progress'] ?>%"></div>
-                    </div>
-                    <div style="margin-top: 12px; display:flex;">
-                        <?php foreach(array_slice($proj['team'], 0, 3) as $member): ?>
-                        <div style="width:24px; height:24px; background:#e2e8f0; border-radius:50%; border:2px solid #fff; margin-right:-8px; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:700; color:#64748b;" title="<?= $member ?>">
-                            <?= substr($member, 0, 1) ?>
-                        </div>
-                        <?php endforeach; ?>
-                        <?php if(count($proj['team']) > 3): ?>
-                            <div style="width:24px; height:24px; background:#f1f5f9; border-radius:50%; border:2px solid #fff; margin-left:0; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:600; color:#64748b;">+<?= count($proj['team'])-3 ?></div>
-                        <?php endif; ?>
+                        <div class="progress-bar" style="width: <?= $progress ?>%"></div>
                     </div>
                 </div>
             </div>
-            <?php endforeach; ?>
+            <?php endwhile; else: ?>
+                <div style="grid-column: 1 / -1; padding: 30px; text-align: center; background: #fff; border-radius: 10px; border: 1px dashed #cbd5e1;">
+                    <i data-lucide="folder-open" style="width: 30px; color: #cbd5e1; margin-bottom: 10px;"></i>
+                    <p style="color:#64748b; font-size:14px; margin:0;">No active projects assigned to you.</p>
+                </div>
+            <?php endif; ?>
         </div>
 
         <div class="section-header">
-            <i data-lucide="list-todo" style="width:14px;"></i> Team Task Split
+            <i data-lucide="list-todo" style="width:14px;"></i> Sub-Task List (Assigned to Team)
         </div>
 
         <div class="task-container">
             <div class="task-header-row">
-                <div class="task-title">
-                    <h3>Sub-Task List</h3>
-                </div>
+                <h3 style="margin:0; font-size:16px; font-weight:700; color:#1e293b;">Sub-Task List</h3>
                 <div class="search-wrapper">
-                    <i data-lucide="search" class="search-icon"></i>
-                    <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search tasks, employees or status...">
+                    <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search tasks...">
                 </div>
             </div>
 
@@ -319,29 +217,41 @@ $managerProjects = [
                 <table id="taskTable">
                     <thead>
                         <tr>
-                            <th width="35%">Sub-Task Details</th>
-                            <th width="25%">Assigned To</th>
+                            <th width="30%">Sub-Task Details</th>
+                            <th width="20%">Project</th>
+                            <th width="20%">Assigned To</th>
                             <th width="15%">Priority</th>
                             <th width="15%">Due Date</th>
                             <th width="10%" style="text-align:right;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="taskTableBody">
-                        <tr id="row-1">
+                        <?php 
+                        if ($tasks_result->num_rows > 0):
+                            while($task = $tasks_result->fetch_assoc()): 
+                                $pColor = $task['priority'] == 'High' ? '#ef4444' : ($task['priority'] == 'Medium' ? '#eab308' : '#10b981');
+                                $assignees = explode(',', $task['assigned_to']);
+                        ?>
+                        <tr>
                             <td>
-                                <div style="font-weight:600; color:#0f172a; font-size:14px;">Database Schema Design</div>
-                                <div style="font-size:12px; color:#64748b; margin-top:2px;">Create SQL tables for user modules</div>
+                                <div style="font-weight:600; color:#0f172a; font-size:14px;"><?= htmlspecialchars($task['task_title']) ?></div>
+                                <div style="font-size:12px; color:#64748b; margin-top:2px;"><?= htmlspecialchars($task['description']) ?></div>
                             </td>
+                            <td><span style="font-size:12px; font-weight:600; color:#475569;"><?= htmlspecialchars($task['project_name']) ?></span></td>
                             <td>
-                                <div class="user-chip"><i data-lucide="user" style="width:12px;"></i> Suresh Babu</div>
+                                <?php foreach($assignees as $name): ?>
+                                    <div class="user-chip"><i data-lucide="user" style="width:10px;"></i> <?= htmlspecialchars($name) ?></div>
+                                <?php endforeach; ?>
                             </td>
-                            <td><span style="font-size:12px; font-weight:600; color:#eab308;">Medium</span></td>
-                            <td>12 Feb 2026</td>
+                            <td><span style="font-size:12px; font-weight:600; color:<?= $pColor ?>;"><?= $task['priority'] ?></span></td>
+                            <td><?= date('d M Y', strtotime($task['due_date'])) ?></td>
                             <td style="text-align: right;">
-                                <button class="btn-icon" onclick="editTask('row-1')" title="Edit"><i data-lucide="pencil" style="width:14px;"></i></button>
-                                <button class="btn-icon delete" onclick="deleteTask('row-1')" title="Delete"><i data-lucide="trash-2" style="width:14px;"></i></button>
+                                <a href="task_tl.php?delete_task=<?= $task['id'] ?>" class="btn-icon delete" onclick="return confirm('Delete this task?')" title="Delete"><i data-lucide="trash-2" style="width:14px;"></i></a>
                             </td>
                         </tr>
+                        <?php endwhile; else: ?>
+                            <tr><td colspan="6" style="text-align:center; padding:30px; color:#64748b;">No sub-tasks created yet.</td></tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -351,91 +261,85 @@ $managerProjects = [
 
     <div id="taskModal" class="modal-overlay">
         <div class="modal-box">
-            <div class="modal-head">
-                <h3 id="modalTitle">Split Task to Employees</h3>
-                <button class="btn-icon" onclick="closeModal('taskModal')"><i data-lucide="x" style="width:18px;"></i></button>
-            </div>
-            
-            <div class="modal-content">
-                <form id="taskForm" onsubmit="event.preventDefault(); saveTask();">
-                    <input type="hidden" id="editRowId">
+            <h3 style="margin-bottom:20px;">Split Task to Employees</h3>
+            <form method="POST" action="task_tl.php">
+                <input type="hidden" name="action" value="add_task">
+                <input type="hidden" id="assigneesInput" name="assignees">
 
-                    <div class="input-group">
-                        <label>Sub-Task Title <span style="color:red">*</span></label>
-                        <input type="text" id="tTitle" class="form-input" placeholder="e.g. Frontend Login Page" required>
+                <div class="input-group">
+                    <label>Select Project</label>
+                    <select name="project_id" class="form-input" required>
+                        <option value="">-- Choose Project --</option>
+                        <?php 
+                        // Reset pointer to reuse result set
+                        $projects_result->data_seek(0);
+                        while($p = $projects_result->fetch_assoc()): 
+                        ?>
+                            <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['project_name']) ?></option>
+                        <?php endwhile; ?>
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label>Sub-Task Title</label>
+                    <input type="text" name="task_title" class="form-input" required>
+                </div>
+
+                <div class="input-group">
+                    <label>Description</label>
+                    <textarea name="task_desc" class="form-input" rows="2" required></textarea>
+                </div>
+
+                <div class="input-group">
+                    <label>Assign Team Members</label>
+                    <div style="display:flex; gap:10px;">
+                        <input type="text" id="empInput" class="form-input" placeholder="Type name..." list="empList">
+                        <button type="button" class="btn" style="padding:0 16px;" onclick="addAssignee()">Add</button>
                     </div>
+                    <datalist id="empList">
+                        <?php 
+                        $emp_sql = "SELECT full_name FROM team_members WHERE status='Active'";
+                        $e_res = $conn->query($emp_sql);
+                        if($e_res) {
+                            while($e = $e_res->fetch_assoc()) {
+                                echo "<option value='".$e['full_name']."'>";
+                            }
+                        }
+                        ?>
+                    </datalist>
+                    <div id="chipContainer" class="chip-container"></div>
+                </div>
 
-                    <div class="input-group">
-                        <label>Description <span style="color:red">*</span></label>
-                        <textarea id="tDesc" class="form-input" rows="3" placeholder="Explain the task requirements..." required></textarea>
+                <div style="display:flex; gap:20px;">
+                    <div class="input-group" style="flex:1;">
+                        <label>Due Date</label>
+                        <input type="date" name="due_date" class="form-input" required>
                     </div>
-
-                    <div class="input-group">
-                        <label>Assign Team Members <span style="color:red">*</span></label>
-                        <div class="add-row">
-                            <input type="text" id="empInput" class="form-input" placeholder="Search employee..." list="empList">
-                            <button type="button" class="btn btn-primary" style="padding: 0 16px;" onclick="addAssignee()"><i data-lucide="plus" style="width:16px;"></i></button>
-                        </div>
-                        <datalist id="empList">
-                            <option value="Suresh Babu">
-                            <option value="Karthik">
-                            <option value="Anitha">
-                            <option value="Ramesh">
-                        </datalist>
-                        
-                        <div id="chipContainer" class="chip-container">
-                            <span style="font-size:12px; color:#94a3b8; width:100%; text-align:center; margin:auto;">No members added</span>
-                        </div>
+                    <div class="input-group" style="flex:1;">
+                        <label>Priority</label>
+                        <select name="priority" class="form-input">
+                            <option value="High">High</option>
+                            <option value="Medium" selected>Medium</option>
+                            <option value="Low">Low</option>
+                        </select>
                     </div>
+                </div>
 
-                    <div style="display:flex; gap:20px;">
-                        <div class="input-group" style="flex:1;">
-                            <label>Due Date <span style="color:red">*</span></label>
-                            <input type="date" id="tDate" class="form-input" required>
-                        </div>
-                        <div class="input-group" style="flex:1;">
-                            <label>Priority</label>
-                            <select id="tPriority" class="form-input">
-                                <option value="High">High</option>
-                                <option value="Medium" selected>Medium</option>
-                                <option value="Low">Low</option>
-                            </select>
-                        </div>
-                    </div>
-                </form>
-            </div>
-
-            <div class="modal-foot">
-                <button type="button" class="btn" style="background:#fff; border:1px solid #e2e8f0;" onclick="closeModal('taskModal')">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="saveTask()">Assign Task</button>
-            </div>
+                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
+                    <button type="button" class="btn" style="background:#fff; border:1px solid #e2e8f0; color:#333;" onclick="closeModal('taskModal')">Cancel</button>
+                    <button type="submit" class="btn">Assign Task</button>
+                </div>
+            </form>
         </div>
     </div>
 
     <script>
         lucide.createIcons();
         let selectedAssignees = [];
-        let rowCounter = 2; // Start after static rows
 
-        function openModal(id) {
-            document.getElementById(id).classList.add('active');
-            if (!document.getElementById('editRowId').value) resetForm();
-        }
+        function openModal(id) { document.getElementById(id).classList.add('active'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('active');
-            setTimeout(resetForm, 300);
-        }
-
-        function resetForm() {
-            document.getElementById('taskForm').reset();
-            document.getElementById('editRowId').value = '';
-            document.getElementById('modalTitle').innerText = "Split Task to Employees";
-            selectedAssignees = [];
-            renderChips();
-        }
-
-        // --- ASSIGNEE LOGIC ---
         function addAssignee() {
             const input = document.getElementById('empInput');
             const val = input.value.trim();
@@ -453,10 +357,10 @@ $managerProjects = [
 
         function renderChips() {
             const container = document.getElementById('chipContainer');
-            if (selectedAssignees.length === 0) {
-                container.innerHTML = '<span style="font-size:12px; color:#94a3b8; width:100%; text-align:center; margin:auto;">No members added</span>';
-                return;
-            }
+            const hiddenInput = document.getElementById('assigneesInput');
+            
+            hiddenInput.value = selectedAssignees.join(','); // Store as comma separated string for DB
+            
             container.innerHTML = selectedAssignees.map((name, i) => `
                 <div class="chip-removable">
                     ${name} <i data-lucide="x" style="width:12px; cursor:pointer; color:#ef4444;" onclick="removeAssignee(${i})"></i>
@@ -465,88 +369,10 @@ $managerProjects = [
             lucide.createIcons();
         }
 
-        // --- SAVE TASK LOGIC ---
-        function saveTask() {
-            const title = document.getElementById('tTitle').value;
-            const desc = document.getElementById('tDesc').value;
-            const date = document.getElementById('tDate').value;
-            const priority = document.getElementById('tPriority').value;
-            const editId = document.getElementById('editRowId').value;
-
-            if (!title || !date || selectedAssignees.length === 0) {
-                alert("Please fill all required fields and add at least one member.");
-                return;
-            }
-
-            // Generate Assignee HTML
-            const assigneeHtml = selectedAssignees.map(name => 
-                `<div class="user-chip"><i data-lucide="user" style="width:12px;"></i> ${name}</div>`
-            ).join(' ');
-
-            const pColor = priority === 'High' ? '#ef4444' : (priority === 'Medium' ? '#eab308' : '#10b981');
-            const dateStr = new Date(date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-
-            if (editId) {
-                // Update
-                const row = document.getElementById(editId);
-                row.cells[0].innerHTML = `<div style="font-weight:600; color:#0f172a; font-size:14px;">${title}</div><div style="font-size:12px; color:#64748b; margin-top:2px;">${desc}</div>`;
-                row.cells[1].innerHTML = assigneeHtml;
-                row.cells[2].innerHTML = `<span style="font-size:12px; font-weight:600; color:${pColor};">${priority}</span>`;
-                row.cells[3].innerText = dateStr;
-            } else {
-                // Create
-                const tbody = document.getElementById('taskTableBody');
-                const newRow = document.createElement('tr');
-                newRow.id = 'row-' + rowCounter++;
-                newRow.innerHTML = `
-                    <td>
-                        <div style="font-weight:600; color:#0f172a; font-size:14px;">${title}</div>
-                        <div style="font-size:12px; color:#64748b; margin-top:2px;">${desc}</div>
-                    </td>
-                    <td>${assigneeHtml}</td>
-                    <td><span style="font-size:12px; font-weight:600; color:${pColor};">${priority}</span></td>
-                    <td>${dateStr}</td>
-                    <td style="text-align: right;">
-                        <button class="btn-icon" onclick="editTask('${newRow.id}')"><i data-lucide="pencil" style="width:14px;"></i></button>
-                        <button class="btn-icon delete" onclick="deleteTask('${newRow.id}')"><i data-lucide="trash-2" style="width:14px;"></i></button>
-                    </td>
-                `;
-                tbody.appendChild(newRow);
-            }
-
-            closeModal('taskModal');
-            lucide.createIcons();
-        }
-
-        function deleteTask(id) {
-            if(confirm("Are you sure you want to delete this task?")) {
-                document.getElementById(id).remove();
-            }
-        }
-
-        function editTask(id) {
-            const row = document.getElementById(id);
-            const title = row.cells[0].querySelector('div:first-child').innerText;
-            const desc = row.cells[0].querySelector('div:last-child').innerText;
-            
-            document.getElementById('tTitle').value = title;
-            document.getElementById('tDesc').value = desc;
-            document.getElementById('editRowId').value = id;
-            document.getElementById('modalTitle').innerText = "Edit Task";
-            
-            selectedAssignees = [];
-            row.cells[1].querySelectorAll('.user-chip').forEach(chip => {
-                selectedAssignees.push(chip.innerText.trim());
-            });
-            renderChips();
-            openModal('taskModal');
-        }
-
         function filterTable() {
             const input = document.getElementById('searchInput');
             const filter = input.value.toLowerCase();
             const rows = document.getElementById('taskTableBody').getElementsByTagName('tr');
-
             for (let i = 0; i < rows.length; i++) {
                 let text = rows[i].textContent || rows[i].innerText;
                 rows[i].style.display = text.toLowerCase().indexOf(filter) > -1 ? "" : "none";
