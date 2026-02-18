@@ -2,133 +2,154 @@
 // 1. Start Session (if not already started)
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 2. Path Logic (CRITICAL for Settings/Logout to work from sub-folders)
-// If the dashboard file set $path_to_root, use it. Otherwise, default to empty.
+// 2. Path Logic
 $base_path = isset($path_to_root) ? $path_to_root : '';
 
 // 3. Get Logged-in User Data
 $user_email = $_SESSION['username'] ?? 'Guest';
 $user_role  = $_SESSION['role'] ?? 'User';
 
-// Generate Display Name from Email (e.g., manager@gmail.com -> Manager)
+// Generate Display Name
 $display_name = ucfirst(explode('@', $user_email)[0]); 
 ?>
 
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/lucide@latest"></script>
 
-<header class="relative flex items-center justify-end px-4 bg-white border-b border-gray-200 w-full h-14">
-  
-  <div class="flex items-center gap-2">
-    
-    <div class="relative w-full max-w-[280px] hidden md:block mr-2">
-      <input 
-        type="text" 
-        placeholder="Search in HRMS" 
-        class="w-full pl-3 pr-16 py-1.5 bg-gray-50 border border-gray-100 rounded text-[13px] focus:outline-none focus:border-blue-300"
-      />
-      <div class="absolute right-2 top-1.5 flex items-center gap-1 opacity-60 pointer-events-none">
-        <kbd class="px-1 py-0.5 border border-gray-300 rounded bg-white text-[9px] text-gray-400">CTRL</kbd>
-        <span class="text-gray-400 text-[10px]">/</span>
-      </div>
-    </div>
+<style>
+    /* --- HEADER STYLING (FIXED TOP) --- */
+    #mainHeader {
+        position: fixed;
+        top: 0;
+        right: 0;
+        left: 95px; /* Starts after sidebar */
+        width: calc(100% - 95px); /* Explicit width calculation */
+        height: 64px;
+        background-color: #ffffff;
+        border-bottom: 1px solid #e5e7eb;
+        z-index: 50; /* Higher than content, lower than Sidebar */
+        transition: left 0.3s ease, width 0.3s ease; /* Smooth animation */
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 0 24px;
+        box-sizing: border-box;
+    }
 
-    <a href="<?php echo $base_path; ?>settings.php" class="p-1.5 text-gray-500 hover:bg-gray-50 rounded transition-colors inline-flex items-center justify-center">
-      <i data-lucide="settings" class="w-[18px] h-[18px]"></i>
+    /* --- DYNAMIC SHIFTING (When Sidebar Opens) --- */
+    #mainHeader.main-shifted {
+        left: 315px; /* 95px + 220px */
+        width: calc(100% - 315px); /* Adjust width dynamically */
+    }
+
+    /* --- RESPONSIVE (Mobile) --- */
+    @media (max-width: 768px) {
+        #mainHeader { 
+            left: 0 !important; 
+            width: 100% !important; 
+        }
+        #mainHeader.main-shifted { 
+            left: 0 !important; 
+            width: 100% !important; 
+        }
+    }
+</style>
+
+<header id="mainHeader">
+  
+  <div class="flex items-center gap-3">
+    
+    <a href="<?php echo $base_path; ?>settings.php" class="hidden md:inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-all mr-1">
+      <i data-lucide="user" class="w-4 h-4"></i>
+      <span>View Profile</span>
     </a>
 
-    <button id="fullscreenBtn" class="p-2 text-gray-400 hover:text-gray-600 hidden lg:block">
-      <i data-lucide="maximize" class="w-4 h-4"></i>
+    <button id="fullscreenBtn" class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors hidden lg:block" title="Toggle Fullscreen">
+      <i data-lucide="maximize" class="w-5 h-5"></i>
     </button>
     
     <div class="relative">
-      <div id="notifBtn" class="p-2 text-gray-400 hover:text-gray-600 cursor-pointer rounded-lg hover:bg-gray-50 transition-colors">
-        <i data-lucide="bell" class="w-4 h-4"></i>
-        <span class="absolute top-2 right-2.5 w-1.5 h-1.5 bg-red-500 border border-white rounded-full"></span>
-      </div>
+      <button id="notifBtn" class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors relative">
+        <i data-lucide="bell" class="w-5 h-5"></i>
+        <span class="absolute top-2 right-2.5 w-2 h-2 bg-red-500 border-2 border-white rounded-full"></span>
+      </button>
 
-      <div id="notifDropdown" class="hidden absolute right-0 mt-3 w-80 md:w-96 bg-white border border-gray-200 rounded-lg shadow-2xl z-50 overflow-hidden">
-        <div class="p-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 class="font-bold text-gray-800 text-[15px]">Notifications (2)</h3>
-          <div class="flex items-center gap-3">
-            <button class="text-[13px] text-orange-500 font-medium hover:underline">Mark all as read</button>
-            <span class="text-gray-400 flex items-center gap-1 text-[12px]">
-              <i data-lucide="calendar" class="w-3 h-3"></i> Today
-            </span>
-          </div>
+      <div id="notifDropdown" class="hidden absolute right-0 mt-3 w-80 bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+        <div class="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+          <h3 class="font-bold text-gray-800 text-sm">Notifications</h3>
+          <button class="text-xs text-orange-600 hover:underline font-medium">Mark all read</button>
         </div>
-        <div class="max-h-[400px] overflow-y-auto">
+        <div class="max-h-[300px] overflow-y-auto">
              <div class="p-4 flex gap-3 hover:bg-gray-50 border-b border-gray-50 cursor-pointer transition-colors">
-                <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center text-blue-600 font-bold">S</div>
+                <div class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-xs">S</div>
                 <div class="flex-1">
-                  <p class="text-[13px] text-gray-600 leading-tight"><span class="font-bold text-gray-800">System</span> update pending.</p>
-                  <span class="text-[11px] text-gray-400">Just Now</span>
+                  <p class="text-xs text-gray-600 leading-snug"><span class="font-bold text-gray-800">System</span> update pending approval.</p>
+                  <span class="text-[10px] text-gray-400 mt-1 block">Just Now</span>
                 </div>
              </div>
         </div>
-        <div class="p-3 grid grid-cols-2 gap-3 bg-gray-50/50">
-          <button class="py-2 text-[13px] font-bold text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-100 transition-colors text-center">Cancel</button>
-          <button class="py-2 text-[13px] font-bold text-white bg-orange-500 hover:bg-orange-600 rounded-lg shadow-sm transition-colors text-center">View All</button>
+        <div class="p-2 bg-gray-50 text-center">
+          <button class="text-xs font-medium text-gray-500 hover:text-gray-800">View All Notifications</button>
         </div>
       </div>
     </div>
 
-    <div class="relative flex items-center ml-2 pl-2 border-l border-gray-100">
-      <div id="profileBtn" class="relative cursor-pointer flex items-center gap-2">
-        <div class="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-xs uppercase">
+    <div class="relative pl-2 border-l border-gray-200 ml-2">
+      <button id="profileBtn" class="flex items-center gap-2 focus:outline-none">
+        <div class="w-9 h-9 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-sm uppercase shadow-sm ring-2 ring-transparent hover:ring-slate-100 transition-all">
             <?php echo substr($display_name, 0, 1); ?>
+            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
         </div>
-        <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
-      </div>
+      </button>
 
-      <div id="profileDropdown" class="hidden absolute right-0 top-10 mt-2 w-64 bg-white border border-gray-200 rounded-lg shadow-2xl z-50 overflow-hidden">
-        <div class="p-4 border-b border-gray-100 flex items-center gap-3">
-          <div class="w-12 h-12 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-lg uppercase">
+      <div id="profileDropdown" class="hidden absolute right-0 mt-3 w-56 bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
+        <div class="p-4 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
+          <div class="w-10 h-10 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-sm uppercase">
             <?php echo substr($display_name, 0, 1); ?>
           </div>
           <div class="overflow-hidden">
-            <h4 class="font-bold text-gray-800 text-[14px] truncate"><?php echo htmlspecialchars($display_name); ?></h4>
-            <p class="text-gray-500 text-[12px] font-medium italic"><?php echo htmlspecialchars($user_role); ?></p>
-            <p class="text-gray-400 text-[11px] truncate"><?php echo htmlspecialchars($user_email); ?></p>
+            <h4 class="font-bold text-gray-800 text-sm truncate"><?php echo htmlspecialchars($display_name); ?></h4>
+            <p class="text-xs text-gray-500 truncate"><?php echo htmlspecialchars($user_role); ?></p>
           </div>
         </div>
         
         <div class="py-1">
-          <a href="<?php echo $base_path; ?>settings.php" class="flex items-center gap-3 px-4 py-2.5 text-[13px] text-gray-700 hover:bg-gray-50 transition-colors">
-            <i data-lucide="settings" class="w-4 h-4 text-gray-400"></i>
+          <a href="<?php echo $base_path; ?>settings.php" class="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors">
+            <i data-lucide="settings" class="w-4 h-4"></i>
             Settings
           </a>
         </div>
 
-        <div class="border-t border-gray-100 py-1 bg-gray-50/30">
-          <a href="<?php echo $base_path; ?>logout.php" class="flex items-center gap-3 px-4 py-2.5 text-[13px] text-red-500 hover:bg-red-50 transition-colors font-semibold">
+        <div class="border-t border-gray-100 py-1">
+          <a href="<?php echo $base_path; ?>logout.php" class="flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors font-medium">
             <i data-lucide="log-out" class="w-4 h-4"></i>
             Logout
           </a>
         </div>
       </div>
     </div>
+
   </div>
 </header>
 
-<script>
-  if (typeof lucide !== 'undefined') {
-    lucide.createIcons();
-  }
+<div style="height: 84px; width: 100%; flex-shrink: 0;"></div>
 
+<script>
+  // Initialize Icons
+  if (typeof lucide !== 'undefined') { lucide.createIcons(); }
+
+  // --- DROPDOWN LOGIC ---
   const setupDropdown = (btnId, dropdownId) => {
     const btn = document.getElementById(btnId);
     const dropdown = document.getElementById(dropdownId);
-    
     if (btn && dropdown) {
         btn.addEventListener('click', (e) => {
           e.stopPropagation();
           dropdown.classList.toggle('hidden');
-          // Close other dropdowns
-          if(btnId === 'notifBtn') document.getElementById('profileDropdown')?.classList.add('hidden');
-          if(btnId === 'profileBtn') document.getElementById('notifDropdown')?.classList.add('hidden');
+          // Close other dropdown
+          const otherId = btnId === 'notifBtn' ? 'profileDropdown' : 'notifDropdown';
+          document.getElementById(otherId)?.classList.add('hidden');
         });
-
         document.addEventListener('click', (e) => {
           if (!dropdown.contains(e.target) && !btn.contains(e.target)) {
             dropdown.classList.add('hidden');
@@ -136,20 +157,40 @@ $display_name = ucfirst(explode('@', $user_email)[0]);
         });
     }
   };
-
   setupDropdown('notifBtn', 'notifDropdown');
   setupDropdown('profileBtn', 'profileDropdown');
 
+  // --- FULLSCREEN LOGIC ---
   const fullscreenBtn = document.getElementById('fullscreenBtn');
   if (fullscreenBtn) {
       fullscreenBtn.addEventListener('click', () => {
         if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(err => {
-            alert(`Error attempting to enable full-screen mode: ${err.message}`);
-          });
+          document.documentElement.requestFullscreen().catch(err => { console.log(err); });
         } else {
           if (document.exitFullscreen) document.exitFullscreen();
         }
       });
+  }
+
+  // --- SYNC HEADER WITH SIDEBAR (Auto-Width Adjustment) ---
+  const headerObserver = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.attributeName === 'class') {
+        const mainContent = document.getElementById('mainContent');
+        const mainHeader = document.getElementById('mainHeader');
+        if (mainContent && mainHeader) {
+          if (mainContent.classList.contains('main-shifted')) {
+            mainHeader.classList.add('main-shifted');
+          } else {
+            mainHeader.classList.remove('main-shifted');
+          }
+        }
+      }
+    });
+  });
+
+  const targetNode = document.getElementById('mainContent');
+  if (targetNode) {
+    headerObserver.observe(targetNode, { attributes: true });
   }
 </script>
