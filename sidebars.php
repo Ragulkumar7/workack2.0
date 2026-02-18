@@ -93,14 +93,6 @@ $sections = [
                 'icon' => 'message-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO']
             ],
-
-            // --- EMPLOYEE DETAILS ---
-            [
-                'name' => 'Employee Details',
-                'path' => $base . 'employee/employee_details.php', 
-                'icon' => 'user-circle', 
-                'allowed' => ['Employee']
-            ],
             
             // --- ATTENDANCE (Manager/HR) ---
             [
@@ -255,13 +247,13 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR Executive']
+                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR']
             ],
             [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['HR', 'Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO']
+                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO']
             ],
 
             // --- TICKETS ---

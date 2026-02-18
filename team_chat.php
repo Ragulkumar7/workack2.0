@@ -1,1012 +1,657 @@
 <?php
-// 1. SESSION START
+// team_chat.php
+
+// 1. SESSION & DB
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-// Check Login
+include 'include/db_connect.php'; 
+
 if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
+
+$my_id = $_SESSION['user_id'];
+
+// --- AJAX HANDLERS ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    header('Content-Type: application/json');
+    $action = $_POST['action'];
+
+    // 1. SEARCH USERS
+    if ($action === 'search_users') {
+        $term = "%" . $_POST['term'] . "%";
+        $sql = "SELECT id, username, role FROM users WHERE (username LIKE ? OR role LIKE ?) AND id != ? LIMIT 10";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ssi", $term, $term, $my_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $users = [];
+        while($row = $res->fetch_assoc()) { $users[] = $row; }
+        echo json_encode($users);
+        exit;
+    }
+
+    // 2. CREATE GROUP
+    if ($action === 'create_group') {
+        $group_name = $_POST['group_name'];
+        $members = json_decode($_POST['members'], true);
+        
+        if (empty($group_name) || empty($members)) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid data']); exit;
+        }
+
+        $stmt = $conn->prepare("INSERT INTO chat_conversations (type, group_name, created_by) VALUES ('group', ?, ?)");
+        $stmt->bind_param("si", $group_name, $my_id);
+        $stmt->execute();
+        $conv_id = $conn->insert_id;
+
+        $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($conv_id, $my_id)");
+        foreach ($members as $uid) {
+            $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($conv_id, $uid)");
+        }
+
+        $sys_msg = "Group '$group_name' created.";
+        $conn->query("INSERT INTO chat_messages (conversation_id, sender_id, message, message_type) VALUES ($conv_id, $my_id, '$sys_msg', 'text')");
+
+        echo json_encode(['status' => 'success', 'conversation_id' => $conv_id]);
+        exit;
+    }
+
+    // 3. GET RECENT CHATS (Sidebar)
+    if ($action === 'get_recent_chats') {
+        $sql = "SELECT 
+                    c.id as conversation_id,
+                    c.type,
+                    c.group_name,
+                    COALESCE(u.username, 'Unknown User') as name, 
+                    COALESCE(u.role, '') as role,
+                    m.message as last_msg,
+                    m.message_type,
+                    m.created_at as time,
+                    (SELECT COUNT(*) FROM chat_messages WHERE conversation_id = c.id AND is_read = 0 AND sender_id != ?) as unread
+                FROM chat_conversations c
+                JOIN chat_participants cp ON c.id = cp.conversation_id
+                LEFT JOIN chat_participants cp2 ON c.id = cp2.conversation_id AND cp2.user_id != ?
+                LEFT JOIN users u ON cp2.user_id = u.id
+                LEFT JOIN chat_messages m ON m.id = (
+                    SELECT id FROM chat_messages WHERE conversation_id = c.id ORDER BY id DESC LIMIT 1
+                )
+                WHERE cp.user_id = ?
+                GROUP BY c.id
+                ORDER BY m.created_at DESC";
+        
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("iii", $my_id, $my_id, $my_id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $chats = [];
+        while($row = $result->fetch_assoc()) {
+            if ($row['type'] == 'group') {
+                $row['name'] = $row['group_name'];
+                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=6366f1&color=fff";
+                $row['role'] = 'Group';
+            } else {
+                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=1b5a5a&color=fff";
+            }
+            
+            if ($row['message_type'] == 'call') $row['last_msg'] = '📞 Call started';
+            $row['time'] = $row['time'] ? date('h:i A', strtotime($row['time'])) : '';
+            $chats[] = $row;
+        }
+        echo json_encode($chats);
+        exit;
+    }
+
+    // 4. GET MESSAGES (Chat Area)
+    if ($action === 'get_messages') {
+        $conv_id = $_POST['conversation_id'];
+        
+        // Mark as read
+        $upd = $conn->prepare("UPDATE chat_messages SET is_read = 1 WHERE conversation_id = ? AND sender_id != ?");
+        $upd->bind_param("ii", $conv_id, $my_id);
+        $upd->execute();
+
+        // Get Messages (Limit 50)
+        $sql = "SELECT * FROM (
+                    SELECT m.*, u.username, u.role 
+                    FROM chat_messages m 
+                    JOIN users u ON m.sender_id = u.id 
+                    WHERE m.conversation_id = ? 
+                    ORDER BY m.created_at DESC LIMIT 50
+                ) AS sub ORDER BY created_at ASC";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $conv_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $msgs = [];
+        while($row = $res->fetch_assoc()) {
+            $row['is_me'] = ($row['sender_id'] == $my_id);
+            $row['time'] = date('h:i A', strtotime($row['created_at']));
+            $msgs[] = $row;
+        }
+
+        // Get Conversation Info
+        $info_sql = "SELECT * FROM chat_conversations WHERE id = ?";
+        $i_stmt = $conn->prepare($info_sql);
+        $i_stmt->bind_param("i", $conv_id);
+        $i_stmt->execute();
+        $conv_info = $i_stmt->get_result()->fetch_assoc();
+
+        $partner = null;
+        if ($conv_info['type'] == 'direct') {
+            $p_sql = "SELECT u.username, u.role, u.email FROM chat_participants cp 
+                      JOIN users u ON cp.user_id = u.id 
+                      WHERE cp.conversation_id = ? AND cp.user_id != ? LIMIT 1";
+            $p_stmt = $conn->prepare($p_sql);
+            $p_stmt->bind_param("ii", $conv_id, $my_id);
+            $p_stmt->execute();
+            $res = $p_stmt->get_result();
+            if($res->num_rows > 0) {
+                $partner = $res->fetch_assoc();
+            } else {
+                // Fallback if user deleted or self-chat
+                $partner = ['username' => 'Unknown User', 'role' => '', 'email' => ''];
+            }
+        } else {
+            $partner = ['username' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true];
+        }
+
+        echo json_encode(['messages' => $msgs, 'info' => $partner, 'conv_type' => $conv_info['type']]);
+        exit;
+    }
+
+    // 5. SEND MESSAGE
+    if ($action === 'send_message') {
+        $conv_id = $_POST['conversation_id'];
+        $msg_text = $_POST['message'] ?? '';
+        $msg_type = $_POST['type'] ?? 'text'; 
+        $attachment = null;
+
+        if (isset($_FILES['file']) && $_FILES['file']['error'] == 0) {
+            $target_dir = "uploads/chat/";
+            if (!is_dir($target_dir)) mkdir($target_dir, 0777, true);
+            $ext = pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION);
+            $fname = uniqid() . '.' . $ext;
+            move_uploaded_file($_FILES['file']['tmp_name'], $target_dir . $fname);
+            $attachment = $target_dir . $fname;
+            $msg_type = in_array(strtolower($ext), ['jpg','jpeg','png','gif']) ? 'image' : 'file';
+            if(!$msg_text) $msg_text = $_FILES['file']['name'];
+        }
+
+        $stmt = $conn->prepare("INSERT INTO chat_messages (conversation_id, sender_id, message, attachment_path, message_type) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("iisss", $conv_id, $my_id, $msg_text, $attachment, $msg_type);
+        $stmt->execute();
+        echo json_encode(['status' => 'sent']);
+        exit;
+    }
+
+    // 6. START CHAT
+    if ($action === 'start_chat') {
+        $target_user_id = $_POST['target_user_id'];
+        
+        $sql = "SELECT c.id FROM chat_conversations c
+                JOIN chat_participants cp1 ON c.id = cp1.conversation_id
+                JOIN chat_participants cp2 ON c.id = cp2.conversation_id
+                WHERE c.type = 'direct' AND cp1.user_id = ? AND cp2.user_id = ? LIMIT 1";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ii", $my_id, $target_user_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+
+        if ($row = $res->fetch_assoc()) {
+            echo json_encode(['id' => $row['id']]);
+        } else {
+            $conn->query("INSERT INTO chat_conversations (type) VALUES ('direct')");
+            $new_id = $conn->insert_id;
+            $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($new_id, $my_id)");
+            $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($new_id, $target_user_id)");
+            echo json_encode(['id' => $new_id]);
+        }
+        exit;
+    }
+
+    // 7. CLEAR CHAT
+    if ($action === 'clear_chat') {
+        $conv_id = $_POST['conversation_id'];
+        $stmt = $conn->prepare("DELETE FROM chat_messages WHERE conversation_id = ? AND sender_id = ?");
+        $stmt->bind_param("ii", $conv_id, $my_id);
+        $stmt->execute();
+        echo json_encode(['status' => 'cleared']);
+        exit;
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TeamChat - Messaging Interface</title>
+    <title>TeamChat</title>
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     
     <style>
-:root { 
-    --primary-color:  #1b5a5a;
-    --primary-hover: #144d4d;
-    --bg-body: #f0f2f5fe; 
-    --bg-white: #fffffff6; 
-    --text-main: #111827; 
-    --text-secondary: #6b7280; 
-    --border-color: #E5E7EB; 
-    --incoming-msg-bg: #ffffff; 
-    --outgoing-msg-bg: #b19cd9; 
-    --outgoing-msg-text: #ffffff; 
-    --danger-color: #EF4444; 
-    --success-color: #10B981; 
-    --warning-color: #F59E0B; 
-    --sidebar-width: 380px; 
-    --header-height: 80px; 
-    --input-area-height: 90px; 
-}
+        :root { 
+            --primary-color:  #1b5a5a;
+            --bg-body: #f8fafc; 
+            --text-main: #111827; 
+            --text-secondary: #6b7280; 
+            --border-color: #E5E7EB; 
+            --incoming-bg: #ffffff; 
+            --outgoing-bg: #1b5a5a; 
+            --outgoing-text: #ffffff; 
+        }
 
-* { margin:0; padding:0; box-sizing:border-box; font-family:'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+        * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter', sans-serif; }
+        body { background-color:var(--bg-body); height:100vh; width:100vw; overflow:hidden; }
 
-body { 
-    background-color:var(--bg-body); 
-    height:100vh; 
-    width:100vw; 
-    overflow:hidden; 
-}
+        #mainContent { 
+            margin-left: 95px; width: calc(100% - 95px); height: 100vh;
+            display: flex; flex-direction: column; transition: 0.3s ease;
+        }
+        #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
 
-/* --- GLOBAL SIDEBAR INTEGRATION --- */
-#mainContent { 
-    margin-left: 95px; /* Primary Sidebar Width */
-    height: 100vh;
-    width: calc(100% - 95px);
-    transition: margin-left 0.3s ease, width 0.3s ease;
-    position: relative;
-    /* Updated for Header Integration */
-    display: flex;
-    flex-direction: column;
-}
-#mainContent.main-shifted {
-    margin-left: 315px; /* 95px + 220px */
-    width: calc(100% - 315px);
-}
-/* ---------------------------------- */
+        .app-container { flex: 1; display:flex; height: 0; min-height: 0; }
 
-.app-container { 
-    width:100%; 
-    /* Updated dimensions to fill remaining space below header */
-    flex: 1;
-    height: 0; /* Important for flex child scrolling */
-    min-height: 0;
-    max-width:1920px; 
-    display:flex; 
-    gap: 20px; 
-    padding: 20px;
-    background:transparent;
-    box-shadow:none;
-    position:relative; 
-}
+        /* SIDEBAR */
+        .sidebar { width: 320px; background: #fff; border-right: 1px solid var(--border-color); display: flex; flex-direction: column; }
+        .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border-color); display: flex; justify-content:space-between; align-items:center; }
+        .search-box { position: relative; padding: 10px 20px; border-bottom: 1px solid #f0f0f0; }
+        .search-box input { width: 100%; padding: 10px 10px 10px 35px; border: 1px solid var(--border-color); border-radius: 8px; background: #f9fafb; outline: none; }
+        .search-box i { position: absolute; left: 30px; top: 22px; color: var(--text-secondary); }
+        
+        .chat-list { flex: 1; overflow-y: auto; }
+        .chat-item { display: flex; align-items: center; padding: 12px 20px; cursor: pointer; transition: 0.2s; border-bottom: 1px solid #f3f4f6; }
+        .chat-item:hover { background: #f9fafb; }
+        .chat-item.active { background: #e0f2f1; border-right: 3px solid var(--primary-color); }
+        .avatar { width: 45px; height: 45px; border-radius: 50%; margin-right: 12px; object-fit: cover; }
+        
+        #searchResults { position: absolute; top: 60px; left: 20px; width: 88%; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); z-index: 50; display: none; }
+        .search-item { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 0.9rem; }
+        .search-item:hover { background: #f3f4f6; }
 
-.sidebar { 
-    width:var(--sidebar-width); 
-    border:1px solid var(--border-color);
-    display:flex; 
-    flex-direction:column; 
-    background-color:var(--bg-white); 
-    border-radius: 7px; 
-    flex-shrink:0; 
-    height:100%; 
-    z-index:20; 
-    transition:transform 0.3s ease; 
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-}
+        /* CHAT AREA */
+        .chat-area { flex: 1; display: flex; flex-direction: column; background: #f0f2f5; position: relative; }
+        .chat-header { height: 65px; background: white; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; padding: 0 20px; justify-content: space-between; }
+        
+        .header-actions { position: relative; display: flex; gap: 15px; }
+        .menu-dropdown { position: absolute; top: 40px; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); width: 150px; display: none; z-index: 100; }
+        .menu-dropdown.show { display: block; }
+        .menu-item { padding: 10px 15px; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; color: var(--text-main); }
+        .menu-item:hover { background: #f9fafb; }
+        .menu-item.danger { color: #dc2626; }
 
-.sidebar-header { 
-    height:auto; 
-    min-height:130px; 
-    padding:24px; 
-    display:flex; 
-    flex-direction:column; 
-    justify-content:flex-start; 
-    border-bottom:1px solid var(--border-color); 
-    background-color:var(--bg-white); 
-    flex-shrink:0; 
-    border-radius: 7px 7px 7px 7px;
-}
+        .messages-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth; }
+        .msg { max-width: 70%; padding: 10px 15px; border-radius: 15px; position: relative; font-size: 0.95rem; line-height: 1.4; word-wrap: break-word; }
+        .msg.incoming { align-self: flex-start; background: var(--incoming-bg); border: 1px solid var(--border-color); border-bottom-left-radius: 2px; }
+        .msg.outgoing { align-self: flex-end; background: var(--outgoing-bg); color: var(--outgoing-text); border-bottom-right-radius: 2px; }
+        .msg-time { font-size: 0.7rem; margin-top: 4px; opacity: 0.7; text-align: right; }
+        .msg.call-msg { background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; align-self: center; width: 100%; max-width: 300px; text-align: center; }
+        .join-btn { display: inline-block; background: #4f46e5; color: white; padding: 6px 12px; border-radius: 6px; margin-top: 5px; text-decoration: none; font-size: 0.85rem; }
 
-.sidebar-title { font-size:1.5rem; font-weight:800; color:var(--text-main); margin-bottom:20px; letter-spacing:-0.02em; }
+        .input-area { padding: 15px; background: white; border-top: 1px solid var(--border-color); display: flex; align-items: center; gap: 10px; }
+        .input-area input { flex: 1; padding: 12px; border: 1px solid var(--border-color); border-radius: 25px; outline: none; }
+        .btn-icon { font-size: 1.4rem; color: var(--text-secondary); cursor: pointer; transition: 0.2s; }
+        .btn-icon:hover { color: var(--primary-color); }
+        .btn-send { background: var(--primary-color); color: white; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; }
 
-.search-box { position:relative; width:100%; }
-.search-box input { width:100%; padding:12px 12px 12px 40px; border-radius:12px; border:1px solid var(--border-color); background-color:#F9FAFB; font-size:0.95rem; outline:none; transition:all 0.2s; height:44px; }
-.search-box input:focus { border-color:var(--primary-color); background-color:var(--bg-white); box-shadow:0 0 0 3px rgba(88,101,242,0.1); }
-.search-box i { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:var(--text-secondary); font-size:1.1rem; }
-
-.chat-list { flex:1; overflow-y:auto; padding:8px 0; background-color:var(--bg-white); }
-
-.chat-item { display:flex; align-items:center; padding:16px 24px; cursor:pointer; transition:background-color 0.2s; position:relative; margin:4px 12px; border-radius:12px; }
-.chat-item:hover { background-color:#F3F4F6; }
-.chat-item.active { background-color:#EEF2FF; }
-
-.avatar-container { position:relative; margin-right:16px; flex-shrink:0; }
-.avatar { width:52px; height:52px; border-radius:50%; object-fit:cover; border:2px solid white; box-shadow:0 2px 5px rgba(0,0,0,0.05); }
-.status-dot { position:absolute; bottom:2px; right:2px; width:14px; height:14px; border-radius:50%; border:3px solid var(--bg-white); }
-.status-online { background-color:var(--success-color); }
-.status-offline { background-color:var(--text-secondary); }
-.status-busy { background-color:var(--danger-color); }
-
-.chat-info { flex:1; min-width:0; }
-.chat-header-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
-.chat-name { font-weight:700; color:var(--text-main); font-size:1rem; }
-.chat-meta { font-size:0.75rem; color:var(--text-secondary); display:flex; align-items:center; gap:4px; white-space:nowrap; }
-.chat-preview-row { display:flex; justify-content:space-between; align-items:center; }
-.chat-last-msg { color:var(--text-secondary); font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px; font-weight:400; }
-.typing-indicator { color:var(--primary-color); font-style:italic; font-size:0.8rem; font-weight:600; }
-.unread-badge { background-color:var(--primary-color); color:white; font-size:0.75rem; font-weight:700; padding:2px 8px; border-radius:12px; min-width:24px; text-align:center; box-shadow:0 2px 4px rgba(88,101,242,0.3); }
-.missed-call-icon { color:var(--danger-color); }
-.doc-icon { color:var(--text-secondary); }
-
-.chat-area { 
-    flex:1; 
-    display:flex; 
-    flex-direction:column; 
-    background-color:#F8FAFC; 
-    position:relative; 
-    z-index:10; 
-    height:100%; 
-    min-width:0; 
-    border:1px solid var(--border-color);
-    border-radius: 7px; 
-    overflow: hidden; 
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-}
-
-.chat-top-bar { height:var(--header-height); background-color:var(--bg-white); border-bottom:1px solid var(--border-color); display:flex; align-items:center; justify-content:space-between; padding:0 32px; flex-shrink:0; box-shadow:0 1px 2px rgba(0,0,0,0.02); }
-
-.user-profile-info { display:flex; align-items:center; }
-.user-avatar-large { width:44px; height:44px; border-radius:50%; margin-right:16px; object-fit:cover; border:2px solid #fff; box-shadow:0 2px 5px rgba(0,0,0,0.05); }
-.user-details h3 { font-size:1.15rem; font-weight:700; color:var(--text-main); line-height:1.2; }
-.user-details span { font-size:0.85rem; color:var(--success-color); font-weight:500; display:flex; align-items:center; gap:4px; }
-.user-details span::before { content:''; width:8px; height:8px; background-color:currentColor; border-radius:50%; display:inline-block; }
-
-.action-icons { display:flex; gap:28px; }
-.action-icon { font-size:1.35rem; color:var(--text-secondary); cursor:pointer; transition:color 0.2s, transform 0.1s; }
-.action-icon:hover { color:var(--primary-color); transform:translateY(-2px); }
-
-.messages-wrapper { flex:1; padding:32px; overflow-y:auto; display:flex; flex-direction:column; gap:24px; scroll-behavior:smooth; }
-
-.message-group { display:flex; align-items:flex-end; gap:12px; max-width:70%; }
-.message-group.incoming { align-self:flex-start; }
-.message-group.outgoing { align-self:flex-end; flex-direction:row-reverse; }
-.msg-avatar { width:36px; height:36px; border-radius:50%; object-fit:cover; flex-shrink:0; }
-.message-content { display:flex; flex-direction:column; gap:6px; }
-.message-bubble { padding:14px 18px; border-radius:20px; font-size:0.95rem; line-height:1.5; position:relative; box-shadow:0 1px 2px rgba(0,0,0,0.05); word-wrap:break-word; }
-.incoming .message-bubble { background-color:var(--bg-white); color:var(--text-main); border-bottom-left-radius:4px; border:1px solid var(--border-color); }
-.outgoing .message-bubble { background-color:var(--primary-color); color:var(--outgoing-msg-text); border-bottom-right-radius:4px; }
-.message-time { font-size:0.7rem; margin-top:4px; opacity:0.8; display:flex; align-items:center; gap:4px; }
-.incoming .message-time { color:var(--text-secondary); margin-left:4px; }
-.outgoing .message-time { color:rgba(255,255,255,0.8); justify-content:flex-end; margin-right:4px; }
-
-.attachment-img { max-width:100%; max-height:300px; border-radius:12px; margin-top:4px; display:block; cursor:pointer; border:1px solid rgba(0,0,0,0.1); }
-.file-attachment { display:flex; align-items:center; gap:12px; padding:4px 0; min-width:200px; }
-.file-icon-box { width:44px; height:44px; background:rgba(0,0,0,0.05); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:22px; }
-.outgoing .file-icon-box { background:rgba(255,255,255,0.2); color:white; }
-.file-details { display:flex; flex-direction:column; }
-.file-name { font-weight:600; font-size:0.95rem; line-height:1.2; }
-.file-size { font-size:0.75rem; opacity:0.8; margin-top:2px; }
-
-.input-wrapper { height:var(--input-area-height); background-color:var(--bg-white); border-top:1px solid var(--border-color); padding:0 32px; display:flex; align-items:center; gap:16px; flex-shrink:0; z-index:15; }
-.attach-btn { color:var(--text-secondary); font-size:1.6rem; cursor:pointer; transition:color 0.2s, transform 0.1s; display:flex; align-items:center; }
-.attach-btn:hover { color:var(--primary-color); transform:scale(1.1); }
-.message-input-container { flex:1; position:relative; }
-.message-input { width:100%; padding:14px 20px; background-color:#F3F4F6; border:none; border-radius:30px; font-size:0.95rem; outline:none; resize:none; height:52px; line-height:24px; font-family:inherit; transition:background 0.2s, box-shadow 0.2s; }
-.message-input:focus { background-color:#ffffff; box-shadow:0 0 0 2px var(--primary-color); }
-.send-btn { width:52px; height:52px; border-radius:50%; background-color:var(--primary-color); color:white; border:none; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:background-color 0.2s, transform 0.1s; font-size:1.3rem; box-shadow:0 4px 6px rgba(88,101,242,0.25); }
-.send-btn:hover { background-color:var(--primary-hover); transform:translateY(-2px); }
-.send-btn:active { transform:scale(0.95); }
-
-::-webkit-scrollbar { width:8px; }
-::-webkit-scrollbar-track { background:transparent; }
-::-webkit-scrollbar-thumb { background:#D1D5DB; border-radius:4px; }
-::-webkit-scrollbar-thumb:hover { background:#9CA3AF; }
-
-/* Video Call Overlay */
-.video-call-overlay { position:absolute; top:0; left:0; width:100%; height:100%; background-color:#000; z-index:2000; display:none; flex-direction:column; justify-content:space-between; }
-.video-call-overlay.active { display:flex; }
-
-.video-container { position:relative; flex:1; width:100%; overflow:hidden; background-color:#202124; display:flex; align-items:center; justify-content:center; }
-.remote-placeholder { display:flex; flex-direction:column; align-items:center; justify-content:center; z-index:0; text-align:center; }
-#remoteInitials { font-size:8rem; color:#ffffff; font-weight:700; letter-spacing:4px; text-transform:uppercase; line-height: 1; }
-.call-avatar-text { color: rgba(255,255,255,0.7); font-size: 1.5rem; margin-top: 16px; }
-
-#remoteVideo { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; z-index:1; background:transparent; display:none; }
-.video-call-overlay.is-video #remoteVideo { display:block; }
-
-.local-video-wrapper { position:absolute; bottom:20px; right:20px; width:200px; height:150px; background:#333; border-radius:16px; overflow:hidden; box-shadow:0 8px 20px rgba(0,0,0,0.5); border:2px solid rgba(255,255,255,0.2); z-index:2001; transition:all 0.3s ease; display:none; }
-.video-call-overlay.is-video .local-video-wrapper { display:block; }
-
-.local-video-wrapper:hover { transform:scale(1.05); }
-#localVideo { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); }
-
-.call-header { padding:24px 32px; color:white; display:flex; justify-content:space-between; align-items:center; background:linear-gradient(to bottom, rgba(0,0,0,0.7), transparent); position:absolute; top:0; left:0; width:100%; z-index:2002; }
-.call-info h2 { font-size:1.4rem; font-weight:600; letter-spacing:0.5px; }
-.call-info p { font-size:0.95rem; opacity:0.9; font-weight:500; }
-
-.call-controls { height:100px; background:rgba(0,0,0,0.8); backdrop-filter:blur(10px); display:flex; justify-content:center; align-items:center; gap:28px; padding-bottom:20px; z-index:2002; }
-.control-btn { width:60px; height:60px; border-radius:50%; border:none; background:rgba(255,255,255,0.15); color:white; font-size:1.5rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
-.control-btn:hover { background:rgba(255,255,255,0.25); transform:scale(1.1); }
-.control-btn.end-call { background-color:var(--danger-color); box-shadow:0 4px 12px rgba(239,68,68,0.4); }
-.control-btn.end-call:hover { background-color:#DC2626; }
-.control-btn.active { background-color:white; color:black; }
-
-.toast { position:absolute; top:100px; left:50%; transform:translateX(-50%); background-color:rgba(0,0,0,0.8); color:white; padding:12px 24px; border-radius:50px; font-size:0.95rem; opacity:0; transition:opacity 0.3s; pointer-events:none; z-index:2003; backdrop-filter:blur(4px); box-shadow:0 4px 12px rgba(0,0,0,0.2); }
-.toast.show { opacity:1; }
-
-/* Modal */
-.modal-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); z-index:3000; display:none; align-items:center; justify-content:center; backdrop-filter:blur(4px); }
-.modal-overlay.active { display:flex; }
-.modal-content { background-color:var(--bg-white); width:90%; max-width:480px; border-radius:20px; box-shadow:0 20px 50px rgba(0,0,0,0.2); overflow:hidden; display:flex; flex-direction:column; max-height:85vh; animation:modalPop 0.3s cubic-bezier(0.175,0.885,0.32,1.275); }
-@keyframes modalPop { from { opacity:0; transform:scale(0.9); } to { opacity:1; transform:scale(1); } }
-.modal-header { padding:24px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; background-color:#F9FAFB; }
-.modal-header h3 { font-size:1.25rem; color:var(--text-main); font-weight:700; }
-.close-modal-btn { background:none; border:none; color:var(--text-secondary); font-size:1.5rem; cursor:pointer; padding:4px; border-radius:50%; transition:background 0.2s; }
-.close-modal-btn:hover { background-color:#E5E7EB; color:var(--text-main); }
-.modal-body { padding:20px 24px; overflow-y:auto; }
-.conf-search-wrapper { margin-bottom:20px; }
-.conf-contact-list { display:flex; flex-direction:column; gap:10px; }
-.conf-contact-item { display:flex; align-items:center; padding:12px; border-radius:12px; cursor:pointer; transition:all 0.2s; border:2px solid transparent; }
-.conf-contact-item:hover { background-color:#F3F4F6; }
-.conf-contact-item.selected { background-color:#EEF2FF; border-color:var(--primary-color); }
-.conf-avatar { width:44px; height:44px; border-radius:50%; object-fit:cover; margin-right:16px; }
-.conf-info { flex:1; }
-.conf-name { font-weight:600; font-size:1rem; color:var(--text-main); }
-.conf-status { font-size:0.85rem; color:var(--text-secondary); margin-top:2px; }
-.conf-checkbox { width:22px; height:22px; accent-color:var(--primary-color); cursor:pointer; }
-.modal-footer { padding:20px 24px; border-top:1px solid var(--border-color); display:flex; justify-content:flex-end; background-color:#F9FAFB; gap:12px; }
-.btn-primary { background-color:var(--primary-color); color:white; border:none; padding:12px 24px; border-radius:10px; font-weight:600; cursor:pointer; transition:background-color 0.2s; font-size:0.95rem; }
-.btn-primary:hover { background-color:var(--primary-hover); }
-.btn-secondary { background-color:white; color:var(--text-secondary); border:1px solid var(--border-color); padding:12px 24px; border-radius:10px; font-weight:600; cursor:pointer; transition:background 0.2s, color 0.2s; font-size:0.95rem; }
-.btn-secondary:hover { background-color:#F3F4F6; color:var(--text-main); }
-
-@media (max-width: 768px) {
-    .app-container { position:relative; padding: 0; gap: 0; height: calc(100vh - 56px); }
-    .sidebar { position:absolute; z-index:50; height:100%; width:100%; transform:translateX(0); border-radius: 0; }
-    .sidebar.hidden { transform:translateX(-100%); }
-    .chat-area { width:100%; border-radius: 0; }
-    .back-btn { display:flex !important; margin-right:12px; cursor:pointer; font-size:1.5rem; color:var(--text-main); background:#F3F4F6; width:36px; height:36px; border-radius:50%; align-items:center; justify-content:center; }
-    .local-video-wrapper { width:120px; height:90px; bottom:120px; right:20px; }
-    
-    /* Mobile Adjustments for Main Content */
-    #mainContent { margin-left: 0; width: 100%; padding: 0; }
-    #mainContent.main-shifted { margin-left: 0; width: 100%; }
-}
-
-@media (min-width: 769px) {
-    .back-btn { display:none !important; }
-}
+        /* MODALS */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; display: none; align-items: center; justify-content: center; }
+        .modal { background: white; width: 400px; border-radius: 12px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+        .modal h3 { margin-bottom: 15px; font-weight: 700; color: var(--text-main); }
+        .modal input { width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 15px; }
+        .user-select-list { max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; margin-bottom: 15px; }
+        .user-option { padding: 8px 10px; display: flex; align-items: center; gap: 10px; cursor: pointer; border-bottom: 1px solid #f9f9f9; }
+        .user-option.selected { background: #ccfbf1; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+        .btn-cancel { padding: 8px 16px; border: 1px solid var(--border-color); background: white; border-radius: 6px; cursor: pointer; }
+        .btn-create { padding: 8px 16px; background: var(--primary-color); color: white; border: none; border-radius: 6px; cursor: pointer; }
     </style>
 </head>
 <body>
 
-    <?php include('sidebars.php'); ?>
+<?php include('sidebars.php'); ?>
 
-    <main id="mainContent">
-        <?php include('header.php'); ?>
-        <div class="app-container">
-            <aside class="sidebar" id="sidebar">
-                <div class="sidebar-header">
-                    <div class="sidebar-title">Chats</div>
-                    <div class="search-box">
-                        <i class="ri-search-line"></i>
-                        <input type="text" placeholder="Search chats..." id="searchInput">
-                    </div>
-                </div>
-                <div class="chat-list" id="chatList">
-                    </div>
-            </aside>
-
-            <main class="chat-area">
-                <header class="chat-top-bar">
-                    <div class="user-profile-info">
-                        <i class="ri-arrow-left-line back-btn" id="backBtn"></i>
-                        <img src="" alt="User Avatar" class="user-avatar-large" id="currentChatAvatar">
-                        <div class="user-details">
-                            <h3 id="currentChatName">Select a chat</h3>
-                            <span id="currentChatStatus">Offline</span>
-                        </div>
-                    </div>
-                    <div class="action-icons">
-                        <i class="ri-phone-line action-icon" id="openVoiceCallBtn" title="Start Voice Call"></i>
-                        <i class="ri-vidicon-line action-icon" id="startVideoCallBtn" title="Start Video Call"></i>
-                        <i class="ri-more-2-fill action-icon"></i>
-                    </div>
-                </header>
-
-                <div class="messages-wrapper" id="messagesWrapper">
-                    </div>
-
-                <footer class="input-wrapper">
-                    <input type="file" id="fileInput" hidden>
-                    
-                    <i class="ri-attachment-line attach-btn" id="attachBtn" title="Share File"></i>
-                    <div class="message-input-container">
-                        <input type="text" class="message-input" id="messageInput" placeholder="Type a message..." autocomplete="off">
-                    </div>
-                    <button class="send-btn" id="sendBtn">
-                        <i class="ri-send-plane-fill"></i>
-                    </button>
-                </footer>
-            </main>
-            
-            <div class="video-call-overlay" id="videoCallOverlay">
-                <div class="call-header">
-                    <div class="call-info">
-                        <h2 id="callUserName">User Name</h2>
-                        <p id="callTimer">00:00</p>
-                    </div>
-                    <div style="font-size: 1.5rem; cursor: pointer; background: rgba(255,255,255,0.1); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content:center;" id="minimizeCallBtn">
-                        <i class="ri-pushpin-line"></i>
-                    </div>
-                </div>
-
-                <div class="video-container">
-                    <div class="remote-placeholder" id="remotePlaceholder">
-                        <div id="remoteInitials">AL</div>
-                        <div class="call-avatar-text" id="callAvatarText">Voice Call</div>
-                    </div>
-                    
-                    <video id="remoteVideo" autoplay playsinline></video>
-                    
-                    <div class="local-video-wrapper">
-                        <video id="localVideo" autoplay muted playsinline></video>
-                    </div>
-                    
-                    <div class="toast" id="toastMsg">Link copied to clipboard</div>
-                </div>
-
-                <div class="call-controls">
-                    <button class="control-btn" id="toggleMicBtn" title="Toggle Microphone">
-                        <i class="ri-mic-line"></i>
-                    </button>
-                    <button class="control-btn" id="toggleCamBtn" title="Toggle Camera">
-                        <i class="ri-camera-line"></i>
-                    </button>
-                    <button class="control-btn" id="shareLinkBtn" title="Share Meeting Link">
-                        <i class="ri-share-forward-line"></i>
-                    </button>
-                    <button class="control-btn end-call" id="endCallBtn" title="End Call">
-                        <i class="ri-phone-end-line"></i>
-                    </button>
-                </div>
+<main id="mainContent">
+    <?php include('header.php'); ?>
+    
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2 style="font-weight:700; color:var(--primary-color);">TeamChat</h2>
+                <button onclick="openGroupModal()" title="Create Group" style="background:none; border:none; font-size:1.2rem; cursor:pointer; color:var(--text-main);"><i class="ri-add-circle-line"></i></button>
             </div>
-
-            <div class="modal-overlay" id="confModal">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h3 id="modalTitle">Start Call</h3>
-                        <button class="close-modal-btn" id="closeConfModal"><i class="ri-close-line"></i></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="search-box conf-search-wrapper">
-                            <i class="ri-search-line"></i>
-                            <input type="text" placeholder="Search users to add..." id="confSearchInput">
-                        </div>
-                        <div class="conf-contact-list" id="confContactList">
-                            </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn-secondary" id="cancelConfBtn">Cancel</button>
-                        <button class="btn-primary" id="startConfBtn">Start Call</button>
-                    </div>
-                </div>
+            <div class="search-box">
+                <i class="ri-search-line"></i>
+                <input type="text" id="userSearch" placeholder="Search people...">
+                <div id="searchResults"></div>
             </div>
+            <div class="chat-list" id="chatList"></div>
+        </aside>
+
+        <section class="chat-area" id="chatArea">
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#aaa;">
+                <i class="ri-chat-smile-3-line" style="font-size:4rem; opacity:0.3;"></i>
+                <p>Select a chat to start messaging</p>
+            </div>
+        </section>
+    </div>
+</main>
+
+<div class="modal-overlay" id="groupModal">
+    <div class="modal">
+        <h3>Create New Group</h3>
+        <input type="text" id="groupName" placeholder="Group Name">
+        <p style="font-size:0.85rem; color:#666; margin-bottom:5px;">Add Members:</p>
+        <input type="text" id="memberSearch" placeholder="Search to add..." oninput="searchForGroup(this.value)">
+        <div class="user-select-list" id="groupUserList"></div>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeGroupModal()">Cancel</button>
+            <button class="btn-create" onclick="createGroup()">Create Group</button>
         </div>
-    </main>
+    </div>
+</div>
 
-    <script>
-        // --- Data Model ---
-        const contacts = [
-            {
-                id: 1,
-                name: "Anthony Lewis",
-                avatar: "https://picsum.photos/seed/anthony/200/200.jpg",
-                status: "online",
-                lastMsgTime: "10:42 AM",
-                typing: true,
-                messages: [
-                    {
-                        id: 1,
-                        text: "That sounds great! Are there any specific requirements for tracking our hours when working remotely?",
-                        type: "incoming",
-                        time: "10:42 AM"
-                    },
-                    {
-                        id: 2,
-                        text: "Yes, we'll be using a time-tracking tool to log hours automatically. I'll send you the link shortly.",
-                        type: "outgoing",
-                        time: "10:43 AM",
-                        status: "read"
-                    }
-                ]
-            },
-            {
-                id: 2,
-                name: "Elliot Murray",
-                avatar: "https://picsum.photos/seed/elliot/200/200.jpg",
-                status: "offline",
-                lastMsgTime: "Yesterday",
-                previewType: "document", 
-                lastMsg: "Project_Specs.pdf",
-                messages: [
-                    { id: 1, text: "Hey, did you get the file?", type: "incoming", time: "Yesterday" },
-                    { id: 2, text: "Checking it now.", type: "outgoing", time: "Yesterday" }
-                ]
-            },
-            {
-                id: 3,
-                name: "Stephan Peralt",
-                avatar: "https://picsum.photos/seed/stephan/200/200.jpg",
-                status: "busy",
-                lastMsgTime: "Tue",
-                previewType: "missed_video",
-                lastMsg: "Missed video call",
-                messages: [
-                    { id: 1, text: "Can we hop on a quick call?", type: "incoming", time: "Tue" }
-                ]
-            },
-            {
-                id: 4,
-                name: "Rebecca Smtih",
-                avatar: "https://picsum.photos/seed/rebecca/200/200.jpg",
-                status: "online",
-                lastMsgTime: "Mon",
-                unread: 25,
-                lastMsg: "Okay, see you then!",
-                messages: [
-                    { id: 1, text: "Are we still meeting Monday?", type: "incoming", time: "Mon" }
-                ]
-            },
-            {
-                id: 5,
-                name: "Design Team",
-                avatar: "https://picsum.photos/seed/design/200/200.jpg",
-                status: "online",
-                lastMsgTime: "Sun",
-                lastMsg: "New updates available.",
-                messages: []
-            }
-        ];
+<script>
+    let activeConvId = null;
+    let pollInterval = null;
+    let lastMsgCount = 0; 
+    let selectedMembers = new Set();
 
-        let currentChatId = 1; 
-        let localStream = null;
-        let callTimerInterval = null;
-        let callSeconds = 0;
-        let selectedConfContacts = new Set();
-        let callType = 'video'; // 'audio' or 'video'
+    // 1. SEARCH USERS
+    document.getElementById('userSearch').addEventListener('input', function(e) {
+        let val = e.target.value;
+        if(val.length < 2) { document.getElementById('searchResults').style.display = 'none'; return; }
 
-        // --- DOM Elements ---
-        const chatListEl = document.getElementById('chatList');
-        const messagesWrapperEl = document.getElementById('messagesWrapper');
-        const currentChatNameEl = document.getElementById('currentChatName');
-        const currentChatStatusEl = document.getElementById('currentChatStatus');
-        const currentChatAvatarEl = document.getElementById('currentChatAvatar');
-        const messageInputEl = document.getElementById('messageInput');
-        const sendBtnEl = document.getElementById('sendBtn');
-        const searchInputEl = document.getElementById('searchInput');
-        const backBtnEl = document.getElementById('backBtn');
-        const sidebarEl = document.getElementById('sidebar');
+        let fd = new FormData();
+        fd.append('action', 'search_users');
+        fd.append('term', val);
 
-        // File Attachment Elements
-        const attachBtn = document.getElementById('attachBtn');
-        const fileInput = document.getElementById('fileInput');
-
-        // Call Buttons (Separated for logic)
-        const openVoiceCallBtn = document.getElementById('openVoiceCallBtn');
-        const startVideoCallBtn = document.getElementById('startVideoCallBtn');
-
-        // Video Call Overlay Elements
-        const videoCallOverlay = document.getElementById('videoCallOverlay');
-        const localVideo = document.getElementById('localVideo');
-        const remoteVideo = document.getElementById('remoteVideo');
-        const endCallBtn = document.getElementById('endCallBtn');
-        const shareLinkBtn = document.getElementById('shareLinkBtn');
-        const toggleMicBtn = document.getElementById('toggleMicBtn');
-        const toggleCamBtn = document.getElementById('toggleCamBtn');
-        const callUserName = document.getElementById('callUserName');
-        const callTimer = document.getElementById('callTimer');
-        const toastMsg = document.getElementById('toastMsg');
-        const callAvatarText = document.getElementById('callAvatarText');
-
-        // Modal Elements
-        const confModal = document.getElementById('confModal');
-        const modalTitle = document.getElementById('modalTitle');
-        const closeConfModal = document.getElementById('closeConfModal');
-        const cancelConfBtn = document.getElementById('cancelConfBtn');
-        const confSearchInput = document.getElementById('confSearchInput');
-        const confContactList = document.getElementById('confContactList');
-        const startConfBtn = document.getElementById('startConfBtn');
-
-        // --- Functions ---
-
-        // Render Sidebar List
-        function renderChatList() {
-            chatListEl.innerHTML = '';
-            
-            const searchTerm = searchInputEl.value.toLowerCase();
-
-            contacts.forEach(contact => {
-                if(contact.name.toLowerCase().includes(searchTerm)) {
-                    const isActive = contact.id === currentChatId;
-                    
-                    const div = document.createElement('div');
-                    div.className = `chat-item ${isActive ? 'active' : ''}`;
-                    div.onclick = () => selectChat(contact.id);
-
-                    // Status Logic
-                    let statusHtml = '';
-                    if(contact.typing) {
-                        statusHtml = `<span class="chat-meta typing-indicator">Typing...</span>`;
-                    } else {
-                        statusHtml = `<span class="chat-meta">${contact.lastMsgTime}</span>`;
-                    }
-
-                    // Preview Logic
-                    let previewHtml = contact.lastMsg || 'No messages yet';
-                    
-                    if(contact.previewType === 'document') {
-                        previewHtml = `<i class="ri-file-text-line doc-icon"></i> ${contact.lastMsg}`;
-                    } else if(contact.previewType === 'missed_video') {
-                        previewHtml = `<i class="ri-missed-video-line missed-call-icon"></i> Missed Video Call`;
-                    } else if (contact.messages.length > 0) {
-                        const last = contact.messages[contact.messages.length - 1];
-                        previewHtml = last.type === 'outgoing' ? `You: ${last.text.replace(/<[^>]*>?/gm, '').substring(0, 30)}...` : last.text.replace(/<[^>]*>?/gm, '').substring(0, 30) + '...';
-                    }
-
-                    // Unread Badge
-                    const unreadBadge = contact.unread ? `<div class="unread-badge">${contact.unread}</div>` : '';
-
-                    div.innerHTML = `
-                        <div class="avatar-container">
-                            <img src="${contact.avatar}" alt="${contact.name}" class="avatar">
-                            <div class="status-dot status-${contact.status}"></div>
-                        </div>
-                        <div class="chat-info">
-                            <div class="chat-header-row">
-                                <span class="chat-name">${contact.name}</span>
-                                ${statusHtml}
-                            </div>
-                            <div class="chat-preview-row">
-                                <span class="chat-last-msg">${previewHtml}</span>
-                                ${unreadBadge}
-                            </div>
-                        </div>
-                    `;
-                    chatListEl.appendChild(div);
-                }
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            let html = '';
+            data.forEach(u => {
+                html += `<div class="search-item" onclick="startChat(${u.id})">
+                            <div style="font-weight:600">${u.username}</div>
+                            <div style="font-size:0.8rem; color:#666">${u.role}</div>
+                         </div>`;
             });
-        }
+            document.getElementById('searchResults').innerHTML = html;
+            document.getElementById('searchResults').style.display = html ? 'block' : 'none';
+        });
+    });
 
-        // Select a Chat
-        function selectChat(id) {
-            currentChatId = id;
-            
-            const contact = contacts.find(c => c.id === id);
-            if(contact) contact.unread = 0;
+    // 2. START DIRECT CHAT
+    function startChat(userId) {
+        document.getElementById('searchResults').style.display = 'none';
+        document.getElementById('userSearch').value = '';
+        
+        let fd = new FormData();
+        fd.append('action', 'start_chat');
+        fd.append('target_user_id', userId);
 
-            renderChatList();
-            renderMessages();
-            updateHeader();
-            
-            if(window.innerWidth <= 768) {
-                sidebarEl.classList.add('hidden');
-            }
-        }
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            loadConversation(data.id, true);
+            loadSidebar(); 
+        });
+    }
 
-        // Update Header Info
-        function updateHeader() {
-            const contact = contacts.find(c => c.id === currentChatId);
-            if(!contact) return;
+    // 3. LOAD SIDEBAR
+    function loadSidebar() {
+        let fd = new FormData();
+        fd.append('action', 'get_recent_chats');
 
-            currentChatNameEl.textContent = contact.name;
-            currentChatAvatarEl.src = contact.avatar;
-
-            if(contact.typing) {
-                currentChatStatusEl.textContent = "Typing...";
-                currentChatStatusEl.style.color = "var(--primary-color)";
-            } else {
-                const statusMap = {
-                    'online': 'Online',
-                    'offline': 'Offline',
-                    'busy': 'Busy'
-                };
-                currentChatStatusEl.textContent = statusMap[contact.status] || 'Offline';
-                currentChatStatusEl.style.color = contact.status === 'online' ? 'var(--success-color)' : 'var(--text-secondary)';
-            }
-        }
-
-        // Render Messages
-        function renderMessages() {
-            messagesWrapperEl.innerHTML = '';
-            const contact = contacts.find(c => c.id === currentChatId);
-            
-            if(!contact || contact.messages.length === 0) {
-                messagesWrapperEl.innerHTML = `<div style="text-align:center; color:var(--text-secondary); margin-top:60px; display:flex; flex-direction:column; align-items:center; gap:12px;">
-                    <i class="ri-chat-smile-2-line" style="font-size: 3rem; opacity: 0.5;"></i>
-                    <span>No messages yet. Say hello!</span>
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            let html = '';
+            data.forEach(c => {
+                let active = (c.conversation_id == activeConvId) ? 'active' : '';
+                let unread = c.unread > 0 ? `<span class="unread-count">${c.unread}</span>` : '';
+                // Fallback for name logic
+                let displayName = c.name ? c.name : 'Unknown';
+                
+                // IMPORTANT: Added TRUE to loadConversation to force refresh
+                html += `
+                <div class="chat-item ${active}" onclick="loadConversation(${c.conversation_id}, true)">
+                    <img src="${c.avatar}" class="avatar">
+                    <div class="chat-info">
+                        <div style="display:flex; justify-content:space-between">
+                            <div class="chat-name">${displayName}</div>
+                            <div style="font-size:0.7rem; color:#888">${c.time}</div>
+                        </div>
+                        <div class="chat-meta">
+                            <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:150px; color:#666;">
+                                ${c.last_msg ? c.last_msg : 'Start a conversation'}
+                            </span>
+                            ${unread}
+                        </div>
+                    </div>
                 </div>`;
-                return;
-            }
-
-            contact.messages.forEach(msg => {
-                const msgGroup = document.createElement('div');
-                msgGroup.className = `message-group ${msg.type}`;
-                
-                const avatarUrl = msg.type === 'outgoing' 
-                    ? 'https://picsum.photos/seed/me/200/200.jpg' 
-                    : contact.avatar;
-
-                let ticks = '';
-                if(msg.type === 'outgoing') {
-                    ticks = `<i class="ri-check-double-line" style="font-size:0.8em; color: ${msg.status === 'read' ? '#4ADE80' : '#fff'}"></i>`;
-                }
-
-                msgGroup.innerHTML = `
-                    <img src="${avatarUrl}" class="msg-avatar" alt="Avatar">
-                    <div class="message-content">
-                        <div class="message-bubble">
-                            ${msg.text}
-                        </div>
-                        <div class="message-time">
-                            ${msg.time} ${ticks}
-                        </div>
-                    </div>
-                `;
-                messagesWrapperEl.appendChild(msgGroup);
             });
-
-            scrollToBottom();
-        }
-
-        function scrollToBottom() {
-            messagesWrapperEl.scrollTop = messagesWrapperEl.scrollHeight;
-        }
-
-        // --- Send Message Logic ---
-        function sendMessage() {
-            const text = messageInputEl.value.trim();
-            if(!text) return;
-
-            const contact = contacts.find(c => c.id === currentChatId);
-            const now = new Date();
-            const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            const newMsg = {
-                id: Date.now(),
-                text: text,
-                type: 'outgoing',
-                time: timeString,
-                status: 'sent'
-            };
-
-            contact.messages.push(newMsg);
-            messageInputEl.value = '';
-            finalizeSending(contact);
-        }
-
-        // --- File Sharing Logic ---
-        attachBtn.addEventListener('click', () => {
-            fileInput.click();
+            document.getElementById('chatList').innerHTML = html;
         });
+    }
 
-        fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+    // 4. LOAD CONVERSATION
+    function loadConversation(convId, force = false) {
+        if(activeConvId === convId && !force) return;
+        activeConvId = convId;
+        lastMsgCount = 0; 
+        
+        // --- FORCE UI REFRESH (Fixes "Not Opening" Issue) ---
+        if(force) {
+            document.getElementById('chatArea').innerHTML = `
+                <div class="chat-header">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div class="avatar" style="width:35px; height:35px; background:#f0f2f5;"></div>
+                        <div><h3 style="font-size:1.1rem; color:#333;">Loading...</h3></div>
+                    </div>
+                </div>
+                <div class="messages-box" id="msgBox">
+                    <div style="display:flex; justify-content:center; padding-top:20px; color:#999;">Loading messages...</div>
+                </div>
+            `;
+        }
 
-            const contact = contacts.find(c => c.id === currentChatId);
-            const now = new Date();
-            const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        fetchMessages(true);
+        loadSidebar(); 
+        
+        if(pollInterval) clearInterval(pollInterval);
+        pollInterval = setInterval(() => fetchMessages(false), 3000);
+    }
 
-            const newMsg = {
-                id: Date.now(),
-                type: 'outgoing',
-                time: timeString,
-                status: 'sent'
-            };
+    // 5. FETCH MESSAGES
+    function fetchMessages(updateHeader = false) {
+        if(!activeConvId) return;
+        let fd = new FormData();
+        fd.append('action', 'get_messages');
+        fd.append('conversation_id', activeConvId);
 
-            if (file.type.startsWith('image/')) {
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    const imgUrl = event.target.result;
-                    newMsg.text = `<img src="${imgUrl}" class="attachment-img" alt="${file.name}">`;
-                    contact.messages.push(newMsg);
-                    finalizeSending(contact);
-                    fileInput.value = ''; 
-                };
-                reader.readAsDataURL(file);
-            } else {
-                const fileSizeKB = (file.size / 1024).toFixed(1) + ' KB';
-                newMsg.text = `
-                    <div class="file-attachment">
-                        <div class="file-icon-box">
-                            <i class="ri-file-text-line"></i>
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            let msgs = data.messages;
+            let info = data.info;
+
+            // Only update DOM if header needs update OR we have new messages
+            if(updateHeader && info) {
+                let headerHTML = `
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(info.username)}&background=${info.is_group ? '6366f1' : 'random'}" class="avatar" style="width:35px; height:35px;">
+                        <div>
+                            <h3 style="font-size:1.1rem; color:#333; margin:0; line-height:1.2;">${info.username}</h3>
+                            <div style="font-size:0.75rem; color:#888;">${info.role}</div>
                         </div>
-                        <div class="file-details">
-                            <div class="file-name">${file.name}</div>
-                            <div class="file-size">${fileSizeKB}</div>
+                    </div>
+                    <div class="header-actions">
+                        <i class="ri-phone-line btn-icon" onclick="startCall('audio')" title="Voice Call"></i>
+                        <i class="ri-vidicon-line btn-icon" onclick="startCall('video')" title="Video Call"></i>
+                        <i class="ri-more-2-fill btn-icon" onclick="toggleMenu()"></i>
+                        <div class="menu-dropdown" id="chatMenu">
+                            <div class="menu-item"><i class="ri-user-line"></i> View Profile</div>
+                            <div class="menu-item danger" onclick="clearChat()"><i class="ri-delete-bin-line"></i> Clear Chat</div>
                         </div>
                     </div>
                 `;
-                contact.messages.push(newMsg);
-                finalizeSending(contact);
-                fileInput.value = ''; 
-            }
-        });
-
-        function finalizeSending(contact) {
-            if(contact.typing) {
-                contact.typing = false;
-            }
-            renderMessages();
-            renderChatList(); 
-            simulateReply(contact);
-        }
-
-        function simulateReply(contact) {
-            setTimeout(() => {
-                contact.typing = true;
-                renderChatList();
-                updateHeader();
-            }, 1000);
-
-            setTimeout(() => {
-                contact.typing = false;
-                const now = new Date();
-                const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                let inputHTML = `
+                <div class="messages-box" id="msgBox"></div>
+                <div class="input-area">
+                    <label for="fileUpload"><i class="ri-attachment-line btn-icon"></i></label>
+                    <input type="file" id="fileUpload" hidden onchange="sendMessage()">
+                    <input type="text" id="msgInput" placeholder="Type a message..." onkeypress="if(event.key === 'Enter') sendMessage()">
+                    <button class="btn-send" onclick="sendMessage()"><i class="ri-send-plane-fill"></i></button>
+                </div>`;
                 
-                const replyMsg = {
-                    id: Date.now() + 1,
-                    text: "That sounds good to me. Thanks for the update!",
-                    type: "incoming",
-                    time: timeString
-                };
-                
-                contact.messages.push(replyMsg);
+                document.getElementById('chatArea').innerHTML = `<div class="chat-header">${headerHTML}</div>` + inputHTML;
+            }
 
-                if(currentChatId === contact.id) {
-                    renderMessages();
-                    updateHeader();
+            // Msg Refresh
+            if(msgs.length === lastMsgCount && !updateHeader) return;
+            lastMsgCount = msgs.length;
+
+            let html = '';
+            if(msgs.length == 0) html = '<div style="text-align:center; padding:20px; color:#ccc;">No messages yet. Start chatting!</div>';
+            
+            msgs.forEach(m => {
+                let cls = m.is_me ? 'outgoing' : 'incoming';
+                let content = m.message;
+                
+                if(m.message_type === 'call') {
+                    html += `<div class="msg call-msg">
+                                <i class="ri-phone-fill"></i> <strong>Incoming Call</strong><br>
+                                <a href="${m.message}" target="_blank" class="join-btn">Join Meeting</a>
+                                <div class="msg-time">${m.time}</div>
+                             </div>`;
                 } else {
-                    contact.unread = (contact.unread || 0) + 1;
-                }
-                renderChatList();
+                    if(m.message_type === 'image') content = `<img src="${m.attachment_path}">`;
+                    else if(m.message_type === 'file') content = `<a href="${m.attachment_path}" target="_blank" style="text-decoration:underline; color:inherit"><i class="ri-file-text-fill"></i> ${m.message}</a>`;
+                    
+                    let senderName = (!m.is_me && info.is_group) ? `<div style="font-size:0.7rem; color:orange; font-weight:bold; margin-bottom:2px;">${m.username}</div>` : '';
 
-                const lastOutgoing = contact.messages.filter(m => m.type === 'outgoing').pop();
-                if(lastOutgoing) lastOutgoing.status = 'read';
-                renderMessages();
-
-            }, 3500);
-        }
-
-        // --- Call Logic (Audio vs Video) ---
-        
-        function getInitials(name) {
-            const parts = name.trim().split(' ');
-            if (parts.length === 0) return 'U';
-            if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
-            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-        }
-
-        async function startCall(isConference, participants, type) {
-            callType = type; // 'audio' or 'video'
-            const contact = contacts.find(c => c.id === currentChatId);
-
-            // UI Setup based on Call Type
-            if(callType === 'audio') {
-                videoCallOverlay.classList.remove('is-video'); // Hides video elements, shows placeholder
-                callAvatarText.textContent = isConference ? "Voice Conference" : "Voice Call";
-                modalTitle.textContent = "Start Voice Call";
-                startConfBtn.textContent = "Start Voice Call";
-            } else {
-                videoCallOverlay.classList.add('is-video'); // Shows video elements
-                callAvatarText.textContent = isConference ? "Video Conference" : "Video Call";
-                modalTitle.textContent = "Start Video Call";
-                startConfBtn.textContent = "Start Video Call";
-            }
-
-            if(isConference) {
-                const names = participants.map(id => contacts.find(c => c.id == id)?.name).join(', ');
-                callUserName.textContent = callType === 'audio' ? "Audio: " + (names || contact?.name) : "Video: " + (names || contact?.name);
-                
-                let conferenceInitials = "GR";
-                if (participants.length === 1) {
-                     const single = contacts.find(c => c.id == participants[0]);
-                     if(single) conferenceInitials = getInitials(single.name);
-                }
-                document.getElementById('remoteInitials').textContent = conferenceInitials;
-            } else {
-                if(contact) {
-                    callUserName.textContent = contact.name;
-                    document.getElementById('remoteInitials').textContent = getInitials(contact.name);
-                }
-            }
-
-            // Camera Button Visibility
-            if(callType === 'audio') {
-                toggleCamBtn.style.display = 'none';
-            } else {
-                toggleCamBtn.style.display = 'flex';
-            }
-
-            try {
-                // Dynamic Constraints
-                const constraints = { audio: true, video: callType === 'video' };
-                
-                localStream = await navigator.mediaDevices.getUserMedia(constraints);
-                localVideo.srcObject = localStream;
-                
-                videoCallOverlay.classList.add('active');
-                
-                callSeconds = 0;
-                callTimer.textContent = "00:00";
-                callTimerInterval = setInterval(() => {
-                    callSeconds++;
-                    const mins = Math.floor(callSeconds / 60).toString().padStart(2, '0');
-                    const secs = (callSeconds % 60).toString().padStart(2, '0');
-                    callTimer.textContent = `${mins}:${secs}`;
-                }, 1000);
-
-            } catch (err) {
-                console.error("Error accessing media devices:", err);
-                alert("Unable to access microphone" + (callType === 'video' ? " or camera" : "") + ". Please allow permissions.");
-            }
-        }
-
-        function endCall() {
-            if (localStream) {
-                localStream.getTracks().forEach(track => track.stop());
-                localStream = null;
-            }
-            localVideo.srcObject = null;
-            remoteVideo.srcObject = null; 
-            videoCallOverlay.classList.remove('active');
-            videoCallOverlay.classList.remove('is-video'); // Reset class
-            if (callTimerInterval) clearInterval(callTimerInterval);
-            
-            // Reset UI
-            toggleCamBtn.style.display = 'flex';
-        }
-
-        function toggleMic() {
-            if (!localStream) return;
-            const audioTrack = localStream.getAudioTracks()[0];
-            if (audioTrack) {
-                audioTrack.enabled = !audioTrack.enabled;
-                toggleMicBtn.innerHTML = audioTrack.enabled ? '<i class="ri-mic-line"></i>' : '<i class="ri-mic-off-line"></i>';
-                toggleMicBtn.classList.toggle('active', !audioTrack.enabled);
-            }
-        }
-
-        function toggleCam() {
-            if (!localStream) return;
-            const videoTrack = localStream.getVideoTracks()[0];
-            if (videoTrack) {
-                videoTrack.enabled = !videoTrack.enabled;
-                toggleCamBtn.innerHTML = videoTrack.enabled ? '<i class="ri-camera-line"></i>' : '<i class="ri-camera-off-line"></i>';
-                toggleCamBtn.classList.toggle('active', !videoTrack.enabled);
-            }
-        }
-
-        function shareMeetingLink() {
-            const dummyLink = `https://teamchat.app/meet/${Math.random().toString(36).substring(7)}`;
-            navigator.clipboard.writeText(dummyLink).then(() => {
-                showToast("Meeting link copied to clipboard!");
-            }).catch(err => {
-                showToast("Failed to copy link");
-            });
-        }
-
-        function showToast(msg) {
-            toastMsg.textContent = msg;
-            toastMsg.classList.add('show');
-            setTimeout(() => {
-                toastMsg.classList.remove('show');
-            }, 3000);
-        }
-
-        // --- Modal Functions ---
-
-        function openConfModal(type) {
-            callType = type; // 'audio' or 'video'
-            selectedConfContacts.clear();
-            
-            if(currentChatId) selectedConfContacts.add(currentChatId);
-            
-            if(callType === 'video') {
-                modalTitle.textContent = "Start Video Call";
-                startConfBtn.textContent = "Start Video Call";
-            } else {
-                modalTitle.textContent = "Start Voice Call";
-                startConfBtn.textContent = "Start Voice Call";
-            }
-            
-            renderConfContactList();
-            confModal.classList.add('active');
-        }
-
-        function closeConfModalFunc() {
-            confModal.classList.remove('active');
-        }
-
-        function renderConfContactList() {
-            confContactList.innerHTML = '';
-            const searchTerm = confSearchInput.value.toLowerCase();
-
-            contacts.forEach(contact => {
-                if(contact.name.toLowerCase().includes(searchTerm)) {
-                    const isSelected = selectedConfContacts.has(contact.id);
-                    const div = document.createElement('div');
-                    div.className = `conf-contact-item ${isSelected ? 'selected' : ''}`;
-                    div.onclick = (e) => toggleConfSelection(contact.id, e);
-
-                    div.innerHTML = `
-                        <img src="${contact.avatar}" class="conf-avatar" alt="${contact.name}">
-                        <div class="conf-info">
-                            <div class="conf-name">${contact.name}</div>
-                            <div class="conf-status" style="color: var(--text-secondary)">${contact.status}</div>
-                        </div>
-                        <input type="checkbox" class="conf-checkbox" ${isSelected ? 'checked' : ''} readonly>
-                    `;
-                    confContactList.appendChild(div);
+                    html += `<div class="msg ${cls}">
+                                ${senderName}
+                                ${content}
+                                <div class="msg-time">${m.time}</div>
+                             </div>`;
                 }
             });
-        }
-
-        function toggleConfSelection(id, event) {
-            if (event.target.type === 'checkbox') return;
-
-            if (selectedConfContacts.has(id)) {
-                selectedConfContacts.delete(id);
-            } else {
-                selectedConfContacts.add(id);
+            
+            let box = document.getElementById('msgBox');
+            if(box) {
+                box.innerHTML = html;
+                box.scrollTop = box.scrollHeight;
             }
-            renderConfContactList();
-        }
-
-        function handleStartConference() {
-            if(selectedConfContacts.size === 0) {
-                alert("Please select at least one participant.");
-                return;
-            }
-            closeConfModalFunc();
-            startCall(true, Array.from(selectedConfContacts), callType);
-        }
-
-        // --- Event Listeners ---
-        sendBtnEl.addEventListener('click', sendMessage);
-        messageInputEl.addEventListener('keypress', (e) => {
-            if(e.key === 'Enter') sendMessage();
         });
-        searchInputEl.addEventListener('input', renderChatList);
-        backBtnEl.addEventListener('click', () => {
-            sidebarEl.classList.remove('hidden');
-        });
+    }
 
-        // Separate Listeners for Voice vs Video
-        openVoiceCallBtn.addEventListener('click', () => openConfModal('audio'));
-        startVideoCallBtn.addEventListener('click', () => openConfModal('video'));
+    // 6. SEND MESSAGE
+    function sendMessage(type = 'text', content = null) {
+        let input = document.getElementById('msgInput');
+        let fileInput = document.getElementById('fileUpload');
+        let txt = content ? content : (input ? input.value.trim() : '');
+        let file = fileInput ? fileInput.files[0] : null;
 
-        // Call Controls
-        endCallBtn.addEventListener('click', endCall);
-        shareLinkBtn.addEventListener('click', shareMeetingLink);
-        toggleMicBtn.addEventListener('click', toggleMic);
-        toggleCamBtn.addEventListener('click', toggleCam);
+        if(!txt && !file) return;
 
-        // Modal Listeners
-        closeConfModal.addEventListener('click', closeConfModalFunc);
-        cancelConfBtn.addEventListener('click', closeConfModalFunc);
-        confSearchInput.addEventListener('input', renderConfContactList);
-        startConfBtn.addEventListener('click', handleStartConference);
-        confModal.addEventListener('click', (e) => {
-            if(e.target === confModal) closeConfModalFunc();
-        });
-
-        // --- Initialization ---
-        contacts[0].typing = false; 
-        renderChatList();
-        renderMessages();
-        updateHeader();
+        let fd = new FormData();
+        fd.append('action', 'send_message');
+        fd.append('conversation_id', activeConvId);
+        fd.append('type', type);
         
-        setTimeout(() => {
-            contacts[0].typing = true;
-            renderChatList();
-            updateHeader();
-        }, 1000);
+        if(type === 'text') fd.append('message', txt);
+        else fd.append('message', content); 
 
-    </script>
+        if(file) fd.append('file', file);
+
+        if(input) input.value = '';
+        if(fileInput) fileInput.value = '';
+
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(() => {
+            fetchMessages(false);
+            loadSidebar();
+        });
+    }
+
+    // CALL & MENU
+    function startCall(type) {
+        let meetId = 'SmartHR-' + Math.random().toString(36).substring(7);
+        let link = `https://meet.jit.si/${meetId}`;
+        sendMessage('call', link);
+        window.open(link, '_blank');
+    }
+
+    function toggleMenu() { document.getElementById('chatMenu').classList.toggle('show'); }
+    
+    function clearChat() {
+        if(!confirm('Clear chat?')) return;
+        let fd = new FormData();
+        fd.append('action', 'clear_chat');
+        fd.append('conversation_id', activeConvId);
+        fetch('team_chat.php', { method: 'POST', body: fd }).then(() => {
+            document.getElementById('msgBox').innerHTML = '';
+            document.getElementById('chatMenu').classList.remove('show');
+        });
+    }
+
+    // GROUP
+    function openGroupModal() { document.getElementById('groupModal').style.display = 'flex'; selectedMembers.clear(); updateGroupList(); }
+    function closeGroupModal() { document.getElementById('groupModal').style.display = 'none'; }
+
+    function searchForGroup(val) {
+        if(val.length < 1) return;
+        let fd = new FormData();
+        fd.append('action', 'search_users');
+        fd.append('term', val);
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            let html = '';
+            data.forEach(u => {
+                let isSel = selectedMembers.has(u.id) ? 'selected' : '';
+                html += `<div class="user-option ${isSel}" onclick="toggleMember(${u.id}, this)">
+                            <div style="font-weight:600">${u.username}</div>
+                         </div>`;
+            });
+            document.getElementById('groupUserList').innerHTML = html;
+        });
+    }
+
+    function toggleMember(uid, el) {
+        if(selectedMembers.has(uid)) { selectedMembers.delete(uid); el.classList.remove('selected'); }
+        else { selectedMembers.add(uid); el.classList.add('selected'); }
+    }
+
+    function updateGroupList() { document.getElementById('groupUserList').innerHTML = ''; }
+
+    function createGroup() {
+        let name = document.getElementById('groupName').value;
+        if(!name || selectedMembers.size === 0) { alert('Enter name and select members'); return; }
+
+        let fd = new FormData();
+        fd.append('action', 'create_group');
+        fd.append('group_name', name);
+        fd.append('members', JSON.stringify(Array.from(selectedMembers)));
+
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            closeGroupModal();
+            loadConversation(data.conversation_id, true);
+            loadSidebar();
+        });
+    }
+
+    document.addEventListener('click', function(e) {
+        if (!e.target.closest('.header-actions')) {
+            let menu = document.getElementById('chatMenu');
+            if(menu) menu.classList.remove('show');
+        }
+    });
+
+    loadSidebar();
+</script>
+
 </body>
 </html>
