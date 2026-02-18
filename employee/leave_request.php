@@ -415,7 +415,10 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
                         </div>
                         <div class="form-group full-width">
                             <label>Reason</label>
-                            <textarea name="reason" class="form-control" rows="3" required></textarea>
+                            <textarea name="reason" class="form-control" rows="3" required maxlength="250" placeholder="Enter reason (max 250 characters)" oninput="updateCharCount(this)"></textarea>
+                            <div style="text-align:right; font-size:11px; color:#64748b; margin-top:4px;">
+                                <span id="charCount">0</span>/250
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -438,6 +441,11 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
         function closeModal() {
             document.getElementById('leaveModal').classList.remove('active');
             document.body.style.overflow = 'auto';
+        }
+
+        // JS for Character Counter
+        function updateCharCount(textarea) {
+            document.getElementById('charCount').textContent = textarea.value.length;
         }
 
         // Calculate Days between two dates

@@ -3,9 +3,9 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- FIXED PATHS FOR YOUR ENVIRONMENT ---
-$db_connect_path = 'C:\xampp\htdocs\workack2.0\include\db_connect.php';
-$sidebar_path    = 'C:\xampp\htdocs\workack2.0\sidebars.php';
-$header_path     = 'C:\xampp\htdocs\workack2.0\header.php';
+$db_connect_path = '../include/db_connect.php';
+$sidebar_path    = '../sidebars.php';
+$header_path     = '../header.php';
 
 // Include DB
 if (file_exists($db_connect_path)) {
@@ -54,10 +54,17 @@ while($row = $res_history->fetch_assoc()) {
     $history[] = $row;
 }
 
-// Get User Profile Info
+// Get User Profile Info (FIXED: Prioritize Profile Name)
 $res_profile = $conn->query("SELECT full_name, designation FROM employee_profiles WHERE user_id = $current_user_id");
 $profile = $res_profile->fetch_assoc();
-$user_name = $profile['full_name'] ?? ($_SESSION['username'] ?? 'Employee');
+
+// If profile exists, use full_name. If not, fallback to username/email.
+if ($profile && !empty($profile['full_name'])) {
+    $user_name = $profile['full_name'];
+} else {
+    $user_name = $_SESSION['username'] ?? 'Employee'; 
+}
+
 $user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
 ?>
 
@@ -310,7 +317,10 @@ $user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
 
                     <div class="form-group">
                         <label>Reason <span style="color:red;">*</span></label>
-                        <textarea name="reason" class="form-control" rows="3" placeholder="Explain the reason for WFH request..." required></textarea>
+                        <textarea name="reason" class="form-control" rows="3" placeholder="Explain the reason for WFH request..." required maxlength="250" oninput="updateCharCount(this)"></textarea>
+                        <div style="text-align:right; font-size:12px; color:#6b7280; margin-top:4px;">
+                            <span id="charCount">0</span>/250 characters
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn" onclick="closeModal()">Cancel</button>
@@ -326,6 +336,12 @@ $user_role = $profile['designation'] ?? ($_SESSION['role'] ?? 'Staff');
 
         function openModal() { document.getElementById('requestModal').classList.add('active'); }
         function closeModal() { document.getElementById('requestModal').classList.remove('active'); }
+
+        // Live Character Count
+        function updateCharCount(textarea) {
+            const count = textarea.value.length;
+            document.getElementById('charCount').innerText = count;
+        }
 
         function filterTable() {
             let input = document.getElementById("personalSearch").value.toUpperCase();
