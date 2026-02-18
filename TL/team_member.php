@@ -1,53 +1,67 @@
 <?php
+// team_member.php (TL View)
+
 // 1. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+if (!isset($_SESSION['user_id'])) { 
+    header("Location: ../index.php"); 
+    exit(); 
+}
 
-// 2. ROBUST INCLUDE FUNCTION
+// 2. ROBUST INCLUDE FUNCTION & DB CONNECTION
 function includeFile($filename) {
     $paths = [
-        __DIR__ . '/' . $filename,       // Look in current TL folder
-        __DIR__ . '/../' . $filename     // Look in parent folder (workack2.0)
+        __DIR__ . '/' . $filename,       
+        __DIR__ . '/../' . $filename     
     ];
-    
     foreach ($paths as $path) {
         if (file_exists($path)) {
             include $path;
             return;
         }
     }
-    echo "";
 }
 
-// 3. MOCK DATA (Team Members) - Added 'salary' field
-$teamMembers = [
-    [
-        "id" => "EMP-002", "first_name" => "Brian", "last_name" => "Villalobos", 
-        "email" => "brian@example.com", "phone" => "(179) 7382 829", 
-        "designation" => "Senior Developer", "dept" => "Development", 
-        "join_date" => "2024-10-24", "status" => "Active", "img" => "12",
-        "emp_type" => "Contract", "performance" => "High",
-        "pan" => "FGHIJ5678K", "bank_name" => "SBI", "account_no" => "0987654321",
-        "salary" => "85000"
-    ],
-    [
-        "id" => "EMP-004", "first_name" => "Stephan", "last_name" => "Peralt", 
-        "email" => "stephan@example.com", "phone" => "(929) 1022 222", 
-        "designation" => "Android Developer", "dept" => "Development", 
-        "join_date" => "2025-03-01", "status" => "Active", "img" => "14",
-        "emp_type" => "Intern", "performance" => "Average",
-        "pan" => "", "bank_name" => "", "account_no" => "",
-        "salary" => "25000"
-    ],
-    [
-        "id" => "EMP-009", "first_name" => "Julia", "last_name" => "Gomes", 
-        "email" => "julia@example.com", "phone" => "(929) 555 0192", 
-        "designation" => "UI Designer", "dept" => "Development", 
-        "join_date" => "2025-05-12", "status" => "Inactive", "img" => "25",
-        "emp_type" => "Permanent", "performance" => "N/A",
-        "pan" => "KJHGF8821L", "bank_name" => "ICICI", "account_no" => "5566778899",
-        "salary" => "60000"
-    ],
-];
+// Fixed DB Connection inclusion
+$db_path = __DIR__ . '/../include/db_connect.php';
+if (file_exists($db_path)) {
+    require_once $db_path;
+} else {
+    require_once '../include/db_connect.php'; 
+}
+
+$tl_user_id = $_SESSION['user_id']; // E.g., Frank = 19
+
+// 3. FETCH DYNAMIC TEAM DATA
+// Fetching from the team_members table where tl_id matches Frank's ID
+$team_query = "SELECT * FROM team_members WHERE tl_id = ?";
+$stmt = $conn->prepare($team_query);
+$stmt->bind_param("i", $tl_user_id);
+$stmt->execute();
+$team_result = $stmt->get_result();
+
+$teamMembers = [];
+$active_today_count = 0;
+
+while($row = $team_result->fetch_assoc()) {
+    // Split full name for the edit modal
+    $name_parts = explode(' ', $row['full_name'], 2);
+    $row['first_name'] = $name_parts[0];
+    $row['last_name'] = isset($name_parts[1]) ? $name_parts[1] : '';
+    
+    // Fallbacks if columns don't exist yet
+    $row['emp_type'] = $row['emp_type'] ?? 'Permanent'; 
+    $row['phone'] = $row['phone'] ?? 'N/A';
+    $row['salary'] = $row['salary'] ?? 'N/A';
+    
+    if ($row['status'] === 'Active') {
+        $active_today_count++;
+    }
+    
+    $teamMembers[] = $row;
+}
+$stmt->close();
+$conn->close();
 ?>
 
 <!DOCTYPE html>
@@ -69,7 +83,7 @@ $teamMembers = [
             --border: #e5e7eb;
             --bg-body: #f8f9fa;
             --white: #ffffff;
-            --sidebar-width: 250px;
+            --sidebar-width: 95px; /* Adjusted to your primary sidebar width */
         }
 
         body { 
@@ -81,19 +95,15 @@ $teamMembers = [
         }
 
         .main-content { 
-            margin-left: var(--primary-sidebar-width, 95px); 
+            margin-left: var(--sidebar-width); 
             padding: 24px 32px; 
             min-height: 100vh; 
             transition: all 0.3s ease; 
         }
 
         .page-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            margin-bottom: 24px; 
-            gap: 15px; 
-            flex-wrap: wrap; 
+            display: flex; justify-content: space-between; align-items: center; 
+            margin-bottom: 24px; gap: 15px; flex-wrap: wrap; 
         }
         .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; }
         .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
@@ -114,10 +124,8 @@ $teamMembers = [
         .view-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
 
         .stats-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 30px; 
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
+            gap: 20px; margin-bottom: 30px; 
         }
         .stat-card { 
             background: white; border-radius: 12px; padding: 20px; 
@@ -141,8 +149,7 @@ $teamMembers = [
 
         .table-responsive { 
             background: white; border-radius: 12px; border: 1px solid var(--border); 
-            overflow-x: auto; 
-            -webkit-overflow-scrolling: touch;
+            overflow-x: auto; -webkit-overflow-scrolling: touch;
         }
         table { width: 100%; border-collapse: collapse; min-width: 800px; }
         th { text-align: left; padding: 14px 16px; font-size: 12px; font-weight: 600; background: #f9fafb; color: #4b5563; text-transform: uppercase; border-bottom: 1px solid var(--border); }
@@ -155,9 +162,7 @@ $teamMembers = [
         .status-inactive { background: #fee2e2; color: #991b1b; }
 
         .grid-view-container { 
-            display: none; 
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
-            gap: 20px; 
+            display: none; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; 
         }
         .grid-view-container.active { display: grid; }
         .emp-card { 
@@ -171,23 +176,19 @@ $teamMembers = [
             display: none; position: fixed; inset: 0; 
             background: rgba(0,0,0,0.5); z-index: 2000; 
             align-items: center; justify-content: center; 
-            backdrop-filter: blur(2px); 
-            padding: 10px;
+            backdrop-filter: blur(2px); padding: 10px;
         }
         .modal-overlay.active { display: flex; }
         .modal-box { 
             background: white; width: 700px; max-width: 100%; 
             border-radius: 12px; overflow: hidden; 
-            display: flex; flex-direction: column;
-            max-height: 90vh;
+            display: flex; flex-direction: column; max-height: 90vh;
         }
         .modal-header { 
             padding: 20px; border-bottom: 1px solid var(--border); 
             display: flex; justify-content: space-between; align-items: center; 
         }
-        .modal-body { 
-            padding: 24px; overflow-y: auto;
-        }
+        .modal-body { padding: 24px; overflow-y: auto; }
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .form-group { margin-bottom: 5px; }
         .form-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
@@ -197,21 +198,13 @@ $teamMembers = [
         }
         .modal-footer { 
             padding: 16px; border-top: 1px solid var(--border); 
-            display: flex; justify-content: flex-end; gap: 10px; 
-            background: #fff;
+            display: flex; justify-content: flex-end; gap: 10px; background: #fff;
         }
 
         @media (max-width: 768px) {
             .main-content { margin-left: 0; padding: 16px; }
-            .page-header { 
-                flex-direction: column; 
-                align-items: flex-start; 
-                gap: 15px; 
-            }
-            .page-header > div:last-child {
-                width: 100%;
-                justify-content: space-between;
-            }
+            .page-header { flex-direction: column; align-items: flex-start; gap: 15px; }
+            .page-header > div:last-child { width: 100%; justify-content: space-between; }
             .filter-row { flex-direction: column; align-items: stretch; }
             .filter-row input, .filter-row select { width: 100% !important; }
             .form-grid { grid-template-columns: 1fr; }
@@ -226,7 +219,7 @@ $teamMembers = [
     <div class="main-content">
         <?php includeFile('header.php'); ?>
 
-        <div class="page-header">
+        <div class="page-header mt-4">
             <div>
                 <h1>Team Members</h1>
                 <div class="breadcrumb">
@@ -240,17 +233,16 @@ $teamMembers = [
                     <div class="view-btn active" onclick="switchView('list')" id="btnList"><i data-lucide="list" style="width:18px;"></i></div>
                     <div class="view-btn" onclick="switchView('grid')" id="btnGrid"><i data-lucide="layout-grid" style="width:18px;"></i></div>
                 </div>
-               
             </div>
         </div>
 
         <div class="stats-grid">
             <div class="stat-card card-orange">
-                <div class="stat-info"><span>Total Team Size</span><h3><?= count($teamMembers) ?></h3></div>
+                <div class="stat-info"><span>Total Team Size</span><h3><?php echo count($teamMembers); ?></h3></div>
                 <div class="stat-icon-box"><i data-lucide="users"></i></div>
             </div>
             <div class="stat-card card-green">
-                <div class="stat-info"><span>Active Today</span><h3>2</h3></div>
+                <div class="stat-info"><span>Active Status</span><h3><?php echo $active_today_count; ?></h3></div>
                 <div class="stat-icon-box"><i data-lucide="user-check"></i></div>
             </div>
             <div class="stat-card card-blue">
@@ -262,13 +254,17 @@ $teamMembers = [
         <div class="filter-row">
             <div style="flex:1; position:relative;">
                 <i data-lucide="search" style="position:absolute; left:10px; top:10px; width:16px; color:#9ca3af;"></i>
-                <input type="text" placeholder="Search team member..." class="form-control" style="padding-left:35px;">
+                <input type="text" id="searchInput" onkeyup="filterTeam()" placeholder="Search team member..." class="form-control" style="padding-left:35px;">
             </div>
-            <select class="form-control" style="width:180px;"><option>All Status</option><option>Active</option><option>Inactive</option></select>
+            <select id="statusFilter" onchange="filterTeam()" class="form-control" style="width:180px;">
+                <option value="">All Status</option>
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+            </select>
         </div>
 
         <div id="listView" class="table-responsive">
-            <table>
+            <table id="teamTable">
                 <thead>
                     <tr>
                         <th>Member</th>
@@ -281,47 +277,51 @@ $teamMembers = [
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach($teamMembers as $member): ?>
-                    <tr>
-                        <td>
-                            <div class="emp-profile">
-                                <img src="https://i.pravatar.cc/150?img=<?= $member['img'] ?>" class="emp-img">
-                                <div>
-                                    <div style="font-weight:600;"><?= $member['first_name'].' '.$member['last_name'] ?></div>
-                                    <div style="font-size:11px; color:var(--text-muted);"><?= $member['id'] ?></div>
+                    <?php if(count($teamMembers) > 0): ?>
+                        <?php foreach($teamMembers as $member): ?>
+                        <tr>
+                            <td>
+                                <div class="emp-profile">
+                                    <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($member['full_name']); ?>&background=random" class="emp-img">
+                                    <div>
+                                        <div style="font-weight:600;"><?php echo htmlspecialchars($member['full_name']); ?></div>
+                                        <div style="font-size:11px; color:var(--text-muted);"><?php echo htmlspecialchars($member['employee_id']); ?></div>
+                                    </div>
                                 </div>
-                            </div>
-                        </td>
-                        <td><?= $member['designation'] ?></td>
-                        <td><?= $member['email'] ?></td>
-                        <td><?= date("M d, Y", strtotime($member['join_date'])) ?></td>
-                        <td>
-                            <span style="font-size:12px; font-weight:500; color: <?= $member['performance'] == 'High' ? '#10b981' : '#f59e0b' ?>;">
-                                <?= $member['performance'] ?>
-                            </span>
-                        </td>
-                        <td><span class="status-badge <?= $member['status'] == 'Active' ? 'status-active' : 'status-inactive' ?>"><?= $member['status'] ?></span></td>
-                        <td>
-                            <button class="btn" style="padding:5px;" onclick='openEditModal(<?= json_encode($member) ?>)'>
-                                <i data-lucide="eye" style="width:16px; color:#3b82f6;"></i>
-                            </button>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
+                            </td>
+                            <td><?php echo htmlspecialchars($member['designation']); ?></td>
+                            <td><?php echo htmlspecialchars($member['email']); ?></td>
+                            <td><?php echo date("M d, Y", strtotime($member['joined_date'])); ?></td>
+                            <td>
+                                <span style="font-size:12px; font-weight:500; color: <?php echo $member['performance'] == 'High' ? '#10b981' : ($member['performance'] == 'Average' ? '#f59e0b' : '#6b7280'); ?>;">
+                                    <?php echo htmlspecialchars($member['performance']); ?>
+                                </span>
+                            </td>
+                            <td><span class="status-badge <?php echo $member['status'] == 'Active' ? 'status-active' : 'status-inactive'; ?>"><?php echo htmlspecialchars($member['status']); ?></span></td>
+                            <td>
+                                <button class="btn" style="padding:5px;" onclick='openEditModal(<?php echo json_encode($member); ?>)'>
+                                    <i data-lucide="eye" style="width:16px; color:#3b82f6;"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr><td colspan="7" style="text-align:center; padding:30px; color:#6b7280;">No team members found under your supervision.</td></tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
         </div>
 
         <div id="gridView" class="grid-view-container">
             <?php foreach($teamMembers as $member): ?>
-            <div class="emp-card">
-                <img src="https://i.pravatar.cc/150?img=<?= $member['img'] ?>" class="card-img">
-                <h4 style="margin:0;"><?= $member['first_name'].' '.$member['last_name'] ?></h4>
-                <p style="font-size:13px; color:var(--text-muted); margin:5px 0 15px;"><?= $member['designation'] ?></p>
+            <div class="emp-card" data-name="<?php echo strtolower($member['full_name']); ?>" data-status="<?php echo strtolower($member['status']); ?>">
+                <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($member['full_name']); ?>&background=random" class="card-img">
+                <h4 style="margin:0;"><?php echo htmlspecialchars($member['full_name']); ?></h4>
+                <p style="font-size:13px; color:var(--text-muted); margin:5px 0 15px;"><?php echo htmlspecialchars($member['designation']); ?></p>
                 <div style="display:flex; justify-content:center; gap:5px; margin-bottom:15px;">
-                    <span class="status-badge status-active"><?= $member['emp_type'] ?></span>
+                    <span class="status-badge status-active"><?php echo htmlspecialchars($member['emp_type']); ?></span>
                 </div>
-                <button class="btn btn-primary" style="width:100%;" onclick='openEditModal(<?= json_encode($member) ?>)'>View Details</button>
+                <button class="btn btn-primary" style="width:100%;" onclick='openEditModal(<?php echo json_encode($member); ?>)'>View Details</button>
             </div>
             <?php endforeach; ?>
         </div>
@@ -336,33 +336,19 @@ $teamMembers = [
             <div class="modal-body">
                 <form id="memberForm">
                     <div class="form-grid">
-                        <div class="form-group"><label>First Name</label><input type="text" id="fName" class="form-control"></div>
-                        <div class="form-group"><label>Last Name</label><input type="text" id="lName" class="form-control"></div>
-                        <div class="form-group"><label>Email Address</label><input type="email" id="email" class="form-control"></div>
-                        <div class="form-group"><label>Phone</label><input type="text" id="phone" class="form-control"></div>
-                        <div class="form-group"><label>Designation</label>
-                            <select id="desig" class="form-control">
-                                <option>Senior Developer</option>
-                                <option>Android Developer</option>
-                                <option>UI Designer</option>
-                            </select>
-                        </div>
-                        <div class="form-group"><label>Status</label>
-                            <select id="status" class="form-control">
-                                <option>Active</option>
-                                <option>Inactive</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Salary</label>
-                            <input type="text" id="salary" class="form-control" placeholder="Enter Amount">
-                        </div>
+                        <div class="form-group"><label>First Name</label><input type="text" id="fName" class="form-control" readonly></div>
+                        <div class="form-group"><label>Last Name</label><input type="text" id="lName" class="form-control" readonly></div>
+                        <div class="form-group"><label>Email Address</label><input type="email" id="email" class="form-control" readonly></div>
+                        <div class="form-group"><label>Phone</label><input type="text" id="phone" class="form-control" readonly></div>
+                        <div class="form-group"><label>Designation</label><input type="text" id="desig" class="form-control" readonly></div>
+                        <div class="form-group"><label>Status</label><input type="text" id="status" class="form-control" readonly></div>
+                        <div class="form-group"><label>Salary</label><input type="text" id="salary" class="form-control" readonly></div>
+                        <div class="form-group"><label>Performance Score</label><input type="text" id="perfScore" class="form-control" readonly></div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
-                <button class="btn" onclick="closeModal()">Close</button>
-                <button class="btn btn-primary">Update Profile</button>
+                <button class="btn btn-primary" onclick="closeModal()">Close Window</button>
             </div>
         </div>
     </div>
@@ -386,23 +372,16 @@ $teamMembers = [
         }
 
         function openEditModal(data) {
-            document.getElementById('modalTitle').innerText = "Team Member: " + data.first_name;
-            document.getElementById('fName').value = data.first_name;
-            document.getElementById('lName').value = data.last_name;
-            document.getElementById('email').value = data.email;
-            document.getElementById('phone').value = data.phone;
-            document.getElementById('desig').value = data.designation;
-            document.getElementById('status').value = data.status;
-            // Pre-fill salary
-            document.getElementById('salary').value = data.salary || "";
+            document.getElementById('modalTitle').innerText = "Team Member: " + data.full_name;
+            document.getElementById('fName').value = data.first_name || '';
+            document.getElementById('lName').value = data.last_name || '';
+            document.getElementById('email').value = data.email || '';
+            document.getElementById('phone').value = data.phone || '';
+            document.getElementById('desig').value = data.designation || '';
+            document.getElementById('status').value = data.status || '';
+            document.getElementById('salary').value = data.salary || 'Confidential';
+            document.getElementById('perfScore').value = data.performance_score + '/100' || 'N/A';
             
-            document.body.style.overflow = 'hidden';
-            document.getElementById('memberModal').classList.add('active');
-        }
-
-        function openAddModal() {
-            document.getElementById('modalTitle').innerText = "Add New Team Member";
-            document.getElementById('memberForm').reset();
             document.body.style.overflow = 'hidden';
             document.getElementById('memberModal').classList.add('active');
         }
@@ -410,6 +389,36 @@ $teamMembers = [
         function closeModal() {
             document.body.style.overflow = 'auto';
             document.getElementById('memberModal').classList.remove('active');
+        }
+
+        function filterTeam() {
+            let search = document.getElementById('searchInput').value.toLowerCase();
+            let status = document.getElementById('statusFilter').value.toLowerCase();
+            
+            // Filter List View
+            let trs = document.getElementById('teamTable').getElementsByTagName('tr');
+            for (let i = 1; i < trs.length; i++) {
+                if(trs[i].cells.length < 6) continue;
+                let name = trs[i].cells[0].textContent.toLowerCase();
+                let stat = trs[i].cells[5].textContent.toLowerCase();
+                
+                let matchesSearch = name.includes(search);
+                let matchesStatus = status === "" || stat.includes(status);
+                
+                trs[i].style.display = (matchesSearch && matchesStatus) ? "" : "none";
+            }
+
+            // Filter Grid View
+            let cards = document.getElementsByClassName('emp-card');
+            for(let i=0; i<cards.length; i++) {
+                let name = cards[i].getAttribute('data-name');
+                let stat = cards[i].getAttribute('data-status');
+                
+                let matchesSearch = name.includes(search);
+                let matchesStatus = status === "" || stat.includes(status);
+                
+                cards[i].style.display = (matchesSearch && matchesStatus) ? "block" : "none";
+            }
         }
 
         window.onclick = function(e) {
