@@ -1,78 +1,13 @@
 <?php
 // ticketraise_form.php
 
-// 1. SESSION & CONFIGURATION
+// 1. Session & Sidebar
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include 'sidebars.php';
 
-// --- Database Connection ---
-$db_connect_path = '../include/db_connect.php'; // Adjusted path based on standard structure
-if (file_exists($db_connect_path)) {
-    require_once $db_connect_path;
-} else {
-    // Fallback if file is in root
-    require_once 'include/db_connect.php';
-}
-
-// Security Check
-if (!isset($_SESSION['user_id'])) {
-    header("Location: index.php"); 
-    exit();
-}
-
-$current_user_id = $_SESSION['user_id'];
+// 2. Mock Data
+$ticket_id = "TKT-" . rand(10000, 99999);
 $user_name = $_SESSION['username'] ?? 'User';
-
-// --- HANDLE FORM SUBMISSION ---
-$notification_msg = "";
-$notification_type = "";
-
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $subject = mysqli_real_escape_string($conn, $_POST['subject']);
-    $priority = mysqli_real_escape_string($conn, $_POST['priority']);
-    $department = mysqli_real_escape_string($conn, $_POST['department']);
-    $cc_email = mysqli_real_escape_string($conn, $_POST['cc_email']);
-    $description = mysqli_real_escape_string($conn, $_POST['description']);
-    
-    // Generate Ticket ID
-    $ticket_code = "TKT-" . rand(10000, 99999);
-
-    // Handle File Upload
-    $attachment_path = NULL;
-    if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] == 0) {
-        $upload_dir = "../uploads/tickets/";
-        if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
-
-        $file_name = time() . "_" . basename($_FILES['attachment']['name']);
-        $target_file = $upload_dir . $file_name;
-        $file_type = strtolower(pathinfo($target_file, PATHINFO_EXTENSION));
-        
-        $allowed_types = array("jpg", "jpeg", "png", "pdf", "svg");
-        if (in_array($file_type, $allowed_types) && $_FILES['attachment']['size'] <= 5000000) {
-            if (move_uploaded_file($_FILES['attachment']['tmp_name'], $target_file)) {
-                $attachment_path = $file_name; // Store filename only or relative path
-            }
-        }
-    }
-
-    // Insert into DB
-    $sql = "INSERT INTO tickets (user_id, ticket_code, subject, priority, department, cc_email, description, attachment, status) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Open')";
-    
-    $stmt = $conn->prepare($sql);
-    $stmt->bind_param("isssssss", $current_user_id, $ticket_code, $subject, $priority, $department, $cc_email, $description, $attachment_path);
-    
-    if ($stmt->execute()) {
-        $notification_msg = "Ticket #$ticket_code raised successfully!";
-        $notification_type = "success";
-    } else {
-        $notification_msg = "Error raising ticket. Please try again.";
-        $notification_type = "error";
-    }
-    $stmt->close();
-}
-
-// Generate a display ID for the UI (Mock for display before submission)
-$display_ticket_id = "TKT-" . rand(10000, 99999);
 ?>
 
 <!DOCTYPE html>
@@ -203,16 +138,9 @@ $display_ticket_id = "TKT-" . rand(10000, 99999);
         select option[value="Medium"] { color: #f59e0b; font-weight: bold; }
         select option[value="Low"] { color: #10b981; font-weight: bold; }
 
-        /* Toast Animation */
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
     </style>
 </head>
 <body>
-
-<?php include 'sidebars.php'; ?>
 
 <div id="mainContent">
     <?php include 'header.php'; ?>
@@ -232,12 +160,12 @@ $display_ticket_id = "TKT-" . rand(10000, 99999);
         </div>
         <div class="text-right">
             <p class="text-sm text-gray-500">Ticket ID (Auto)</p>
-            <p class="font-mono font-bold text-lg text-slate-700">#<?php echo $display_ticket_id; ?></p>
+            <p class="font-mono font-bold text-lg text-slate-700">#<?php echo $ticket_id; ?></p>
         </div>
     </div>
 
     <div class="p-6 md:p-10 w-full">
-        <form id="ticketForm" action="" method="POST" enctype="multipart/form-data">
+        <form id="ticketForm" action="submit_ticket.php" method="POST" enctype="multipart/form-data">
             <div class="form-card">
                 
                 <div class="form-header">
@@ -316,29 +244,6 @@ $display_ticket_id = "TKT-" . rand(10000, 99999);
     </div>
 
 </div>
-
-<?php if (!empty($notification_msg)): ?>
-<div id="toast" class="fixed top-5 right-5 z-50 flex items-center w-full max-w-xs p-4 space-x-3 text-gray-500 bg-white rounded-lg shadow-xl border-l-4 <?php echo ($notification_type == 'success') ? 'border-green-500' : 'border-red-500'; ?>" style="animation: slideIn 0.5s ease-out;">
-    <div class="inline-flex items-center justify-center flex-shrink-0 w-8 h-8 <?php echo ($notification_type == 'success') ? 'text-green-500 bg-green-100' : 'text-red-500 bg-red-100'; ?> rounded-lg">
-        <i class="fa-solid <?php echo ($notification_type == 'success') ? 'fa-check' : 'fa-triangle-exclamation'; ?>"></i>
-    </div>
-    <div class="ml-3 text-sm font-normal text-slate-800"><?php echo $notification_msg; ?></div>
-    <button type="button" class="ml-auto -mx-1.5 -my-1.5 bg-white text-gray-400 hover:text-gray-900 rounded-lg focus:ring-2 focus:ring-gray-300 p-1.5 hover:bg-gray-100 inline-flex h-8 w-8" onclick="document.getElementById('toast').remove()">
-        <i class="fa-solid fa-xmark"></i>
-    </button>
-</div>
-<script>
-    // Auto hide toast after 4 seconds
-    setTimeout(() => {
-        const toast = document.getElementById('toast');
-        if(toast) {
-            toast.style.transition = "opacity 0.5s ease";
-            toast.style.opacity = "0";
-            setTimeout(() => toast.remove(), 500);
-        }
-    }, 4000);
-</script>
-<?php endif; ?>
 
 <script>
     // 1. File Upload Logic

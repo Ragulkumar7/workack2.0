@@ -195,6 +195,14 @@ $sections = [
                 'icon' => 'banknote', 
                 'allowed' => ['HR'] // Only HR can see Salary Hike option
             ],
+
+            // --- PROJECTS & CLIENTS ---
+            [
+                'name' => 'Projects', 
+                'path' => $base . 'manager/manager_projects.php', 
+                'icon' => 'layers', 
+                'allowed' => ['Manager', 'System Admin']
+            ],
             [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
@@ -235,15 +243,14 @@ $sections = [
                 'path' => $base . 'HR_executive/ats.php', 
                 'icon' => 'file-search',
                 'allowed' => ['HR Executive']
-            ],  
-            
+            ], 
+            // employee requirements for manager only 
             [
                 'name' => 'Employee <br> Requirements', 
-                'path' => $base . './manager/employee_requirements.php', 
-                'icon' => 'user-plus', // Lucide icon name
+                'path' => $base . 'manager/employee_requirements.php', 
+                'icon' => 'user-plus',
                 'allowed' => ['Manager']
-            ],
-           
+            ],  
              // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 
