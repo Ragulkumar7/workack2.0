@@ -219,7 +219,7 @@ $sections = [
             ],
             [
                 'name' => 'Performance', 
-                'path' => $base . 'team_performance.php', 
+                'path' => $base . 'manager/team_performance.php', 
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager'],
             ],
