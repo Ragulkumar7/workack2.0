@@ -7,44 +7,66 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start(); 
 }
 
-// 3. DB CONNECTION
-include('include/db_connect.php'); 
+// Ensure the user is logged in
+if (!isset($_SESSION['user_id'])) { 
+    header("Location: index.php"); 
+    exit(); 
+}
+$current_user_id = $_SESSION['user_id'];
 
-// 4. FETCH PERFORMANCE DATA (Updated to use the new database structure)
+// 3. DB CONNECTION
+require_once 'include/db_connect.php'; 
+
+// 4. FETCH PERFORMANCE DATA (Filtered strictly for the logged-in Manager or Team Lead)
 $performanceData = [];
+
+// This query checks if the employee reports to the logged-in user either as a TL or Manager
 $sql = "SELECT 
             ep.emp_id_code as employee_id, 
             ep.full_name, 
             ep.designation, 
             ep.profile_img as profile_image, 
-            per.performance_grade as performance_status,
-            per.total_score as performance_score,
-            per.project_completion_pct as project_completion_rate,
-            per.task_completion_pct as task_completion_rate,
-            per.attendance_pct as attendance_rate
+            COALESCE(per.performance_grade, 'Average') as performance_status,
+            COALESCE(per.total_score, 0) as performance_score,
+            COALESCE(per.project_completion_pct, 0) as project_completion_rate,
+            COALESCE(per.task_completion_pct, 0) as task_completion_rate,
+            COALESCE(per.attendance_pct, 0) as attendance_rate
         FROM employee_profiles ep
-        INNER JOIN employee_performance per ON ep.user_id = per.user_id
+        LEFT JOIN employee_performance per ON ep.user_id = per.user_id
+        WHERE ep.reporting_to = ? OR ep.manager_id = ?
         ORDER BY per.total_score DESC";
 
-$result = mysqli_query($conn, $sql);
+// Using prepared statements for security
+$stmt = mysqli_prepare($conn, $sql);
+if ($stmt) {
+    mysqli_stmt_bind_param($stmt, "ii", $current_user_id, $current_user_id);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
 
-if ($result && mysqli_num_rows($result) > 0) {
-    while($row = mysqli_fetch_assoc($result)) {
-        $performanceData[] = [
-            "id" => $row['employee_id'],
-            "name" => $row['full_name'],
-            "role" => $row['designation'],
-            "img" => $row['profile_image'],
-            "tasks_total" => 100, 
-            "tasks_done" => (float)$row['task_completion_rate'],
-            "attendance" => (float)$row['attendance_rate'],
-            "speed" => (float)$row['performance_score'],
-            "quality" => (float)$row['project_completion_rate'],
-            "status" => !empty($row['performance_status']) ? $row['performance_status'] : 'Average'
-        ];
+    if ($result && mysqli_num_rows($result) > 0) {
+        while($row = mysqli_fetch_assoc($result)) {
+            // Determine badge status fallback
+            $status = ($row['performance_status'] !== 'N/A' && !empty($row['performance_status'])) 
+                      ? $row['performance_status'] 
+                      : 'Average';
+
+            $performanceData[] = [
+                "id" => $row['employee_id'],
+                "name" => $row['full_name'],
+                "role" => $row['designation'],
+                "img" => $row['profile_image'],
+                "tasks_total" => 100, 
+                "tasks_done" => (float)$row['task_completion_rate'],
+                "attendance" => (float)$row['attendance_rate'],
+                "speed" => (float)$row['performance_score'],
+                "quality" => (float)$row['project_completion_rate'],
+                "status" => $status
+            ];
+        }
     }
-} else if (!$result) {
-    // Helpful debugging if the query ever fails again
+    mysqli_stmt_close($stmt);
+} else {
+    // Debugging if the query fails
     die("Database Query Failed: " . mysqli_error($conn));
 }
 ?>
@@ -151,10 +173,10 @@ if ($result && mysqli_num_rows($result) > 0) {
         .emp-role { font-size: 12px; color: var(--text-muted); }
 
         .grade-badge { padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .status-Excellent { background: #ecfdf5; color: #10b981; }
+        .status-Excellent, .status-High { background: #ecfdf5; color: #10b981; }
         .status-Good { background: #eff6ff; color: #3b82f6; }
         .status-Average { background: #fff7ed; color: #f59e0b; }
-        .status-Poor { background: #fef2f2; color: #ef4444; }
+        .status-Poor, .status-Low { background: #fef2f2; color: #ef4444; }
 
         .btn-view { background: #1e293b; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
         
@@ -257,7 +279,7 @@ if ($result && mysqli_num_rows($result) > 0) {
                     <div class="page-header">
                         <div class="header-title">
                             <h1>Performance Overview</h1>
-                            <p>Track and manage employee performance ratings</p>
+                            <p>Track and manage your team's performance ratings</p>
                         </div>
                     </div>
 
@@ -282,29 +304,37 @@ if ($result && mysqli_num_rows($result) > 0) {
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach($performanceData as $row): ?>
-                                <tr>
-                                    <td>
-                                        <div class="emp-cell">
-                                            <img src="assets/profiles/<?= !empty($row['img']) ? $row['img'] : 'default.png' ?>" class="emp-img" onerror="this.src='https://ui-avatars.com/api/?name=<?= urlencode($row['name']) ?>&background=random'">
-                                            <div>
-                                                <span class="emp-name"><?= htmlspecialchars($row['name']) ?></span>
-                                                <span class="emp-role"><?= htmlspecialchars($row['role']) ?></span>
+                                <?php if(empty($performanceData)): ?>
+                                    <tr>
+                                        <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 30px;">
+                                            No team members are currently assigned to you.
+                                        </td>
+                                    </tr>
+                                <?php else: ?>
+                                    <?php foreach($performanceData as $row): ?>
+                                    <tr>
+                                        <td>
+                                            <div class="emp-cell">
+                                                <img src="<?= !empty($row['img']) && strpos($row['img'], 'http') === 0 ? $row['img'] : 'assets/profiles/'.(!empty($row['img']) ? $row['img'] : 'default.png') ?>" class="emp-img" onerror="this.src='https://ui-avatars.com/api/?name=<?= urlencode($row['name']) ?>&background=random'">
+                                                <div>
+                                                    <span class="emp-name"><?= htmlspecialchars($row['name']) ?></span>
+                                                    <span class="emp-role"><?= htmlspecialchars($row['role']) ?></span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    </td>
-                                    <td style="color: var(--text-muted);">Web Development</td>
-                                    <td><?= $row['quality'] ?>%</td>
-                                    <td><?= $row['attendance'] ?>%</td>
-                                    <td><span style="font-weight:700;"><?= $row['speed'] ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
-                                    <td><span class="grade-badge status-<?= $row['status'] ?>"><?= $row['status'] ?></span></td>
-                                    <td>
-                                        <button class="btn-view" onclick='openDetails(<?= json_encode($row) ?>)'>
-                                            <i data-lucide="eye" style="width:14px"></i> View
-                                        </button>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
+                                        </td>
+                                        <td style="color: var(--text-muted);">Web Development</td>
+                                        <td><?= $row['quality'] ?>%</td>
+                                        <td><?= $row['attendance'] ?>%</td>
+                                        <td><span style="font-weight:700;"><?= rtrim(rtrim($row['speed'], '0'), '.') ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
+                                        <td><span class="grade-badge status-<?= $row['status'] ?>"><?= $row['status'] ?></span></td>
+                                        <td>
+                                            <button class="btn-view" onclick='openDetails(<?= json_encode($row) ?>)'>
+                                                <i data-lucide="eye" style="width:14px"></i> View
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    <?php endforeach; ?>
+                                <?php endif; ?>
                             </tbody>
                         </table>
                     </div>
@@ -339,10 +369,10 @@ if ($result && mysqli_num_rows($result) > 0) {
                                     <div class="score-circle-container">
                                         <svg viewBox="0 0 36 36" style="width:110px; height:110px;">
                                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#eee" stroke-width="3" />
-                                            <path id="scoreCircle" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--primary)" stroke-width="3" stroke-dasharray="75, 100" />
+                                            <path id="scoreCircle" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--primary)" stroke-width="3" stroke-dasharray="0, 100" style="transition: stroke-dasharray 1s ease-out;" />
                                         </svg>
                                         <div class="score-text">
-                                            <span class="score-num" id="dSpeed">65.9</span>
+                                            <span class="score-num" id="dSpeed">0</span>
                                             <span style="font-size:11px; color:var(--text-muted); font-weight:700; letter-spacing:1px;">SCORE</span>
                                         </div>
                                     </div>
@@ -350,17 +380,17 @@ if ($result && mysqli_num_rows($result) > 0) {
                                     <div class="metrics-row" style="flex:1;">
                                         <div class="metric-item">
                                             <span class="metric-label">Projects <span style="font-weight:400">40%</span></span>
-                                            <span class="metric-value" id="dQual">50%</span>
+                                            <span class="metric-value" id="dQual">0%</span>
                                             <span class="metric-sub">2/4 On Time</span>
                                         </div>
                                         <div class="metric-item">
                                             <span class="metric-label">Tasks <span style="font-weight:400">30%</span></span>
-                                            <span class="metric-value" id="dDone">75%</span>
+                                            <span class="metric-value" id="dDone">0%</span>
                                             <span class="metric-sub">30 Completed</span>
                                         </div>
                                         <div class="metric-item">
                                             <span class="metric-label">Attendance <span style="font-weight:400">20%</span></span>
-                                            <span class="metric-value" id="dAtt">82%</span>
+                                            <span class="metric-value" id="dAtt">0%</span>
                                             <span class="metric-sub">4 Days Leave</span>
                                         </div>
                                         <div class="metric-item">
@@ -408,7 +438,7 @@ if ($result && mysqli_num_rows($result) > 0) {
 
                                 <div class="comments-area">
                                     <span style="font-size:14px; font-weight:500; color:var(--text-muted);">Comments</span>
-                                    <textarea class="feedback-textarea" id="managerComments" placeholder="Enter feedback here...">Mike needs to improve on meeting deadlines. Technical skills are good.</textarea>
+                                    <textarea class="feedback-textarea" id="managerComments" placeholder="Enter feedback here...">Needs to improve on meeting deadlines. Technical skills are good.</textarea>
                                 </div>
                             </div>
                         </div>
@@ -428,19 +458,50 @@ if ($result && mysqli_num_rows($result) > 0) {
 
         function openDetails(data) {
             document.getElementById('modalName').innerText = data.name;
-            document.getElementById('modalImg').src = "assets/profiles/" + (data.img ? data.img : 'default.png');
+            
+            // Fix Profile Image Loading
+            let imgSource = data.img;
+            if(!imgSource || imgSource === 'default.png') {
+                imgSource = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+            } else if (!imgSource.startsWith('http')) {
+                imgSource = "assets/profiles/" + imgSource;
+            }
+            document.getElementById('modalImg').src = imgSource;
+            
             document.getElementById('modalRole').innerText = data.role + " • Web Development";
             
             document.getElementById('dDone').innerText = data.tasks_done + "%";
             document.getElementById('dAtt').innerText = data.attendance + "%";
             document.getElementById('dQual').innerText = data.quality + "%";
-            document.getElementById('dSpeed').innerText = data.speed;
+            
+            // Format score to drop trailing decimals
+            let rawScore = parseFloat(data.speed);
+            let formattedScore = Number.isInteger(rawScore) ? rawScore : rawScore.toFixed(1);
+            document.getElementById('dSpeed').innerText = formattedScore;
             
             const scoreLabel = document.getElementById('dStatusLabel');
             scoreLabel.innerText = data.status;
             
-            const circle = document.getElementById('scoreCircle');
-            circle.setAttribute('stroke-dasharray', `${data.speed}, 100`);
+            // Color formatting for modal
+            if(rawScore >= 90 || data.status === 'High' || data.status === 'Excellent') {
+                scoreLabel.style.color = '#10b981'; // Green
+                document.getElementById('scoreCircle').setAttribute('stroke', '#10b981');
+            } else if (rawScore >= 75 || data.status === 'Good') {
+                scoreLabel.style.color = '#3b82f6'; // Blue
+                document.getElementById('scoreCircle').setAttribute('stroke', '#3b82f6');
+            } else if (rawScore >= 50 || data.status === 'Average') {
+                scoreLabel.style.color = '#f97316'; // Orange
+                document.getElementById('scoreCircle').setAttribute('stroke', '#f97316');
+            } else {
+                scoreLabel.style.color = '#ef4444'; // Red
+                document.getElementById('scoreCircle').setAttribute('stroke', '#ef4444');
+            }
+            
+            // Animation for Ring
+            setTimeout(() => {
+                const circle = document.getElementById('scoreCircle');
+                circle.setAttribute('stroke-dasharray', `${formattedScore}, 100`);
+            }, 50);
 
             document.getElementById('listView').style.display = 'none';
             document.getElementById('detailModal').classList.add('active');
@@ -450,20 +511,25 @@ if ($result && mysqli_num_rows($result) > 0) {
         function closeModal() {
             document.getElementById('detailModal').classList.remove('active');
             document.getElementById('listView').style.display = 'block';
+            
+            // Reset ring for next animation
+            document.getElementById('scoreCircle').setAttribute('stroke-dasharray', `0, 100`);
         }
 
         document.getElementById('searchInput').addEventListener('keyup', function() {
             let filter = this.value.toUpperCase();
             let rows = document.querySelector("#performanceTable tbody").rows;
             for (let i = 0; i < rows.length; i++) {
-                let name = rows[i].querySelector('.emp-name').textContent.toUpperCase();
-                rows[i].style.display = name.includes(filter) ? "" : "none";
+                let nameCell = rows[i].querySelector('.emp-name');
+                if(nameCell) { // Prevent error on empty row
+                    let name = nameCell.textContent.toUpperCase();
+                    rows[i].style.display = name.includes(filter) ? "" : "none";
+                }
             }
         });
     </script>
 </body>
 </html>
 <?php 
-// End buffering
 ob_end_flush(); 
 ?>
