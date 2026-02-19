@@ -16,9 +16,18 @@ if (file_exists($dbPath)) {
     if(file_exists($dbPath)) {
         require_once $dbPath;
     } else {
-        die("Database connection file not found.");
+        die("Database connection file not found at: " . $dbPath);
     }
 }
+
+// CRITICAL FIX: Ensure $conn exists. If your db_connect.php uses a different variable name (like $con or $link), change it here!
+if (!isset($conn) || $conn === null) {
+    die("Database connection variable (\$conn) is null or not found in db_connect.php.");
+}
+
+// Flags to trigger SweetAlert after page load
+$show_success_alert = false;
+$show_error_alert = false;
 
 // --- NEW: HANDLE FORM SUBMISSION LOGIC ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
@@ -55,10 +64,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
     $stmt->bind_param("isssssss", $user_id, $ticket_code, $subject, $priority, $department, $cc_email, $description, $attachment);
 
     if ($stmt->execute()) {
-        echo "<script>alert('Ticket Raised Successfully!'); window.location.href='ticketraise.php';</script>";
-        exit();
+        $show_success_alert = true;
+
+        // --- AUTOMATICALLY SEND NOTIFICATION TO IT TEAM ---
+        $notif_title = "New Ticket: " . $ticket_code;
+        $notif_msg = "Dept: " . $department . " | Priority: " . $priority;
+        
+        // Find IT Admins and System Admins and insert a notification for them
+        $notif_query = "INSERT INTO notifications (user_id, title, message, type) 
+                        SELECT id, ?, ?, 'alert' FROM users WHERE role IN ('IT Admin', 'System Admin')";
+        $notif_stmt = $conn->prepare($notif_query);
+        $notif_stmt->bind_param("ss", $notif_title, $notif_msg);
+        $notif_stmt->execute();
+        $notif_stmt->close();
+
     } else {
-        echo "<script>alert('Error raising ticket.');</script>";
+        $show_error_alert = true;
     }
     $stmt->close();
 }
@@ -80,6 +101,8 @@ $user_name = $_SESSION['username'] ?? 'User';
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <style>
         :root {
@@ -308,6 +331,36 @@ $user_name = $_SESSION['username'] ?? 'User';
 
 </div>
 
+<?php if ($show_success_alert): ?>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        Swal.fire({
+            title: 'Ticket Raised Successfully!',
+            text: 'Your ticket has been sent to the IT team.',
+            icon: 'success',
+            confirmButtonColor: '#1b5a5a'
+        }).then(() => {
+            // REMOVED REDIRECT - STAYS ON SAME PAGE AND CLEARS FORM
+            document.getElementById('ticketForm').reset();
+            document.getElementById('fileNameDisplay').classList.add('hidden');
+        });
+    });
+</script>
+<?php endif; ?>
+
+<?php if ($show_error_alert): ?>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        Swal.fire({
+            title: 'Error!',
+            text: 'Failed to raise the ticket. Please try again.',
+            icon: 'error',
+            confirmButtonColor: '#1b5a5a'
+        });
+    });
+</script>
+<?php endif; ?>
+
 <script>
     // 1. File Upload Logic
     function showFileName(input) {
@@ -329,14 +382,14 @@ $user_name = $_SESSION['username'] ?? 'User';
         const allowedTypes = ['image/jpeg', 'image/png', 'image/svg+xml', 'application/pdf'];
 
         if (file.size > maxSize) {
-            alert("File is too large! Maximum allowed size is 5MB.");
+            Swal.fire('File Too Large', 'Maximum allowed size is 5MB.', 'error');
             document.getElementById('fileInput').value = ""; // Clear input
             document.getElementById('fileNameDisplay').classList.add('hidden');
             return false;
         }
 
         if (!allowedTypes.includes(file.type)) {
-            alert("Invalid file type! Only JPG, PNG, SVG, and PDF are allowed.");
+            Swal.fire('Invalid File', 'Only JPG, PNG, SVG, and PDF are allowed.', 'error');
             document.getElementById('fileInput').value = ""; // Clear input
             document.getElementById('fileNameDisplay').classList.add('hidden');
             return false;
@@ -353,19 +406,19 @@ $user_name = $_SESSION['username'] ?? 'User';
 
         if (subject.length < 5) {
             e.preventDefault();
-            alert("Subject must be at least 5 characters long.");
+            Swal.fire('Validation Error', 'Subject must be at least 5 characters long.', 'warning');
             return;
         }
 
         if (description.length < 10) {
             e.preventDefault();
-            alert("Description must be at least 10 characters long.");
+            Swal.fire('Validation Error', 'Description must be at least 10 characters long.', 'warning');
             return;
         }
 
         if (department === "" || priority === "") {
             e.preventDefault();
-            alert("Please select both Department and Priority.");
+            Swal.fire('Validation Error', 'Please select both Department and Priority.', 'warning');
             return;
         }
     });
