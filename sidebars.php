@@ -259,7 +259,7 @@ $sections = [
             ],  
             [
             'name' => 'My Team', 
-            'path' => 'manager/my_team.php', 
+            'path' => $base . 'manager/my_team.php', 
             'icon' => 'users', // Uses lucide/font-awesome icon
             'allowed' => ['Manager', 'System Admin'] 
         ],
