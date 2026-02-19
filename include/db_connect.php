@@ -15,6 +15,9 @@ if (!$conn) {
     die("Connection failed: " . mysqli_connect_error());
 }
 
+// --- NEW: FORCE INDIA TIMEZONE FOR PHP AND MYSQL ---
+date_default_timezone_set('Asia/Kolkata');
+mysqli_query($conn, "SET time_zone = '+05:30'");
 // ────────────────────────────────────────────────
 // ADD ENCRYPTION KEY HERE (after successful connection)
 // NEVER commit this key to Git or share it!

@@ -20,6 +20,161 @@ $tl_user_id = $_SESSION['user_id'];
 $today = date('Y-m-d');
 
 // =========================================================================
+// H. TL'S OWN ATTENDANCE LOGIC (AJAX & INITIAL LOAD)
+// =========================================================================
+
+// Function to calculate current worked seconds
+function getWorkedSeconds($conn, $user_id, $date) {
+    $att_check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
+    $stmt_chk = $conn->prepare($att_check_sql);
+    $stmt_chk->bind_param("is", $user_id, $date);
+    $stmt_chk->execute();
+    $record = $stmt_chk->get_result()->fetch_assoc();
+    $stmt_chk->close();
+
+    if (!$record) return 0;
+
+    $break_seconds = 0;
+    $is_on_break = false;
+    $break_start_ts = 0;
+
+    // Check if on break
+    $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
+    $stmt_bk = $conn->prepare($bk_sql);
+    $stmt_bk->bind_param("i", $record['id']);
+    $stmt_bk->execute();
+    if ($bk_row = $stmt_bk->get_result()->fetch_assoc()) {
+        $is_on_break = true;
+        $break_start_ts = strtotime($bk_row['break_start']);
+    }
+    $stmt_bk->close();
+
+    // Sum past breaks
+    $sum_sql = "SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as total FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NOT NULL";
+    $stmt_sum = $conn->prepare($sum_sql);
+    $stmt_sum->bind_param("i", $record['id']);
+    $stmt_sum->execute();
+    $sum_res = $stmt_sum->get_result()->fetch_assoc();
+    $break_seconds = $sum_res['total'] ?? 0;
+    $stmt_sum->close();
+
+    $start_ts = strtotime($record['punch_in']);
+    if ($is_on_break) {
+        $now_ts = $break_start_ts;
+    } elseif ($record['punch_out']) {
+        $now_ts = strtotime($record['punch_out']);
+    } else {
+        $now_ts = time();
+    }
+    
+    $worked = ($now_ts - $start_ts) - $break_seconds;
+    return $worked > 0 ? $worked : 0;
+}
+
+// Check if this is an AJAX request for attendance actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
+    header('Content-Type: application/json');
+    $action = $_POST['ajax_action'];
+    $now_db = date('Y-m-d H:i:s');
+    
+    // Fetch current record
+    $att_check_sql = "SELECT id, punch_out FROM attendance WHERE user_id = ? AND date = ?";
+    $stmt_chk = $conn->prepare($att_check_sql);
+    $stmt_chk->bind_param("is", $tl_user_id, $today);
+    $stmt_chk->execute();
+    $record = $stmt_chk->get_result()->fetch_assoc();
+    $stmt_chk->close();
+
+    // Determine Break Status
+    $is_on_break = false;
+    if ($record) {
+        $bk_sql = "SELECT id FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
+        $stmt_bk = $conn->prepare($bk_sql);
+        $stmt_bk->bind_param("i", $record['id']);
+        $stmt_bk->execute();
+        if ($stmt_bk->get_result()->fetch_assoc()) {
+            $is_on_break = true;
+        }
+        $stmt_bk->close();
+    }
+
+    try {
+        if ($action === 'punch_in' && !$record) {
+            $ins = $conn->prepare("INSERT INTO attendance (user_id, punch_in, date, status) VALUES (?, ?, ?, 'On Time')");
+            $ins->bind_param("iss", $tl_user_id, $now_db, $today);
+            $ins->execute();
+            echo json_encode(['status' => 'success', 'state' => 'in', 'time' => date('h:i A')]);
+            exit();
+        } 
+        elseif ($action === 'break_start' && $record && !$is_on_break) {
+            $ins = $conn->prepare("INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)");
+            $ins->bind_param("is", $record['id'], $now_db);
+            $ins->execute();
+            echo json_encode(['status' => 'success', 'state' => 'break', 'seconds' => getWorkedSeconds($conn, $tl_user_id, $today)]);
+            exit();
+        } 
+        elseif ($action === 'break_end' && $record && $is_on_break) {
+            $upd = $conn->prepare("UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL");
+            $upd->bind_param("si", $now_db, $record['id']);
+            $upd->execute();
+            echo json_encode(['status' => 'success', 'state' => 'in', 'seconds' => getWorkedSeconds($conn, $tl_user_id, $today)]);
+            exit();
+        } 
+        elseif ($action === 'punch_out' && $record && !$record['punch_out']) {
+            if ($is_on_break) {
+                $upd = $conn->prepare("UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL");
+                $upd->bind_param("si", $now_db, $record['id']);
+                $upd->execute();
+            }
+            
+            $final_seconds = getWorkedSeconds($conn, $tl_user_id, $today);
+            $hours = $final_seconds / 3600;
+            
+            $upd = $conn->prepare("UPDATE attendance SET punch_out = ?, production_hours = ? WHERE id = ?");
+            $upd->bind_param("sdi", $now_db, $hours, $record['id']);
+            $upd->execute();
+            echo json_encode(['status' => 'success', 'state' => 'out', 'seconds' => $final_seconds]);
+            exit();
+        }
+        
+        echo json_encode(['status' => 'error', 'message' => 'Invalid action or state']);
+        exit();
+    } catch (Exception $e) {
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+        exit();
+    }
+}
+
+// INITIAL PAGE LOAD DATA FETCHING
+
+// 1. Fetch current day attendance record for display
+$tl_attendance_record = null;
+$tl_is_on_break = false;
+$att_check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
+$stmt_chk = $conn->prepare($att_check_sql);
+$stmt_chk->bind_param("is", $tl_user_id, $today);
+$stmt_chk->execute();
+$tl_attendance_record = $stmt_chk->get_result()->fetch_assoc();
+$stmt_chk->close();
+
+$tl_display_punch_in = "--:--";
+if ($tl_attendance_record) {
+    $tl_display_punch_in = date('h:i A', strtotime($tl_attendance_record['punch_in']));
+    
+    // Check if on break
+    $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
+    $stmt_bk = $conn->prepare($bk_sql);
+    $stmt_bk->bind_param("i", $tl_attendance_record['id']);
+    $stmt_bk->execute();
+    if ($stmt_bk->get_result()->fetch_assoc()) {
+        $tl_is_on_break = true;
+    }
+    $stmt_bk->close();
+}
+$tl_total_seconds_worked = getWorkedSeconds($conn, $tl_user_id, $today);
+
+
+// =========================================================================
 // 3. FETCH DYNAMIC DASHBOARD DATA
 // =========================================================================
 
@@ -236,19 +391,53 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                 </div>
 
                 <div class="bg-orange-500 text-white px-6 py-2 rounded-lg shadow-md mb-4 w-full max-w-[200px]">
-                    <span class="text-sm font-medium">Production : <span id="productionTimer">0.00</span> hrs</span>
+                    <span class="text-sm font-medium">Duration : 
+                        <span id="productionTimer" 
+                              data-running="<?php echo ($tl_attendance_record && !$tl_attendance_record['punch_out'] && !$tl_is_on_break) ? 'true' : 'false'; ?>"
+                              data-total="<?php echo $tl_total_seconds_worked; ?>">
+                            <?php 
+                                $h = floor($tl_total_seconds_worked / 3600);
+                                $m = floor(($tl_total_seconds_worked % 3600) / 60);
+                                $s = $tl_total_seconds_worked % 60;
+                                echo str_pad($h, 2, '0', STR_PAD_LEFT) . ':' . str_pad($m, 2, '0', STR_PAD_LEFT) . ':' . str_pad($s, 2, '0', STR_PAD_LEFT);
+                            ?>
+                        </span>
+                    </span>
                 </div>
 
                 <div class="flex items-center justify-center gap-2 text-gray-600 mb-6" id="statusDisplay">
-                    <i data-lucide="fingerprint" class="w-5 h-5 text-orange-500"></i>
-                    <span class="font-medium text-sm">Not Punched In</span>
+                    <?php if (!$tl_attendance_record): ?>
+                        <i data-lucide="fingerprint" class="w-5 h-5 text-gray-400"></i>
+                        <span class="font-medium text-sm">Not Punched In</span>
+                    <?php elseif ($tl_attendance_record['punch_out']): ?>
+                        <i data-lucide="check-circle" class="w-5 h-5 text-emerald-500"></i>
+                        <span class="font-medium text-sm">Shift Completed</span>
+                    <?php elseif ($tl_is_on_break): ?>
+                        <i data-lucide="coffee" class="w-5 h-5 text-orange-500"></i>
+                        <span class="font-medium text-sm">On Break</span>
+                    <?php else: ?>
+                        <i data-lucide="clock" class="w-5 h-5 text-emerald-500"></i>
+                        <span class="font-medium text-sm" id="punchInTimeDisplay">Punched In at <?php echo $tl_display_punch_in; ?></span>
+                    <?php endif; ?>
                 </div>
 
-                <div class="w-full space-y-3">
-                    <button id="mainPunchBtn" onclick="handlePunch()" class="btn-punch">Punch In</button>
-                    <button id="breakBtn" onclick="toggleBreak()" class="btn w-full border-orange-200 text-orange-600 hover:bg-orange-50 hidden">
-                        <i data-lucide="coffee" class="w-4 h-4 mr-2"></i> Take a Break
-                    </button>
+                <div class="w-full space-y-3" id="attendanceButtons">
+                    <?php if (!$tl_attendance_record): ?>
+                        <button onclick="handleAjaxAction('punch_in')" class="btn-punch bg-emerald-600 hover:bg-emerald-700">Punch In</button>
+                    <?php elseif (!$tl_attendance_record['punch_out']): ?>
+                        <button onclick="handleAjaxAction('punch_out')" class="btn-punch bg-slate-900 hover:bg-slate-800 mb-2">Punch Out</button>
+                        <?php if ($tl_is_on_break): ?>
+                            <button onclick="handleAjaxAction('break_end')" class="btn w-full border-blue-200 text-blue-600 hover:bg-blue-50">
+                                <i data-lucide="play" class="w-4 h-4 mr-2"></i> Resume Work
+                            </button>
+                        <?php else: ?>
+                            <button onclick="handleAjaxAction('break_start')" class="btn w-full border-orange-200 text-orange-600 hover:bg-orange-50">
+                                <i data-lucide="coffee" class="w-4 h-4 mr-2"></i> Take a Break
+                            </button>
+                        <?php endif; ?>
+                    <?php else: ?>
+                        <button disabled class="btn-punch bg-gray-300 text-gray-500 cursor-not-allowed">Shift Completed</button>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -463,131 +652,121 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
         lucide.createIcons();
 
         /* ==============================
-           1. LIVE CLOCK & DATE LOGIC
+           1. LIVE CLOCK
            ============================== */
         function updateClock() {
             const now = new Date();
             let hours = now.getHours();
             const minutes = String(now.getMinutes()).padStart(2, '0');
             const ampm = hours >= 12 ? 'PM' : 'AM';
-            
             hours = hours % 12;
             hours = hours ? hours : 12; 
             hours = String(hours).padStart(2, '0');
-
             document.getElementById('liveClock').textContent = `${hours}:${minutes} ${ampm}`;
         }
         setInterval(updateClock, 1000);
         updateClock();
 
         /* ==============================
-           2. ATTENDANCE & TIMER LOGIC
+           2. NEW AJAX ATTENDANCE & LIVE TIMER LOGIC
            ============================== */
         let timerInterval;
-        let secondsElapsed = 0;
-        let isPunchedIn = false;
-        let isOnBreak = false;
+        let isRunning = <?php echo ($tl_attendance_record && !$tl_attendance_record['punch_out'] && !$tl_is_on_break) ? 'true' : 'false'; ?>;
+        let totalSeconds = <?php echo $tl_total_seconds_worked; ?>;
+        let currentSessionStart = new Date().getTime(); 
 
-        window.addEventListener('load', () => {
-            const savedState = localStorage.getItem('tl_attendanceState');
-            const savedTime = localStorage.getItem('tl_punchTime');
-            const savedSeconds = localStorage.getItem('tl_secondsElapsed');
-
-            if (savedSeconds) secondsElapsed = parseInt(savedSeconds);
-
-            if (savedState === 'punchedIn') {
-                isPunchedIn = true;
-                setUIState('in', savedTime);
-                startTimer();
-            } else if (savedState === 'onBreak') {
-                isPunchedIn = true;
-                isOnBreak = true;
-                setUIState('break', savedTime);
-            }
-            updateTimerDisplay();
-        });
-
-        function handlePunch() {
-            const now = new Date();
-            const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-            if (!isPunchedIn) {
-                isPunchedIn = true;
-                localStorage.setItem('tl_attendanceState', 'punchedIn');
-                localStorage.setItem('tl_punchTime', timeString);
-                setUIState('in', timeString);
-                startTimer();
-            } else {
-                stopTimer();
-                isPunchedIn = false;
-                isOnBreak = false;
-                secondsElapsed = 0; 
-                localStorage.removeItem('tl_attendanceState');
-                localStorage.removeItem('tl_punchTime');
-                localStorage.removeItem('tl_secondsElapsed');
-                setUIState('out');
-                updateTimerDisplay();
-            }
+        function formatTimerDisplay(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
         }
 
-        function toggleBreak() {
-            if (!isPunchedIn) return;
-
-            if (!isOnBreak) {
-                isOnBreak = true;
-                stopTimer(); 
-                localStorage.setItem('tl_attendanceState', 'onBreak');
-                setUIState('break', localStorage.getItem('tl_punchTime'));
-            } else {
-                isOnBreak = false;
-                startTimer(); 
-                localStorage.setItem('tl_attendanceState', 'punchedIn');
-                setUIState('in', localStorage.getItem('tl_punchTime'));
-            }
+        function runTimer() {
+            if (!isRunning) return;
+            const now = new Date().getTime();
+            const diffSeconds = Math.floor((now - currentSessionStart) / 1000);
+            const activeTotal = totalSeconds + diffSeconds;
+            document.getElementById('productionTimer').textContent = formatTimerDisplay(activeTotal);
         }
 
-        function startTimer() {
-            clearInterval(timerInterval);
-            timerInterval = setInterval(() => {
-                secondsElapsed++;
-                localStorage.setItem('tl_secondsElapsed', secondsElapsed);
-                updateTimerDisplay();
-            }, 1000);
+        if (isRunning) {
+            timerInterval = setInterval(runTimer, 1000);
         }
 
-        function stopTimer() {
-            clearInterval(timerInterval);
+        // AJAX function to call the server
+        function handleAjaxAction(actionType) {
+            const formData = new FormData();
+            formData.append('ajax_action', actionType);
+
+            fetch('', { // Posting to self
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    updateUI(data.state, data.time, data.seconds);
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Fetch error:', error);
+                alert("Action failed. Reloading...");
+                location.reload();
+            });
         }
 
-        function updateTimerDisplay() {
-            const hours = Math.floor(secondsElapsed / 3600);
-            const minutes = Math.floor((secondsElapsed % 3600) / 60);
-            let displayVal = `${hours}.${String(minutes).padStart(2, '0')}`;
-            document.getElementById('productionTimer').textContent = displayVal;
-        }
-
-        function setUIState(state, time = '') {
-            const mainBtn = document.getElementById('mainPunchBtn');
-            const breakBtn = document.getElementById('breakBtn');
+        // Update UI dynamically based on server response
+        function updateUI(state, timeStr = null, dbSeconds = null) {
+            const btnContainer = document.getElementById('attendanceButtons');
             const statusTxt = document.getElementById('statusDisplay');
+            
+            // Sync seconds from database
+            if (dbSeconds !== null) {
+                totalSeconds = parseInt(dbSeconds);
+                document.getElementById('productionTimer').textContent = formatTimerDisplay(totalSeconds);
+            }
 
             if (state === 'in') {
-                mainBtn.textContent = "Punch Out";
-                mainBtn.className = "btn-punch bg-slate-900 hover:bg-slate-800"; 
-                breakBtn.classList.remove('hidden');
-                breakBtn.innerHTML = '<i data-lucide="coffee" class="w-4 h-4 mr-2"></i> Take a Break';
-                statusTxt.innerHTML = `<i data-lucide="clock" class="w-5 h-5 text-emerald-500"></i> Punch In at ${time}`;
+                isRunning = true;
+                currentSessionStart = new Date().getTime();
+                clearInterval(timerInterval);
+                timerInterval = setInterval(runTimer, 1000);
+                
+                let displayTime = timeStr ? timeStr : document.getElementById('punchInTimeDisplay')?.textContent.replace('Punched In at ', '') || '';
+                
+                btnContainer.innerHTML = `
+                    <button onclick="handleAjaxAction('punch_out')" class="btn-punch bg-slate-900 hover:bg-slate-800 mb-2">Punch Out</button>
+                    <button onclick="handleAjaxAction('break_start')" class="btn w-full border-orange-200 text-orange-600 hover:bg-orange-50">
+                        <i data-lucide="coffee" class="w-4 h-4 mr-2"></i> Take a Break
+                    </button>
+                `;
+                statusTxt.innerHTML = `<i data-lucide="clock" class="w-5 h-5 text-emerald-500"></i> <span class="font-medium text-sm" id="punchInTimeDisplay">Punched In at ${displayTime}</span>`;
+            
             } else if (state === 'break') {
-                mainBtn.textContent = "Punch Out"; 
-                breakBtn.classList.remove('hidden');
-                breakBtn.innerHTML = '<i data-lucide="play" class="w-4 h-4 mr-2"></i> Resume Work';
-                statusTxt.innerHTML = `<i data-lucide="coffee" class="w-5 h-5 text-orange-500"></i> On Break`;
-            } else {
-                mainBtn.textContent = "Punch In";
-                mainBtn.className = "btn-punch bg-emerald-600 hover:bg-emerald-700"; 
-                breakBtn.classList.add('hidden');
-                statusTxt.innerHTML = `<i data-lucide="fingerprint" class="w-5 h-5 text-gray-400"></i> Not Punched In`;
+                isRunning = false;
+                clearInterval(timerInterval);
+                
+                btnContainer.innerHTML = `
+                    <button onclick="handleAjaxAction('punch_out')" class="btn-punch bg-slate-900 hover:bg-slate-800 mb-2">Punch Out</button>
+                    <button onclick="handleAjaxAction('break_end')" class="btn w-full border-blue-200 text-blue-600 hover:bg-blue-50">
+                        <i data-lucide="play" class="w-4 h-4 mr-2"></i> Resume Work
+                    </button>
+                `;
+                statusTxt.innerHTML = `<i data-lucide="coffee" class="w-5 h-5 text-orange-500"></i> <span class="font-medium text-sm">On Break</span>`;
+            
+            } else if (state === 'out') {
+                isRunning = false;
+                clearInterval(timerInterval);
+                
+                btnContainer.innerHTML = `
+                    <button disabled class="btn-punch bg-gray-300 text-gray-500 cursor-not-allowed">Shift Completed</button>
+                `;
+                statusTxt.innerHTML = `<i data-lucide="check-circle" class="w-5 h-5 text-emerald-500"></i> <span class="font-medium text-sm">Shift Completed</span>`;
             }
+            
             lucide.createIcons();
         }
 
@@ -607,7 +786,6 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
             grid: { borderColor: '#f3f4f6', padding: {top: 0, bottom: 0} }
         }).render();
 
-        // Dynamically fed from Database PHP Variables
         new ApexCharts(document.querySelector("#priorityDonutChart"), {
             series: [<?php echo $high_tasks; ?>, <?php echo $med_tasks; ?>, <?php echo $low_tasks; ?>],
             labels: ['High', 'Medium', 'Low'],
