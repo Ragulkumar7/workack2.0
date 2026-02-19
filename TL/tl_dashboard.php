@@ -621,7 +621,8 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                         <?php foreach($pending_approvals as $app): ?>
                             <?php 
                                 $bg_color = $app['req_type'] == 'Leave' ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100';
-                                $link = $app['req_type'] == 'Leave' ? '../leave_approval.php' : '../wfh_management.php';
+                                // MODIFIED LINE: Added ?id= to pass exactly which request was clicked
+                                $link = $app['req_type'] == 'Leave' ? '../leave_approval.php?id=' . $app['id'] : '../wfh_management.php?id=' . $app['id'];
                             ?>
                             <div class="flex gap-3 items-center p-2 rounded-lg border <?php echo $bg_color; ?> hover:shadow-sm transition">
                                 <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($app['emp_name']); ?>&background=random" class="w-10 h-10 rounded-full shadow-sm">
