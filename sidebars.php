@@ -243,6 +243,13 @@ $sections = [
                 'path' => $base . 'HR_executive/ats.php', 
                 'icon' => 'file-search',
                 'allowed' => ['HR Executive']
+            ], 
+            // employee requirements for manager only 
+            [
+                'name' => 'Employee <br> Requirements', 
+                'path' => $base . 'manager/employee_requirements.php', 
+                'icon' => 'user-plus',
+                'allowed' => ['Manager']
             ],  
              // --- ANNOUNCEMENT ---
             [
