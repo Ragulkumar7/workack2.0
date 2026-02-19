@@ -1,76 +1,98 @@
 <?php
-// timesheets.php
+// timesheets.php (Step-by-Step Drill-down View)
 
 // 1. SESSION START
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 
 // 2. DATABASE CONNECTION
+// (Assuming file is in root directory. If inside a folder, use '../include/db_connect.php')
 require_once 'include/db_connect.php';
 
-// 3. FILTERING LOGIC WITH DEFAULT CURRENT MONTH/YEAR
-$conditions = [];
+// 3. GET URL PARAMETERS (To determine which level we are viewing)
+$view_mgr = $_GET['view_mgr'] ?? null;
+$view_tl  = $_GET['view_tl'] ?? null;
+$filter_date = $_GET['f_date'] ?? date('Y-m-d');
+$safe_date = mysqli_real_escape_string($conn, $filter_date);
 
-// Determine default month and year if nothing is submitted
-$filter_date = $_GET['f_date'] ?? '';
-$filter_month = $_GET['f_month'] ?? '';
-$filter_year = $_GET['f_year'] ?? '';
+// 4. STEP-BY-STEP HIERARCHY LOGIC
+$back_link = "";
+$page_title = "";
+$query_condition = "";
 
-// If no filters are applied at all (initial load or reset), set to current month/year
-if (empty($filter_date) && empty($filter_month) && empty($filter_year)) {
-    $filter_month = date('m');
-    $filter_year = date('Y');
-}
+if ($view_tl) {
+    // ==========================================
+    // LEVEL 3: View Employees under a Team Lead
+    // ==========================================
+    $safe_tl = mysqli_real_escape_string($conn, $view_tl);
+    
+    // Find who this TL reports to (so we know where the 'Back' button should go)
+    $parent_mgr = $_GET['view_mgr'] ?? '';
+    
+    if (empty($parent_mgr)) {
+        $mgr_q = mysqli_query($conn, "SELECT manager_id, department FROM employee_profiles WHERE user_id = '$safe_tl'");
+        if ($mgr_q && mysqli_num_rows($mgr_q) > 0) {
+            $mgr_data = mysqli_fetch_assoc($mgr_q);
+            $parent_mgr = $mgr_data['manager_id'] ?? '';
+            // Fallback: match by department if no manager_id is set
+            if (empty($parent_mgr) && !empty($mgr_data['department'])) {
+                $dept_mgr_q = mysqli_query($conn, "SELECT u.id FROM users u JOIN employee_profiles e ON u.id = e.user_id WHERE u.role IN ('Manager', 'CFO', 'HR Manager', 'Sales Head') AND e.department = '{$mgr_data['department']}' LIMIT 1");
+                if ($dept_mgr_q && mysqli_num_rows($dept_mgr_q) > 0) {
+                    $parent_mgr = mysqli_fetch_assoc($dept_mgr_q)['id'] ?? '';
+                }
+            }
+        }
+    }
 
-// Apply conditions based on active filters
-if (!empty($filter_date)) {
-    $conditions[] = "a.date = '" . mysqli_real_escape_string($conn, $filter_date) . "'";
+    $query_condition = "ep.reporting_to = '$safe_tl'";
+    $back_link = "?view_mgr=$parent_mgr&f_date=$safe_date";
+    $page_title = "Team Members Timesheets";
+
+} elseif ($view_mgr) {
+    // ==========================================
+    // LEVEL 2: View Team Leads under a Manager
+    // ==========================================
+    $safe_mgr = mysqli_real_escape_string($conn, $view_mgr);
+    
+    // Get Manager's Department to find their TLs
+    $dept_q = mysqli_query($conn, "SELECT department FROM employee_profiles WHERE user_id = '$safe_mgr'");
+    $mgr_dept = "";
+    if ($dept_q && mysqli_num_rows($dept_q) > 0) {
+        $dept_data = mysqli_fetch_assoc($dept_q);
+        $mgr_dept = mysqli_real_escape_string($conn, $dept_data['department'] ?? '');
+    }
+
+    $query_condition = "u.role = 'Team Lead' AND (ep.manager_id = '$safe_mgr' OR ep.department = '$mgr_dept')";
+    $back_link = "?f_date=$safe_date"; // Back to Level 1 (Root)
+    $page_title = "Team Leads Timesheets";
+
 } else {
-    // Only apply month/year if an exact date IS NOT selected
-    if (!empty($filter_month)) {
-        $conditions[] = "MONTH(a.date) = '" . mysqli_real_escape_string($conn, $filter_month) . "'";
-    }
-    if (!empty($filter_year)) {
-        $conditions[] = "YEAR(a.date) = '" . mysqli_real_escape_string($conn, $filter_year) . "'";
-    }
+    // ==========================================
+    // LEVEL 1: Root View (Show ALL Managers)
+    // ==========================================
+    $query_condition = "u.role IN ('Manager', 'CFO', 'HR Manager', 'Sales Head')";
+    $back_link = ""; // No back button on root
+    $page_title = "Department Managers Timesheets";
 }
 
-$whereSQL = count($conditions) > 0 ? "WHERE " . implode(' AND ', $conditions) : "";
-
-// 4. FETCH TIMESHEET DATA
+// 5. FETCH TIMESHEETS (LEFT JOIN so we see them even if they didn't punch in)
 $query = "
-    SELECT 
-        u.id as user_id,
-        u.name as emp_name,
-        u.role,
-        a.date,
-        a.punch_in,
-        a.punch_out,
-        a.production_hours,
-        a.status
-    FROM attendance a
-    JOIN users u ON a.user_id = u.id
-    $whereSQL
-    ORDER BY a.date DESC, a.punch_in DESC
+    SELECT DISTINCT u.id as user_id, u.name as emp_name, u.role, ep.emp_id_code, ep.department, 
+           a.punch_in, a.punch_out, a.production_hours, a.status 
+    FROM users u 
+    JOIN employee_profiles ep ON u.id = ep.user_id 
+    LEFT JOIN attendance a ON u.id = a.user_id AND a.date = '$safe_date' 
+    WHERE $query_condition
+    ORDER BY u.name ASC
 ";
 
 $result = mysqli_query($conn, $query);
 $timesheets = [];
-
 if ($result) {
     while ($row = mysqli_fetch_assoc($result)) {
         $timesheets[] = $row;
     }
 }
-
-// Prepare Data for Dropdowns
-$current_year = date('Y');
-$years = range(2024, $current_year + 2);
-$months = [
-    '01' => 'January', '02' => 'February', '03' => 'March', '04' => 'April',
-    '05' => 'May', '06' => 'June', '07' => 'July', '08' => 'August',
-    '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
-];
 ?>
 
 <!DOCTYPE html>
@@ -80,18 +102,16 @@ $months = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HRMS - Timesheets</title>
     
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <style>
-        :root { --primary-orange: #1b5a5a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
-        body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
+        body { background-color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; color: #334155; overflow-x: hidden; }
         
         #mainContent { 
             margin-left: 95px; 
-            padding: 25px 35px;  
+            padding: 24px 32px;  
             transition: margin-left 0.3s ease;
             width: calc(100% - 95px);
         }
@@ -101,160 +121,172 @@ $months = [
         }
 
         .card { border: none; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.04); margin-bottom: 20px; background: #fff; }
+        table th { letter-spacing: 0.05em; border-bottom: 2px solid #e2e8f0; }
         
-        /* Table Styling */
-        .table thead th { background: #f9fafb; padding: 15px; border-bottom: 1px solid var(--border-color); color: #4a5568; font-weight: 600; text-transform: uppercase; font-size: 12px; }
-        .table tbody td { padding: 12px 15px; border-bottom: 1px solid var(--border-color); vertical-align: middle; }
-        .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; margin-right: 10px; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        /* Hover effect for clickable rows */
+        .click-row { cursor: pointer; transition: background-color 0.2s ease; }
+        .click-row:hover { background-color: #f1f5f9; }
+        .click-row:hover .row-arrow { transform: translateX(5px); color: #1b5a5a; }
         
-        .badge-ot { background-color: #fef3c7; color: #d97706; padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 11px; }
-        .badge-status { padding: 4px 8px; border-radius: 6px; font-weight: bold; font-size: 11px; }
+        .progress { background-color: #f1f5f9; border-radius: 9999px; overflow: hidden; height: 5px; width: 80px; margin: 6px auto 0 auto; }
+        .progress-bar { height: 100%; border-radius: 9999px; }
     </style>
 </head>
-<body class="bg-slate-50">
+<body>
 
     <?php include('sidebars.php'); ?>
 
     <main id="mainContent">
-            <?php include 'header.php'; ?>
+        <?php include 'header.php'; ?>
 
-        <div class="mb-4">
-            <h4 class="fw-bold mb-0 text-dark">Employee Timesheets</h4>
-            <p class="text-muted small mb-0">Daily production & overtime calculations (Target: 8.25 hrs)</p>
+        <div class="mb-6 flex flex-col md:flex-row md:justify-between md:items-end gap-4">
+            <div>
+                <h4 class="text-2xl font-bold text-gray-800"><?php echo $page_title; ?></h4>
+                <p class="text-gray-500 text-sm mt-1">Select a row to drill down into their team. (Target: 8.25 hrs)</p>
+                
+                <?php if ($back_link !== ""): ?>
+                    <a href="<?php echo $back_link; ?>" class="inline-flex items-center mt-3 bg-white border border-gray-200 text-gray-600 px-4 py-2 rounded-lg text-sm font-semibold hover:bg-gray-50 transition shadow-sm text-decoration-none">
+                        <i class="fa-solid fa-arrow-left mr-2"></i> Back
+                    </a>
+                <?php endif; ?>
+            </div>
+            
+            <form method="GET" action="" class="flex items-end gap-3 bg-white p-3 rounded-xl shadow-sm border border-gray-200">
+                <?php if($view_mgr): ?> <input type="hidden" name="view_mgr" value="<?php echo htmlspecialchars($view_mgr); ?>"> <?php endif; ?>
+                <?php if($view_tl): ?> <input type="hidden" name="view_tl" value="<?php echo htmlspecialchars($view_tl); ?>"> <?php endif; ?>
+
+                <div class="flex flex-col">
+                    <label class="text-[10px] font-bold text-gray-400 mb-1 uppercase">Date Filter</label>
+                    <input type="date" name="f_date" value="<?php echo htmlspecialchars($filter_date); ?>" 
+                           class="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a]">
+                </div>
+                <button type="submit" class="bg-[#1b5a5a] hover:bg-[#134444] text-white px-5 py-2 rounded-lg text-sm font-bold transition-colors shadow-sm">
+                    Load
+                </button>
+            </form>
         </div>
 
-        <form method="GET" action="timesheets.php" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4 flex flex-wrap items-end gap-4">
-            
-            <div class="flex flex-col">
-                <label class="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Exact Date</label>
-                <input type="date" name="f_date" value="<?php echo htmlspecialchars($filter_date); ?>" 
-                       class="border border-gray-300 rounded-lg px-3 text-sm outline-none focus:border-[#1b5a5a] h-[42px] min-w-[150px]">
-            </div>
-
-            <div class="flex flex-col">
-                <label class="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Month</label>
-                <select name="f_month" class="border border-gray-300 rounded-lg px-3 text-sm outline-none focus:border-[#1b5a5a] h-[42px] min-w-[140px]">
-                    <option value="">All Months</option>
-                    <?php foreach($months as $num => $name): ?>
-                        <option value="<?php echo $num; ?>" <?php echo ($filter_month == $num) ? 'selected' : ''; ?>>
-                            <?php echo $name; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
-            <div class="flex flex-col">
-                <label class="text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Year</label>
-                <select name="f_year" class="border border-gray-300 rounded-lg px-3 text-sm outline-none focus:border-[#1b5a5a] h-[42px] min-w-[120px]">
-                    <option value="">All Years</option>
-                    <?php foreach($years as $y): ?>
-                        <option value="<?php echo $y; ?>" <?php echo ($filter_year == $y) ? 'selected' : ''; ?>>
-                            <?php echo $y; ?>
-                        </option>
-                    <?php endforeach; ?>
-                </select>
-            </div>
-
-            <div class="flex items-center gap-2">
-                <button type="submit" class="bg-[#1b5a5a] hover:bg-[#134444] text-white px-5 rounded-lg font-semibold transition-colors h-[42px] flex items-center gap-2">
-                    <i class="fa-solid fa-filter"></i> Apply
-                </button>
-                <a href="timesheets.php" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-5 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center gap-2 text-decoration-none">
-                    <i class="fa-solid fa-rotate-right"></i> Reset
-                </a>
-            </div>
-            
-        </form>
-
-        <div class="card p-0 overflow-hidden">
-            <div class="table-responsive">
-                <table class="table mb-0 table-hover">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
                     <thead>
-                        <tr>
-                            <th>Employee</th>
-                            <th>Date</th>
-                            <th>Punch In</th>
-                            <th>Punch Out</th>
-                            <th class="text-center">Total Prod. Hours</th>
-                            <th class="text-center">Overtime</th>
-                            <th class="text-center">Status</th>
+                        <tr class="bg-slate-50 text-slate-500 text-xs uppercase">
+                            <th class="px-6 py-4 font-bold">Employee Details</th>
+                            <th class="px-4 py-4 font-bold">Emp ID</th>
+                            <th class="px-4 py-4 font-bold">Department</th>
+                            <th class="px-4 py-4 font-bold">Punch In</th>
+                            <th class="px-4 py-4 font-bold">Punch Out</th>
+                            <th class="px-4 py-4 font-bold text-center">Production</th>
+                            <th class="px-4 py-4 font-bold text-center">Overtime</th>
+                            <th class="px-4 py-4 font-bold text-center">Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php 
                         if (empty($timesheets)) {
-                            echo "<tr><td colspan='7' class='text-center py-5 text-muted'><i class='fa-regular fa-folder-open text-3xl mb-2 text-gray-300 block'></i> No attendance records found for the selected dates.</td></tr>";
+                            echo "<tr><td colspan='8' class='text-center py-10 text-gray-400'><i class='fa-solid fa-users-slash text-4xl mb-3 block'></i> No members found in this view.</td></tr>";
                         } else {
                             foreach($timesheets as $row): 
                                 
-                                // Format dates and times safely
-                                $date_formatted = date('d M Y', strtotime($row['date']));
-                                $punch_in = $row['punch_in'] ? date('h:i A', strtotime($row['punch_in'])) : '---';
-                                $punch_out = $row['punch_out'] ? date('h:i A', strtotime($row['punch_out'])) : 'Active';
+                                // Format Data
+                                $has_attendance = !empty($row['punch_in']);
+                                $punch_in = $has_attendance ? date('h:i A', strtotime($row['punch_in'])) : '---';
+                                $punch_out = $has_attendance && $row['punch_out'] ? date('h:i A', strtotime($row['punch_out'])) : ($has_attendance ? 'Active' : '---');
                                 
-                                // Hours Math
-                                // Expected is 9 hours - 45 min break = 8 hours 15 mins (8.25 decimal)
                                 $expected_hours = 8.25;
-                                $worked_hours = floatval($row['production_hours']);
+                                $worked_hours = floatval($row['production_hours'] ?? 0);
+                                $overtime = ($worked_hours > $expected_hours) ? ($worked_hours - $expected_hours) : 0;
+                                $percent = min(100, ($worked_hours / $expected_hours) * 100);
                                 
-                                // Calculate Overtime
-                                $overtime = 0;
-                                if ($worked_hours > $expected_hours) {
-                                    $overtime = $worked_hours - $expected_hours;
-                                }
-                                
-                                // Calculate Progress Bar percentage (Capped at 100%)
-                                $percent = ($worked_hours / $expected_hours) * 100;
-                                if ($percent > 100) $percent = 100;
-                                
-                                // Color logic for progress bar
-                                $progressColor = 'bg-warning';
-                                if ($worked_hours >= $expected_hours) $progressColor = 'bg-success';
-                                else if ($worked_hours < 4 && $punch_out != 'Active') $progressColor = 'bg-danger';
+                                $progressColor = 'bg-yellow-500';
+                                if ($worked_hours >= $expected_hours) $progressColor = 'bg-green-500';
+                                else if ($worked_hours < 4 && $punch_out != 'Active') $progressColor = 'bg-red-500';
 
-                                // Status Badge styling
-                                $statusClass = "bg-light text-secondary";
-                                if ($row['status'] == 'On Time') $statusClass = "bg-success text-white";
-                                else if ($row['status'] == 'Late') $statusClass = "bg-warning text-dark";
-                                else if ($row['status'] == 'Absent') $statusClass = "bg-danger text-white";
+                                if (!$has_attendance) {
+                                    $statusClass = "bg-gray-100 text-gray-500 border border-gray-200";
+                                    $status_text = "No Record";
+                                } else {
+                                    $statusClass = "bg-light text-secondary";
+                                    if ($row['status'] == 'On Time') $statusClass = "bg-green-500 text-white shadow-sm";
+                                    else if ($row['status'] == 'Late') $statusClass = "bg-yellow-400 text-dark";
+                                    else if ($row['status'] == 'Absent') $statusClass = "bg-red-500 text-white shadow-sm";
+                                    $status_text = htmlspecialchars($row['status']);
+                                }
+
+                                // Drill-down click logic
+                                $row_link = "";
+                                $badge = "";
+                                
+                                if (empty($view_tl) && empty($view_mgr)) {
+                                    // We are at Level 1 (Managers). Clicking goes to Level 2 (Team Leads)
+                                    $row_link = "?view_mgr={$row['user_id']}&f_date={$safe_date}";
+                                    $badge = "<span class='bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border border-blue-100'>Manager</span>";
+                                } elseif (!empty($view_mgr) && empty($view_tl)) {
+                                    // We are at Level 2 (Team Leads). Clicking goes to Level 3 (Employees)
+                                    $row_link = "?view_tl={$row['user_id']}&view_mgr={$view_mgr}&f_date={$safe_date}";
+                                    $badge = "<span class='bg-orange-50 text-orange-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border border-orange-100'>Team Lead</span>";
+                                }
                         ?>
-                        <tr>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($row['emp_name']); ?>&background=random" class="avatar-img">
+                        
+                        <tr class="border-b <?php echo $row_link ? 'click-row' : 'hover:bg-slate-50'; ?>" 
+                            <?php echo $row_link ? "onclick=\"window.location='$row_link'\"" : ""; ?>>
+                            
+                            <td class="px-6 py-4">
+                                <div class="flex items-center">
+                                    <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($row['emp_name']); ?>&background=random" class="w-10 h-10 rounded-full border border-gray-200 mr-4 shadow-sm">
                                     <div>
-                                        <div class="fw-bold text-dark"><?php echo htmlspecialchars($row['emp_name'] ?: 'Unknown'); ?></div>
-                                        <small class="text-muted"><?php echo htmlspecialchars($row['role']); ?></small>
+                                        <div class="font-bold text-gray-800 flex items-center">
+                                            <?php echo htmlspecialchars($row['emp_name'] ?: 'Unknown'); ?>
+                                            <?php if($row_link): ?>
+                                                <i class="fa-solid fa-arrow-right ml-2 text-xs text-gray-400 row-arrow transition-transform"></i>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <span class="text-xs text-gray-500"><?php echo htmlspecialchars($row['role']); ?></span>
+                                            <?php echo $badge; ?>
+                                        </div>
                                     </div>
                                 </div>
                             </td>
-                            <td class="font-medium text-gray-700"><?php echo $date_formatted; ?></td>
-                            <td><span class="text-success fw-medium"><i class="fa-solid fa-arrow-right-to-bracket text-xs"></i> <?php echo $punch_in; ?></span></td>
-                            <td>
+                            
+                            <td class="px-4 py-4 text-sm text-gray-600 font-medium"><?php echo htmlspecialchars($row['emp_id_code'] ?: 'N/A'); ?></td>
+                            <td class="px-4 py-4 text-sm text-gray-500"><?php echo htmlspecialchars($row['department'] ?: 'N/A'); ?></td>
+                            
+                            <td class="px-4 py-4 text-sm font-medium text-emerald-600">
+                                <?php if($punch_in !== '---') echo "<i class='fa-solid fa-arrow-right-to-bracket text-[10px] mr-1'></i>"; ?> <?php echo $punch_in; ?>
+                            </td>
+                            
+                            <td class="px-4 py-4">
                                 <?php if($punch_out === 'Active'): ?>
-                                    <span class="text-primary fw-medium"><i class="fa-solid fa-spinner fa-spin text-xs"></i> Working...</span>
+                                    <span class="text-blue-600 text-sm font-medium"><i class="fa-solid fa-spinner fa-spin text-[10px] mr-1"></i> Working...</span>
+                                <?php elseif($punch_out !== '---'): ?>
+                                    <span class="text-red-500 text-sm font-medium"><i class="fa-solid fa-arrow-right-from-bracket text-[10px] mr-1"></i> <?php echo $punch_out; ?></span>
                                 <?php else: ?>
-                                    <span class="text-danger fw-medium"><i class="fa-solid fa-arrow-right-from-bracket text-xs"></i> <?php echo $punch_out; ?></span>
+                                    <span class="text-gray-400">---</span>
                                 <?php endif; ?>
                             </td>
                             
-                            <td class="text-center">
-                                <span class="fw-bold text-dark"><?php echo number_format($worked_hours, 2); ?> Hrs</span>
-                                <div class="progress mt-1" style="height: 5px; width: 80px; margin: 0 auto; background-color: #f1f5f9;">
-                                    <div class="progress-bar <?php echo $progressColor; ?>" role="progressbar" style="width: <?php echo $percent; ?>%"></div>
-                                </div>
+                            <td class="px-4 py-4 text-center">
+                                <?php if ($has_attendance): ?>
+                                    <span class="font-bold text-gray-800 text-sm"><?php echo number_format($worked_hours, 2); ?> Hrs</span>
+                                    <div class="progress">
+                                        <div class="progress-bar <?php echo $progressColor; ?>" style="width: <?php echo $percent; ?>%"></div>
+                                    </div>
+                                <?php else: ?>
+                                    <span class="text-xs text-gray-400">-</span>
+                                <?php endif; ?>
                             </td>
                             
-                            <td class="text-center">
+                            <td class="px-4 py-4 text-center">
                                 <?php if ($overtime > 0): ?>
-                                    <span class="badge-ot">+<?php echo number_format($overtime, 2); ?> Hrs</span>
+                                    <span class="bg-amber-100 text-amber-700 px-2 py-1 rounded text-xs font-bold">+<?php echo number_format($overtime, 2); ?> Hrs</span>
                                 <?php else: ?>
-                                    <span class="text-muted small">-</span>
+                                    <span class="text-gray-400">-</span>
                                 <?php endif; ?>
                             </td>
                             
-                            <td class="text-center">
-                                <span class="badge-status <?php echo $statusClass; ?>"><?php echo htmlspecialchars($row['status']); ?></span>
+                            <td class="px-4 py-4 text-center">
+                                <span class="px-2.5 py-1 rounded-full text-[11px] font-bold <?php echo $statusClass; ?>"><?php echo $status_text; ?></span>
                             </td>
                         </tr>
                         <?php 
@@ -266,5 +298,6 @@ $months = [
             </div>
         </div>
     </main>
+
 </body>
 </html>
