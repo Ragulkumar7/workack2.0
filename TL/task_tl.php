@@ -3,7 +3,7 @@
 
 // 1. SESSION & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-include '../include/db_connect.php'; 
+require_once '../include/db_connect.php'; 
 
 // CHECK LOGIN & ROLE
 if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
@@ -11,24 +11,24 @@ $tl_id = $_SESSION['user_id'];
 
 // --- HANDLE FORM SUBMISSION (Create Sub-Task) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_task') {
-    $project_id = $_POST['project_id']; 
-    $title = $_POST['task_title'];
-    $desc = $_POST['task_desc'];
-    $due_date = $_POST['due_date'];
-    $priority = $_POST['priority'];
+    $project_id = (int)$_POST['project_id']; 
+    $title = mysqli_real_escape_string($conn, $_POST['task_title']);
+    $desc = mysqli_real_escape_string($conn, $_POST['task_desc']);
+    $due_date = mysqli_real_escape_string($conn, $_POST['due_date']);
+    $priority = mysqli_real_escape_string($conn, $_POST['priority']);
     
-    // Employee IDs/Names comma separated ah store panrom
-    $assignees = $_POST['assignees']; 
+    // Safely capture and trim the comma-separated assignees string
+    $assignees = isset($_POST['assignees']) ? mysqli_real_escape_string($conn, trim($_POST['assignees'])) : ''; 
 
-    // Insert into NEW 'project_tasks' table
+    // Insert into project_tasks table
     $stmt = $conn->prepare("INSERT INTO project_tasks (project_id, task_title, description, assigned_to, priority, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')");
     $stmt->bind_param("isssssi", $project_id, $title, $desc, $assignees, $priority, $due_date, $tl_id);
     
     if ($stmt->execute()) {
-        // Success Message
-        echo "<script>alert('Task assigned successfully to employees!'); window.location.href='task_tl.php';</script>";
+        echo "<script>alert('Task assigned successfully to your team!'); window.location.href='task_tl.php';</script>";
+        exit();
     } else {
-        echo "<script>alert('Error assigning task.');</script>";
+        echo "<script>alert('Error assigning task. Please try again.');</script>";
     }
 }
 
@@ -41,7 +41,6 @@ if (isset($_GET['delete_task'])) {
 }
 
 // --- 1. FETCH PROJECTS ASSIGNED TO ME (BY MANAGER) ---
-// 'leader_id' column vechu filter panrom
 $projects_sql = "SELECT * FROM projects WHERE leader_id = ? ORDER BY id DESC";
 $p_stmt = $conn->prepare($projects_sql);
 $p_stmt->bind_param("i", $tl_id);
@@ -74,7 +73,7 @@ $tasks_result = $t_stmt->get_result();
         :root {
             --primary: #0f766e;
             --primary-hover: #115e59;
-            --bg-body: #f1f5f9;
+            --bg-body: #f8fafc;
             --bg-card: #ffffff;
             --text-main: #0f172a;
             --text-muted: #64748b;
@@ -116,27 +115,78 @@ $tasks_result = $t_stmt->get_result();
         .task-header-row { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
         .search-wrapper input { padding: 10px 10px 10px 36px; border-radius: 8px; border: 1px solid var(--border); outline: none; width: 250px; }
         
-        table { width: 100%; border-collapse: collapse; }
+        .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; min-width: 800px; }
         th { text-align: left; padding: 14px 24px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; background: #f8fafc; }
-        td { padding: 16px 24px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #334155; }
+        td { padding: 16px 24px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #334155; vertical-align: middle; }
         tr:hover { background-color: #f8fafc; }
 
-        .btn { display: inline-flex; align-items: center; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background-color: var(--primary); color: white; gap: 8px; }
+        .btn { display: inline-flex; justify-content: center; align-items: center; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background-color: var(--primary); color: white; gap: 8px; transition: 0.2s; }
         .btn:hover { background-color: var(--primary-hover); }
-        .btn-icon { width: 32px; height: 32px; border-radius: 6px; background: transparent; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: none; }
+        .btn-icon { width: 32px; height: 32px; border-radius: 6px; background: transparent; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: none; transition: 0.2s;}
         .btn-icon:hover { background: #f1f5f9; color: var(--primary); }
         .btn-icon.delete:hover { background: #fef2f2; color: #ef4444; }
-        .user-chip { background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 12px; border: 1px solid #e2e8f0; display: inline-block; margin-right: 4px; margin-bottom: 4px; }
+        
+        .user-chip { 
+            background: #f8fafc; padding: 4px 10px; border-radius: 20px; font-size: 12px; 
+            border: 1px solid #e2e8f0; display: inline-flex; align-items: center; 
+            color: #475569; font-weight: 500;
+        }
 
-        /* Modal */
-        .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); align-items: center; justify-content: center; }
+        /* Responsive Modal Fixes */
+        .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
         .modal-overlay.active { display: flex; }
-        .modal-box { background: white; width: 550px; max-width: 90%; border-radius: 12px; padding: 24px; }
-        .input-group { margin-bottom: 16px; }
+        
+        .modal-box { 
+            background: white; 
+            width: 550px; 
+            max-width: 100%; 
+            border-radius: 12px; 
+            padding: 24px; 
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); 
+            max-height: 85vh; /* Prevents modal from getting taller than the screen */
+            overflow-y: auto; /* Adds internal scrollbar when content is long */
+        }
+        
+        /* Custom Scrollbar for the modal */
+        .modal-box::-webkit-scrollbar { width: 6px; }
+        .modal-box::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .modal-box::-webkit-scrollbar-track { background: transparent; }
+
+        .input-group { margin-bottom: 16px; width: 100%; }
         .input-group label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #475569; }
-        .form-input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; }
-        .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 10px; background: #f8fafc; border: 1px dashed var(--border); border-radius: 6px; }
-        .chip-removable { background: white; border: 1px solid var(--border); padding: 4px 10px; border-radius: 15px; font-size: 12px; display: flex; align-items: center; gap: 6px; }
+        .form-input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; outline: none; transition: 0.2s; box-sizing: border-box;}
+        .form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1); }
+        
+        .form-row { display: flex; gap: 20px; }
+        .form-col { flex: 1; }
+        .assign-input-group { display: flex; gap: 10px; }
+        .assign-input-group input { flex: 1; min-width: 0; }
+        .assign-input-group button { flex-shrink: 0; }
+        
+        .modal-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 20px; }
+
+        .chip-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; padding: 10px; background: #f8fafc; border: 1px dashed var(--border); border-radius: 6px; min-height: 48px; }
+        .chip-removable { background: white; border: 1px solid var(--border); padding: 4px 10px; border-radius: 15px; font-size: 12px; display: flex; align-items: center; gap: 6px; font-weight: 500;}
+
+        /* Mobile Responsiveness */
+        @media (max-width: 992px) {
+            #mainContent { margin-left: 0 !important; width: 100% !important; padding: 20px !important; }
+            .projects-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 768px) {
+            .page-header { flex-direction: column; align-items: flex-start; gap: 15px; }
+            .page-header .btn { width: 100%; }
+            .task-header-row { flex-direction: column; align-items: flex-start; gap: 15px; }
+            .search-wrapper { width: 100%; }
+            .search-wrapper input { width: 100%; }
+            
+            .modal-box { padding: 20px; }
+            .form-row { flex-direction: column; gap: 0; } /* Stacks due date and priority on mobile */
+            .modal-actions { flex-direction: column-reverse; gap: 10px; }
+            .modal-actions .btn { width: 100%; text-align: center; }
+        }
     </style>
 </head>
 <body>
@@ -170,7 +220,6 @@ $tasks_result = $t_stmt->get_result();
             <?php 
             if ($projects_result->num_rows > 0):
                 while($proj = $projects_result->fetch_assoc()): 
-                    // Handle missing column defaults for existing rows if needed
                     $status = $proj['status'] ?? 'Active';
                     $progress = $proj['progress'] ?? 0;
             ?>
@@ -195,7 +244,7 @@ $tasks_result = $t_stmt->get_result();
             </div>
             <?php endwhile; else: ?>
                 <div style="grid-column: 1 / -1; padding: 30px; text-align: center; background: #fff; border-radius: 10px; border: 1px dashed #cbd5e1;">
-                    <i data-lucide="folder-open" style="width: 30px; color: #cbd5e1; margin-bottom: 10px;"></i>
+                    <i data-lucide="folder-open" style="width: 30px; color: #cbd5e1; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto;"></i>
                     <p style="color:#64748b; font-size:14px; margin:0;">No active projects assigned to you.</p>
                 </div>
             <?php endif; ?>
@@ -208,7 +257,8 @@ $tasks_result = $t_stmt->get_result();
         <div class="task-container">
             <div class="task-header-row">
                 <h3 style="margin:0; font-size:16px; font-weight:700; color:#1e293b;">Sub-Task List</h3>
-                <div class="search-wrapper">
+                <div class="search-wrapper" style="position:relative;">
+                    <i data-lucide="search" style="width:14px; position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#94a3b8;"></i>
                     <input type="text" id="searchInput" onkeyup="filterTable()" placeholder="Search tasks...">
                 </div>
             </div>
@@ -220,8 +270,8 @@ $tasks_result = $t_stmt->get_result();
                             <th width="30%">Sub-Task Details</th>
                             <th width="20%">Project</th>
                             <th width="20%">Assigned To</th>
-                            <th width="15%">Priority</th>
-                            <th width="15%">Due Date</th>
+                            <th width="10%">Priority</th>
+                            <th width="10%">Due Date</th>
                             <th width="10%" style="text-align:right;">Actions</th>
                         </tr>
                     </thead>
@@ -229,35 +279,49 @@ $tasks_result = $t_stmt->get_result();
                         <?php 
                         if ($tasks_result->num_rows > 0):
                             while($task = $tasks_result->fetch_assoc()): 
-                                $pColor = $task['priority'] == 'High' ? '#ef4444' : ($task['priority'] == 'Medium' ? '#eab308' : '#10b981');
-                                // Added array_filter to handle empty strings properly
-                                $assignees = array_filter(explode(',', $task['assigned_to'])); 
+                                // Determine Priority Colors
+                                $pColor = $task['priority'] == 'High' ? '#ef4444' : ($task['priority'] == 'Medium' ? '#f59e0b' : '#10b981');
+                                $pBg = $task['priority'] == 'High' ? '#fef2f2' : ($task['priority'] == 'Medium' ? '#fffbeb' : '#ecfdf5');
+                                $pBorder = $task['priority'] == 'High' ? '#fecaca' : ($task['priority'] == 'Medium' ? '#fef3c7' : '#d1fae5');
+                                
+                                // Safely split assigned names
+                                $assigned_str = $task['assigned_to'] ?? '';
+                                $assignees_array = array_filter(array_map('trim', explode(',', $assigned_str))); 
                         ?>
                         <tr>
                             <td>
                                 <div style="font-weight:600; color:#0f172a; font-size:14px;"><?= htmlspecialchars($task['task_title']) ?></div>
-                                <div style="font-size:12px; color:#64748b; margin-top:2px;"><?= htmlspecialchars($task['description']) ?></div>
+                                <div style="font-size:12px; color:#64748b; margin-top:4px;"><?= htmlspecialchars($task['description']) ?></div>
                             </td>
-                            <td><span style="font-size:12px; font-weight:600; color:#475569;"><?= htmlspecialchars($task['project_name']) ?></span></td>
+                            <td><span style="font-size:13px; font-weight:600; color:#475569;"><?= htmlspecialchars($task['project_name']) ?></span></td>
                             <td>
-                                <?php if(!empty($assignees)): ?>
-                                    <?php foreach($assignees as $name): ?>
-                                        <?php if(trim($name) !== ''): ?>
-                                            <div class="user-chip"><i data-lucide="user" style="width:10px;"></i> <?= htmlspecialchars(trim($name)) ?></div>
-                                        <?php endif; ?>
+                                <?php if(!empty($assignees_array)): ?>
+                                    <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                                    <?php foreach($assignees_array as $name): ?>
+                                        <span class="user-chip">
+                                            <i data-lucide="user" style="width:12px; height:12px; margin-right:4px;"></i> 
+                                            <?= htmlspecialchars($name) ?>
+                                        </span>
                                     <?php endforeach; ?>
+                                    </div>
                                 <?php else: ?>
-                                    <span style="color:#94a3b8; font-size:12px;">Unassigned</span>
+                                    <span style="color:#94a3b8; font-size:12px; font-weight: 500;">Unassigned</span>
                                 <?php endif; ?>
                             </td>
-                            <td><span style="font-size:12px; font-weight:600; color:<?= $pColor ?>;"><?= $task['priority'] ?></span></td>
-                            <td><?= date('d M Y', strtotime($task['due_date'])) ?></td>
+                            <td>
+                                <span style="background:<?= $pBg ?>; color:<?= $pColor ?>; border:1px solid <?= $pBorder ?>; padding: 4px 10px; border-radius:20px; font-size:11px; font-weight:700; text-transform:uppercase;">
+                                    <?= htmlspecialchars($task['priority']) ?>
+                                </span>
+                            </td>
+                            <td style="font-size: 13px; font-weight: 500; color: #475569;"><?= date('d M Y', strtotime($task['due_date'])) ?></td>
                             <td style="text-align: right;">
-                                <a href="task_tl.php?delete_task=<?= $task['id'] ?>" class="btn-icon delete" onclick="return confirm('Delete this task?')" title="Delete"><i data-lucide="trash-2" style="width:14px;"></i></a>
+                                <a href="task_tl.php?delete_task=<?= $task['id'] ?>" class="btn-icon delete" onclick="return confirm('Are you sure you want to delete this task?')" title="Delete Task">
+                                    <i data-lucide="trash-2" style="width:16px;"></i>
+                                </a>
                             </td>
                         </tr>
                         <?php endwhile; else: ?>
-                            <tr><td colspan="6" style="text-align:center; padding:30px; color:#64748b;">No sub-tasks created yet.</td></tr>
+                            <tr><td colspan="6" style="text-align:center; padding:40px; color:#64748b;">No sub-tasks created yet. Click 'Split New Task' to begin.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -268,17 +332,16 @@ $tasks_result = $t_stmt->get_result();
 
     <div id="taskModal" class="modal-overlay">
         <div class="modal-box">
-            <h3 style="margin-bottom:20px;">Split Task to Employees</h3>
-            <form method="POST" action="task_tl.php">
+            <h3 style="margin-bottom:20px; font-size: 18px; color: #0f172a; font-weight: 700;">Split Task to Employees</h3>
+            <form method="POST" action="task_tl.php" onsubmit="return validateAndSubmit(event)">
                 <input type="hidden" name="action" value="add_task">
                 <input type="hidden" id="assigneesInput" name="assignees">
 
                 <div class="input-group">
-                    <label>Select Project</label>
+                    <label>Select Master Project <span style="color:#ef4444;">*</span></label>
                     <select name="project_id" class="form-input" required>
                         <option value="">-- Choose Project --</option>
                         <?php 
-                        // Reset pointer to reuse result set
                         $projects_result->data_seek(0);
                         while($p = $projects_result->fetch_assoc()): 
                         ?>
@@ -288,24 +351,23 @@ $tasks_result = $t_stmt->get_result();
                 </div>
 
                 <div class="input-group">
-                    <label>Sub-Task Title</label>
-                    <input type="text" name="task_title" class="form-input" required>
+                    <label>Sub-Task Title <span style="color:#ef4444;">*</span></label>
+                    <input type="text" name="task_title" placeholder="e.g., Build Login API" class="form-input" required>
                 </div>
 
                 <div class="input-group">
-                    <label>Description</label>
-                    <textarea name="task_desc" class="form-input" rows="2" required></textarea>
+                    <label>Description <span style="color:#ef4444;">*</span></label>
+                    <textarea name="task_desc" class="form-input" placeholder="Enter task instructions..." rows="3" required></textarea>
                 </div>
 
                 <div class="input-group">
-                    <label>Assign Team Members</label>
-                    <div style="display:flex; gap:10px;">
-                        <input type="text" id="empInput" class="form-input" placeholder="Type name..." list="empList">
-                        <button type="button" class="btn" style="padding:0 16px;" onclick="addAssignee()">Add</button>
+                    <label>Assign Team Members <span style="color:#ef4444;">*</span></label>
+                    <div class="assign-input-group">
+                        <input type="text" id="empInput" class="form-input" placeholder="Type name and click Add..." list="empList" onkeypress="handleEnter(event)">
+                        <button type="button" class="btn" style="padding:0 20px;" onclick="addAssignee()">Add</button>
                     </div>
                     <datalist id="empList">
                         <?php 
-                        // UPDATED: Fetch employees assigned to this specific Team Lead from employee_profiles
                         $emp_sql = "SELECT full_name FROM employee_profiles WHERE reporting_to = ?";
                         $e_stmt = $conn->prepare($emp_sql);
                         $e_stmt->bind_param("i", $tl_id);
@@ -322,15 +384,17 @@ $tasks_result = $t_stmt->get_result();
                         $e_stmt->close();
                         ?>
                     </datalist>
-                    <div id="chipContainer" class="chip-container"></div>
+                    <div id="chipContainer" class="chip-container">
+                        <span style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Selected employees will appear here...</span>
+                    </div>
                 </div>
 
-                <div style="display:flex; gap:20px;">
-                    <div class="input-group" style="flex:1;">
-                        <label>Due Date</label>
+                <div class="form-row">
+                    <div class="input-group form-col">
+                        <label>Due Date <span style="color:#ef4444;">*</span></label>
                         <input type="date" name="due_date" class="form-input" required>
                     </div>
-                    <div class="input-group" style="flex:1;">
+                    <div class="input-group form-col">
                         <label>Priority</label>
                         <select name="priority" class="form-input">
                             <option value="High">High</option>
@@ -340,8 +404,8 @@ $tasks_result = $t_stmt->get_result();
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:20px;">
-                    <button type="button" class="btn" style="background:#fff; border:1px solid #e2e8f0; color:#333;" onclick="closeModal('taskModal')">Cancel</button>
+                <div class="modal-actions">
+                    <button type="button" class="btn" style="background:#fff; border:1px solid #e2e8f0; color:#475569;" onclick="closeModal('taskModal')">Cancel</button>
                     <button type="submit" class="btn">Assign Task</button>
                 </div>
             </form>
@@ -352,8 +416,25 @@ $tasks_result = $t_stmt->get_result();
         lucide.createIcons();
         let selectedAssignees = [];
 
-        function openModal(id) { document.getElementById(id).classList.add('active'); }
-        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+        function openModal(id) { 
+            document.getElementById(id).classList.add('active'); 
+        }
+        
+        function closeModal(id) { 
+            document.getElementById(id).classList.remove('active'); 
+            // Clear form and arrays on close
+            document.querySelector('form[action="task_tl.php"]').reset();
+            selectedAssignees = [];
+            renderChips();
+        }
+
+        // Handle Enter Key in input to prevent early form submission
+        function handleEnter(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                addAssignee();
+            }
+        }
 
         function addAssignee() {
             const input = document.getElementById('empInput');
@@ -362,6 +443,7 @@ $tasks_result = $t_stmt->get_result();
                 selectedAssignees.push(val);
                 renderChips();
                 input.value = '';
+                input.focus();
             }
         }
 
@@ -374,21 +456,52 @@ $tasks_result = $t_stmt->get_result();
             const container = document.getElementById('chipContainer');
             const hiddenInput = document.getElementById('assigneesInput');
             
-            hiddenInput.value = selectedAssignees.join(','); // Store as comma separated string for DB
+            hiddenInput.value = selectedAssignees.join(','); 
             
+            if (selectedAssignees.length === 0) {
+                container.innerHTML = '<span style="color: #94a3b8; font-size: 12px; margin-top: 4px;">Selected employees will appear here...</span>';
+                return;
+            }
+
             container.innerHTML = selectedAssignees.map((name, i) => `
                 <div class="chip-removable">
-                    ${name} <i data-lucide="x" style="width:12px; cursor:pointer; color:#ef4444;" onclick="removeAssignee(${i})"></i>
+                    ${name} <i data-lucide="x" style="width:14px; cursor:pointer; color:#ef4444; margin-left: 2px;" onclick="removeAssignee(${i})"></i>
                 </div>
             `).join('');
             lucide.createIcons();
         }
 
+        // Smart Form Validation & Capture
+        function validateAndSubmit(e) {
+            const input = document.getElementById('empInput');
+            const val = input.value.trim();
+            
+            // Auto-add anything left in the text box if the user forgot to hit "Add"
+            if (val && !selectedAssignees.includes(val)) {
+                selectedAssignees.push(val);
+            }
+            
+            if (selectedAssignees.length === 0) {
+                e.preventDefault();
+                alert("Please select and add at least one team member to assign this task to.");
+                input.focus();
+                return false;
+            }
+            
+            document.getElementById('assigneesInput').value = selectedAssignees.join(',');
+            return true;
+        }
+
+        // Filter Table Logic
         function filterTable() {
             const input = document.getElementById('searchInput');
             const filter = input.value.toLowerCase();
             const rows = document.getElementById('taskTableBody').getElementsByTagName('tr');
+            
             for (let i = 0; i < rows.length; i++) {
+                // Skip the "No sub-tasks" row
+                if (rows[i].cells.length === 1) continue; 
+                
                 let text = rows[i].textContent || rows[i].innerText;
                 rows[i].style.display = text.toLowerCase().indexOf(filter) > -1 ? "" : "none";
             }

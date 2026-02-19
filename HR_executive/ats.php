@@ -1,513 +1,680 @@
 <?php 
+// Start output buffering
+ob_start(); 
+
+// 1. Database Connection
+require_once '../include/db_connect.php';
+
+// --- ACTION: DELETE CANDIDATE ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
+    header('Content-Type: application/json');
+    $id = $_POST['id'] ?? '';
+    
+    if ($id) {
+        // Delete File
+        $pathQuery = "SELECT resume_path FROM candidates WHERE candidate_id = ?";
+        $stmt = mysqli_prepare($conn, $pathQuery);
+        mysqli_stmt_bind_param($stmt, "s", $id);
+        mysqli_stmt_execute($stmt);
+        $res = mysqli_stmt_get_result($stmt);
+        if ($row = mysqli_fetch_assoc($res)) {
+            if (file_exists($row['resume_path'])) @unlink($row['resume_path']); 
+        }
+        
+        // Delete DB Record
+        $delQuery = "DELETE FROM candidates WHERE candidate_id = ?";
+        $stmt = mysqli_prepare($conn, $delQuery);
+        mysqli_stmt_bind_param($stmt, "s", $id);
+        
+        if (mysqli_stmt_execute($stmt)) {
+            ob_clean();
+            echo json_encode(["status" => "success", "message" => "Candidate deleted."]);
+        } else {
+            ob_clean();
+            echo json_encode(["status" => "error", "message" => "Database error."]);
+        }
+    }
+    exit; 
+}
+
+// --- ACTION: UPLOAD & PROCESS ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['resume'])) {
+    header('Content-Type: application/json');
+    set_time_limit(300); // 5 minutes
+    
+    $keywords = $_POST['keywords'] ?? '';
+    $target_dir = "../uploads/resumes/";
+    if (!file_exists($target_dir)) mkdir($target_dir, 0777, true);
+
+    $file = $_FILES['resume'];
+    if ($file['type'] !== 'application/pdf') {
+        ob_clean();
+        echo json_encode(["status" => "error", "message" => "Only PDF files allowed."]);
+        exit;
+    }
+
+    $clean_filename = preg_replace("/[^a-zA-Z0-9.]/", "_", basename($file['name']));
+    $filename = time() . '_' . $clean_filename;
+    $target_filepath = $target_dir . $filename;
+
+    if (move_uploaded_file($file['tmp_name'], $target_filepath)) {
+        
+        // Close DB before Python
+        if ($conn) mysqli_close($conn);
+        
+        $pythonScript = "../scripts/ats_shortlist.py";
+        // --- UPDATE THIS PATH IF NEEDED ---
+        $pythonExe = "C:\\Users\\APARNA MA\\AppData\\Local\\Programs\\Python\\Python313\\python.exe";
+        
+        $command = escapeshellarg($pythonExe) . " " . escapeshellarg($pythonScript) . " " . escapeshellarg($target_filepath) . " " . escapeshellarg($keywords);
+        
+        $output = shell_exec($command . " 2>&1");
+        
+        // Reconnect DB
+        global $host, $user, $pass, $db;
+        $conn = mysqli_connect($host, $user, $pass, $db);
+        if ($conn) mysqli_set_charset($conn, "utf8mb4");
+        
+        // Clean output
+        $json_start = strpos($output, '{');
+        if ($json_start !== false) $output = substr($output, $json_start);
+        
+        $result = json_decode($output, true);
+
+        if ($result && isset($result['status']) && $result['status'] === 'success') {
+            
+            $cand_id = "Cand-" . rand(10000, 99999);
+            $applied_role = "Applied Candidate";
+            $status = "Parsed";
+            $skills = $result['skills'] ?? ""; 
+            
+            // QUERY WITH SKILLS
+            $query = "INSERT INTO candidates (candidate_id, name, email, applied_role, phone, resume_path, skills, match_score, status) 
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+            
+            $stmt = mysqli_prepare($conn, $query);
+            if (!$stmt) {
+                ob_clean();
+                echo json_encode(["status" => "error", "message" => "SQL Error: " . mysqli_error($conn)]);
+                exit;
+            }
+            
+            // Added 's' for skills
+            mysqli_stmt_bind_param($stmt, "sssssssis", $cand_id, $result['name'], $result['email'], $applied_role, $result['phone'], $target_filepath, $skills, $result['match_score'], $status);
+            
+            if (mysqli_stmt_execute($stmt)) {
+                $result['id'] = $cand_id;
+                $result['added'] = date('Y-m-d H:i:s');
+                $result['img'] = "https://ui-avatars.com/api/?name=" . urlencode($result['name']) . "&background=random";
+                $result['resume_path'] = $target_filepath;
+                
+                ob_clean();
+                echo json_encode(["status" => "success", "message" => "Processed successfully!", "data" => $result]);
+            } else {
+                ob_clean();
+                echo json_encode(["status" => "error", "message" => "DB Insert Failed"]);
+            }
+        } else {
+            ob_clean();
+            echo json_encode(["status" => "error", "message" => "Parsing Failed", "details" => $output]);
+        }
+    } else {
+        ob_clean();
+        echo json_encode(["status" => "error", "message" => "File upload error."]);
+    }
+    exit; 
+}
+
+// --- FETCH DATA ---
+ $candidates_array = [];
+ $fetch_query = "SELECT candidate_id as id, name, email, phone, match_score, DATE(created_at) as added, status, resume_path, skills FROM candidates ORDER BY created_at DESC";
+ $fetch_result = mysqli_query($conn, $fetch_query);
+
+if ($fetch_result) {
+    while ($row = mysqli_fetch_assoc($fetch_result)) {
+        $row['img'] = "https://ui-avatars.com/api/?name=" . urlencode($row['name']) . "&background=random";
+        $candidates_array[] = $row;
+    }
+}
+ $candidates_json = json_encode($candidates_array);
+
 include '../sidebars.php'; 
 include '../header.php';
-// Uncomment in production
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workack HRMS | AI Recruiting (ATS)</title>
+    <title>Workack HRMS | Advanced ATS</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Flatpickr for date range picker -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-
     <style>
-        :root {
-            --primary: #1b5a5a;
-            --primary-dark: #134444;
-            --secondary: #64748b;
-            --bg-light: #f8fafc;
-            --surface: #ffffff;
-            --text-main: #0f172a;
-            --text-light: #64748b;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --border: #e2e8f0;
+        :root { 
+            --primary: #0f766e; 
+            --primary-light: #14b8a6; 
+            --bg-body: #f3f4f6;
         }
+        body { background: var(--bg-body); font-family: 'Inter', sans-serif; }
+        
+        main#content-wrapper { margin-left: 80px; padding: 80px 20px 20px; transition: margin 0.3s; }
+        .sidebar-secondary.open ~ main#content-wrapper { margin-left: 280px; }
 
-        body { background: var(--bg-light); color: var(--text-main); margin: 0; min-height: 100vh; font-family: 'Segoe UI', sans-serif; }
-
-        main#content-wrapper {
-            margin-left: 95px;
-            padding-top: 70px;
-            padding-bottom: 40px;
-            min-height: 100vh;
-            transition: margin-left 0.3s ease;
-        }
-
-        .sidebar-secondary.open ~ main#content-wrapper {
-            margin-left: calc(95px + 220px);
-        }
-
-        .container { max-width: 1440px; margin: 0 auto; padding: 0 20px; }
-
-        .card {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 10px -2px rgba(0,0,0,0.07);
-            border: 1px solid #e5e7eb;
-            margin-bottom: 32px;
-            overflow: hidden;
+        .glass-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
         }
 
         .upload-zone {
-            border: 2px dashed #d1d5db;
-            border-radius: 12px;
-            padding: 50px 20px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
+            background-image: url("data:image/svg+xml,%3csvg width='100%25' height='100%25' xmlns='http://www.w3.org/2000/svg'%3e%3crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='%230F766EFF' stroke-width='2' stroke-dasharray='12%2c 12' stroke-dashoffset='0' stroke-linecap='square'/%3e%3c/svg%3e");
+            transition: all 0.3s ease;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            background-color: #f0fdfa;
+            transform: scale(1.01);
         }
 
-        .upload-zone:hover {
-            border-color: var(--primary);
-            background: rgba(27,90,90,0.04);
-        }
+        .table-row-enter { animation: slideIn 0.4s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
-        .btn {
-            padding: 10px 18px;
-            border-radius: 6px;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
-        }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-primary:hover { background: var(--primary-dark); }
-
-        .btn-outline { border: 1px solid #d1d5db; background: white; color: #374151; }
-        .btn-outline:hover { background: #f3f4f6; }
-
-        .table-container { overflow-x: auto; }
-
-        table { width: 100%; border-collapse: collapse; }
-
-        th {
-            background: #f8fafc;
-            color: #4b5563;
-            font-weight: 600;
-            font-size: 0.875rem;
-            padding: 14px 16px;
-            text-align: left;
-            border-bottom: 1px solid #e5e7eb;
-        }
-
-        td { padding: 14px 16px; color: #374151; }
-
-        tr:hover { background: #f9fafb; }
-
-        .status-badge {
-            background: #ecfdf5;
-            color: #065f46;
-            border: 1px solid #a7f3d0;
-            padding: 4px 12px;
-            border-radius: 9999px;
-            font-size: 0.75rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .status-dot { width: 8px; height: 8px; background: #10b981; border-radius: 50%; }
-
-        #toast-container {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 9999;
-        }
-
+        .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 10000; display: flex; flex-direction: column; gap: 10px; }
         .toast {
-            background: white;
-            padding: 14px 20px;
-            border-radius: 8px;
-            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.12);
-            border-left: 4px solid var(--primary);
-            margin-top: 10px;
-            min-width: 280px;
+            min-width: 300px; padding: 16px; background: white; border-radius: 8px; 
+            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-left: 4px solid var(--primary);
+            display: flex; align-items: center; justify-content: space-between;
+            animation: slideInRight 0.3s ease-out;
         }
-
-        .flatpickr-input {
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 0.875rem;
-            width: 220px;
-            cursor: pointer;
+        @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        
+        .score-bar-bg { background: #e2e8f0; height: 6px; border-radius: 3px; overflow: hidden; width: 60px; }
+        .score-bar-fill { height: 100%; border-radius: 3px; transition: width 1s ease; }
+        
+        .skill-tag {
+            display: inline-block;
+            font-size: 0.65rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: #f1f5f9;
+            color: #475569;
+            margin-right: 4px;
+            margin-bottom: 2px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        /* ACTIONS ALWAYS VISIBLE */
+        .action-btn {
+            opacity: 1 !important; /* Override hover logic */
+            transition: background 0.2s;
         }
     </style>
 </head>
 <body>
 
 <main id="content-wrapper">
-
-    <div class="container py-6">
-
-        <h1 class="text-3xl font-bold mb-8 text-gray-800">AI Recruiting (ATS)</h1>
-
-        <!-- 1. AI Resume Shortlisting + Upload -->
-        <div class="card p-6">
-            <h3 class="text-xl font-semibold mb-5">AI Resume Shortlisting</h3>
-
-            <div class="flex flex-wrap gap-3 mb-6 items-center">
-                <input type="text" id="keywordsInput" placeholder="Keywords: Python, React, Manager, AWS, 5+ years..." 
-                       class="flex-1 min-w-[300px] p-3 border border-gray-300 rounded-lg focus:border-[var(--primary)] outline-none">
-                <button class="btn btn-primary" onclick="simulateAIAnalysis()">
-                    <i class="fa-solid fa-wand-magic-sparkles"></i> Run AI Matching
-                </button>
-                <!-- Button now triggers dynamic file input -->
-                <button class="btn btn-outline" onclick="triggerFileUpload()">
-                    <i class="fa-solid fa-upload"></i> Bulk Upload Resumes
-                </button>
+    <div class="max-w-[1600px] mx-auto">
+        
+        <!-- Header Section -->
+        <div class="flex flex-col md:flex-row justify-between items-end mb-6">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">AI Recruiting <span class="text-teal-600">ATS</span></h1>
+                <p class="text-gray-500 mt-1">Intelligent candidate shortlist screening</p>
             </div>
-
-            <!-- Drag & Drop Zone -->
-            <div class="upload-zone" id="dropZone" onclick="triggerFileUpload()">
-                <i class="fa-solid fa-cloud-arrow-up text-5xl text-[var(--secondary)] mb-4"></i>
-                <p class="text-lg font-medium mb-2">Drag & Drop Resumes Here</p>
-                <p class="text-[var(--text-light)]">or click to browse (PDF, DOCX supported)</p>
-            </div>
-
-            <div id="ai-loader" class="text-center py-10 hidden">
-                <div class="w-12 h-12 border-4 border-gray-200 border-t-[var(--primary)] rounded-full animate-spin mx-auto mb-4"></div>
-                <p class="text-gray-600">AI is analyzing resumes...</p>
+            
+            <div class="flex gap-3 mt-4 md:mt-0">
+                 <div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-100">
+                    <span class="text-xs text-gray-400 uppercase font-bold">Total Resumes</span>
+                    <div class="text-xl font-bold text-gray-800" id="totalCount">0</div>
+                 </div>
+                 <div class="bg-white px-4 py-2 rounded-lg shadow-sm border border-gray-100">
+                    <span class="text-xs text-gray-400 uppercase font-bold">Avg. Score</span>
+                    <div class="text-xl font-bold text-teal-600" id="avgScore">0%</div>
+                 </div>
             </div>
         </div>
 
-        <!-- 2. Resume Parsing / Parsed Candidates Table -->
-        <div class="card">
-
-            <div class="p-5 border-b flex flex-wrap items-center justify-between gap-4">
-                <h2 class="text-xl font-semibold text-gray-800">Resume Parsing</h2>
-
-                <div class="flex flex-wrap items-center gap-3">
-                    <input type="text" id="dateRange" class="flatpickr-input" placeholder="Select date range..." readonly>
-
-                    <select id="designationFilter" class="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] min-w-[160px]">
-                        <option value="">All Designations</option>
-                        <option value="Technician">Technician</option>
-                        <option value="Web Developer">Web Developer</option>
-                        <option value="Sales Executive Officer">Sales Executive Officer</option>
-                        <option value="Designer">Designer</option>
-                        <option value="Accountant">Accountant</option>
-                        <option value="App Developer">App Developer</option>
-                    </select>
-
-                    <select id="sortBy" class="border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--primary)] min-w-[180px]">
-                        <option value="last7days">Sort By: Last 7 Days</option>
-                        <option value="last30days">Last 30 Days</option>
-                        <option value="thisYear">This Year</option>
-                        <option value="name-asc">Name (A–Z)</option>
-                        <option value="name-desc">Name (Z–A)</option>
-                    </select>
-
-                    <button class="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded text-sm font-medium flex items-center gap-2 border border-gray-300">
-                        <i class="fas fa-file-export"></i> Export
+        <!-- Upload Card -->
+        <div class="glass-card p-8 mb-8">
+            <div class="flex flex-col md:flex-row gap-4 mb-6">
+                <div class="flex-1">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Job Keywords (Comma Separated)</label>
+                    <input type="text" id="keywordsInput" 
+                           placeholder="e.g. Python, React, SQL, Communication, Management" 
+                           class="w-full p-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all">
+                </div>
+                <div class="flex items-end">
+                    <button onclick="document.getElementById('fileInput').click()" 
+                            class="bg-teal-700 hover:bg-teal-800 text-white px-6 py-3 rounded-lg font-medium shadow-lg shadow-teal-200 transition-all flex items-center gap-2">
+                        <i class="fa-solid fa-folder-open"></i> Browse Files
                     </button>
+                    <input type="file" id="fileInput" multiple accept=".pdf" class="hidden">
                 </div>
             </div>
 
-            <div class="p-5 flex flex-wrap items-center justify-between gap-4 border-b">
-                <div class="flex items-center gap-3 text-sm">
-                    <span>Rows per page</span>
-                    <select id="rowsPerPage" class="border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none">
-                        <option value="10">10</option>
-                        <option value="25">25</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
+            <div id="dropZone" class="upload-zone rounded-2xl h-48 flex flex-col items-center justify-center cursor-pointer relative">
+                <div class="text-center pointer-events-none z-10">
+                    <i class="fa-solid fa-cloud-arrow-up text-4xl text-teal-600 mb-3"></i>
+                    <p class="text-lg font-semibold text-gray-700">Drag & Drop PDF Resumes Here</p>
+                    <p class="text-sm text-gray-400">AI will analyze Name, Skills, Contact & Match Score</p>
+                </div>
+            </div>
+
+            <!-- Processing Queue UI -->
+            <div id="processingQueue" class="mt-6 hidden">
+                <h4 class="text-sm font-bold text-gray-600 uppercase tracking-wider mb-3">Processing Queue</h4>
+                <div id="queueList" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- Candidates Table -->
+        <div class="glass-card overflow-hidden">
+            <div class="p-5 border-b border-gray-100 flex flex-col sm:flex-row justify-between gap-4">
+                <h2 class="text-lg font-bold text-gray-800">Candidates</h2>
+                <div class="flex gap-2 items-center">
+                    <input type="text" id="searchInput" placeholder="Search..." class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none w-64">
+                    <i class="fa-solid fa-search absolute left-3 top-3.5 text-gray-400 text-xs" style="margin-left: 8px;"></i> 
+                    
+                    <select id="sortBy" class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500">
+                        <option value="newest">Newest First</option>
+                        <option value="score-desc">Highest Score</option>
+                        <option value="score-asc">Lowest Score</option>
                     </select>
                 </div>
-
-                <div class="relative w-64">
-                    <input type="text" id="searchInput" placeholder="Search candidates..." 
-                           class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)]">
-                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                </div>
             </div>
 
-            <div class="table-container">
-                <table id="candidatesTable">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
                     <thead>
-                        <tr>
-                            <th><input type="checkbox" id="selectAll"></th>
-                            <th>Cand ID</th>
-                            <th>Candidate</th>
-                            <th>Applied Role</th>
-                            <th>Phone</th>
-                            <!-- Location and Experience columns removed as requested -->
-                            <th>Status</th>
-                            <th class="text-center">Action</th>
+                        <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
+                            <th class="p-4 font-semibold">Candidate</th>
+                            <th class="p-4 font-semibold">Contact</th>
+                            <th class="p-4 font-semibold">Skills (Matched)</th>
+                            <th class="p-4 font-semibold">Applied On</th>
+                            <th class="p-4 font-semibold">AI Score</th>
+                            <th class="p-4 font-semibold">Status</th>
+                            <th class="p-4 font-semibold text-right">Actions</th>
                         </tr>
                     </thead>
-                    <tbody id="parsed-candidates-body"></tbody>
+                    <tbody id="tableBody" class="text-sm text-gray-700 divide-y divide-gray-100">
+                        <!-- Rows injected via JS -->
+                    </tbody>
                 </table>
             </div>
-
-            <div class="p-5 flex items-center justify-between border-t text-sm text-gray-600">
-                <div id="showingInfo">Showing 1–10 of 0 entries</div>
+            
+            <div class="p-4 border-t border-gray-100 flex justify-between items-center text-sm text-gray-500">
+                <span id="pageInfo">Showing 0-0 of 0</span>
                 <div class="flex gap-2">
-                    <button id="prevPage" class="px-4 py-2 border rounded hover:bg-gray-100 disabled:opacity-50" disabled>Previous</button>
-                    <button id="nextPage" class="px-4 py-2 border rounded hover:bg-gray-100 disabled:opacity-50" disabled>Next</button>
+                    <button id="prevBtn" class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-50" disabled>Prev</button>
+                    <button id="nextBtn" class="px-3 py-1 rounded border hover:bg-gray-50 disabled:opacity-50" disabled>Next</button>
                 </div>
             </div>
-
         </div>
-
     </div>
 
+    <!-- RESUME MODAL (Extracted from your reference code) -->
+    <div id="resumeModal" class="fixed inset-0 z-[9999] hidden bg-black bg-opacity-50 flex items-center justify-center transition-opacity">
+        <div class="bg-white rounded-lg w-11/12 md:w-3/4 lg:w-2/3 h-[90vh] flex flex-col overflow-hidden shadow-2xl relative">
+            
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 class="text-lg font-semibold text-gray-800"><i class="far fa-file-pdf text-red-500 mr-2"></i> Resume Viewer</h3>
+                <button onclick="closeResumeModal()" class="text-gray-500 hover:text-red-500 transition-colors">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="flex-1 bg-gray-100 p-2">
+                <!-- Using iframe as requested -->
+                <iframe id="resumeIframe" src="" class="w-full h-full border-0 rounded shadow-inner"></iframe>
+            </div>
+            
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
 </main>
 
-<div id="toast-container"></div>
-
 <script>
-// ────────────────────────────────────────────────
-// Sample data (Location and Experience removed)
-// ────────────────────────────────────────────────
-const candidates = [
-    { id: "Cand-003", name: "John Harris", email: "john@example.com", role: "Technician", phone: "(196) 2348 947", img: "https://i.pravatar.cc/150?u=1", added: "2026-02-10" },
-    { id: "Cand-004", name: "Carole Langan", email: "carole@example.com", role: "Web Developer", phone: "(138) 6487 295", img: "https://i.pravatar.cc/150?u=2", added: "2026-02-12" },
-    { id: "Cand-005", name: "Charles Marks", email: "charles@example.com", role: "Sales Executive Officer", phone: "(154) 6485 218", img: "https://i.pravatar.cc/150?u=3", added: "2026-02-09" },
-    { id: "Cand-006", name: "Kerry Drake", email: "kerry@example.com", role: "Designer", phone: "(185) 5947 097", img: "https://i.pravatar.cc/150?u=4", added: "2026-02-14" },
-    { id: "Cand-007", name: "David Carmona", email: "david@example.com", role: "Accountant", phone: "(106) 3485 978", img: "https://i.pravatar.cc/150?u=5", added: "2026-02-11" },
-];
-
-// ────────────────────────────────────────────────
-// Table state
-// ────────────────────────────────────────────────
+// --- State Management ---
+const rawCandidates = <?php echo $candidates_json ?: '[]'; ?>;
+let candidates = [...rawCandidates];
 let currentPage = 1;
 let rowsPerPage = 10;
-let filtered = [...candidates];
+let isProcessing = false;
 
-// ────────────────────────────────────────────────
-// DOM references
-// ────────────────────────────────────────────────
-const tableBody     = document.getElementById('parsed-candidates-body');
-const showingInfo   = document.getElementById('showingInfo');
-const searchInput   = document.getElementById('searchInput');
-const designation   = document.getElementById('designationFilter');
-const sortSelect    = document.getElementById('sortBy');
-const rowsSelect    = document.getElementById('rowsPerPage');
-const prevBtn       = document.getElementById('prevPage');
-const nextBtn       = document.getElementById('nextPage');
+// --- DOM Elements ---
+const tableBody = document.getElementById('tableBody');
+const searchInput = document.getElementById('searchInput');
+const sortSelect = document.getElementById('sortBy');
+const fileInput = document.getElementById('fileInput');
+const dropZone = document.getElementById('dropZone');
+const queueList = document.getElementById('queueList');
+const processingQueue = document.getElementById('processingQueue');
 
-// ────────────────────────────────────────────────
-// Render function (Removed Location/Exp columns)
-// ────────────────────────────────────────────────
-function render() {
+// --- Initialization ---
+function init() {
+    updateStats();
+    renderTable();
+    setupEventListeners();
+}
+
+function updateStats() {
+    document.getElementById('totalCount').innerText = candidates.length;
+    if(candidates.length > 0) {
+        const total = candidates.reduce((acc, curr) => acc + parseInt(curr.match_score || 0), 0);
+        document.getElementById('avgScore').innerText = Math.round(total / candidates.length) + '%';
+    }
+}
+
+// --- Table Rendering ---
+function renderTable() {
     tableBody.innerHTML = '';
+    
+    // Filter
+    let filtered = candidates.filter(c => {
+        const term = searchInput.value.toLowerCase();
+        return c.name.toLowerCase().includes(term) || c.email.toLowerCase().includes(term);
+    });
 
+    // Sort
+    const sortVal = sortSelect.value;
+    if (sortVal === 'newest') filtered.sort((a,b) => new Date(b.added) - new Date(a.added));
+    if (sortVal === 'score-desc') filtered.sort((a,b) => b.match_score - a.match_score);
+    if (sortVal === 'score-asc') filtered.sort((a,b) => a.match_score - b.match_score);
+
+    // Paginate
     const start = (currentPage - 1) * rowsPerPage;
-    const end   = start + rowsPerPage;
+    const end = start + rowsPerPage;
     const pageData = filtered.slice(start, end);
 
+    document.getElementById('pageInfo').innerText = `Showing ${filtered.length > 0 ? start+1 : 0}-${Math.min(end, filtered.length)} of ${filtered.length}`;
+    document.getElementById('prevBtn').disabled = currentPage === 1;
+    document.getElementById('nextBtn').disabled = end >= filtered.length;
+
+    if (pageData.length === 0) {
+        tableBody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400">No candidates found. Upload resumes to get started.</td></tr>`;
+        return;
+    }
+
     pageData.forEach(c => {
+        const score = parseInt(c.match_score);
+        let colorClass = score >= 75 ? 'bg-green-500' : (score >= 50 ? 'bg-yellow-500' : 'bg-red-500');
+        let textColor = score >= 75 ? 'text-green-700' : (score >= 50 ? 'text-yellow-700' : 'text-red-700');
+
+        // Format Skills HTML
+        let skillsHtml = '';
+        if(c.skills && c.skills !== 'No specific matches' && c.skills !== 'N/A') {
+            const skillsList = c.skills.split(',');
+            skillsList.slice(0, 3).forEach(s => {
+                skillsHtml += `<span class="skill-tag">${s.trim()}</span>`;
+            });
+            if(skillsList.length > 3) skillsHtml += `<span class="text-xs text-gray-400">+${skillsList.length - 3}</span>`;
+        } else {
+            skillsHtml = `<span class="text-xs text-gray-400">-</span>`;
+        }
+
         const tr = document.createElement('tr');
-        tr.className = 'border-b hover:bg-gray-50';
+        tr.className = 'hover:bg-gray-50 transition-colors table-row-enter group';
         tr.innerHTML = `
-            <td class="p-4"><input type="checkbox" class="rounded"></td>
-            <td class="p-4 font-medium text-gray-700">${c.id}</td>
             <td class="p-4">
                 <div class="flex items-center gap-3">
-                    <img src="${c.img}" class="w-10 h-10 rounded-full border" alt="">
+                    <img src="${c.img}" class="w-9 h-9 rounded-full border border-gray-200">
                     <div>
-                        <div class="font-semibold">${c.name}</div>
+                        <div class="font-semibold text-gray-800">${c.name}</div>
                         <div class="text-xs text-gray-500">${c.email}</div>
                     </div>
                 </div>
             </td>
-            <td class="p-4 text-gray-600">${c.role}</td>
-            <td class="p-4 text-gray-600">${c.phone}</td>
-            <!-- Removed Location and Experience Columns -->
+            <td class="p-4 text-gray-600">
+                ${c.phone || '-'}
+            </td>
             <td class="p-4">
-                <span class="status-badge">
-                    <span class="status-dot"></span> Parsed
+                <div class="flex flex-wrap">${skillsHtml}</div>
+            </td>
+            <td class="p-4 text-gray-600 text-xs">
+                ${c.added}
+            </td>
+            <td class="p-4">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold ${textColor} w-8">${score}%</span>
+                    <div class="score-bar-bg">
+                        <div class="score-bar-fill ${colorClass}" style="width: ${score}%"></div>
+                    </div>
+                </div>
+            </td>
+            <td class="p-4">
+                <span class="px-2 py-1 rounded-full text-xs font-semibold bg-teal-50 text-teal-700 border border-teal-100">
+                    ${c.status || 'Parsed'}
                 </span>
             </td>
-            <td class="p-4 text-center">
-                <div class="flex justify-center gap-5 text-gray-500">
-                    <button class="hover:text-[var(--primary)]"><i class="far fa-file-alt"></i></button>
-                    <button class="hover:text-[var(--primary)]"><i class="fas fa-download"></i></button>
+            <td class="p-4 text-right">
+                <!-- ACTIONS ALWAYS VISIBLE (class action-btn ensures opacity 1) -->
+                <div class="flex justify-end gap-2">
+                    <button onclick="openResumeModal('${c.resume_path}')" class="action-btn w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center" title="View Resume">
+                        <i class="far fa-eye text-lg"></i>
+                    </button>
+                    <button onclick="deleteCandidate('${c.id}')" class="action-btn w-8 h-8 rounded bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center" title="Delete">
+                        <i class="far fa-trash-alt text-lg"></i>
+                    </button>
                 </div>
             </td>
         `;
         tableBody.appendChild(tr);
     });
-
-    showingInfo.textContent = `Showing ${start+1}–${Math.min(end, filtered.length)} of ${filtered.length} entries`;
-    prevBtn.disabled = currentPage === 1;
-    nextBtn.disabled = end >= filtered.length;
 }
 
-// ────────────────────────────────────────────────
-// Filter & sort logic (Removed Exp sort)
-// ────────────────────────────────────────────────
-function filterAndSort() {
-    let data = [...candidates];
-
-    // Search
-    const term = searchInput.value.toLowerCase().trim();
-    if (term) {
-        data = data.filter(c =>
-            c.name.toLowerCase().includes(term) ||
-            c.email.toLowerCase().includes(term) ||
-            c.role.toLowerCase().includes(term)
-        );
-    }
-
-    // Designation
-    const role = designation.value;
-    if (role) data = data.filter(c => c.role === role);
-
-    // Sort
-    const sortVal = sortSelect.value;
-    if (sortVal === 'name-asc')  data.sort((a,b) => a.name.localeCompare(b.name));
-    if (sortVal === 'name-desc') data.sort((a,b) => b.name.localeCompare(a.name));
-
-    filtered = data;
-    currentPage = 1;
-    render();
-}
-
-// ────────────────────────────────────────────────
-// Event listeners
-// ────────────────────────────────────────────────
-searchInput.addEventListener('input', filterAndSort);
-designation.addEventListener('change', filterAndSort);
-sortSelect.addEventListener('change', filterAndSort);
-rowsSelect.addEventListener('change', () => {
-    rowsPerPage = parseInt(rowsSelect.value);
-    currentPage = 1;
-    render();
-});
-
-prevBtn.addEventListener('click', () => { if (currentPage > 1) { currentPage--; render(); } });
-nextBtn.addEventListener('click', () => { if ((currentPage * rowsPerPage) < filtered.length) { currentPage++; render(); } });
-
-// Date picker (for future date filtering)
-flatpickr("#dateRange", {
-    mode: "range",
-    dateFormat: "d/m/Y",
-    defaultDate: ["2026/02/10", "2026/02/16"],
-    onChange: (selectedDates) => {
-        if (selectedDates.length === 2) {
-            console.log("Selected range:", selectedDates);
-        }
-    }
-});
-
-// Initial render
-render();
-
-// ────────────────────────────────────────────────
-// File Upload Logic (Dynamic Input)
-// ────────────────────────────────────────────────
-const dropZone = document.getElementById('dropZone');
-
-function triggerFileUpload() {
-    // Dynamically create file input to avoid showing the "No file chosen" text statically
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '.pdf,.doc,.docx,.txt';
-    input.style.display = 'none';
+// --- Event Listeners ---
+function setupEventListeners() {
+    searchInput.addEventListener('input', () => { currentPage = 1; renderTable(); });
+    sortSelect.addEventListener('change', () => { currentPage = 1; renderTable(); });
+    document.getElementById('prevBtn').addEventListener('click', () => { if(currentPage > 1) { currentPage--; renderTable(); }});
+    document.getElementById('nextBtn').addEventListener('click', () => { currentPage++; renderTable(); });
     
-    input.onchange = (e) => {
-        const files = e.target.files;
-        if (!files.length) return;
-        showToast(`Processing ${files.length} resume${files.length > 1 ? 's' : ''}...`);
-        // Clean up
-        document.body.removeChild(input);
-    };
+    dropZone.addEventListener('click', () => fileInput.click());
+    
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+    function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+    
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+    });
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+    });
 
-    document.body.appendChild(input);
-    input.click();
+    dropZone.addEventListener('drop', handleDrop, false);
+    fileInput.addEventListener('change', handleFiles, false);
 }
 
-// Drag and Drop visual effects
-dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.style.borderColor = 'var(--primary)';
-    dropZone.style.background = 'rgba(27,90,90,0.04)';
-});
+// --- Upload Logic (Sequential Queue) ---
+function handleDrop(e) {
+    const dt = e.dataTransfer;
+    const files = dt.files;
+    processFiles(files);
+}
 
-dropZone.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    dropZone.style.borderColor = '#d1d5db';
-    dropZone.style.background = 'transparent';
-});
+function handleFiles(e) {
+    const files = this.files;
+    processFiles(files);
+    this.value = ''; // Reset input
+}
 
-dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.style.borderColor = '#d1d5db';
-    dropZone.style.background = 'transparent';
+async function processFiles(fileList) {
+    const keywords = document.getElementById('keywordsInput').value.trim();
+    if (!keywords) return showToast('Please enter job keywords first!', 'error');
     
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        showToast(`Processing ${files.length} resume${files.length > 1 ? 's' : ''}...`);
+    if(isProcessing) return showToast('Please wait for current queue to finish.', 'error');
+
+    const files = Array.from(fileList).filter(f => f.type === 'application/pdf');
+    if (files.length === 0) return showToast('Only PDF files are supported.', 'error');
+
+    isProcessing = true;
+    processingQueue.classList.remove('hidden');
+    
+    const fileQueueIds = [];
+    files.forEach(f => {
+        const id = 'q-' + Date.now() + Math.random().toString(16).slice(2);
+        fileQueueIds.push({ id, file: f });
+        addQueueItemUI(id, f.name, 0);
+    });
+
+    for (let i = 0; i < fileQueueIds.length; i++) {
+        const { id, file } = fileQueueIds[i];
+        updateQueueItemUI(id, 'Processing...', 'text-blue-600', false);
+        
+        await uploadSingleFile(file, keywords, id);
+        await new Promise(r => setTimeout(r, 1000));
     }
-});
 
-// ────────────────────────────────────────────────
-// AI Simulation Logic
-// ────────────────────────────────────────────────
-function simulateAIAnalysis() {
-    const kw = document.getElementById('keywordsInput').value.trim();
-    if (!kw) return showToast('Enter keywords first', 'error');
-
-    document.getElementById('ai-loader').classList.remove('hidden');
-
+    isProcessing = false;
     setTimeout(() => {
-        document.getElementById('ai-loader').classList.add('hidden');
-
-        const mock = [
-            { name: "Priya Sharma", role: "Full Stack Developer" },
-            { name: "Ananya Krishnan", role: "React Native Developer" },
-            { name: "Michael Chen", role: "Backend Engineer" }
-        ];
-        
-        const item = mock[Math.floor(Math.random() * mock.length)];
-        const newId = "Cand-" + Math.floor(100 + Math.random() * 900);
-        
-        // Add new candidate to the top of the list
-        const newCandidate = {
-            id: newId,
-            name: item.name,
-            email: item.name.toLowerCase().replace(' ', '.') + "@example.com",
-            role: item.role,
-            phone: "(555) " + Math.floor(100 + Math.random() * 900) + "-" + Math.floor(1000 + Math.random() * 9000),
-            img: `https://i.pravatar.cc/150?u=${Math.random()}`,
-            added: new Date().toISOString().split('T')[0]
-        };
-
-        candidates.unshift(newCandidate); // Add to beginning of array
-        filterAndSort(); // Re-render table with new data
-
-        showToast(`AI Match Found: ${item.name} added to list.`);
-    }, 2200);
+        if(!isProcessing) processingQueue.classList.add('hidden'); 
+    }, 2000);
 }
 
-function showToast(msg, type = 'success') {
-    const c = document.getElementById('toast-container');
-    const t = document.createElement('div');
-    t.className = 'toast';
-    t.style.borderLeftColor = type === 'error' ? 'var(--danger)' : 'var(--primary)';
-    t.innerHTML = `<strong>${msg}</strong>`;
-    c.appendChild(t);
-    setTimeout(() => { 
-        t.style.opacity = '0'; 
-        t.style.transition = 'opacity 0.4s';
-        setTimeout(() => t.remove(), 400); 
-    }, 3400);
+function addQueueItemUI(id, filename, progress) {
+    const div = document.createElement('div');
+    div.id = id;
+    div.className = "flex items-center justify-between bg-white p-3 rounded border border-gray-100 shadow-sm";
+    div.innerHTML = `
+        <div class="flex items-center gap-3 overflow-hidden">
+            <i class="fa-regular fa-file-pdf text-red-500"></i>
+            <span class="text-sm font-medium text-gray-700 truncate w-48">${filename}</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="queue-status text-xs text-gray-400">Queued</span>
+            <i class="fa-solid fa-check text-green-500 queue-icon hidden"></i>
+            <i class="fa-solid fa-spinner fa-spin text-blue-500 queue-spinner hidden"></i>
+        </div>
+    `;
+    queueList.appendChild(div);
 }
+
+function updateQueueItemUI(id, statusText, colorClass, isDone) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    
+    const statusEl = el.querySelector('.queue-status');
+    const checkEl = el.querySelector('.queue-icon');
+    const spinEl = el.querySelector('.queue-spinner');
+
+    statusEl.className = `queue-status text-xs ${colorClass}`;
+    statusEl.innerText = statusText;
+
+    if (isDone) {
+        spinEl.classList.add('hidden');
+        checkEl.classList.remove('hidden');
+    } else {
+        spinEl.classList.remove('hidden');
+        checkEl.classList.add('hidden');
+    }
+}
+
+async function uploadSingleFile(file, keywords, uiId) {
+    const formData = new FormData();
+    formData.append('resume', file);
+    formData.append('keywords', keywords);
+
+    try {
+        const response = await fetch(window.location.href, { method: 'POST', body: formData });
+        const rawText = await response.text();
+        let result;
+        try { result = JSON.parse(rawText); } 
+        catch (e) { throw new Error("Server Response Error"); }
+
+        if (result.status === 'success') {
+            updateQueueItemUI(uiId, `Score: ${result.data.match_score}%`, 'text-green-600', true);
+            showToast(`${file.name} processed (${result.data.match_score}%)`);
+            
+            candidates.unshift({
+                id: result.data.id,
+                name: result.data.name,
+                email: result.data.email,
+                phone: result.data.phone,
+                added: result.data.added,
+                skills: result.data.skills,
+                match_score: result.data.match_score,
+                status: 'Parsed',
+                img: result.data.img,
+                resume_path: result.data.resume_path
+            });
+            updateStats();
+            renderTable();
+        } else {
+            updateQueueItemUI(uiId, 'Failed', 'text-red-600', true);
+            showToast(`${file.name} failed: ${result.message}`, 'error');
+        }
+
+    } catch (err) {
+        updateQueueItemUI(uiId, 'Network Error', 'text-red-600', true);
+        showToast(`${file.name} connection failed.`, 'error');
+    }
+}
+
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    const borderClass = type === 'error' ? 'border-red-500' : 'border-teal-500';
+    const iconClass = type === 'error' ? 'fa-circle-exclamation text-red-500' : 'fa-circle-check text-teal-500';
+    
+    toast.className = `toast ${borderClass}`;
+    toast.innerHTML = `
+        <div class="flex items-center gap-3">
+            <i class="fa-solid ${iconClass}"></i>
+            <span class="text-sm font-medium text-gray-700">${message}</span>
+        </div>
+    `;
+    
+    container.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100%)';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+// --- RESUME MODAL LOGIC (Extracted from your reference) ---
+function openResumeModal(path) {
+    document.getElementById('resumeIframe').src = path;
+    document.getElementById('resumeModal').classList.remove('hidden');
+    document.body.style.overflow = 'hidden'; 
+}
+
+function closeResumeModal() {
+    document.getElementById('resumeIframe').src = '';
+    document.getElementById('resumeModal').classList.add('hidden');
+    document.body.style.overflow = 'auto'; 
+}
+
+async function deleteCandidate(id) {
+    if(!confirm("Delete this candidate permanently?")) return;
+    
+    const formData = new FormData();
+    formData.append('action', 'delete');
+    formData.append('id', id);
+    
+    try {
+        const res = await fetch(window.location.href, { method: 'POST', body: formData });
+        const data = await res.json();
+        
+        if(data.status === 'success') {
+            candidates = candidates.filter(c => c.id !== id);
+            updateStats();
+            renderTable();
+            showToast("Candidate deleted");
+        }
+    } catch(e) { showToast("Delete failed", 'error'); }
+}
+
+init();
 </script>
-
 </body>
 </html>
