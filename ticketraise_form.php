@@ -1,8 +1,89 @@
 <?php
 // ticketraise_form.php
 
-// 1. Session & Sidebar
+// 1. Session & DB Connection
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+// ROBUST DATABASE CONNECTION
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+
+if (file_exists($dbPath)) {
+    require_once $dbPath;
+} else {
+    // Fallback path
+    $dbPath = $projectRoot . '/include/db_connect.php';
+    if(file_exists($dbPath)) {
+        require_once $dbPath;
+    } else {
+        die("Database connection file not found at: " . $dbPath);
+    }
+}
+
+// CRITICAL FIX: Ensure $conn exists. If your db_connect.php uses a different variable name (like $con or $link), change it here!
+if (!isset($conn) || $conn === null) {
+    die("Database connection variable (\$conn) is null or not found in db_connect.php.");
+}
+
+// Flags to trigger SweetAlert after page load
+$show_success_alert = false;
+$show_error_alert = false;
+
+// --- NEW: HANDLE FORM SUBMISSION LOGIC ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
+    $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1); 
+    $ticket_code = $_POST['ticket_code'];
+    $subject = mysqli_real_escape_string($conn, $_POST['subject']);
+    $priority = mysqli_real_escape_string($conn, $_POST['priority']);
+    $department = mysqli_real_escape_string($conn, $_POST['department']);
+    $cc_email = mysqli_real_escape_string($conn, $_POST['cc_email']);
+    $description = mysqli_real_escape_string($conn, $_POST['description']);
+    
+    $attachment = NULL;
+
+    // Handle File Upload
+    if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
+        $upload_dir = '../uploads/tickets/'; 
+        if (!is_dir($upload_dir)) {
+            mkdir($upload_dir, 0777, true);
+        }
+        $file_extension = pathinfo($_FILES["attachment"]["name"], PATHINFO_EXTENSION);
+        $new_filename = time() . '_' . uniqid() . '.' . $file_extension;
+        $target_file = $upload_dir . $new_filename;
+        
+        if (move_uploaded_file($_FILES["attachment"]["tmp_name"], $target_file)) {
+            // Save relative path exactly as your DB schema expects
+            $attachment = 'uploads/tickets/' . $new_filename;
+        }
+    }
+
+    // Insert into tickets table
+    $query = "INSERT INTO tickets (user_id, ticket_code, subject, priority, department, cc_email, description, attachment, status) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Open')";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("isssssss", $user_id, $ticket_code, $subject, $priority, $department, $cc_email, $description, $attachment);
+
+    if ($stmt->execute()) {
+        $show_success_alert = true;
+
+        // --- AUTOMATICALLY SEND NOTIFICATION TO IT TEAM ---
+        $notif_title = "New Ticket: " . $ticket_code;
+        $notif_msg = "Dept: " . $department . " | Priority: " . $priority;
+        
+        // Find IT Admins and System Admins and insert a notification for them
+        $notif_query = "INSERT INTO notifications (user_id, title, message, type) 
+                        SELECT id, ?, ?, 'alert' FROM users WHERE role IN ('IT Admin', 'System Admin')";
+        $notif_stmt = $conn->prepare($notif_query);
+        $notif_stmt->bind_param("ss", $notif_title, $notif_msg);
+        $notif_stmt->execute();
+        $notif_stmt->close();
+
+    } else {
+        $show_error_alert = true;
+    }
+    $stmt->close();
+}
+
 include 'sidebars.php';
 
 // 2. Mock Data
@@ -20,6 +101,8 @@ $user_name = $_SESSION['username'] ?? 'User';
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <style>
         :root {
@@ -165,7 +248,10 @@ $user_name = $_SESSION['username'] ?? 'User';
     </div>
 
     <div class="p-6 md:p-10 w-full">
-        <form id="ticketForm" action="submit_ticket.php" method="POST" enctype="multipart/form-data">
+        <form id="ticketForm" action="" method="POST" enctype="multipart/form-data">
+            
+            <input type="hidden" name="ticket_code" value="<?php echo $ticket_id; ?>">
+
             <div class="form-card">
                 
                 <div class="form-header">
@@ -233,7 +319,7 @@ $user_name = $_SESSION['username'] ?? 'User';
 
                     <div class="border-t border-gray-100 pt-8 mt-6 flex justify-end gap-3">
                         <button type="button" class="btn-cancel" onclick="window.history.back()">Cancel</button>
-                        <button type="submit" class="btn-submit shadow-lg shadow-teal-900/20">
+                        <button type="submit" name="submit_ticket" class="btn-submit shadow-lg shadow-teal-900/20">
                             <i class="fa-regular fa-paper-plane mr-2"></i> Submit Ticket
                         </button>
                     </div>
@@ -244,6 +330,36 @@ $user_name = $_SESSION['username'] ?? 'User';
     </div>
 
 </div>
+
+<?php if ($show_success_alert): ?>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        Swal.fire({
+            title: 'Ticket Raised Successfully!',
+            text: 'Your ticket has been sent to the IT team.',
+            icon: 'success',
+            confirmButtonColor: '#1b5a5a'
+        }).then(() => {
+            // REMOVED REDIRECT - STAYS ON SAME PAGE AND CLEARS FORM
+            document.getElementById('ticketForm').reset();
+            document.getElementById('fileNameDisplay').classList.add('hidden');
+        });
+    });
+</script>
+<?php endif; ?>
+
+<?php if ($show_error_alert): ?>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        Swal.fire({
+            title: 'Error!',
+            text: 'Failed to raise the ticket. Please try again.',
+            icon: 'error',
+            confirmButtonColor: '#1b5a5a'
+        });
+    });
+</script>
+<?php endif; ?>
 
 <script>
     // 1. File Upload Logic
@@ -266,14 +382,14 @@ $user_name = $_SESSION['username'] ?? 'User';
         const allowedTypes = ['image/jpeg', 'image/png', 'image/svg+xml', 'application/pdf'];
 
         if (file.size > maxSize) {
-            alert("File is too large! Maximum allowed size is 5MB.");
+            Swal.fire('File Too Large', 'Maximum allowed size is 5MB.', 'error');
             document.getElementById('fileInput').value = ""; // Clear input
             document.getElementById('fileNameDisplay').classList.add('hidden');
             return false;
         }
 
         if (!allowedTypes.includes(file.type)) {
-            alert("Invalid file type! Only JPG, PNG, SVG, and PDF are allowed.");
+            Swal.fire('Invalid File', 'Only JPG, PNG, SVG, and PDF are allowed.', 'error');
             document.getElementById('fileInput').value = ""; // Clear input
             document.getElementById('fileNameDisplay').classList.add('hidden');
             return false;
@@ -290,19 +406,19 @@ $user_name = $_SESSION['username'] ?? 'User';
 
         if (subject.length < 5) {
             e.preventDefault();
-            alert("Subject must be at least 5 characters long.");
+            Swal.fire('Validation Error', 'Subject must be at least 5 characters long.', 'warning');
             return;
         }
 
         if (description.length < 10) {
             e.preventDefault();
-            alert("Description must be at least 10 characters long.");
+            Swal.fire('Validation Error', 'Description must be at least 10 characters long.', 'warning');
             return;
         }
 
         if (department === "" || priority === "") {
             e.preventDefault();
-            alert("Please select both Department and Priority.");
+            Swal.fire('Validation Error', 'Please select both Department and Priority.', 'warning');
             return;
         }
     });
