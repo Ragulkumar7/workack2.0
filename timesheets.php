@@ -266,6 +266,5 @@ $months = [
             </div>
         </div>
     </main>
-
 </body>
 </html>
