@@ -1,85 +1,52 @@
 <?php
-// support.php - Help & Support / Knowledgebase Page
+// help_support.php
 
-// 1. SESSION & SECURITY
+// 1. SESSION & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include 'include/db_connect.php'; // Ensure DB connection is included
 
-// 2. ROBUST SIDEBAR & HEADER INCLUDE
+// 2. PATHS
 $sidebarPath = __DIR__ . '/sidebars.php'; 
 $headerPath = __DIR__ . '/header.php';
-
 if (!file_exists($sidebarPath)) { $sidebarPath = __DIR__ . '/../sidebars.php'; }
 if (!file_exists($headerPath)) { $headerPath = __DIR__ . '/../header.php'; }
 
-// 4. MOCK DATA FOR KNOWLEDGEBASE
-$kb_categories = [
-    [
-        "title" => "Introduction to HRMS",
-        "count" => "06",
-        "articles" => [
-            "What is an HRMS and Why is it Essential?",
-            "The Key Features of an HRMS Explained",
-            "How HRMS Helps Automate HR Tasks",
-            "HRMS Terminology : A Beginner's Guide",
-            "Cloud vs On-Premise HRMS vs Hybrid",
-            "Getting Started: First Login Guide"
-        ]
-    ],
-    [
-        "title" => "Employee Self-Service (ESS)",
-        "count" => "12",
-        "articles" => [
-            "How to view & update your personal profile",
-            "Steps to Apply for Leave via the Portal",
-            "How to access and download your payslips",
-            "Submitting & Tracking Expense Claims",
-            "How to track your attendance and work hours",
-            "Resetting your password securely"
-        ]
-    ],
-    [
-        "title" => "Manager Self-Service (MSS)",
-        "count" => "15",
-        "articles" => [
-            "How to Approve or Reject Employee Requests",
-            "Viewing and managing team attendance",
-            "How to conduct performance reviews",
-            "Approving expense claims for your team",
-            "How to update & view team's work shifts",
-            "Generating team productivity reports"
-        ]
-    ],
-    [
-        "title" => "Payroll Management",
-        "count" => "08",
-        "articles" => [
-            "Understanding your Salary Structure",
-            "How Tax Deductions are calculated",
-            "Viewing Year-to-Date (YTD) Earnings",
-            "Direct Deposit configuration steps"
-        ]
-    ],
-    [
-        "title" => "Attendance & Time Tracking",
-        "count" => "05",
-        "articles" => [
-            "How to use the Biometric Punch System",
-            "Correcting a missed punch entry",
-            "Understanding Overtime Policies",
-            "Shift Swapping Guidelines"
-        ]
-    ],
-    [
-        "title" => "Leave Management",
-        "count" => "06",
-        "articles" => [
-            "Leave Types and Entitlements",
-            "How to cancel an approved leave",
-            "Maternity & Paternity Leave Policies",
-            "Encashment of unused leaves"
-        ]
-    ]
-];
+// 3. FETCH DATA FROM DB
+$kb_data = [];
+$article_map = []; // To store Title -> Content for JS
+
+// Fetch Categories
+$cat_sql = "SELECT * FROM help_categories ORDER BY id ASC";
+$cat_res = $conn->query($cat_sql);
+
+if ($cat_res->num_rows > 0) {
+    while($cat = $cat_res->fetch_assoc()) {
+        $cat_id = $cat['id'];
+        
+        // Fetch Articles for this Category
+        $art_sql = "SELECT title, content FROM help_articles WHERE category_id = ?";
+        $stmt = $conn->prepare($art_sql);
+        $stmt->bind_param("i", $cat_id);
+        $stmt->execute();
+        $art_res = $stmt->get_result();
+        
+        $articles = [];
+        while($row = $art_res->fetch_assoc()) {
+            $articles[] = $row['title'];
+            // Map title to content for the Modal
+            $article_map[$row['title']] = $row['content'];
+        }
+        
+        // Add to main array if category has articles
+        if (!empty($articles)) {
+            $kb_data[] = [
+                'title' => $cat['title'],
+                'count' => str_pad(count($articles), 2, '0', STR_PAD_LEFT), // Format 05, 12 etc
+                'articles' => $articles
+            ];
+        }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -116,6 +83,7 @@ $kb_categories = [
             margin-left: var(--sidebar-width);
             padding: 24px 32px;
             min-height: 100vh;
+            transition: margin-left 0.3s ease;
         }
 
         .kb-grid { 
@@ -197,34 +165,38 @@ $kb_categories = [
 <body>
 
     <?php if (file_exists($headerPath)) include($headerPath); ?>
-
     <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
 
-    <div class="main-content">
+    <div class="main-content" id="mainContent">
         <div class="mb-8">
             <h1 class="text-3xl font-bold text-slate-800">Help & Support</h1>
             <p class="text-slate-500 mt-1">Find guides, tutorials, and answers to your HRMS questions.</p>
         </div>
 
         <div class="kb-grid">
-            <?php foreach ($kb_categories as $category): ?>
-            <div class="kb-card">
-                <div class="flex items-center gap-2 mb-4">
-                    <div class="p-2 rounded-lg bg-teal-50">
-                        <i data-lucide="folder" class="text-[#1b5a5a] w-5 h-5"></i>
+            <?php if(empty($kb_data)): ?>
+                <p class="text-gray-500">No support articles found in the database.</p>
+            <?php else: ?>
+                <?php foreach ($kb_data as $category): ?>
+                <div class="kb-card">
+                    <div class="flex items-center gap-2 mb-4">
+                        <div class="p-2 rounded-lg bg-teal-50">
+                            <i data-lucide="folder" class="text-[#1b5a5a] w-5 h-5"></i>
+                        </div>
+                        <span class="font-bold text-slate-800 text-lg"><?php echo htmlspecialchars($category['title']); ?></span>
+                        <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded-full ml-auto"><?php echo $category['count']; ?></span>
                     </div>
-                    <span class="font-bold text-slate-800 text-lg"><?php echo $category['title']; ?></span>
+                    <ul class="list-none p-0">
+                        <?php foreach ($category['articles'] as $article): ?>
+                        <li class="kb-item" onclick="showTopicContent('<?php echo addslashes($article); ?>')">
+                            <i data-lucide="file-text" class="w-4 h-4 mt-1 text-slate-400"></i>
+                            <span><?php echo htmlspecialchars($article); ?></span>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
                 </div>
-                <ul class="list-none p-0">
-                    <?php foreach ($category['articles'] as $article): ?>
-                    <li class="kb-item" onclick="showTopicContent('<?php echo addslashes($article); ?>')">
-                        <i data-lucide="file-text" class="w-4 h-4 mt-1 text-slate-400"></i>
-                        <span><?php echo $article; ?></span>
-                    </li>
-                    <?php endforeach; ?>
-                </ul>
-            </div>
-            <?php endforeach; ?>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -235,7 +207,7 @@ $kb_categories = [
                 <h2 id="topicTitle" class="text-2xl font-bold text-[#1b5a5a] mb-4"></h2>
                 <hr class="mb-6 border-slate-100">
                 <div id="topicDescription" class="text-slate-600 leading-relaxed space-y-4 text-lg">
-                    </div>
+                </div>
                 <div class="mt-8 pt-6 border-t border-slate-100 flex justify-end">
                     <button onclick="closeModal()" class="btn-primary">Got it, thanks!</button>
                 </div>
@@ -247,28 +219,19 @@ $kb_categories = [
         // Initialize Lucide Icons
         lucide.createIcons();
 
-        // Topic Database
-        const articleData = {
-            "What is an HRMS and Why is it Essential?": "An HRMS (Human Resource Management System) is a suite of software used to manage internal HR functions. From employee data to payroll, recruitment, and benefits, it centralizes all employee information in one secure location.",
-            "The Key Features of an HRMS Explained": "Key features include Employee Information Management, Payroll processing, Time and Attendance tracking, Recruitment/ATS, and Performance Management systems.",
-            "How HRMS Helps Automate HR Tasks": "Automation reduces manual entry in payroll, tracks leave balances automatically, and sends notifications for document expirations or performance reviews.",
-            "How to view & update your personal profile": "Navigate to the 'Profile' section from the sidebar. Click 'Edit', update your contact details or address, and click 'Save'. Some changes may require HR approval.",
-            "Steps to Apply for Leave via the Portal": "1. Go to Leave Management. 2. Select 'Apply Leave'. 3. Choose Leave Type (Sick/Annual). 4. Pick dates and submit for Manager approval.",
-            "How to access and download your payslips": "Visit the 'Payroll' module. Select 'Payslips'. Choose the specific month and year, then click 'Download PDF' to save it to your device.",
-            "How to Approve or Reject Employee Requests": "As a manager, go to your 'Inbox' or 'Approval Center'. Review the request details and click 'Approve' or 'Reject' with an optional comment.",
-            "Understanding your Salary Structure": "Your salary is composed of Basic Pay, HRA, Special Allowance, and Deductions like PF and Professional Tax. Details are found in your digital contract.",
-            "Leave Types and Entitlements": "Employees are entitled to 12 Sick Leaves, 15 Annual Leaves, and Public Holidays as per the company calendar. Check your balance in the Leave module.",
-            "How to use the Biometric Punch System": "Ensure your fingerprint or face is registered. Simply scan at the entrance/exit. The data syncs to the HRMS every 30 minutes.",
-            "Resetting your password securely": "Click 'Forgot Password' on the login screen. An OTP will be sent to your registered email. Enter the OTP and create a new password following the complexity rules."
-        };
+        // Topic Database (Fed from PHP)
+        const articleData = <?php echo json_encode($article_map); ?>;
 
         function showTopicContent(title) {
             const modal = document.getElementById('contentModal');
             const titleEl = document.getElementById('topicTitle');
             const descEl = document.getElementById('topicDescription');
 
-            titleEl.innerText = title;
-            const content = articleData[title] || "The detailed guide for this topic is being prepared. For immediate assistance, please reach out to the IT Support desk.";
+            // Decode HTML entities for title matching
+            const decodedTitle = new DOMParser().parseFromString(title, "text/html").body.textContent;
+
+            titleEl.innerText = decodedTitle;
+            const content = articleData[decodedTitle] || "The detailed guide for this topic is being prepared. For immediate assistance, please reach out to the IT Support desk.";
             
             descEl.innerHTML = `<p>${content}</p>`;
             modal.style.display = 'flex';
