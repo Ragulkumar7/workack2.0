@@ -1,196 +1,194 @@
 <?php
-ob_start(); 
-session_start();
+// --- INCLUDE YOUR EXISTING CONNECTION ---
+// Adjust the path if db_connect.php is in a different location
+require_once '../include/db_connect.php';
 
-// Mock Data (Expanded for Load More functionality)
- $projects_data = [
-    [
-        'id' => 'PRO-001',
-        'name' => 'Office Management',
-        'desc' => 'An office management app project streamlines administrative tasks...',
-        'leader' => 'Michael Walker',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Michael+Walker&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=A&background=random', 'https://ui-avatars.com/api/?name=B&background=random'],
-        'deadline' => '2024-09-12',
-        'deadline_display' => '12 Sep 2024',
-        'priority' => 'High',
-        'tasks_done' => 6,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-002',
-        'name' => 'Clinic Management',
-        'desc' => 'A clinic management project streamlines patient records...',
-        'leader' => 'Brian Villalobos',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Brian+Villalobos&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=C&background=random'],
-        'deadline' => '2024-10-24',
-        'deadline_display' => '24 Oct 2024',
-        'priority' => 'Low',
-        'tasks_done' => 7,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-003',
-        'name' => 'Educational Platform',
-        'desc' => 'An educational platform project provides a centralized space...',
-        'leader' => 'Harvey Smith',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Harvey+Smith&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=D&background=random'],
-        'deadline' => '2024-02-18',
-        'deadline_display' => '18 Feb 2024',
-        'priority' => 'Medium',
-        'tasks_done' => 5,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-004',
-        'name' => 'Chat & Call Mobile App',
-        'desc' => 'A chat and call mobile app enables users to send messages...',
-        'leader' => 'Stephan Peralt',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Stephan+Peralt&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=E&background=random', 'https://ui-avatars.com/api/?name=F&background=random'],
-        'deadline' => '2024-10-17',
-        'deadline_display' => '17 Oct 2024',
-        'priority' => 'Medium',
-        'tasks_done' => 6,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-005',
-        'name' => 'Travel Planning Website',
-        'desc' => 'A travel planning website helps users explore destinations...',
-        'leader' => 'Doglas Martini',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Doglas+Martini&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=G&background=random'],
-        'deadline' => '2024-07-20',
-        'deadline_display' => '20 Jul 2024',
-        'priority' => 'Medium',
-        'tasks_done' => 8,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-006',
-        'name' => 'Service Booking Software',
-        'desc' => 'Service booking software enables users to schedule appointments...',
-        'leader' => 'Linda Ray',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Linda+Ray&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=H&background=random'],
-        'deadline' => '2024-04-10',
-        'deadline_display' => '10 Apr 2024',
-        'priority' => 'High',
-        'tasks_done' => 9,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-007',
-        'name' => 'Hotel Booking App',
-        'desc' => 'A hotel booking app allows users to search, compare, and book...',
-        'leader' => 'Elliot Murray',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Elliot+Murray&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=I&background=random'],
-        'deadline' => '2024-04-10',
-        'deadline_display' => '10 Apr 2024',
-        'priority' => 'Medium',
-        'tasks_done' => 2,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-008',
-        'name' => 'Car & Bike Rental Software',
-        'desc' => 'Car and bike rental software allows users to browse, reserve...',
-        'leader' => 'Rebecca Smith',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Rebecca+Smith&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=J&background=random'],
-        'deadline' => '2024-02-22',
-        'deadline_display' => '22 Feb 2024',
-        'priority' => 'Low',
-        'tasks_done' => 6,
-        'tasks_total' => 10,
-        'status' => 'Inactive'
-    ],
-    [
-        'id' => 'PRO-009',
-        'name' => 'Food Order App',
-        'desc' => 'A food order app allows users to browse menus, place orders...',
-        'leader' => 'Connie Waters',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Connie+Waters&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=K&background=random'],
-        'deadline' => '2024-11-03',
-        'deadline_display' => '03 Nov 2024',
-        'priority' => 'Medium',
-        'tasks_done' => 7,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-010',
-        'name' => 'POS Admin Software',
-        'desc' => 'POS admin software enables businesses to manage sales, track...',
-        'leader' => 'Lori Broaddus',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Lori+Broaddus&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=L&background=random'],
-        'deadline' => '2024-12-17',
-        'deadline_display' => '17 Dec 2024',
-        'priority' => 'High',
-        'tasks_done' => 5,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ],
-    [
-        'id' => 'PRO-011',
-        'name' => 'Invoicing & Billing Software',
-        'desc' => 'Invoicing and billing software automates the creation, sending...',
-        'leader' => 'Angela Thomas',
-        'leader_img' => 'https://ui-avatars.com/api/?name=Angela+Thomas&background=random',
-        'team' => ['https://ui-avatars.com/api/?name=M&background=random'],
-        'deadline' => '2024-01-23',
-        'deadline_display' => '23 Jan 2024',
-        'priority' => 'Low',
-        'tasks_done' => 8,
-        'tasks_total' => 10,
-        'status' => 'Active'
-    ]
-];
+// Check if connection variable exists from the included file
+if (!isset($conn)) {
+    die("Database connection failed. Variable \$conn not found in db_connect.php");
+}
+
+// --- HANDLE FORM SUBMISSIONS (ADD & DELETE) ---
+
+// A. Add Project
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_project') {
+
+    // Sanitize inputs
+    $name = mysqli_real_escape_string($conn, $_POST['project_name']);
+    $leader_id = intval($_POST['leader_id']);
+    $client = mysqli_real_escape_string($conn, $_POST['client_name']);
+    $start_date = $_POST['start_date'];
+    $end_date = $_POST['end_date'];
+    $priority = mysqli_real_escape_string($conn, $_POST['priority']);
+    $value = floatval($_POST['project_value']);
+    $price_type = mysqli_real_escape_string($conn, $_POST['price_type']);
+    $desc = mysqli_real_escape_string($conn, $_POST['description']);
+    $status = mysqli_real_escape_string($conn, $_POST['status']);
+
+    // Get logged in user ID (Assuming stored in session, default to 1 if not)
+    $created_by = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 1;
+
+    // Handle Image Upload
+    $logo_path = null;
+    if (!empty($_FILES['project_logo']['name'])) {
+        $target_dir = "../uploads/projects/"; // Ensure this folder exists
+        if (!file_exists($target_dir))
+            mkdir($target_dir, 0777, true);
+
+        $filename = time() . "_" . basename($_FILES['project_logo']['name']);
+        $target_file = $target_dir . $filename;
+
+        if (move_uploaded_file($_FILES['project_logo']['tmp_name'], $target_file)) {
+            $logo_path = "uploads/projects/" . $filename; // Store relative path for DB
+        }
+    }
+
+    // Insert into Projects Table using Prepared Statement
+    $sql = "INSERT INTO projects (project_name, client_name, leader_id, start_date, deadline, priority, project_value, price_type, description, status, project_logo, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+    $stmt = $conn->prepare($sql);
+    if ($stmt) {
+        $stmt->bind_param("ssisssdssssi", $name, $client, $leader_id, $start_date, $end_date, $priority, $value, $price_type, $desc, $status, $logo_path, $created_by);
+
+        if ($stmt->execute()) {
+            $new_project_id = $stmt->insert_id;
+
+            // Insert Team Members
+            if (isset($_POST['team_members']) && is_array($_POST['team_members'])) {
+                $stmt_member = $conn->prepare("INSERT INTO project_members (project_id, user_id) VALUES (?, ?)");
+                foreach ($_POST['team_members'] as $user_id) {
+                    $u_id = intval($user_id);
+                    $stmt_member->bind_param("ii", $new_project_id, $u_id);
+                    $stmt_member->execute();
+                }
+                $stmt_member->close();
+            }
+            // Redirect to avoid resubmission
+            echo "<script>window.location.href='manager_projects.php?msg=added';</script>";
+            exit();
+        } else {
+            $error = "Error executing query: " . $stmt->error;
+        }
+        $stmt->close();
+    } else {
+        $error = "Error preparing query: " . $conn->error;
+    }
+}
+
+// B. Delete Project
+if (isset($_GET['delete_id'])) {
+    $id = intval($_GET['delete_id']);
+    // Simple delete query
+    $conn->query("DELETE FROM projects WHERE id = $id");
+    echo "<script>window.location.href='manager_projects.php?msg=deleted';</script>";
+    exit();
+}
+
+// --- FETCH DATA FOR VIEW ---
+
+// Fetch Users for Dropdowns (Leader & Team) - Excluding System Admin if needed
+$users_result = $conn->query("SELECT id, name, username, role FROM users WHERE role != 'System Admin' ORDER BY name ASC");
+$users = [];
+if ($users_result) {
+    while ($row = $users_result->fetch_assoc()) {
+        $users[] = $row;
+    }
+}
+
+// Fetch Projects with Details
+$sql = "SELECT p.*, 
+        u.name as leader_name, 
+        u.employee_id as leader_emp_id
+        FROM projects p 
+        LEFT JOIN users u ON p.leader_id = u.id 
+        ORDER BY p.id DESC";
+
+$result = $conn->query($sql);
+$projects_data = [];
+
+if ($result && $result->num_rows > 0) {
+    while ($row = $result->fetch_assoc()) {
+
+        // Fetch Team Members for this project
+        $pid = $row['id'];
+        $team_sql = "SELECT u.name FROM project_members pm JOIN users u ON pm.user_id = u.id WHERE pm.project_id = $pid";
+        $team_res = $conn->query($team_sql);
+        $team_avatars = [];
+
+        if ($team_res) {
+            while ($member = $team_res->fetch_assoc()) {
+                // Generate Avatar based on name
+                $name_enc = urlencode($member['name'] ?? 'User');
+                $team_avatars[] = "https://ui-avatars.com/api/?name=$name_enc&background=random&color=fff&size=32";
+            }
+        }
+
+        // Leader Avatar
+        $leader_name = !empty($row['leader_name']) ? $row['leader_name'] : "Unknown";
+        $leader_img = "https://ui-avatars.com/api/?name=" . urlencode($leader_name) . "&background=0d9488&color=fff";
+
+        // Format Date
+        $deadline_display = ($row['deadline'] && $row['deadline'] != '0000-00-00') ? date("d M Y", strtotime($row['deadline'])) : 'No Deadline';
+
+        // Build Array for JS
+        $projects_data[] = [
+            'id' => 'PRO-' . str_pad($row['id'], 3, '0', STR_PAD_LEFT),
+            'real_id' => $row['id'],
+            'name' => htmlspecialchars($row['project_name']),
+            'desc' => htmlspecialchars(substr(strip_tags($row['description'] ?? ''), 0, 100)) . '...',
+            'leader' => htmlspecialchars($leader_name),
+            'leader_img' => $leader_img,
+            'team' => $team_avatars,
+            'deadline' => $row['deadline'],
+            'deadline_display' => $deadline_display,
+            'priority' => $row['priority'],
+            'tasks_done' => $row['completed_tasks'] ?? 0,
+            'tasks_total' => ($row['total_tasks'] ?? 0) == 0 ? 10 : $row['total_tasks'],
+            'status' => $row['status']
+        ];
+    }
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Projects - SmartHR</title>
-    
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
     <style>
         :root {
-            /* Updated Color Scheme to match Employee Dashboard exactly */
-            --primary: #144d4d; /* Dark Teal Custom */
-            --primary-hover: #115e59; /* Teal-700 for hover */
+            --primary: #144d4d;
+            --primary-hover: #115e59;
             --primary-light: #ccfbf1;
-            --text-dark: #1e293b; /* Slate-800 */
-            --text-muted: #64748b; /* Slate-500 */
-            --bg-body: #f1f5f9; /* Slate-100 */
-            --border-color: #e2e8f0; /* Slate-200 */
+            --text-dark: #1e293b;
+            --text-muted: #64748b;
+            --bg-body: #f1f5f9;
+            --border-color: #e2e8f0;
             --card-bg: #ffffff;
             --success: #10b981;
             --danger: #ef4444;
             --warning: #f59e0b;
         }
 
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
 
         body {
             background-color: var(--bg-body);
@@ -202,18 +200,56 @@ session_start();
         .main-content {
             flex: 1;
             padding: 24px;
-            margin-left: 95px;
-            transition: margin-left 0.3s ease;
-            width: calc(100% - 95px);
+
+            /* FIX: Add margin to push content right. Match this to your sidebar's width. 
+       Based on your image, your sidebar looks like a "mini" sidebar (~80px - 100px). */
+            margin-left: 100px;
+
+            /* FIX: Adjust width so it doesn't cause horizontal scrollbar */
+            width: calc(100% - 100px);
+
+            transition: margin-left 0.3s ease, width 0.3s ease;
         }
-        .main-content.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
+
+        @media (max-width: 768px) {
+            .main-content {
+                margin-left: 0;
+                width: 100%;
+                padding: 16px;
+            }
+
+            /* Fix grid for mobile to show 1 card per row */
+            .projects-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .form-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
 
         /* HEADER & UTILS */
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
-        .page-title h3 { font-size: 1.5rem; font-weight: 700; color: var(--text-dark); letter-spacing: -0.025em; }
-        
-        .header-actions { display: flex; gap: 12px; align-items: center; }
-        
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+
+        .page-title h3 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-dark);
+            letter-spacing: -0.025em;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
         .btn {
             padding: 10px 20px;
             border-radius: 10px;
@@ -227,16 +263,42 @@ session_start();
             transition: all 0.2s;
             text-decoration: none;
         }
-        .btn-primary { 
-            background: var(--primary); /* Dark Teal */
-            color: white; 
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
             box-shadow: 0 4px 6px -1px rgba(20, 77, 77, 0.2);
         }
-        .btn-primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
-        .btn-white { background: white; border: 1px solid var(--border-color); color: var(--text-dark); }
-        .btn-white:hover { background: #f8fafc; border-color: #cbd5e1; }
-        .btn-icon { width: 40px; height: 40px; justify-content: center; padding: 0; border-radius: 10px; }
-        .btn-icon.active { background: var(--primary); color: white; border-color: var(--primary); }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-white {
+            background: white;
+            border: 1px solid var(--border-color);
+            color: var(--text-dark);
+        }
+
+        .btn-white:hover {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+        }
+
+        .btn-icon {
+            width: 40px;
+            height: 40px;
+            justify-content: center;
+            padding: 0;
+            border-radius: 10px;
+        }
+
+        .btn-icon.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
 
         /* EXPORT DROPDOWN */
         .dropdown-menu {
@@ -253,7 +315,11 @@ session_start();
             margin-top: 8px;
             padding: 8px;
         }
-        .dropdown-menu.show { display: block; }
+
+        .dropdown-menu.show {
+            display: block;
+        }
+
         .dropdown-item {
             display: flex;
             align-items: center;
@@ -266,7 +332,10 @@ session_start();
             border-radius: 8px;
             transition: 0.2s;
         }
-        .dropdown-item:hover { background: #f1f5f9; }
+
+        .dropdown-item:hover {
+            background: #f1f5f9;
+        }
 
         /* FILTERS */
         .filter-row {
@@ -279,8 +348,13 @@ session_start();
             justify-content: space-between;
             border: 1px solid var(--border-color);
         }
-        .filter-row h4 { font-size: 1rem; font-weight: 600; color: var(--text-dark); }
-        
+
+        .filter-row h4 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
         .form-select {
             padding: 10px 36px 10px 14px;
             border: 1px solid var(--border-color);
@@ -290,23 +364,22 @@ session_start();
             cursor: pointer;
             font-size: 0.875rem;
             background-color: #fff;
-            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-            background-position: right 10px center;
-            background-repeat: no-repeat;
-            background-size: 1.5em 1.5em;
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
+            height: 42px;
         }
-        .form-select:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(20, 77, 77, 0.1); }
-        
+
+        .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(20, 77, 77, 0.1);
+        }
+
         /* VIEWS */
         .projects-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
             gap: 24px;
+            width: 100%;
         }
-        
+
         .projects-list {
             background: white;
             border-radius: 12px;
@@ -314,7 +387,7 @@ session_start();
             overflow-x: auto;
             display: none;
         }
-        
+
         /* CARD STYLES */
         .project-card {
             background: var(--card-bg);
@@ -324,46 +397,163 @@ session_start();
             position: relative;
             transition: all 0.3s ease;
         }
-        .project-card:hover { 
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.025);
+
+        .project-card:hover {
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
             transform: translateY(-2px);
             border-color: #cbd5e1;
         }
-        
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; position: relative; }
-        .project-title { font-size: 1.05rem; font-weight: 600; color: var(--text-dark); margin-bottom: 4px; }
-        .project-desc { font-size: 0.8rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 20px; height: 36px; overflow: hidden; }
-        .project-meta { display: flex; align-items: center; margin-bottom: 20px; background: #f8fafc; padding: 10px; border-radius: 10px; }
-        .leader-avatar { width: 36px; height: 36px; border-radius: 10px; margin-right: 12px; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-        .leader-info h5 { font-size: 0.875rem; font-weight: 600; color: var(--text-dark); }
-        .leader-info span { font-size: 0.75rem; color: var(--text-muted); }
-        .deadline-badge { margin-left: auto; text-align: right; }
-        .deadline-badge span { display: block; font-size: 0.75rem; color: var(--text-muted); }
-        .deadline-badge strong { font-size: 0.8rem; color: var(--text-dark); }
-        .card-footer { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid #f1f5f9; }
-        .task-count { font-size: 0.8rem; font-weight: 500; color: var(--text-dark); display: flex; align-items: center; gap: 6px;}
-        .team-avatars { display: flex; }
-        .team-avatars img { width: 28px; height: 28px; border-radius: 50%; border: 2px solid #fff; margin-left: -10px; }
-        .team-avatars img:first-child { margin-left: 0; }
-        .team-plus { width: 28px; height: 28px; border-radius: 50%; background: var(--primary); color: white; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; margin-left: -10px; font-weight: 600; }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+            position: relative;
+        }
+
+        .project-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--text-dark);
+            margin-bottom: 4px;
+        }
+
+        .project-desc {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+            margin-bottom: 20px;
+            height: 36px;
+            overflow: hidden;
+        }
+
+        .project-meta {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            background: #f8fafc;
+            padding: 10px;
+            border-radius: 10px;
+        }
+
+        .leader-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            margin-right: 12px;
+            border: 2px solid white;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        }
+
+        .leader-info h5 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .leader-info span {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .deadline-badge {
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .deadline-badge span {
+            display: block;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .deadline-badge strong {
+            font-size: 0.8rem;
+            color: var(--text-dark);
+        }
+
+        .card-footer {
+            margin-top: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 16px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .task-count {
+            font-size: 0.8rem;
+            font-weight: 500;
+            color: var(--text-dark);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .team-avatars {
+            display: flex;
+        }
+
+        .team-avatars img {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            margin-left: -10px;
+        }
+
+        .team-avatars img:first-child {
+            margin-left: 0;
+        }
+
+        .team-plus {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: white;
+            font-size: 0.7rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px solid #fff;
+            margin-left: -10px;
+            font-weight: 600;
+        }
 
         /* ACTION DROPDOWN IN CARD */
-        .action-icon { cursor: pointer; padding: 8px; color: #94a3b8; border-radius: 6px; transition: 0.2s; }
-        .action-icon:hover { background: #f1f5f9; color: var(--text-dark); }
+        .action-icon {
+            cursor: pointer;
+            padding: 8px;
+            color: #94a3b8;
+            border-radius: 6px;
+            transition: 0.2s;
+        }
+
+        .action-icon:hover {
+            background: #f1f5f9;
+            color: var(--text-dark);
+        }
+
         .card-action-menu {
             position: absolute;
             right: 0;
             top: 35px;
             background: white;
             border: 1px solid var(--border-color);
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
             border-radius: 12px;
             z-index: 10;
             display: none;
             width: 130px;
             padding: 6px;
         }
-        .card-action-menu.active { display: block; }
+
+        .card-action-menu.active {
+            display: block;
+        }
+
         .card-action-item {
             display: flex;
             align-items: center;
@@ -374,109 +564,304 @@ session_start();
             text-decoration: none;
             border-radius: 8px;
         }
-        .card-action-item:hover { background: #f1f5f9; }
+
+        .card-action-item:hover {
+            background: #f1f5f9;
+        }
 
         /* TABLE STYLES */
-        table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 14px 20px; background: #f8fafc; font-weight: 600; font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border-color); }
-        td { padding: 14px 20px; vertical-align: middle; font-size: 0.875rem; border-bottom: 1px solid #f1f5f9; color: var(--text-dark); }
-        tr:hover td { background: #f8fafc; }
-        
-        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
-        .status-badge.active { background: #dcfce7; color: #16a34a; }
-        .status-badge.inactive { background: #fee2e2; color: #dc2626; }
-        .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-        .status-badge.active .status-dot { background: #16a34a; }
-        .status-badge.inactive .status-dot { background: #dc2626; }
-        
-        .priority-badge { display: inline-flex; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 600; align-items: center; gap: 6px; }
-        .priority-high { background: #fee2e2; color: #dc2626; }
-        .priority-medium { background: #fef3c7; color: #d97706; }
-        .priority-low { background: #dbeafe; color: #2563eb; }
-        .priority-dot { width: 6px; height: 6px; border-radius: 50%; }
-        .priority-high .priority-dot { background: #dc2626; }
-        .priority-medium .priority-dot { background: #d97706; }
-        .priority-low .priority-dot { background: #2563eb; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 14px 20px;
+            background: #f8fafc;
+            font-weight: 600;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        td {
+            padding: 14px 20px;
+            vertical-align: middle;
+            font-size: 0.875rem;
+            border-bottom: 1px solid #f1f5f9;
+            color: var(--text-dark);
+        }
+
+        tr:hover td {
+            background: #f8fafc;
+        }
+
+        .status-badge {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-badge.active {
+            background: #dcfce7;
+            color: #16a34a;
+        }
+
+        .status-badge.inactive {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-badge.active .status-dot {
+            background: #16a34a;
+        }
+
+        .status-badge.inactive .status-dot {
+            background: #dc2626;
+        }
+
+        .priority-badge {
+            display: inline-flex;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .priority-high {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .priority-medium {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .priority-low {
+            background: #dbeafe;
+            color: #2563eb;
+        }
+
+        .priority-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+        }
+
+        .priority-high .priority-dot {
+            background: #dc2626;
+        }
+
+        .priority-medium .priority-dot {
+            background: #d97706;
+        }
+
+        .priority-low .priority-dot {
+            background: #2563eb;
+        }
 
         /* MODAL & FORM */
-        .modal { display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.4); align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-        .modal.show { display: flex; }
-        .modal-content { background: white; width: 800px; max-width: 95%; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; max-height: 90vh; }
-        .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
-        .modal-title { font-size: 1.125rem; font-weight: 600; }
-        .close-btn { background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #94a3b8; transition: 0.2s; }
-        .close-btn:hover { color: var(--text-dark); }
-        .modal-tabs { display: flex; padding: 0 24px; border-bottom: 1px solid var(--border-color); margin-top: 10px; gap: 24px; }
-        .tab-btn { padding: 12px 4px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-weight: 500; color: var(--text-muted); transition: 0.2s; }
-        .tab-btn.active { color: var(--primary); border-bottom-color: var(--primary); }
-        .modal-body { padding: 24px; overflow-y: auto; flex: 1; }
-        .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; }
-        
-        .form-row { display: flex; gap: 20px; margin-bottom: 20px; }
-        .col-half { flex: 1; }
-        .form-group { margin-bottom: 20px; }
-        .form-label { display: block; font-size: 0.875rem; margin-bottom: 8px; font-weight: 500; color: var(--text-dark); }
-        .form-control { width: 100%; padding: 10px 14px; border: 1px solid var(--border-color); border-radius: 10px; font-size: 0.875rem; transition: 0.2s; background: #fff; }
-        .form-control:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(20, 77, 77, 0.1); }
-        
-        /* Dynamic Tags Input */
-        .tags-input-container { border: 1px solid var(--border-color); padding: 8px; border-radius: 10px; display: flex; flex-wrap: wrap; gap: 6px; min-height: 44px; align-items: center; cursor: text; background: #fff; }
-        .tags-input-container:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(20, 77, 77, 0.1); }
-        .tag-pill { background: #f1f5f9; border: 1px solid #e2e8f0; padding: 4px 10px; border-radius: 6px; font-size: 0.8rem; display: flex; align-items: center; gap: 6px; color: var(--text-dark); font-weight: 500; }
-        .tag-close { cursor: pointer; font-size: 0.9rem; line-height: 1; color: #94a3b8; transition: 0.2s; }
-        .tag-close:hover { color: var(--danger); }
-        .tag-input { border: none; outline: none; flex: 1; padding: 4px; font-size: 0.875rem; min-width: 80px; background: transparent; }
-
-        .editor-toolbar { border: 1px solid var(--border-color); border-bottom: none; padding: 8px; background: #f8fafc; border-radius: 10px 10px 0 0; display: flex; gap: 4px; }
-        .editor-btn { width: 28px; height: 28px; border: none; background: none; cursor: pointer; color: #64748b; border-radius: 6px; transition: 0.2s; }
-        .editor-btn:hover { background: #e2e8f0; color: var(--text-dark); }
-        textarea.has-toolbar { border-radius: 0 0 10px 10px; }
-
-        /* Load More Button */
-        .load-more-container { text-align: center; margin-top: 24px; margin-bottom: 40px; }
-        .btn-load-more { 
-            background: white; 
-            border: 2px solid var(--primary); 
-            color: var(--primary); 
-            padding: 10px 24px; 
-            border-radius: 10px; 
-            font-weight: 600; 
-            cursor: pointer; 
-            transition: 0.2s; 
-            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 10000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(15, 23, 42, 0.4);
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
         }
-        .btn-load-more:hover { background: var(--primary); color: white; }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            width: 800px;
+            max-width: 95%;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            max-height: 90vh;
+        }
+
+        .modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #94a3b8;
+            transition: 0.2s;
+        }
+
+        .close-btn:hover {
+            color: var(--text-dark);
+        }
+
+        .modal-body {
+            padding: 24px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .col-half {
+            flex: 1;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: var(--text-dark);
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            font-size: 0.875rem;
+            transition: 0.2s;
+            background: #fff;
+        }
+
+        .form-control:focus {
+            border-color: var(--primary);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(20, 77, 77, 0.1);
+        }
+
+        /* Select2 Overrides */
+        .select2-container .select2-selection--single,
+        .select2-container .select2-selection--multiple {
+            height: 42px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 6px;
+        }
+
+        .select2-container--default .select2-selection--multiple .select2-selection__choice {
+            background-color: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            color: #1e293b;
+        }
+
+        .load-more-container {
+            text-align: center;
+            margin-top: 24px;
+            margin-bottom: 40px;
+        }
+
+        .btn-load-more {
+            background: white;
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            padding: 10px 24px;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .btn-load-more:hover {
+            background: var(--primary);
+            color: white;
+        }
     </style>
 </head>
+
 <body>
 
     <?php include '../sidebars.php'; ?>
 
     <main class="main-content" id="mainContent">
-      <?php include '../header.php'; ?>
-      
+        <?php include '../header.php'; ?>
+
         <div class="page-header">
             <div class="page-title">
                 <h3>Projects</h3>
             </div>
             <div class="header-actions">
                 <div style="position:relative;">
-                    <input type="text" id="searchInput" placeholder="Search in HRMS" style="padding: 10px 36px 10px 14px; border:1px solid var(--border-color); border-radius:10px; font-size:0.875rem; transition: 0.2s;" onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border-color)'">
-                    <i class="fa-solid fa-search" style="position:absolute; right:12px; top:12px; color:#94a3b8; font-size:0.9rem;"></i>
+                    <input type="text" id="searchInput" placeholder="Search Projects"
+                        style="padding: 10px 36px 10px 14px; border:1px solid var(--border-color); border-radius:10px; font-size:0.875rem; transition: 0.2s; outline:none;"
+                        onkeyup="applyFilters()">
+                    <i class="fa-solid fa-search"
+                        style="position:absolute; right:12px; top:12px; color:#94a3b8; font-size:0.9rem;"></i>
                 </div>
-                
-                <button class="btn btn-white btn-icon active" id="btnGrid" onclick="switchView('grid')"><i class="fa-solid fa-border-all"></i></button>
-                <button class="btn btn-white btn-icon" id="btnList" onclick="switchView('list')"><i class="fa-solid fa-list"></i></button>
-                
+
+                <button class="btn btn-white btn-icon active" id="btnGrid" onclick="switchView('grid')"><i
+                        class="fa-solid fa-border-all"></i></button>
+                <button class="btn btn-white btn-icon" id="btnList" onclick="switchView('list')"><i
+                        class="fa-solid fa-list"></i></button>
+
                 <div style="position:relative;">
-                    <button class="btn btn-white" onclick="toggleExportMenu()"><i class="fa-solid fa-file-export"></i> Export <i class="fa-solid fa-chevron-down" style="font-size:0.7rem;"></i></button>
+                    <button class="btn btn-white" onclick="toggleExportMenu()"><i class="fa-solid fa-file-export"></i>
+                        Export <i class="fa-solid fa-chevron-down" style="font-size:0.7rem;"></i></button>
                     <div class="dropdown-menu" id="exportMenu">
-                        <a href="#" class="dropdown-item" onclick="exportToPDF()"><i class="fa-solid fa-file-pdf" style="color:#dc2626"></i> Export as PDF</a>
-                        <a href="#" class="dropdown-item" onclick="exportToExcel()"><i class="fa-solid fa-file-excel" style="color:#16a34a"></i> Export as Excel</a>
+                        <a href="#" class="dropdown-item" onclick="exportToPDF()"><i class="fa-solid fa-file-pdf"
+                                style="color:#dc2626"></i> Export as PDF</a>
+                        <a href="#" class="dropdown-item" onclick="exportToExcel()"><i class="fa-solid fa-file-excel"
+                                style="color:#16a34a"></i> Export as Excel</a>
                     </div>
                 </div>
-                
-                <button class="btn btn-primary" onclick="openModal()"><i class="fa-solid fa-plus"></i> Add Project</button>
+
+                <button class="btn btn-primary" onclick="openModal()"><i class="fa-solid fa-plus"></i> Add
+                    Project</button>
             </div>
         </div>
 
@@ -486,12 +871,14 @@ session_start();
             </div>
             <div class="filter-right" style="display:flex; gap:12px;">
                 <select class="form-select" id="statusFilter" onchange="applyFilters()">
-                    <option value="All">Select Status</option>
+                    <option value="All">All Status</option>
                     <option value="Active">Active</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Completed">Completed</option>
                     <option value="Inactive">Inactive</option>
                 </select>
                 <select class="form-select" id="sortFilter" onchange="applyFilters()">
-                    <option value="default">Sort By : Last 7 Days</option>
+                    <option value="default">Sort By : Default</option>
                     <option value="asc">Sort By : Name (A-Z)</option>
                     <option value="desc">Sort By : Name (Z-A)</option>
                 </select>
@@ -520,7 +907,8 @@ session_start();
         </div>
 
         <div class="load-more-container" id="loadMoreContainer">
-            <button class="btn-load-more" onclick="loadMoreProjects()"><i class="fa-solid fa-spinner"></i> Load More</button>
+            <button class="btn-load-more" onclick="loadMoreProjects()"><i class="fa-solid fa-spinner"></i> Load
+                More</button>
         </div>
 
     </main>
@@ -530,61 +918,54 @@ session_start();
             <div class="modal-header">
                 <div>
                     <h3 class="modal-title">Add Project</h3>
-                    <small style="color:var(--text-muted); font-size: 0.8rem;">Project ID : PRO-0004</small>
                 </div>
                 <button class="close-btn" onclick="closeModal()">&times;</button>
             </div>
 
-            <div class="modal-tabs">
-                <button class="tab-btn active" onclick="switchTab('basic')">Basic Information</button>
-                <button class="tab-btn" onclick="switchTab('members')">Members</button>
-            </div>
+            <div class="modal-body">
+                <form id="projectForm" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="action" value="add_project">
 
-            <div class="modal-body" id="tab-basic">
-                <form id="projectFormBasic">
                     <div class="form-group" style="display:flex; align-items:center; gap:20px; margin-bottom:25px;">
-                        <div style="width:64px; height:64px; background:#f8fafc; border-radius:12px; display:flex; align-items:center; justify-content:center; border:1px dashed #cbd5e1;">
+                        <div
+                            style="width:64px; height:64px; background:#f8fafc; border-radius:12px; display:flex; align-items:center; justify-content:center; border:1px dashed #cbd5e1;">
                             <i class="fa-regular fa-image" style="color:#94a3b8; font-size:1.5rem;"></i>
                         </div>
                         <div>
                             <label class="form-label" style="margin-bottom:2px;">Upload Project Logo</label>
-                            <span style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:5px;">Image should be below 4 mb</span>
-                            <div style="display:flex; gap:10px;">
-                                <button type="button" class="btn btn-primary" style="padding:6px 12px; font-size:0.8rem;">Upload</button>
-                                <button type="button" class="btn btn-white" style="padding:6px 12px; font-size:0.8rem; color:var(--danger); border-color:var(--danger);">Cancel</button>
-                            </div>
+                            <span
+                                style="font-size:0.75rem; color:var(--text-muted); display:block; margin-bottom:5px;">Image
+                                should be below 4 mb</span>
+                            <input type="file" name="project_logo" class="form-control" style="padding:6px;">
                         </div>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Project Name <span style="color:red">*</span></label>
-                        <input type="text" class="form-control" id="inpProjectName" required>
+                        <input type="text" name="project_name" class="form-control" required>
                     </div>
 
                     <div class="form-group">
                         <label class="form-label">Client</label>
-                        <select class="form-control">
-                            <option>Select</option>
-                            <option>Global Technologies</option>
-                            <option>Delta Infotech</option>
-                        </select>
+                        <input type="text" name="client_name" class="form-control" placeholder="e.g. Global Tech">
                     </div>
 
                     <div class="form-row">
                         <div class="col-half">
                             <label class="form-label">Start Date</label>
-                            <input type="date" class="form-control" value="2024-05-02">
+                            <input type="date" name="start_date" class="form-control"
+                                value="<?php echo date('Y-m-d'); ?>">
                         </div>
                         <div class="col-half">
                             <label class="form-label">End Date</label>
-                            <input type="date" class="form-control" id="inpDeadline" value="2024-05-02">
+                            <input type="date" name="end_date" class="form-control" required>
                         </div>
                     </div>
 
                     <div class="form-row">
                         <div class="col-half">
                             <label class="form-label">Priority</label>
-                            <select class="form-control" id="inpPriority">
+                            <select name="priority" class="form-control">
                                 <option value="High">High</option>
                                 <option value="Medium" selected>Medium</option>
                                 <option value="Low">Low</option>
@@ -593,87 +974,64 @@ session_start();
                         <div class="col-half">
                             <div style="display:flex; gap:10px;">
                                 <div style="flex:1;">
-                                    <label class="form-label">Project Value</label>
-                                    <div style="position:relative;">
-                                        <span style="position:absolute; left:12px; top:11px; color:var(--text-muted);">$</span>
-                                        <input type="number" class="form-control" style="padding-left:28px;">
-                                    </div>
+                                    <label class="form-label">Value ($)</label>
+                                    <input type="number" name="project_value" class="form-control" value="0">
                                 </div>
                                 <div style="flex:1;">
-                                    <label class="form-label">Price Type</label>
-                                    <select class="form-control">
-                                        <option>Hourly</option>
-                                        <option>Fixed</option>
+                                    <label class="form-label">Type</label>
+                                    <select name="price_type" class="form-control">
+                                        <option value="Hourly">Hourly</option>
+                                        <option value="Fixed" selected>Fixed</option>
                                     </select>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label">Description</label>
-                        <div class="editor-toolbar">
-                            <button type="button" class="editor-btn"><b>B</b></button>
-                            <button type="button" class="editor-btn"><i>I</i></button>
-                            <button type="button" class="editor-btn"><u>U</u></button>
-                            <button type="button" class="editor-btn"><s>S</s></button>
-                            <button type="button" class="editor-btn"><i class="fa-solid fa-image"></i></button>
+                    <div class="form-row">
+                        <div class="col-half">
+                            <label class="form-label">Project Leader</label>
+                            <select name="leader_id" class="form-control select2-modal" style="width:100%" required>
+                                <?php foreach ($users as $user): ?>
+                                    <option value="<?= $user['id'] ?>">
+                                        <?= htmlspecialchars($user['name'] ?: $user['username']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
                         </div>
-                        <textarea class="form-control has-toolbar" id="inpDesc" rows="4"></textarea>
+                        <div class="col-half">
+                            <label class="form-label">Status</label>
+                            <select name="status" class="form-control">
+                                <option value="Active">Active</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Completed">Completed</option>
+                                <option value="Inactive">Inactive</option>
+                            </select>
+                        </div>
                     </div>
-                </form>
-            </div>
 
-            <div class="modal-body" id="tab-members" style="display:none;">
-                <form id="projectFormMembers">
                     <div class="form-group">
                         <label class="form-label">Team Members</label>
-                        <div class="tags-input-container" id="tag-members" onclick="focusTagInput(this)">
-                            <span class="tag-pill">Jerald <span class="tag-close" onclick="removeTag(this)">&times;</span></span>
-                            <span class="tag-pill">Andrew <span class="tag-close" onclick="removeTag(this)">&times;</span></span>
-                            <span class="tag-pill">Philip <span class="tag-close" onclick="removeTag(this)">&times;</span></span>
-                            <input type="text" class="tag-input" placeholder="Add new" onkeydown="addTag(event, this)">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Team Leader</label>
-                        <div class="tags-input-container" id="tag-leader" onclick="focusTagInput(this)">
-                            <span class="tag-pill">Hendry <span class="tag-close" onclick="removeTag(this)">&times;</span></span>
-                            <input type="text" class="tag-input" placeholder="Add new" id="inpLeaderName" onkeydown="addTag(event, this)">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Project Manager</label>
-                        <div class="tags-input-container" id="tag-manager" onclick="focusTagInput(this)">
-                            <span class="tag-pill">Dwight <span class="tag-close" onclick="removeTag(this)">&times;</span></span>
-                            <input type="text" class="tag-input" placeholder="Add new" onkeydown="addTag(event, this)">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Tags</label>
-                        <div class="tags-input-container" id="tag-generic" onclick="focusTagInput(this)">
-                            <span class="tag-pill">Collab <span class="tag-close" onclick="removeTag(this)">&times;</span></span>
-                            <span class="tag-pill">Promotion <span class="tag-close" onclick="removeTag(this)">&times;</span></span>
-                            <input type="text" class="tag-input" placeholder="Add new" onkeydown="addTag(event, this)">
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Status</label>
-                        <select class="form-control" id="inpStatus">
-                            <option value="Active">Active</option>
-                            <option value="Inactive">Inactive</option>
+                        <select name="team_members[]" class="form-control select2-modal" multiple="multiple"
+                            style="width:100%">
+                            <?php foreach ($users as $user): ?>
+                                <option value="<?= $user['id'] ?>">
+                                    <?= htmlspecialchars($user['name'] ?: $user['username']) ?></option>
+                            <?php endforeach; ?>
                         </select>
                     </div>
-                </form>
-            </div>
 
-            <div class="modal-footer">
-                <button class="btn btn-white" onclick="closeModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveProject()">Save</button>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea name="description" class="form-control" rows="4"></textarea>
+                    </div>
+
+                    <div style="text-align:right; margin-top:20px;">
+                        <button type="button" class="btn btn-white" onclick="closeModal()"
+                            style="display:inline-block;">Cancel</button>
+                        <button type="submit" class="btn btn-primary" style="display:inline-block;">Save
+                            Project</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -681,8 +1039,8 @@ session_start();
     <script>
         // Init Data from PHP
         let projects = <?= json_encode($projects_data) ?>;
-        let visibleCount = 8; // Initial load count
-        let currentView = 'grid'; 
+        let visibleCount = 8;
+        let currentView = 'grid';
 
         // DOM Elements
         const gridView = document.getElementById('projectsGridView');
@@ -695,6 +1053,13 @@ session_start();
         const exportMenu = document.getElementById('exportMenu');
         const loadMoreBtn = document.getElementById('loadMoreContainer');
 
+        // Initialize Select2 inside Modal
+        $(document).ready(function () {
+            $('.select2-modal').select2({
+                dropdownParent: $('#addProjectModal')
+            });
+        });
+
         // Initial Render
         renderProjects();
 
@@ -705,25 +1070,30 @@ session_start();
             tableBody.innerHTML = '';
 
             const toShow = filtered.slice(0, visibleCount);
-            
-            if(visibleCount >= filtered.length) {
+
+            if (visibleCount >= filtered.length) {
                 loadMoreBtn.style.display = 'none';
             } else {
                 loadMoreBtn.style.display = 'block';
             }
 
+            if (toShow.length === 0) {
+                gridView.innerHTML = '<div style="grid-column:1/-1; text-align:center; padding:40px; color:#64748b;">No projects found</div>';
+            }
+
             toShow.forEach(p => {
                 const statusBadgeClass = p.status === 'Active' ? 'active' : 'inactive';
-                
+
+                // Grid Card HTML
                 const cardHtml = `
                 <div class="project-card">
                     <div class="card-header">
                         <h5 class="project-title">${p.name}</h5>
                         <div style="position:relative;">
-                            <i class="fa-solid fa-ellipsis-vertical action-icon" onclick="toggleCardMenu('${p.id}', event)"></i>
-                            <div class="card-action-menu" id="menu-${p.id}">
-                                <a href="#" class="card-action-item" onclick="editProject('${p.id}')"><i class="fa-regular fa-pen-to-square"></i> Edit</a>
-                                <a href="#" class="card-action-item" onclick="deleteProject('${p.id}')"><i class="fa-regular fa-trash-can"></i> Delete</a>
+                            <i class="fa-solid fa-ellipsis-vertical action-icon" onclick="toggleCardMenu('${p.real_id}', event)"></i>
+                            <div class="card-action-menu" id="menu-${p.real_id}">
+                                <a href="#" class="card-action-item"><i class="fa-regular fa-pen-to-square"></i> Edit</a>
+                                <a href="?delete_id=${p.real_id}" class="card-action-item" onclick="return confirm('Delete this project?')"><i class="fa-regular fa-trash-can"></i> Delete</a>
                             </div>
                         </div>
                     </div>
@@ -745,15 +1115,17 @@ session_start();
                             Tasks : ${p.tasks_done}/${p.tasks_total}
                         </div>
                         <div class="team-avatars">
-                            ${p.team.map(img => `<img src="${img}">`).join('')}
-                            <div class="team-plus">+${Math.floor(Math.random() * 5) + 1}</div>
+                            ${p.team.slice(0, 4).map(img => `<img src="${img}">`).join('')}
+                            ${p.team.length > 4 ? `<div class="team-plus">+${p.team.length - 4}</div>` : ''}
                         </div>
                     </div>
                 </div>`;
                 gridView.innerHTML += cardHtml;
 
+                // List Row HTML
                 const priorityClass = `priority-${p.priority.toLowerCase()}`;
                 const statusClass = p.status.toLowerCase();
+
                 const rowHtml = `
                 <tr>
                     <td><input type="checkbox"></td>
@@ -767,25 +1139,25 @@ session_start();
                     </td>
                     <td>
                         <div class="team-avatars">
-                            ${p.team.map(img => `<img src="${img}">`).join('')}
-                            <div class="team-plus">+${Math.floor(Math.random() * 5) + 1}</div>
+                             ${p.team.slice(0, 3).map(img => `<img src="${img}">`).join('')}
+                             ${p.team.length > 3 ? `<div class="team-plus">+${p.team.length - 3}</div>` : ''}
                         </div>
                     </td>
                     <td>${p.deadline_display}</td>
                     <td>
                         <div class="priority-badge ${priorityClass}">
-                            <span class="priority-dot"></span> ${p.priority} <i class="fa-solid fa-chevron-down" style="font-size:0.6rem; margin-left:4px; opacity: 0.7;"></i>
+                            <span class="priority-dot"></span> ${p.priority}
                         </div>
                     </td>
                     <td>
-                        <span class="status-badge ${statusClass}">
+                        <span class="status-badge ${statusClass == 'active' ? 'active' : 'inactive'}">
                             <span class="status-dot"></span> ${p.status}
                         </span>
                     </td>
                     <td>
                         <div style="display:flex; gap:10px; font-size:1rem;">
-                            <i class="fa-regular fa-pen-to-square" style="color:var(--text-muted); cursor:pointer;" onclick="editProject('${p.id}')"></i>
-                            <i class="fa-regular fa-trash-can" style="color:var(--danger); cursor:pointer;" onclick="deleteProject('${p.id}')"></i>
+                            <i class="fa-regular fa-pen-to-square" style="color:var(--text-muted); cursor:pointer;"></i>
+                            <a href="?delete_id=${p.real_id}" onclick="return confirm('Delete this project?')"><i class="fa-regular fa-trash-can" style="color:var(--danger); cursor:pointer;"></i></a>
                         </div>
                     </td>
                 </tr>`;
@@ -796,21 +1168,21 @@ session_start();
         function getFilteredProjects() {
             let filtered = [...projects];
             const term = searchInput.value.toLowerCase();
-            if(term) {
+            if (term) {
                 filtered = filtered.filter(p => p.name.toLowerCase().includes(term) || p.leader.toLowerCase().includes(term));
             }
 
             const status = statusFilter.value;
-            if(status !== 'All') {
+            if (status !== 'All') {
                 filtered = filtered.filter(p => p.status === status);
             }
 
             const sortVal = sortFilter.value;
-            if(sortVal === 'asc') {
+            if (sortVal === 'asc') {
                 filtered.sort((a, b) => a.name.localeCompare(b.name));
-            } else if(sortVal === 'desc') {
+            } else if (sortVal === 'desc') {
                 filtered.sort((a, b) => b.name.localeCompare(a.name));
-            } 
+            }
             return filtered;
         }
 
@@ -824,37 +1196,14 @@ session_start();
             renderProjects();
         }
 
-        // --- TAG INPUT LOGIC ---
-        function focusTagInput(container) {
-            container.querySelector('input').focus();
-        }
-
-        function addTag(e, input) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const value = input.value.trim();
-                if (value) {
-                    const span = document.createElement('span');
-                    span.className = 'tag-pill';
-                    span.innerHTML = `${value} <span class="tag-close" onclick="removeTag(this)">&times;</span>`;
-                    input.parentNode.insertBefore(span, input);
-                    input.value = '';
-                }
-            }
-        }
-
-        function removeTag(element) {
-            element.parentElement.remove();
-        }
-
-        // --- CARD ACTION MENU LOGIC ---
+        // --- UI TOGGLES ---
         function toggleCardMenu(id, event) {
             event.stopPropagation();
             document.querySelectorAll('.card-action-menu').forEach(m => {
-                if(m.id !== `menu-${id}`) m.classList.remove('active');
+                if (m.id !== `menu-${id}`) m.classList.remove('active');
             });
             const menu = document.getElementById(`menu-${id}`);
-            menu.classList.toggle('active');
+            if (menu) menu.classList.toggle('active');
         }
 
         window.addEventListener('click', () => {
@@ -862,43 +1211,32 @@ session_start();
             exportMenu.classList.remove('show');
         });
 
-        // --- ACTIONS ---
-        function editProject(id) {
-            alert('Edit Project Modal would open for ID: ' + id);
-        }
-
-        function deleteProject(id) {
-            if(confirm('Are you sure you want to delete this project?')) {
-                projects = projects.filter(p => p.id !== id);
-                renderProjects();
-            }
-        }
-
-        // --- VIEW TOGGLE ---
         function switchView(view) {
             currentView = view;
-            if(view === 'grid') {
+            if (view === 'grid') {
                 document.getElementById('projectsGridView').style.display = 'grid';
                 document.getElementById('projectsListView').style.display = 'none';
                 document.getElementById('btnGrid').classList.add('active');
                 document.getElementById('btnList').classList.remove('active');
                 document.getElementById('viewHeading').innerText = 'Projects Grid';
-                loadMoreBtn.style.display = (visibleCount < getFilteredProjects().length) ? 'block' : 'none';
             } else {
                 document.getElementById('projectsGridView').style.display = 'none';
                 document.getElementById('projectsListView').style.display = 'block';
                 document.getElementById('btnGrid').classList.remove('active');
                 document.getElementById('btnList').classList.add('active');
                 document.getElementById('viewHeading').innerText = 'Project List';
-                loadMoreBtn.style.display = (visibleCount < getFilteredProjects().length) ? 'block' : 'none';
             }
         }
 
-        // --- EXPORT FUNCTIONS ---
         function toggleExportMenu() {
-            setTimeout(() => exportMenu.classList.toggle('show'), 10); 
+            setTimeout(() => exportMenu.classList.toggle('show'), 10);
         }
 
+        // --- MODAL LOGIC ---
+        function openModal() { modal.classList.add('show'); }
+        function closeModal() { modal.classList.remove('show'); }
+
+        // --- EXPORT FUNCTIONALITY (Client Side) ---
         function exportToPDF() {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
@@ -926,63 +1264,7 @@ session_start();
             XLSX.utils.book_append_sheet(workbook, worksheet, "Projects");
             XLSX.writeFile(workbook, "projects_export.xlsx");
         }
-
-        // --- MODAL LOGIC ---
-        function openModal() { modal.classList.add('show'); }
-        function closeModal() { 
-            modal.classList.remove('show'); 
-            document.getElementById('projectFormBasic').reset();
-            document.getElementById('projectFormMembers').reset();
-            switchTab('basic');
-        }
-        
-        function switchTab(tabName) {
-            const basic = document.getElementById('tab-basic');
-            const members = document.getElementById('tab-members');
-            const btns = document.querySelectorAll('.tab-btn');
-            
-            if(tabName === 'basic') {
-                basic.style.display = 'block';
-                members.style.display = 'none';
-                btns[0].classList.add('active');
-                btns[1].classList.remove('active');
-            } else {
-                basic.style.display = 'none';
-                members.style.display = 'block';
-                btns[0].classList.remove('active');
-                btns[1].classList.add('active');
-            }
-        }
-
-        function saveProject() {
-            const name = document.getElementById('inpProjectName').value;
-            if(!name) { alert('Project Name is required'); return; }
-
-            const leaderInput = document.getElementById('inpLeaderName').value || "New User"; 
-            const deadlineVal = document.getElementById('inpDeadline').value;
-            const descVal = document.getElementById('inpDesc').value || "No description provided.";
-            const priorityVal = document.getElementById('inpPriority').value;
-            const statusVal = document.getElementById('inpStatus').value;
-
-            const newProject = {
-                id: 'PRO-' + (Math.floor(Math.random() * 1000) + 100),
-                name: name,
-                desc: descVal,
-                leader: leaderInput,
-                leader_img: 'https://ui-avatars.com/api/?name=' + leaderInput + '&background=random',
-                team: ['https://ui-avatars.com/api/?name=N&background=random'],
-                deadline: deadlineVal,
-                deadline_display: new Date(deadlineVal).toLocaleDateString('en-GB', {day: 'numeric', month: 'short', year: 'numeric'}),
-                priority: priorityVal,
-                tasks_done: 0,
-                tasks_total: 10,
-                status: statusVal
-            };
-
-            projects.unshift(newProject); 
-            applyFilters();
-            closeModal();
-        }
     </script>
 </body>
+
 </html>
