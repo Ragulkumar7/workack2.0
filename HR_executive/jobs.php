@@ -63,14 +63,9 @@ include '../header.php';
             </div>
             
             <div class="flex items-center gap-3 mt-4 md:mt-0">
-                <div class="flex bg-white border rounded-md overflow-hidden">
-                    <button class="px-3 py-2 text-gray-400 border-r"><i class="fa-solid fa-list-ul"></i></button>
-                    <button class="px-3 py-2 bg-teal-700 text-white"><i class="fa-solid fa-table-cells-large"></i></button>
-                </div>
                 <button onclick="window.location.href='?export=csv'" class="bg-white border px-4 py-2 rounded-md text-gray-700 flex items-center gap-2">
                     <i class="fa-solid fa-file-export"></i> Export <i class="fa-solid fa-chevron-down text-xs"></i>
                 </button>
-                <button class="bg-white border p-2 rounded-md text-gray-500"><i class="fa-solid fa-angles-up"></i></button>
             </div>
         </div>
 
@@ -129,15 +124,12 @@ include '../header.php';
 
             // --- DATE FILTER LOGIC ---
             if (!empty($_GET['dates'])) {
-                // Flatpickr range usually returns "MM/DD/YYYY to MM/DD/YYYY" 
-                // depending on your connector. Adjust separator if needed.
                 $date_parts = explode(" to ", $_GET['dates']);
                 if (count($date_parts) == 2) {
                     $start = date('Y-m-d', strtotime(trim($date_parts[0])));
                     $end = date('Y-m-d', strtotime(trim($date_parts[1])));
                     $conditions[] = "DATE(created_at) BETWEEN '$start' AND '$end'";
                 } else {
-                    // Single date selected
                     $single_date = date('Y-m-d', strtotime(trim($date_parts[0])));
                     $conditions[] = "DATE(created_at) = '$single_date'";
                 }
@@ -216,16 +208,11 @@ include '../header.php';
         </div>
     </div>
 
-    <div class="fixed right-0 top-1/2 bg-teal-700 text-white p-2 rounded-l-md cursor-pointer shadow-lg z-50">
-        <i class="fa-solid fa-gear animate-spin-slow"></i>
-    </div>
-
     <script>
         flatpickr("#date-range", {
             mode: "range",
             dateFormat: "m/d/Y",
             onClose: function(selectedDates, dateStr, instance) {
-                // If two dates are selected (range) or one date is selected
                 if (selectedDates.length > 0) {
                     updateFilter('dates', dateStr);
                 }
