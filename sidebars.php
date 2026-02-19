@@ -215,7 +215,13 @@ $sections = [
                 'name' => 'Performance', 
                 'path' => $base . 'performance_list.php', 
                 'icon' => 'trending-up', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead'],
+                'allowed' => ['System Admin', 'HR', 'Team Lead'],
+            ],
+            [
+                'name' => 'Performance', 
+                'path' => $base . 'team_performance.php', 
+                'icon' => 'trending-up', 
+                'allowed' => ['Manager'],
             ],
             [
                 'name' => 'Productivity', 
