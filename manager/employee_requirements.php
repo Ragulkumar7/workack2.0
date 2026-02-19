@@ -237,4 +237,4 @@ $history_result = $h_stmt->get_result();
     </div>
 
 </body>
-</html>
+</html> 
