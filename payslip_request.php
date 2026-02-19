@@ -1,61 +1,55 @@
 <?php
+// payslip_request.php
+
 // 1. SESSION & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+include 'include/db_connect.php'; // Ensure this path matches your file structure
 
-// --- FIXED PATHS FOR YOUR ENVIRONMENT ---
-$dbPath = './include/db_connect.php';
-$sidebarPath = './sidebars.php';
-$headerPath = './header.php';
+// CHECK LOGIN
+if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 
-if (file_exists($dbPath)) {
-    include_once($dbPath);
-} else {
-    die("Critical Error: db_connect.php not found.");
-}
+$my_id = $_SESSION['user_id'];
+$my_role = $_SESSION['role'];
 
-// Check Login
-if (!isset($_SESSION['user_id'])) { 
-    header("Location: ../index.php"); 
-    exit(); 
-}
-$current_user_id = $_SESSION['user_id'];
-
-// --- 2. HANDLE FORM SUBMISSION (Save to Database) ---
+// --- 2. HANDLE FORM SUBMISSION (Request Payslip) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_request'])) {
     $from = $_POST['from_date'];
     $to = $_POST['to_date'];
     $priority = $_POST['priority'];
-    $note = mysqli_real_escape_string($conn, $_POST['note']);
-    $req_id = "REQ-" . rand(100, 999); // Generate a simple Request ID
+    $note = trim($_POST['note']);
+    $req_id = "REQ-" . strtoupper(substr(md5(uniqid()), 0, 6)); // Generate Unique ID
 
+    // Insert into DB
     $stmt = $conn->prepare("INSERT INTO payslip_requests (user_id, request_id, from_date, to_date, priority, status, note) VALUES (?, ?, ?, ?, ?, 'Pending', ?)");
-    $stmt->bind_param("isssss", $current_user_id, $req_id, $from, $to, $priority, $note);
+    $stmt->bind_param("isssss", $my_id, $req_id, $from, $to, $priority, $note);
     
     if ($stmt->execute()) {
-        header("Location: " . $_SERVER['PHP_SELF'] . "?success=1");
+        header("Location: payslip_request.php?success=1");
         exit();
+    } else {
+        $error = "Error submitting request.";
     }
 }
 
 // --- 3. FETCH REQUEST HISTORY ---
-$requests = [];
-$query = "SELECT * FROM payslip_requests WHERE user_id = ? ORDER BY requested_date DESC";
-$stmt = $conn->prepare($query);
-$stmt->bind_param("i", $current_user_id);
-$stmt->execute();
-$result = $stmt->get_result();
-
-while ($row = $result->fetch_assoc()) {
-    $requests[] = [
-        'id' => $row['request_id'],
-        'date' => date('Y-m-d', strtotime($row['requested_date'])),
-        'period' => date('M d', strtotime($row['from_date'])) . ' - ' . date('M d, Y', strtotime($row['to_date'])),
-        'priority' => $row['priority'],
-        'status' => $row['status'],
-        'reply' => $row['accounts_reply']
-    ];
+// Logic: Accounts/CFO/Admin see ALL requests. Others see ONLY THEIR OWN.
+if (in_array($my_role, ['Accounts', 'CFO', 'System Admin'])) {
+    // Admin View: Show User Name & Role
+    $sql = "SELECT r.*, u.username, u.role, u.employee_id 
+            FROM payslip_requests r 
+            JOIN users u ON r.user_id = u.id 
+            ORDER BY r.requested_date DESC";
+    $result = $conn->query($sql);
+} else {
+    // Employee View: Show only my requests
+    $sql = "SELECT * FROM payslip_requests WHERE user_id = ? ORDER BY requested_date DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("i", $my_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
 }
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -63,77 +57,106 @@ while ($row = $result->fetch_assoc()) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Request Payslip | SmartHR</title>
     
-    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: { primary: '#1b5a5a', primaryHover: '#144343' }
-                }
-            }
-        }
-    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
-        #mainContent { margin-left: 95px; width: calc(100% - 95px); transition: 0.3s; }
-        .badge { @apply px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border; }
-        .badge-High { @apply bg-red-50 text-red-600 border-red-100; }
-        .badge-Medium { @apply bg-orange-50 text-orange-600 border-orange-100; }
-        .badge-Low { @apply bg-green-50 text-green-600 border-green-100; }
-        .status-Pending { @apply bg-yellow-50 text-yellow-700 border-yellow-200; }
-        .status-Approved { @apply bg-teal-50 text-teal-700 border-teal-200; }
-        .status-Rejected { @apply bg-gray-100 text-gray-600 border-gray-200; }
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+        
+        #mainContent { 
+            margin-left: 95px; padding: 30px; 
+            width: calc(100% - 95px); transition: 0.3s; 
+            min-height: 100vh;
+        }
+
+        /* Badge Styles */
+        .badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        .badge-High { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+        .badge-Medium { background: #fff7ed; color: #ea580c; border: 1px solid #fed7aa; }
+        .badge-Low { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+        
+        .status-Pending { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+        .status-Approved { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+        .status-Rejected { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+
+        /* Modal Animation */
+        .modal { transition: opacity 0.25s ease; }
+        .modal-active { overflow: hidden; }
     </style>
 </head>
-<body class="bg-slate-50">
+<body class="text-slate-600">
 
-    <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
-    <?php if (file_exists($headerPath)) include($headerPath); ?>
+    <?php include('sidebars.php'); ?>
 
-    <div id="mainContent" class="p-8 min-h-screen">
-        
+    <div id="mainContent">
+        <?php include 'header.php'; ?>
+
         <div class="flex justify-between items-end mb-8">
             <div>
                 <h1 class="text-2xl font-bold text-slate-800">Payslip Requests</h1>
+                <p class="text-sm text-slate-500 mt-1">Manage and track your monthly payslip requests.</p>
             </div>
-            <button onclick="openModal('requestModal')" class="bg-primary hover:bg-primaryHover text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg transition-all flex items-center gap-2">
-                <i class="fas fa-plus"></i> New Request
+            <button onclick="openModal('requestModal')" class="bg-[#1b5a5a] hover:bg-[#144343] text-white px-5 py-2.5 rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center gap-2">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i> New Request
             </button>
         </div>
 
-        <div class="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
-            <div class="p-5 border-b border-gray-100 bg-slate-50/50">
+        <?php if (isset($_GET['success'])): ?>
+        <div class="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-6 flex items-center gap-2">
+            <i data-lucide="check-circle" class="w-5 h-5"></i> Request submitted successfully!
+        </div>
+        <?php endif; ?>
+
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                 <h3 class="font-bold text-slate-700">Request History</h3>
+                <?php if(in_array($my_role, ['Accounts', 'CFO', 'System Admin'])): ?>
+                    <span class="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">Admin View (All Requests)</span>
+                <?php endif; ?>
             </div>
             
-            <div class="overflow-x_auto">
-                <table class="w-full text-left border-collapse">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-sm">
                     <thead>
-                        <tr class="bg-slate-50 text-xs uppercase text-gray-500 font-semibold border-b">
+                        <tr class="bg-slate-50 text-xs uppercase text-slate-500 font-bold border-b border-slate-200">
                             <th class="px-6 py-4">Request ID</th>
+                            <?php if(in_array($my_role, ['Accounts', 'CFO', 'System Admin'])): ?>
+                                <th class="px-6 py-4">Employee</th>
+                            <?php endif; ?>
                             <th class="px-6 py-4">Requested Date</th>
-                            <th class="px-6 py-4">Payslip Period</th>
+                            <th class="px-6 py-4">Period</th>
                             <th class="px-6 py-4">Priority</th>
                             <th class="px-6 py-4">Status</th>
                             <th class="px-6 py-4">Accounts Reply</th>
                         </tr>
                     </thead>
-                    <tbody class="text-sm divide-y divide-gray-100">
-                        <?php foreach($requests as $req): ?>
-                        <tr class="hover:bg-slate-50/80 transition-colors">
-                            <td class="px-6 py-4 font-semibold text-primary"><?php echo $req['id']; ?></td>
-                            <td class="px-6 py-4 text-slate-600"><?php echo $req['date']; ?></td>
-                            <td class="px-6 py-4 text-slate-600 font-medium"><?php echo $req['period']; ?></td>
-                            <td class="px-6 py-4"><span class="badge badge-<?php echo $req['priority']; ?>"><?php echo $req['priority']; ?></span></td>
-                            <td class="px-6 py-4"><span class="badge status-<?php echo $req['status']; ?>"><?php echo $req['status']; ?></span></td>
-                            <td class="px-6 py-4 text-slate-500 text-xs italic"><?php echo htmlspecialchars($req['reply']); ?></td>
-                        </tr>
-                        <?php endforeach; ?>
-                        <?php if(empty($requests)): ?>
-                            <tr><td colspan="6" class="text-center py-10 text-gray-400">No requests found.</td></tr>
+                    <tbody class="divide-y divide-slate-100">
+                        <?php if($result->num_rows > 0): ?>
+                            <?php while($row = $result->fetch_assoc()): ?>
+                            <tr class="hover:bg-slate-50 transition-colors">
+                                <td class="px-6 py-4 font-bold text-[#1b5a5a]"><?php echo $row['request_id']; ?></td>
+                                
+                                <?php if(in_array($my_role, ['Accounts', 'CFO', 'System Admin'])): ?>
+                                    <td class="px-6 py-4">
+                                        <div class="font-semibold text-slate-800"><?php echo htmlspecialchars($row['username']); ?></div>
+                                        <div class="text-xs text-slate-500"><?php echo $row['role']; ?></div>
+                                    </td>
+                                <?php endif; ?>
+
+                                <td class="px-6 py-4 text-slate-600"><?php echo date('d M Y', strtotime($row['requested_date'])); ?></td>
+                                <td class="px-6 py-4 text-slate-600 font-medium">
+                                    <?php echo date('M d', strtotime($row['from_date'])) . ' - ' . date('M d', strtotime($row['to_date'])); ?>
+                                </td>
+                                <td class="px-6 py-4"><span class="badge badge-<?php echo $row['priority']; ?>"><?php echo $row['priority']; ?></span></td>
+                                <td class="px-6 py-4"><span class="badge status-<?php echo $row['status']; ?>"><?php echo $row['status']; ?></span></td>
+                                <td class="px-6 py-4 text-slate-500 text-xs italic">
+                                    <?php echo ($row['accounts_reply'] && $row['accounts_reply'] != '-') ? $row['accounts_reply'] : '<span class="text-slate-300">No reply yet</span>'; ?>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr><td colspan="7" class="text-center py-8 text-slate-400">No payslip requests found.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -141,45 +164,46 @@ while ($row = $result->fetch_assoc()) {
         </div>
     </div>
 
-    <div id="requestModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+    <div id="requestModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm modal">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all scale-100">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                 <h3 class="font-bold text-lg text-slate-800">Request Payslip</h3>
-                <button onclick="closeModal('requestModal')" class="text-gray-400 hover:text-red-500"><i class="fa-solid fa-xmark text-xl"></i></button>
+                <button onclick="closeModal('requestModal')" class="text-slate-400 hover:text-slate-600"><i data-lucide="x" class="w-5 h-5"></i></button>
             </div>
 
-            <form action="" method="POST" class="p-6 space-y-5">
+            <form action="" method="POST" class="p-6 space-y-4">
                 <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">From Date</label>
-                        <input type="date" name="from_date" required class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm">
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">From Date</label>
+                        <input type="date" name="from_date" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a]">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">To Date</label>
-                        <input type="date" name="to_date" required class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm">
+                        <label class="block text-xs font-bold text-slate-500 uppercase mb-1">To Date</label>
+                        <input type="date" name="to_date" required class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a]">
                     </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Priority</label>
-                    <select name="priority" class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm">
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Priority</label>
+                    <select name="priority" class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a]">
                         <option value="Low">Low</option>
                         <option value="Medium" selected>Medium</option>
                         <option value="High">High</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Note to Accounts</label>
-                    <textarea name="note" rows="3" class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm"></textarea>
+                    <label class="block text-xs font-bold text-slate-500 uppercase mb-1">Note to Accounts</label>
+                    <textarea name="note" rows="3" placeholder="Reason for request..." class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a]"></textarea>
                 </div>
                 <div class="flex justify-end gap-3 pt-2">
-                    <button type="button" onclick="closeModal('requestModal')" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600">Cancel</button>
-                    <button type="submit" name="send_request" class="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg">Send Request</button>
+                    <button type="button" onclick="closeModal('requestModal')" class="px-4 py-2 rounded-lg text-sm font-semibold text-slate-600 border border-slate-300 hover:bg-slate-50">Cancel</button>
+                    <button type="submit" name="send_request" class="bg-[#1b5a5a] hover:bg-[#144343] text-white px-4 py-2 rounded-lg text-sm font-bold shadow-md">Send Request</button>
                 </div>
             </form>
         </div>
     </div>
 
     <script>
+        lucide.createIcons();
         function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
         function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
     </script>
