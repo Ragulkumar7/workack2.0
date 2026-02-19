@@ -99,8 +99,20 @@ $total_entitled = array_sum($quotas);
 $total_used = array_sum($used);
 $total_remaining = $total_entitled - $total_used;
 
-// --- 4. FETCH LEAVE HISTORY ---
-$history_sql = "SELECT * FROM leave_requests WHERE user_id = ? ORDER BY created_at DESC";
+// --- 4. FETCH LEAVE HISTORY WITH APPROVER NAMES ---
+// JOIN with users and employee_profiles to dynamically fetch the TL and Manager names
+$history_sql = "
+    SELECT lr.*, 
+           COALESCE(tl_ep.full_name, tl_u.username) as tl_name,
+           COALESCE(mgr_ep.full_name, mgr_u.username) as mgr_name
+    FROM leave_requests lr
+    LEFT JOIN users tl_u ON lr.tl_id = tl_u.id
+    LEFT JOIN employee_profiles tl_ep ON lr.tl_id = tl_ep.user_id
+    LEFT JOIN users mgr_u ON lr.manager_id = mgr_u.id
+    LEFT JOIN employee_profiles mgr_ep ON lr.manager_id = mgr_ep.user_id
+    WHERE lr.user_id = ? 
+    ORDER BY lr.created_at DESC
+";
 $stmt_hist = mysqli_prepare($conn, $history_sql);
 mysqli_stmt_bind_param($stmt_hist, "i", $user_id);
 mysqli_stmt_execute($stmt_hist);
@@ -376,13 +388,27 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
                                     'Rejected' => 'x',
                                     default => 'clock'
                                 };
+
+                                // Check who approved dynamically
+                                $approvers = [];
+                                if ($row['tl_status'] === 'Approved' && !empty($row['tl_name'])) {
+                                    $approvers[] = htmlspecialchars($row['tl_name']) . " <span style='font-size:10px;color:#64748b;font-weight:600;'>(TL)</span>";
+                                }
+                                if ($row['manager_status'] === 'Approved' && !empty($row['mgr_name'])) {
+                                    $approvers[] = htmlspecialchars($row['mgr_name']) . " <span style='font-size:10px;color:#64748b;font-weight:600;'>(Mgr)</span>";
+                                }
+                                if (empty($approvers) && !empty($row['approved_by'])) {
+                                    $approvers[] = htmlspecialchars($row['approved_by']);
+                                }
+
+                                $approved_by_display = !empty($approvers) ? implode("<br>", $approvers) : '--';
                         ?>
                         <tr>
                             <td><span style="font-weight:600;"><?php echo htmlspecialchars($row['leave_type']); ?></span></td>
                             <td><?php echo date("d/m/Y", strtotime($row['start_date'])) . ' - ' . date("d/m/Y", strtotime($row['end_date'])); ?></td>
                             <td><?php echo $row['total_days']; ?></td>
                             <td><?php echo htmlspecialchars($row['reason']); ?></td>
-                            <td><?php echo $row['approved_by'] ? htmlspecialchars($row['approved_by']) : '--'; ?></td>
+                            <td><?php echo $approved_by_display; ?></td>
                             <td>
                                 <span class="status-badge status-<?php echo $row['status']; ?>">
                                     <i data-lucide="<?php echo $statusIcon; ?>" style="width:10px;"></i> <?php echo $row['status']; ?>

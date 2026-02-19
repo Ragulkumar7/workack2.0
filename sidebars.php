@@ -215,7 +215,13 @@ $sections = [
                 'name' => 'Performance', 
                 'path' => $base . 'performance_list.php', 
                 'icon' => 'trending-up', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Team Lead'],
+                'allowed' => ['System Admin', 'HR', 'Team Lead'],
+            ],
+            [
+                'name' => 'Performance', 
+                'path' => $base . 'manager/team_performance.php', 
+                'icon' => 'trending-up', 
+                'allowed' => ['Manager'],
             ],
             [
                 'name' => 'Productivity', 
@@ -251,6 +257,12 @@ $sections = [
                 'icon' => 'user-plus',
                 'allowed' => ['Manager']
             ],  
+            [
+            'name' => 'My Team', 
+            'path' => $base . 'manager/my_team.php', 
+            'icon' => 'users', // Uses lucide/font-awesome icon
+            'allowed' => ['Manager', 'System Admin'] 
+        ],
              // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 
