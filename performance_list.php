@@ -466,4 +466,8 @@ if ($result && mysqli_num_rows($result) > 0) {
 <?php 
 // End buffering
 ob_end_flush(); 
+<<<<<<< HEAD
 ?>
+=======
+?>
+>>>>>>> 077886b7eaf9c615de3a9090f323d87194fb2660

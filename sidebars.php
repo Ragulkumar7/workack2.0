@@ -251,6 +251,12 @@ $sections = [
                 'icon' => 'user-plus',
                 'allowed' => ['Manager']
             ],  
+            [
+            'name' => 'My Team', 
+            'path' => 'manager/my_team.php', 
+            'icon' => 'users', // Uses lucide/font-awesome icon
+            'allowed' => ['Manager', 'System Admin'] 
+        ],
              // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 

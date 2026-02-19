@@ -27,32 +27,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset(
     $new_status = $_POST['status']; 
     
     $column_to_update = "";
-    $update_overall_status = false;
 
+    // Determine which role is making the approval
     if ($user_role === 'Team Lead') {
         $column_to_update = "tl_status";
-        if ($new_status === 'Rejected') { $update_overall_status = true; } 
     } elseif ($user_role === 'Manager') {
         $column_to_update = "manager_status";
-        if ($new_status === 'Rejected') { $update_overall_status = true; }
     } elseif ($user_role === 'HR' || $user_role === 'HR Executive') {
         $column_to_update = "hr_status";
-        $update_overall_status = true;
     } else {
         echo "error";
         exit();
     }
 
-    // Prepare the SQL Update
-    if ($update_overall_status) {
-        $update_query = "UPDATE leave_requests SET $column_to_update = ?, status = ? WHERE id = ?";
-        $update_stmt = $conn->prepare($update_query);
-        $update_stmt->bind_param("ssi", $new_status, $new_status, $leave_id);
-    } else {
-        $update_query = "UPDATE leave_requests SET $column_to_update = ? WHERE id = ?";
-        $update_stmt = $conn->prepare($update_query);
-        $update_stmt->bind_param("si", $new_status, $leave_id);
-    }
+    // UPDATED LOGIC: Update BOTH the specific role status (tl_status) AND the overall status
+    // This ensures the employee sees the exact status ("Approved" or "Rejected") immediately
+    $update_query = "UPDATE leave_requests SET $column_to_update = ?, status = ? WHERE id = ?";
+    $update_stmt = $conn->prepare($update_query);
+    $update_stmt->bind_param("ssi", $new_status, $new_status, $leave_id);
 
     if ($update_stmt->execute()) {
         echo "success";
