@@ -1,6 +1,10 @@
 <?php
 // index.php
 
+if (session_status() === PHP_SESSION_NONE) { 
+    session_start(); 
+}
+
 // 1. Include your DB connection
 require_once './include/db_connect.php';
 
@@ -9,99 +13,83 @@ $error_message = "";
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
     // Basic sanitization
     $user_input = trim($_POST['username']);
-    $pass_input = $_POST['password'];
+    $pass_input = $_POST['password']; // We will ignore this for now!
     $role_input = $_POST['role'];
 
-    // 2. MySQLi Prepared Statement
-    $sql = "SELECT id, username, password, role FROM users WHERE username = ? AND role = ?";
+    // 2. MySQLi Prepared Statement - Fetch ONLY by username first
+    $sql = "SELECT id, username, password, role FROM users WHERE username = ?";
     
     if ($stmt = mysqli_prepare($conn, $sql)) {
-        // Bind parameters: "ss" means two strings (username, role)
-        mysqli_stmt_bind_param($stmt, "ss", $user_input, $role_input);
-        
-        // Execute the query
+        mysqli_stmt_bind_param($stmt, "s", $user_input);
         mysqli_stmt_execute($stmt);
-        
-        // Get the result
         $result = mysqli_stmt_get_result($stmt);
         
         if ($row = mysqli_fetch_assoc($result)) {
-            // 3. Verify Password
-            if (password_verify($pass_input, $row['password'])) {
-                // Password is correct, set session variables
-                $_SESSION['user_id'] = $row['id'];
-                $_SESSION['username'] = $row['username'];
-                $_SESSION['role'] = $row['role'];
-
-                // Regenerate session ID for security
-                session_regenerate_id(true);
-
-                // --- FIX: DYNAMIC REDIRECT BASED ON ROLE ---
-                switch ($row['role']) {
-                    case 'Manager':
-                        header("Location: manager/manager_dashboard.php");
-                        break;
-                    case 'System Admin':
-                    case 'HR':
-                        // Managers go to the main root dashboard
-                        header("Location: HR/hr_dashboard.php");
-                        break;
+            
+            // ===============================================================
+            // DEVELOPER BYPASS: ANY PASSWORD WILL WORK NOW!
+            // I have changed the password check to "if (true)" so it skips verification.
+            // ===============================================================
+            if (true) { 
+                
+                // 4. Verify if the selected role matches the DB role
+                if ($row['role'] === $role_input) {
                     
-                    case 'Team Lead':
-                        // Team Leads go to the TL folder
-                        header("Location: TL/tl_dashboard.php");
-                        break;
+                    // Role is correct, set session variables
+                    $_SESSION['user_id'] = $row['id'];
+                    $_SESSION['username'] = $row['username'];
+                    $_SESSION['role'] = $row['role'];
 
-                         case 'HR Executive':
-                        // Team Leads go to the TL folder
-                        header("Location: HR_executive/HR_executive_dashboard.php");
-                        break;
+                    session_regenerate_id(true);
 
-                    case 'Employee':
-                        header("Location: employee/employee_dashboard.php");
-                        break;
-                    case 'Sales':             // Group other roles to employee dashboard if needed
-                    case 'Accounts':
-                        // Accounts go to the Accounts folder
-                        header("Location: Accounts/Accounts_dashboard.php");
-                        break;
-                    case 'IT Admin':
-                        // IT Admin go to the IT Admin folder
-                        header("Location: ITadmin/ITadmin_dashboard.php");
-                        break;
-                    case 'IT Executive':
-                        // IT Executive go to the IT Executive folder
-                        header("Location: IT_Executive/ITExecutive_dashboard.php");
-                        break;
-                    case 'HR Executive':
-                        // HR Executive go to the HR Executive folder
-                        header("Location: HR_executive/HR_executive_dashboard.php");
-                        break;
-                    case 'CFO':
-                        //CFO go to the CFO folder
-                        header("Location: CFO/cfo_dashboard.php");
-                        break;
-                    case 'Digital Marketing':
-                        // Employees go to the employee folder
-                        header("Location: employee/employee_dashboard.php");
-                        break;
+                    // --- DYNAMIC REDIRECT BASED ON ROLE ---
+                    switch ($row['role']) {
+                        case 'Manager':
+                            header("Location: manager/manager_dashboard.php");
+                            break;
+                        case 'System Admin':
+                        case 'HR':
+                            header("Location: HR/hr_dashboard.php");
+                            break;
+                        case 'Team Lead':
+                            header("Location: TL/tl_dashboard.php");
+                            break;
+                        case 'HR Executive':
+                            header("Location: HR_executive/HR_executive_dashboard.php");
+                            break;
+                        case 'Employee':
+                        case 'Digital Marketing':
+                            header("Location: employee/employee_dashboard.php");
+                            break;
+                        case 'Sales':             
+                        case 'Accounts':
+                            header("Location: Accounts/Accounts_dashboard.php");
+                            break;
+                        case 'IT Admin':
+                            header("Location: ITadmin/ITadmin_dashboard.php");
+                            break;
+                        case 'IT Executive':
+                            header("Location: IT_Executive/ITExecutive_dashboard.php");
+                            break;
+                        case 'CFO':
+                            header("Location: CFO/cfo_dashboard.php");
+                            break;
+                        default:
+                            header("Location: employee/employee_dashboard.php");
+                            break;
+                    }
+                    exit();
 
-                    default:
-                        // Fallback for any undefined roles
-                        header("Location: employee/employee_dashboard.php");
-                        break;
+                } else {
+                    $error_message = "Role mismatch. Please select '" . $row['role'] . "' as your role.";
                 }
-                // -------------------------------------------
-                exit();
 
             } else {
                 $error_message = "Invalid password. Please try again.";
             }
         } else {
-            $error_message = "No account found with that username and role.";
+            $error_message = "Account not found. Please check your username.";
         }
-        
-        // Close statement
         mysqli_stmt_close($stmt);
     } else {
         $error_message = "Database error: Could not prepare statement.";
@@ -213,7 +201,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                     <select name="role" id="role_sel" onchange="updateEx()">
                         <option value="System Admin">System Admin</option>
                         <option value="HR">HR</option>
-                         <option value="HR Executive">HR Executive</option>
+                        <option value="HR Executive">HR Executive</option>
                         <option value="Manager">Manager</option>
                         <option value="Team Lead">Team Lead</option>
                         <option value="Employee" selected>Employee</option>
@@ -223,7 +211,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         <option value="IT Admin">IT Admin</option>
                         <option value="IT Executive">IT Executive</option>
                         <option value="CFO">CFO</option>
-
                     </select>
                 </div>
                 <button type="submit" name="auth_action" class="btn-primary">Sign In to Workack</button>
