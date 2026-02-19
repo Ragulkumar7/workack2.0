@@ -10,20 +10,21 @@ if (session_status() === PHP_SESSION_NONE) {
 // 3. DB CONNECTION
 include('include/db_connect.php'); 
 
-// 4. FETCH PERFORMANCE DATA
+// 4. FETCH PERFORMANCE DATA (Updated to use the new database structure)
 $performanceData = [];
 $sql = "SELECT 
-            employee_id, 
-            full_name, 
-            designation, 
-            profile_image, 
-            performance as performance_status,
-            performance_score,
-            project_completion_rate,
-            task_completion_rate,
-            attendance_rate
-        FROM team_members 
-        ORDER BY performance_score DESC";
+            ep.emp_id_code as employee_id, 
+            ep.full_name, 
+            ep.designation, 
+            ep.profile_img as profile_image, 
+            per.performance_grade as performance_status,
+            per.total_score as performance_score,
+            per.project_completion_pct as project_completion_rate,
+            per.task_completion_pct as task_completion_rate,
+            per.attendance_pct as attendance_rate
+        FROM employee_profiles ep
+        INNER JOIN employee_performance per ON ep.user_id = per.user_id
+        ORDER BY per.total_score DESC";
 
 $result = mysqli_query($conn, $sql);
 
@@ -42,6 +43,9 @@ if ($result && mysqli_num_rows($result) > 0) {
             "status" => !empty($row['performance_status']) ? $row['performance_status'] : 'Average'
         ];
     }
+} else if (!$result) {
+    // Helpful debugging if the query ever fails again
+    die("Database Query Failed: " . mysqli_error($conn));
 }
 ?>
 <!DOCTYPE html>
