@@ -1,8 +1,68 @@
 <?php
 // ticketraise_form.php
 
-// 1. Session & Sidebar
+// 1. Session & DB Connection
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+// ROBUST DATABASE CONNECTION
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+
+if (file_exists($dbPath)) {
+    require_once $dbPath;
+} else {
+    // Fallback path
+    $dbPath = $projectRoot . '/include/db_connect.php';
+    if(file_exists($dbPath)) {
+        require_once $dbPath;
+    } else {
+        die("Database connection file not found.");
+    }
+}
+
+// --- NEW: HANDLE FORM SUBMISSION LOGIC ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
+    $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1); 
+    $ticket_code = $_POST['ticket_code'];
+    $subject = mysqli_real_escape_string($conn, $_POST['subject']);
+    $priority = mysqli_real_escape_string($conn, $_POST['priority']);
+    $department = mysqli_real_escape_string($conn, $_POST['department']);
+    $cc_email = mysqli_real_escape_string($conn, $_POST['cc_email']);
+    $description = mysqli_real_escape_string($conn, $_POST['description']);
+    
+    $attachment = NULL;
+
+    // Handle File Upload
+    if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
+        $upload_dir = '../uploads/tickets/'; 
+        if (!is_dir($upload_dir)) {
+            mkdir($upload_dir, 0777, true);
+        }
+        $file_extension = pathinfo($_FILES["attachment"]["name"], PATHINFO_EXTENSION);
+        $new_filename = time() . '_' . uniqid() . '.' . $file_extension;
+        $target_file = $upload_dir . $new_filename;
+        
+        if (move_uploaded_file($_FILES["attachment"]["tmp_name"], $target_file)) {
+            // Save relative path exactly as your DB schema expects
+            $attachment = 'uploads/tickets/' . $new_filename;
+        }
+    }
+
+    // Insert into tickets table
+    $query = "INSERT INTO tickets (user_id, ticket_code, subject, priority, department, cc_email, description, attachment, status) 
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Open')";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("isssssss", $user_id, $ticket_code, $subject, $priority, $department, $cc_email, $description, $attachment);
+
+    if ($stmt->execute()) {
+        echo "<script>alert('Ticket Raised Successfully!'); window.location.href='ticketraise.php';</script>";
+        exit();
+    } else {
+        echo "<script>alert('Error raising ticket.');</script>";
+    }
+    $stmt->close();
+}
+
 include 'sidebars.php';
 
 // 2. Mock Data
@@ -165,7 +225,10 @@ $user_name = $_SESSION['username'] ?? 'User';
     </div>
 
     <div class="p-6 md:p-10 w-full">
-        <form id="ticketForm" action="submit_ticket.php" method="POST" enctype="multipart/form-data">
+        <form id="ticketForm" action="" method="POST" enctype="multipart/form-data">
+            
+            <input type="hidden" name="ticket_code" value="<?php echo $ticket_id; ?>">
+
             <div class="form-card">
                 
                 <div class="form-header">
@@ -233,7 +296,7 @@ $user_name = $_SESSION['username'] ?? 'User';
 
                     <div class="border-t border-gray-100 pt-8 mt-6 flex justify-end gap-3">
                         <button type="button" class="btn-cancel" onclick="window.history.back()">Cancel</button>
-                        <button type="submit" class="btn-submit shadow-lg shadow-teal-900/20">
+                        <button type="submit" name="submit_ticket" class="btn-submit shadow-lg shadow-teal-900/20">
                             <i class="fa-regular fa-paper-plane mr-2"></i> Submit Ticket
                         </button>
                     </div>

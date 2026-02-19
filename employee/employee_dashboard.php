@@ -406,146 +406,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
         <div class="dashboard-container">
 
-            <div class="col-span-12 lg:col-span-3">
-                <div class="card overflow-hidden">
-                    <div class="bg-teal-700 p-8 flex flex-col items-center text-center">
-                        <div class="relative mb-3">
-                            <img src="<?php echo $profile_img; ?>" class="w-24 h-24 rounded-full border-4 border-white shadow-lg">
-                            <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-400 border-2 border-white rounded-full"></div>
-                        </div>
-                        <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($employee_name); ?></h2>
-                        <p class="text-teal-200 text-sm mb-3"><?php echo htmlspecialchars($employee_role); ?></p>
-                        <span class="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-bold">Verified Account</span>
-                    </div>
-                    <div class="card-body space-y-6">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700">
-                                <i class="fa-solid fa-phone"></i>
-                            </div>
-                            <div>
-                                <p class="text-[10px] text-gray-400 font-bold uppercase">Phone</p>
-                                <p class="text-sm font-semibold text-slate-800"><?php echo htmlspecialchars($employee_phone); ?></p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700">
-                                <i class="fa-solid fa-envelope"></i>
-                            </div>
-                            <div>
-                                <p class="text-[10px] text-gray-400 font-bold uppercase">Email</p>
-                                <p class="text-sm font-semibold text-slate-800 truncate w-40" title="<?php echo htmlspecialchars($employee_email); ?>">
-                                    <?php echo htmlspecialchars($employee_email); ?>
-                                </p>
-                            </div>
-                        </div>
-                        <hr class="border-dashed border-gray-200">
-                        <div class="bg-green-50 p-3 rounded-lg flex justify-between items-center">
-                            <div class="flex items-center gap-2">
-                                <i class="fa-solid fa-calendar-check text-green-600"></i>
-                                <span class="text-xs font-bold text-gray-600">Joined</span>
-                            </div>
-                            <span class="text-xs font-bold text-slate-800"><?php echo $joining_date; ?></span>
-                        </div>
-
-                        <div class="mt-6 pt-6 border-t border-dashed border-gray-200">
-                            <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Professional Info</h4>
-                            <div class="grid grid-cols-2 gap-2 mb-4">
-                                <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                    <p class="text-[9px] text-gray-400 font-bold uppercase">Experience</p>
-                                    <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($user_info['experience_label'] ?? 'Fresher'); ?></p>
-                                </div>
-                                <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                    <p class="text-[9px] text-gray-400 font-bold uppercase">Department</p>
-                                    <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($user_info['department'] ?? 'General'); ?></p>
-                                </div>
-                            </div>
-                            
-                            <?php
-                            $emergency = json_decode($user_info['emergency_contacts'] ?? '[]', true);
-                            if (!empty($emergency)): 
-                                $primary = $emergency[0]; ?>
-                                <div class="p-3 bg-red-50 rounded-xl border border-red-100">
-                                    <div class="flex items-center gap-2 mb-1">
-                                        <i class="fa-solid fa-heart-pulse text-red-500 text-[10px]"></i>
-                                        <span class="text-[10px] font-bold text-red-700 uppercase">Emergency Contact</span>
-                                    </div>
-                                    <p class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($primary['name']); ?></p>
-                                    <p class="text-[10px] text-slate-500"><?php echo htmlspecialchars($primary['phone']); ?></p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-span-12 lg:col-span-5 flex flex-col gap-6">
-                
-                <div class="card">
-                    <div class="card-body">
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
-                            <span class="text-xs font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded">2026</span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <div class="space-y-4">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div>
-                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_ontime; ?></span>
-                                    <span class="text-sm text-gray-500">On Time</span>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
-                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_late; ?></span>
-                                    <span class="text-sm text-gray-500">Late Attendance</span>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
-                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_wfh; ?></span>
-                                    <span class="text-sm text-gray-500">Work From Home</span>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
-                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_absent; ?></span>
-                                    <span class="text-sm text-gray-500">Absent</span>
-                                </div>
-                                <div class="flex items-center gap-3">
-                                    <div class="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
-                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_sick; ?></span>
-                                    <span class="text-sm text-gray-500">Sick Leave</span>
-                                </div>
-                            </div>
-                            <div class="relative">
-                                <div id="attendanceChart" class="w-32 h-32"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="card-body">
-                        <h3 class="font-bold text-slate-800 text-lg mb-4">Leave Balance</h3>
-                        <div class="grid grid-cols-3 gap-4 mb-6">
-                            <div class="bg-teal-50 p-3 rounded-xl text-center">
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
-                                <p class="text-2xl font-bold text-teal-700"><?php echo $leaves_total; ?></p>
-                            </div>
-                            <div class="bg-blue-50 p-3 rounded-xl text-center">
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">Taken</p>
-                                <p class="text-2xl font-bold text-blue-700"><?php echo $leaves_taken; ?></p>
-                            </div>
-                            <div class="bg-green-50 p-3 rounded-xl text-center">
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">Left</p>
-                                <p class="text-2xl font-bold text-green-700"><?php echo $leaves_remaining; ?></p>
-                            </div>
-                        </div>
-                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 rounded-lg text-center transition shadow-lg shadow-teal-200">
-                            <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
-                        </a>
-                    </div>
-                </div>
-
-            </div>
-
             <div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
                 
                 <div class="card">
@@ -648,6 +508,146 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
+            </div>
+
+            <div class="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
+                            <span class="text-xs font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded">2026</span>
+                        </div>
+                        <div class="flex items-center justify-between">
+                            <div class="space-y-4">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_ontime; ?></span>
+                                    <span class="text-sm text-gray-500">On Time</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-green-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_late; ?></span>
+                                    <span class="text-sm text-gray-500">Late Attendance</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_wfh; ?></span>
+                                    <span class="text-sm text-gray-500">Work From Home</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-red-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_absent; ?></span>
+                                    <span class="text-sm text-gray-500">Absent</span>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-yellow-500"></div>
+                                    <span class="font-bold text-slate-700 w-8"><?php echo $stats_sick; ?></span>
+                                    <span class="text-sm text-gray-500">Sick Leave</span>
+                                </div>
+                            </div>
+                            <div class="relative">
+                                <div id="attendanceChart" class="w-32 h-32"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="font-bold text-slate-800 text-lg mb-4">Leave Balance</h3>
+                        <div class="grid grid-cols-3 gap-4 mb-6">
+                            <div class="bg-teal-50 p-3 rounded-xl text-center">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
+                                <p class="text-2xl font-bold text-teal-700"><?php echo $leaves_total; ?></p>
+                            </div>
+                            <div class="bg-blue-50 p-3 rounded-xl text-center">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Taken</p>
+                                <p class="text-2xl font-bold text-blue-700"><?php echo $leaves_taken; ?></p>
+                            </div>
+                            <div class="bg-green-50 p-3 rounded-xl text-center">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Left</p>
+                                <p class="text-2xl font-bold text-green-700"><?php echo $leaves_remaining; ?></p>
+                            </div>
+                        </div>
+                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 rounded-lg text-center transition shadow-lg shadow-teal-200">
+                            <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
+                        </a>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="col-span-12 lg:col-span-3">
+                <div class="card overflow-hidden">
+                    <div class="bg-teal-700 p-8 flex flex-col items-center text-center">
+                        <div class="relative mb-3">
+                            <img src="<?php echo $profile_img; ?>" class="w-24 h-24 rounded-full border-4 border-white shadow-lg">
+                            <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-400 border-2 border-white rounded-full"></div>
+                        </div>
+                        <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($employee_name); ?></h2>
+                        <p class="text-teal-200 text-sm mb-3"><?php echo htmlspecialchars($employee_role); ?></p>
+                        <span class="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-bold">Verified Account</span>
+                    </div>
+                    <div class="card-body space-y-6">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700">
+                                <i class="fa-solid fa-phone"></i>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 font-bold uppercase">Phone</p>
+                                <p class="text-sm font-semibold text-slate-800"><?php echo htmlspecialchars($employee_phone); ?></p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700">
+                                <i class="fa-solid fa-envelope"></i>
+                            </div>
+                            <div>
+                                <p class="text-[10px] text-gray-400 font-bold uppercase">Email</p>
+                                <p class="text-sm font-semibold text-slate-800 truncate w-40" title="<?php echo htmlspecialchars($employee_email); ?>">
+                                    <?php echo htmlspecialchars($employee_email); ?>
+                                </p>
+                            </div>
+                        </div>
+                        <hr class="border-dashed border-gray-200">
+                        <div class="bg-green-50 p-3 rounded-lg flex justify-between items-center">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-calendar-check text-green-600"></i>
+                                <span class="text-xs font-bold text-gray-600">Joined</span>
+                            </div>
+                            <span class="text-xs font-bold text-slate-800"><?php echo $joining_date; ?></span>
+                        </div>
+
+                        <div class="mt-6 pt-6 border-t border-dashed border-gray-200">
+                            <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Professional Info</h4>
+                            <div class="grid grid-cols-2 gap-2 mb-4">
+                                <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <p class="text-[9px] text-gray-400 font-bold uppercase">Experience</p>
+                                    <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($user_info['experience_label'] ?? 'Fresher'); ?></p>
+                                </div>
+                                <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                    <p class="text-[9px] text-gray-400 font-bold uppercase">Department</p>
+                                    <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($user_info['department'] ?? 'General'); ?></p>
+                                </div>
+                            </div>
+                            
+                            <?php
+                            $emergency = json_decode($user_info['emergency_contacts'] ?? '[]', true);
+                            if (!empty($emergency)): 
+                                $primary = $emergency[0]; ?>
+                                <div class="p-3 bg-red-50 rounded-xl border border-red-100">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <i class="fa-solid fa-heart-pulse text-red-500 text-[10px]"></i>
+                                        <span class="text-[10px] font-bold text-red-700 uppercase">Emergency Contact</span>
+                                    </div>
+                                    <p class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($primary['name']); ?></p>
+                                    <p class="text-[10px] text-slate-500"><?php echo htmlspecialchars($primary['phone']); ?></p>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div class="col-span-12 lg:col-span-4">

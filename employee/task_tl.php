@@ -9,16 +9,34 @@ if (file_exists($dbPath)) {
     die("Error: db_connect.php not found at $dbPath");
 }
 
-// 2. INCLUDE SIDEBAR & HEADER
+// Determine current user FIRST (needed for update logic)
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+$current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1);
+
+// --- HANDLE STATUS UPDATE VIA GET REQUEST (MOVED TO TOP BEFORE ANY HTML OUTPUT) ---
+if (isset($_GET['update_id']) && isset($_GET['new_status'])) {
+    $tid = intval($_GET['update_id']);
+    $stat = $_GET['new_status'];
+    
+    // Only allow specific status updates
+    if (in_array($stat, ['In Progress', 'Completed'])) {
+        $stmt = $conn->prepare("UPDATE project_tasks SET status = ? WHERE id = ?");
+        $stmt->bind_param("si", $stat, $tid);
+        $stmt->execute();
+        $stmt->close();
+    }
+    
+    // Redirect to clear the URL parameters and refresh the page
+    header("Location: " . strtok($_SERVER['REQUEST_URI'], '?'));
+    exit;
+}
+
+// 2. INCLUDE SIDEBAR & HEADER (After redirect logic)
 $sidebarPath = $projectRoot . DIRECTORY_SEPARATOR . 'sidebars.php'; 
 $headerPath  = $projectRoot . DIRECTORY_SEPARATOR . 'header.php';
 
 if (file_exists($sidebarPath)) include_once $sidebarPath;
 if (file_exists($headerPath))  include_once $headerPath;
-
-// Determine current user
-if (session_status() === PHP_SESSION_NONE) { session_start(); }
-$current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1);
 
 // --- NEW LOGIC: FETCH CURRENT EMPLOYEE'S NAME ---
 // The TL stores assigned names as a comma-separated string, so we need the current user's name to search for it.
@@ -29,8 +47,7 @@ $name_res = $name_stmt->get_result()->fetch_assoc();
 $current_user_name = $name_res['full_name'] ?? '';
 $name_stmt->close();
 
-
-// 3. FETCH TASK STATISTICS (Updated to query project_tasks)
+// 3. FETCH TASK STATISTICS
 $stats_query = "SELECT 
     COUNT(*) as total,
     SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
@@ -197,7 +214,6 @@ $stmt->close();
             margin-bottom: 16px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.02);
             transition: transform 0.2s, box-shadow 0.2s;
-            cursor: pointer;
         }
 
         .card-tag {
@@ -226,6 +242,20 @@ $stmt->close();
             font-size: 0.8rem;
             color: #94a3b8;
         }
+
+        .action-btn {
+            background: transparent;
+            border: none;
+            color: var(--theme-color);
+            font-weight: 700;
+            font-size: 0.85rem;
+            text-decoration: none;
+            cursor: pointer;
+            transition: 0.2s;
+            display: inline-flex;
+            align-items: center;
+        }
+        .action-btn:hover { color: #0d9488; text-decoration: underline; }
 
         .completed-item {
             display: flex;
@@ -334,7 +364,12 @@ $stmt->close();
                 <span class="card-tag <?php echo $prioClass; ?>"><?php echo $task['priority']; ?></span>
                 <div class="card-title"><?php echo htmlspecialchars($task['task_title']); ?></div>
                 <div class="card-desc"><?php echo htmlspecialchars($task['task_description']); ?></div>
-                <div class="card-footer"><span><?php echo date('d M', strtotime($task['deadline'])); ?></span></div>
+                <div class="card-footer">
+                    <span><i class="fa-regular fa-calendar" style="margin-right:4px;"></i> <?php echo date('d M', strtotime($task['deadline'])); ?></span>
+                    <a href="?update_id=<?php echo $task['id']; ?>&new_status=In Progress" class="action-btn">
+                        Start <i class="fa-solid fa-arrow-right" style="margin-left:4px; font-size:0.75rem;"></i>
+                    </a>
+                </div>
             </div>
             <?php endforeach; ?>
         </div>
@@ -351,7 +386,12 @@ $stmt->close();
                 <span class="card-tag <?php echo $prioClass; ?>"><?php echo $task['priority']; ?></span>
                 <div class="card-title"><?php echo htmlspecialchars($task['task_title']); ?></div>
                 <div class="card-desc"><?php echo htmlspecialchars($task['task_description']); ?></div>
-                <div class="card-footer"><span><?php echo date('d M', strtotime($task['deadline'])); ?></span></div>
+                <div class="card-footer">
+                    <span><i class="fa-regular fa-calendar" style="margin-right:4px;"></i> <?php echo date('d M', strtotime($task['deadline'])); ?></span>
+                    <a href="?update_id=<?php echo $task['id']; ?>&new_status=Completed" class="action-btn" style="color: #059669;">
+                        <i class="fa-solid fa-check-double" style="margin-right:4px;"></i> Finish
+                    </a>
+                </div>
             </div>
             <?php endforeach; ?>
         </div>
@@ -367,5 +407,6 @@ $stmt->close();
         </div>
     </div>
 </main>
+
 </body>
 </html>
