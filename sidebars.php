@@ -101,7 +101,7 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR', 'HR Executive'],
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
-                    ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
+                    ['name' => 'Timesheets', 'path' => $base . 'manager/timesheets_manager.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_manager.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
