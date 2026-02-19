@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // --- HANDLE DELETE TASK ---
 if (isset($_GET['delete_task'])) {
-    $task_id = $_GET['delete_task'];
+    $task_id = intval($_GET['delete_task']);
     $conn->query("DELETE FROM project_tasks WHERE id = $task_id AND created_by = $tl_id");
     header("Location: task_tl.php");
     exit();
@@ -126,7 +126,7 @@ $tasks_result = $t_stmt->get_result();
         .btn-icon { width: 32px; height: 32px; border-radius: 6px; background: transparent; color: #64748b; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; border: none; }
         .btn-icon:hover { background: #f1f5f9; color: var(--primary); }
         .btn-icon.delete:hover { background: #fef2f2; color: #ef4444; }
-        .user-chip { background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 12px; border: 1px solid #e2e8f0; display: inline-block; margin-right: 4px; }
+        .user-chip { background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-size: 12px; border: 1px solid #e2e8f0; display: inline-block; margin-right: 4px; margin-bottom: 4px; }
 
         /* Modal */
         .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); align-items: center; justify-content: center; }
@@ -230,7 +230,8 @@ $tasks_result = $t_stmt->get_result();
                         if ($tasks_result->num_rows > 0):
                             while($task = $tasks_result->fetch_assoc()): 
                                 $pColor = $task['priority'] == 'High' ? '#ef4444' : ($task['priority'] == 'Medium' ? '#eab308' : '#10b981');
-                                $assignees = explode(',', $task['assigned_to']);
+                                // Added array_filter to handle empty strings properly
+                                $assignees = array_filter(explode(',', $task['assigned_to'])); 
                         ?>
                         <tr>
                             <td>
@@ -239,9 +240,15 @@ $tasks_result = $t_stmt->get_result();
                             </td>
                             <td><span style="font-size:12px; font-weight:600; color:#475569;"><?= htmlspecialchars($task['project_name']) ?></span></td>
                             <td>
-                                <?php foreach($assignees as $name): ?>
-                                    <div class="user-chip"><i data-lucide="user" style="width:10px;"></i> <?= htmlspecialchars($name) ?></div>
-                                <?php endforeach; ?>
+                                <?php if(!empty($assignees)): ?>
+                                    <?php foreach($assignees as $name): ?>
+                                        <?php if(trim($name) !== ''): ?>
+                                            <div class="user-chip"><i data-lucide="user" style="width:10px;"></i> <?= htmlspecialchars(trim($name)) ?></div>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <span style="color:#94a3b8; font-size:12px;">Unassigned</span>
+                                <?php endif; ?>
                             </td>
                             <td><span style="font-size:12px; font-weight:600; color:<?= $pColor ?>;"><?= $task['priority'] ?></span></td>
                             <td><?= date('d M Y', strtotime($task['due_date'])) ?></td>
@@ -298,13 +305,21 @@ $tasks_result = $t_stmt->get_result();
                     </div>
                     <datalist id="empList">
                         <?php 
-                        $emp_sql = "SELECT full_name FROM team_members WHERE status='Active'";
-                        $e_res = $conn->query($emp_sql);
+                        // UPDATED: Fetch employees assigned to this specific Team Lead from employee_profiles
+                        $emp_sql = "SELECT full_name FROM employee_profiles WHERE reporting_to = ?";
+                        $e_stmt = $conn->prepare($emp_sql);
+                        $e_stmt->bind_param("i", $tl_id);
+                        $e_stmt->execute();
+                        $e_res = $e_stmt->get_result();
+                        
                         if($e_res) {
                             while($e = $e_res->fetch_assoc()) {
-                                echo "<option value='".$e['full_name']."'>";
+                                if(!empty(trim($e['full_name']))) {
+                                    echo "<option value='".htmlspecialchars($e['full_name'])."'>";
+                                }
                             }
                         }
+                        $e_stmt->close();
                         ?>
                     </datalist>
                     <div id="chipContainer" class="chip-container"></div>

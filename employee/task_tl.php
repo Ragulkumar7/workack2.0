@@ -18,24 +18,43 @@ if (file_exists($headerPath))  include_once $headerPath;
 
 // Determine current user
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-$current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : 1;
+$current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1);
 
-// 3. FETCH TASK STATISTICS
+// --- NEW LOGIC: FETCH CURRENT EMPLOYEE'S NAME ---
+// The TL stores assigned names as a comma-separated string, so we need the current user's name to search for it.
+$name_stmt = $conn->prepare("SELECT COALESCE(ep.full_name, u.name) as full_name FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?");
+$name_stmt->bind_param("i", $current_user_id);
+$name_stmt->execute();
+$name_res = $name_stmt->get_result()->fetch_assoc();
+$current_user_name = $name_res['full_name'] ?? '';
+$name_stmt->close();
+
+
+// 3. FETCH TASK STATISTICS (Updated to query project_tasks)
 $stats_query = "SELECT 
     COUNT(*) as total,
     SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
     SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as in_progress,
     SUM(CASE WHEN status IN ('Pending', 'To Do') THEN 1 ELSE 0 END) as pending
-    FROM team_tasks WHERE assigned_to = ?";
+    FROM project_tasks WHERE FIND_IN_SET(?, assigned_to) > 0";
 $stmt = $conn->prepare($stats_query);
-$stmt->bind_param("i", $current_user_id);
+$stmt->bind_param("s", $current_user_name);
 $stmt->execute();
 $stats = $stmt->get_result()->fetch_assoc();
+$stmt->close();
 
 // 4. FETCH TASKS (FOR BOTH LIST & KANBAN)
-$tasks_query = "SELECT * FROM team_tasks WHERE assigned_to = ? ORDER BY deadline ASC";
+// Join with users and employee_profiles to dynamically get the Assigning Team Lead's name and role
+$tasks_query = "SELECT pt.*, 
+                COALESCE(ep.full_name, u.name, 'Admin') as assigned_by_name,
+                COALESCE(ep.designation, u.role, 'Team Lead') as assigned_by_role
+                FROM project_tasks pt
+                LEFT JOIN users u ON pt.created_by = u.id
+                LEFT JOIN employee_profiles ep ON pt.created_by = ep.user_id
+                WHERE FIND_IN_SET(?, pt.assigned_to) > 0 
+                ORDER BY pt.due_date ASC";
 $stmt = $conn->prepare($tasks_query);
-$stmt->bind_param("i", $current_user_id);
+$stmt->bind_param("s", $current_user_name);
 $stmt->execute();
 $all_tasks_result = $stmt->get_result();
 
@@ -45,6 +64,15 @@ $tasks_completed = [];
 $list_view_tasks = [];
 
 while($task = $all_tasks_result->fetch_assoc()) {
+    
+    // Map project_tasks column names to the old variables your HTML uses so the UI doesn't break
+    $task['task_description'] = $task['description'];
+    $task['deadline'] = $task['due_date'];
+    
+    // Dynamically generate the avatar for the Assigning TL
+    $assigner_url_name = urlencode($task['assigned_by_name']);
+    $task['assigned_by_img'] = "https://ui-avatars.com/api/?name={$assigner_url_name}&background=random";
+
     $list_view_tasks[] = $task; 
 
     // Sort into Kanban Columns
@@ -56,6 +84,7 @@ while($task = $all_tasks_result->fetch_assoc()) {
         $tasks_completed[] = $task;
     }
 }
+$stmt->close();
 ?>
 
 <!DOCTYPE html>
@@ -227,19 +256,19 @@ while($task = $all_tasks_result->fetch_assoc()) {
 
     <div class="stats-grid">
         <div class="stat-card">
-            <div class="stat-info"><p>TOTAL TASKS</p><h3><?php echo sprintf("%02d", $stats['total']); ?></h3></div>
+            <div class="stat-info"><p>TOTAL TASKS</p><h3><?php echo sprintf("%02d", $stats['total'] ?? 0); ?></h3></div>
             <div class="stat-icon" style="background:#f1f5f9; color:#475569;"><i class="fa-solid fa-list-check"></i></div>
         </div>
         <div class="stat-card" style="border-left-color: #059669;">
-            <div class="stat-info"><p>COMPLETED</p><h3><?php echo sprintf("%02d", $stats['completed']); ?></h3></div>
+            <div class="stat-info"><p>COMPLETED</p><h3><?php echo sprintf("%02d", $stats['completed'] ?? 0); ?></h3></div>
             <div class="stat-icon" style="color: #059669; background: #f0fdf4;"><i class="fa-solid fa-circle-check"></i></div>
         </div>
         <div class="stat-card" style="border-left-color: #1d4ed8;">
-            <div class="stat-info"><p>IN PROGRESS</p><h3><?php echo sprintf("%02d", $stats['in_progress']); ?></h3></div>
+            <div class="stat-info"><p>IN PROGRESS</p><h3><?php echo sprintf("%02d", $stats['in_progress'] ?? 0); ?></h3></div>
             <div class="stat-icon" style="color: #1d4ed8; background: #eff6ff;"><i class="fa-solid fa-spinner"></i></div>
         </div>
         <div class="stat-card" style="border-left-color: #ea580c;">
-            <div class="stat-info"><p>PENDING</p><h3><?php echo sprintf("%02d", $stats['pending']); ?></h3></div>
+            <div class="stat-info"><p>PENDING</p><h3><?php echo sprintf("%02d", $stats['pending'] ?? 0); ?></h3></div>
             <div class="stat-icon" style="color: #ea580c; background: #fff7ed;"><i class="fa-solid fa-clock"></i></div>
         </div>
     </div>
@@ -258,30 +287,34 @@ while($task = $all_tasks_result->fetch_assoc()) {
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach($list_view_tasks as $row): ?>
-                    <tr>
-                        <td>
-                            <strong><?php echo htmlspecialchars($row['task_title']); ?></strong><br>
-                            <small style="color: #94a3b8;"><?php echo htmlspecialchars($row['task_description']); ?></small>
-                        </td>
-                        <td>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <img src="<?php echo $row['assigned_by_img']; ?>" style="width:35px; border-radius:50%;">
-                                <div><span style="font-weight:600;"><?php echo htmlspecialchars($row['assigned_by_name']); ?></span><br><small><?php echo htmlspecialchars($row['assigned_by_role']); ?></small></div>
-                            </div>
-                        </td>
-                        <td><?php echo date('d M Y', strtotime($row['deadline'])); ?></td>
-                        <td><span class="status-badge badge-priority"><?php echo $row['priority']; ?></span></td>
-                        <td>
-                            <?php 
-                                $badgeClass = 'badge-pending';
-                                if($row['status'] == 'In Progress') $badgeClass = 'badge-working';
-                                if($row['status'] == 'Completed') $badgeClass = 'badge-completed';
-                            ?>
-                            <span class="status-badge <?php echo $badgeClass; ?>"><?php echo $row['status']; ?></span>
-                        </td>
-                    </tr>
-                    <?php endforeach; ?>
+                    <?php if (count($list_view_tasks) > 0): ?>
+                        <?php foreach($list_view_tasks as $row): ?>
+                        <tr>
+                            <td>
+                                <strong><?php echo htmlspecialchars($row['task_title']); ?></strong><br>
+                                <small style="color: #94a3b8;"><?php echo htmlspecialchars($row['task_description']); ?></small>
+                            </td>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <img src="<?php echo $row['assigned_by_img']; ?>" style="width:35px; border-radius:50%;">
+                                    <div><span style="font-weight:600;"><?php echo htmlspecialchars($row['assigned_by_name']); ?></span><br><small><?php echo htmlspecialchars($row['assigned_by_role']); ?></small></div>
+                                </div>
+                            </td>
+                            <td><?php echo date('d M Y', strtotime($row['deadline'])); ?></td>
+                            <td><span class="status-badge badge-priority"><?php echo $row['priority']; ?></span></td>
+                            <td>
+                                <?php 
+                                    $badgeClass = 'badge-pending';
+                                    if($row['status'] == 'In Progress') $badgeClass = 'badge-working';
+                                    if($row['status'] == 'Completed') $badgeClass = 'badge-completed';
+                                ?>
+                                <span class="status-badge <?php echo $badgeClass; ?>"><?php echo $row['status']; ?></span>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <tr><td colspan="5" style="text-align: center; padding: 25px; color: #64748b;">No tasks assigned to you right now.</td></tr>
+                    <?php endif; ?>
                 </tbody>
             </table>
         </div>
@@ -310,6 +343,12 @@ while($task = $all_tasks_result->fetch_assoc()) {
             <div class="column-header" style="color: #1d4ed8;"><span>In Progress</span><span class="task-count"><?php echo count($tasks_progress); ?></span></div>
             <?php foreach($tasks_progress as $task): ?>
             <div class="kanban-card">
+                <?php 
+                    $prioClass = 'tag-low';
+                    if($task['priority'] == 'High' || $task['priority'] == 'Critical') $prioClass = 'tag-high';
+                    if($task['priority'] == 'Medium') $prioClass = 'tag-medium';
+                ?>
+                <span class="card-tag <?php echo $prioClass; ?>"><?php echo $task['priority']; ?></span>
                 <div class="card-title"><?php echo htmlspecialchars($task['task_title']); ?></div>
                 <div class="card-desc"><?php echo htmlspecialchars($task['task_description']); ?></div>
                 <div class="card-footer"><span><?php echo date('d M', strtotime($task['deadline'])); ?></span></div>
