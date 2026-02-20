@@ -4,61 +4,95 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- FIXED PATH & DB LOGIC ---
 $path_to_root = '../'; 
-// Using the robust absolute path logic to find db_connect inside the 'include' folder
 $dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
 
 if (file_exists($dbPath)) {
     include_once($dbPath);
 } else {
-    // Fallback relative check if Document Root logic varies by server setup
     $dbPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'include' . DIRECTORY_SEPARATOR . 'db_connect.php';
     include_once($dbPath);
 }
 
-// Check Login (Supporting both id and user_id session keys)
 if (!isset($_SESSION['id']) && !isset($_SESSION['user_id'])) {
     header("Location: " . $path_to_root . "index.php");
     exit();
 }
 $current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : $_SESSION['user_id'];
 
-// --- FETCH PERFORMANCE DATA ---
-$stmt = $conn->prepare("SELECT * FROM employee_performance WHERE user_id = ?");
+// --- 1. DYNAMIC CALCULATION: ATTENDANCE (Weight: 20%) ---
+// Logic: (Present Days / Last 30 Days) * 100
+$att_stmt = $conn->prepare("SELECT COUNT(*) as present_days FROM attendance WHERE user_id = ? AND status = 'On Time' AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+$att_stmt->bind_param("i", $current_user_id);
+$att_stmt->execute();
+$att_data = $att_stmt->get_result()->fetch_assoc();
+$attendance_pct = min(100, round(($att_data['present_days'] / 22) * 100)); // Assuming 22 working days/month
+
+// --- 2. DYNAMIC CALCULATION: TASK COMPLETION (Weight: 30%) ---
+// Pulling from personal_taskboard table
+$task_stmt = $conn->prepare("SELECT 
+    COUNT(*) as total, 
+    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+    SUM(CASE WHEN due_date < CURDATE() AND status != 'completed' THEN 1 ELSE 0 END) as overdue
+    FROM personal_taskboard WHERE user_id = ?");
+$task_stmt->bind_param("i", $current_user_id);
+$task_stmt->execute();
+$task_res = $task_stmt->get_result()->fetch_assoc();
+$task_total = $task_res['total'] > 0 ? $task_res['total'] : 1;
+$task_completion_pct = round(($task_res['completed'] / $task_total) * 100);
+
+// --- 3. DYNAMIC CALCULATION: PROJECT TIMELINES (Weight: 40%) ---
+// Fetching active projects from project_tasks table
+$proj_stmt = $conn->prepare("SELECT task_title as name, due_date as deadline, status FROM project_tasks WHERE assigned_to LIKE ? LIMIT 5");
+$emp_search = "%" . $_SESSION['name'] . "%"; // Search by name as stored in your project_tasks
+$proj_stmt->bind_param("s", $emp_search);
+$proj_stmt->execute();
+$projects_list = $proj_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+$on_time_projects = 0;
+foreach($projects_list as $p) { if($p['status'] == 'Completed') $on_time_projects++; }
+$proj_total = count($projects_list) > 0 ? count($projects_list) : 1;
+$project_completion_pct = round(($on_time_projects / $proj_total) * 100);
+
+// --- 4. MANAGER RATING (Weight: 10%) ---
+// Still fetched from performance table as it requires manual input
+$stmt = $conn->prepare("SELECT manager_rating_pct, manager_comments, weekly_trend FROM employee_performance WHERE user_id = ?");
 $stmt->bind_param("i", $current_user_id);
 $stmt->execute();
-$metrics = $stmt->get_result()->fetch_assoc();
+$perf_table = $stmt->get_result()->fetch_assoc();
+$mgr_pct = $perf_table['manager_rating_pct'] ?? 0;
 
-// Fallback if no record found in database yet
-if (!$metrics) {
-    $metrics = [
-        'total_score' => 0, 
-        'performance_grade' => 'Pending', 
-        'project_completion_pct' => 0, 
-        'project_details' => '0/0 On Time',
-        'task_completion_pct' => 0, 
-        'task_details' => '0 Completed',
-        'total_tasks_assigned' => 0, 
-        'completed_on_time' => 0, 
-        'overdue_tasks' => 0,
-        'attendance_pct' => 0, 
-        'attendance_details' => '0 Days Leave',
-        'manager_rating_pct' => 0, 
-        'manager_details' => 'N/A',
-        'manager_comments' => 'No feedback available.', 
-        'project_history' => '[]',
-        'weekly_trend' => '[0, 0, 0, 0]'
-    ];
-}
+// --- FINAL SCORE AGGREGATION ---
+$score = ($project_completion_pct * 0.4) + ($task_completion_pct * 0.3) + ($attendance_pct * 0.2) + ($mgr_pct * 0.1);
+$score = round($score, 1);
 
-// --- DECODE JSON DATA ---
-$projects_list = !empty($metrics['project_history']) ? json_decode($metrics['project_history'], true) : [];
-$weekly_trend  = !empty($metrics['weekly_trend'])    ? json_decode($metrics['weekly_trend'], true)    : [0, 0, 0, 0];
+// Determine Grade
+if($score >= 90) $grade = "Excellent";
+elseif($score >= 75) $grade = "Good";
+elseif($score >= 50) $grade = "Average";
+else $grade = "Needs Improvement";
 
-// Calculate SVG Dash Offset (Circle circumference is ~251.2)
-$score = $metrics['total_score'] ?? 0;
+// SVG Dash Offset
 $offset = 251.2 - (251.2 * ($score / 100));
+$weekly_trend = !empty($perf_table['weekly_trend']) ? json_decode($perf_table['weekly_trend'], true) : [0, 0, 0, 0];
 
-// --- HEADER & SIDEBAR INCLUDES ---
+// Update metrics array for display
+$metrics = [
+    'total_score' => $score,
+    'performance_grade' => $grade,
+    'project_completion_pct' => $project_completion_pct,
+    'project_details' => $on_time_projects . "/" . count($projects_list) . " Completed",
+    'task_completion_pct' => $task_completion_pct,
+    'task_details' => $task_res['completed'] . " Completed",
+    'total_tasks_assigned' => $task_res['total'],
+    'completed_on_time' => $task_res['completed'],
+    'overdue_tasks' => $task_res['overdue'] ?? 0,
+    'attendance_pct' => $attendance_pct,
+    'attendance_details' => $att_data['present_days'] . " Days Present",
+    'manager_rating_pct' => $mgr_pct,
+    'manager_details' => 'Soft Skills',
+    'manager_comments' => $perf_table['manager_comments'] ?? 'No feedback available.'
+];
+
 include_once $path_to_root . 'header.php';
 include_once $path_to_root . 'sidebars.php';
 ?>
@@ -77,28 +111,9 @@ include_once $path_to_root . 'sidebars.php';
 
     <style>
         body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
-        
-        /* Main Content Layout */
-        #mainContent { 
-            margin-left: 95px; 
-            padding: 10px 30px 30px 30px; 
-            width: calc(100% - 95px); 
-            transition: 0.3s;
-        }
-        
-        #mainContent.main-shifted { 
-            margin-left: 315px; 
-            width: calc(100% - 315px); 
-        }
-
-        /* Progress Ring Animation */
-        .progress-ring__circle {
-            transition: stroke-dashoffset 0.5s ease-in-out;
-            transform: rotate(-90deg);
-            transform-origin: 50% 50%;
-        }
-        
-        /* Hover Effects */
+        #mainContent { margin-left: 95px; padding: 10px 30px 30px 30px; width: calc(100% - 95px); transition: 0.3s; }
+        #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
+        .progress-ring__circle { transition: stroke-dashoffset 0.5s ease-in-out; transform: rotate(-90deg); transform-origin: 50% 50%; }
         .metric-card:hover { transform: translateY(-2px); transition: 0.2s; }
     </style>
 </head>
@@ -108,7 +123,7 @@ include_once $path_to_root . 'sidebars.php';
         
         <div class="flex justify-between items-end mb-8 mt-0">
             <div class="flex items-center gap-4">
-                <img src="https://ui-avatars.com/api/?name=Employee&background=0d9488&color=fff&size=128" class="w-16 h-16 rounded-full border-4 border-white shadow-sm">
+                <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($_SESSION['name'] ?? 'Employee'); ?>&background=0d9488&color=fff&size=128" class="w-16 h-16 rounded-full border-4 border-white shadow-sm">
                 <div>
                     <h1 class="text-2xl font-bold text-slate-800">My Performance</h1>
                     <div class="flex gap-2 text-sm text-slate-500">
@@ -185,7 +200,7 @@ include_once $path_to_root . 'sidebars.php';
                                 <td class="p-4 font-medium text-slate-700"><?php echo htmlspecialchars($proj['name']); ?></td>
                                 <td class="p-4 text-slate-500 text-right"><?php echo date('d M Y', strtotime($proj['deadline'])); ?></td>
                                 <td class="p-4 text-right">
-                                    <?php $pClass = ($proj['status'] == 'On Time') ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'; ?>
+                                    <?php $pClass = ($proj['status'] == 'Completed') ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'; ?>
                                     <span class="<?php echo $pClass; ?> px-2 py-1 rounded text-xs font-bold"><?php echo $proj['status']; ?></span>
                                 </td>
                             </tr>
