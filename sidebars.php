@@ -229,7 +229,7 @@ $sections = [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
                 'icon' => 'users', 
-                'allowed' => ['Manager', 'System Admin', 'HR']
+                'allowed' => ['Manager', 'System Admin']
             ],
 
             // --- PERFORMANCE & PRODUCTIVITY ---
