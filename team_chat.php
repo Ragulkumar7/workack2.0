@@ -1,5 +1,5 @@
 <?php
-// team_chat.php - PROFESSIONAL ENTERPRISE EDITION
+// team_chat.php - PROFESSIONAL ENTERPRISE EDITION (Optimized for Shared Hosting)
 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
@@ -8,6 +8,15 @@ $dbPath = 'include/db_connect.php';
 if (file_exists($dbPath)) { require_once $dbPath; } 
 elseif (file_exists('../include/db_connect.php')) { require_once '../include/db_connect.php'; } 
 else { die("Database connection missing."); }
+
+// --- CRITICAL FIX: FORCE CONNECTION CLOSURE ---
+// This ensures that even when the script uses 'exit;', the connection is killed, 
+// preventing "Sleep" processes from eating your 500/hour quota.
+register_shutdown_function(function() use ($conn) {
+    if (isset($conn) && $conn instanceof mysqli) {
+        mysqli_close($conn);
+    }
+});
 
 if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 
@@ -60,7 +69,7 @@ if (!isset($_SESSION['chat_db_checked'])) {
 // AJAX HANDLERS
 // =========================================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    session_write_close(); 
+    session_write_close(); // Prevent session locking during polling
     header('Content-Type: application/json');
     $action = $_POST['action'];
 
@@ -113,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         echo json_encode(['status' => 'success', 'conversation_id' => $conv_id]); exit;
     }
 
-    // 3. GET RECENT CHATS
+    // 3. GET RECENT CHATS (Optimized query for sidebar)
     if ($action === 'get_recent_chats') {
         $sql = "
             SELECT 
@@ -137,7 +146,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $chats = [];
         while($row = $result->fetch_assoc()) {
             if ($row['type'] == 'group') {
-                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=6366f1&color=fff";
+                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=1b5a5a&color=fff";
             } else {
                 if(empty($row['avatar_db']) || $row['avatar_db'] == 'default_user.png') {
                     $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=1b5a5a&color=fff";
@@ -160,24 +169,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         echo json_encode($chats); exit;
     }
 
-    // 4. GET MESSAGES
+    // 4. GET MESSAGES (Delta fetching using last_msg_id)
     if ($action === 'get_messages') {
         $conv_id = (int)$_POST['conversation_id'];
+        $last_msg_id = isset($_POST['last_msg_id']) ? (int)$_POST['last_msg_id'] : 0;
 
         $chk = $conn->prepare("SELECT 1 FROM chat_participants WHERE conversation_id = ? AND user_id = ?");
         $chk->bind_param("ii", $conv_id, $my_id);
         $chk->execute();
         if (!$chk->get_result()->fetch_assoc()) { echo json_encode(['messages' => [], 'info' => null]); exit; }
         
-        // Mark as read
+        // Mark as read only if checking for new messages
         $conn->query("INSERT IGNORE INTO message_reads (message_id, user_id) SELECT id, $my_id FROM chat_messages WHERE conversation_id = $conv_id AND sender_id != $my_id AND deleted_at IS NULL");
 
         $sql = "SELECT m.*, COALESCE(ep.full_name, u.username) as display_name,
                        (SELECT COUNT(*) FROM message_reads r WHERE r.message_id = m.id) AS read_count
                 FROM chat_messages m JOIN users u ON m.sender_id = u.id LEFT JOIN employee_profiles ep ON u.id = ep.user_id
-                WHERE m.conversation_id = ? ORDER BY m.id DESC LIMIT 50";
+                WHERE m.conversation_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 50";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $conv_id);
+        $stmt->bind_param("ii", $conv_id, $last_msg_id);
         $stmt->execute();
         $res = $stmt->get_result();
         $msgs = [];
@@ -194,26 +204,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $row['message'] = decryptChatMessage($row['message']);
             }
             $row['read_status'] = $row['is_me'] ? ($row['read_count'] > 0 ? 2 : 1) : 0;
-            array_unshift($msgs, $row); // Reverse to ASC
+            $msgs[] = $row; 
         }
 
-        // Partner info
-        $conv_info = $conn->query("SELECT * FROM chat_conversations WHERE id = $conv_id")->fetch_assoc();
-        if ($conv_info['type'] == 'direct') {
-            $p_stmt = $conn->prepare("SELECT COALESCE(ep.full_name, u.username) as display_name, u.role, ep.profile_img FROM chat_participants cp JOIN users u ON cp.user_id = u.id LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE cp.conversation_id = ? AND cp.user_id != ? LIMIT 1");
-            $p_stmt->bind_param("ii", $conv_id, $my_id); $p_stmt->execute();
-            $partner = $p_stmt->get_result()->fetch_assoc() ?: ['display_name' => 'Unknown User', 'role' => '', 'profile_img' => ''];
-            
-            if(empty($partner['profile_img']) || $partner['profile_img'] == 'default_user.png') {
-                $partner['profile_img'] = "https://ui-avatars.com/api/?name=".urlencode($partner['display_name'])."&background=random";
-            } elseif(!str_starts_with($partner['profile_img'], 'http')) {
-                $partner['profile_img'] = (file_exists('../assets/profiles/'.$partner['profile_img']) ? '../assets/profiles/' : 'assets/profiles/') . $partner['profile_img'];
+        // Fetch typing status
+        $typing_users = [];
+        $typing_res = $conn->query("SELECT COALESCE(ep.full_name, u.username) as typing_name FROM typing_status ts JOIN users u ON ts.user_id = u.id LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE ts.conversation_id = $conv_id AND ts.user_id != $my_id AND ts.updated_at > DATE_SUB(NOW(), INTERVAL 5 SECOND)");
+        while ($t = $typing_res->fetch_assoc()) $typing_users[] = $t['typing_name'];
+
+        // Partner info (only send if initial load to save bandwidth)
+        $partner = null;
+        if ($last_msg_id == 0) {
+            $conv_info = $conn->query("SELECT * FROM chat_conversations WHERE id = $conv_id")->fetch_assoc();
+            if ($conv_info['type'] == 'direct') {
+                $p_stmt = $conn->prepare("SELECT COALESCE(ep.full_name, u.username) as display_name, u.role, ep.profile_img FROM chat_participants cp JOIN users u ON cp.user_id = u.id LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE cp.conversation_id = ? AND cp.user_id != ? LIMIT 1");
+                $p_stmt->bind_param("ii", $conv_id, $my_id); $p_stmt->execute();
+                $partner = $p_stmt->get_result()->fetch_assoc() ?: ['display_name' => 'Unknown User', 'role' => '', 'profile_img' => ''];
+                if(empty($partner['profile_img']) || $partner['profile_img'] == 'default_user.png') {
+                    $partner['profile_img'] = "https://ui-avatars.com/api/?name=".urlencode($partner['display_name'])."&background=random";
+                } elseif(!str_starts_with($partner['profile_img'], 'http')) {
+                    $partner['profile_img'] = (file_exists('../assets/profiles/'.$partner['profile_img']) ? '../assets/profiles/' : 'assets/profiles/') . $partner['profile_img'];
+                }
+            } else {
+                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=1b5a5a&color=fff"];
             }
-        } else {
-            $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=6366f1&color=fff"];
         }
 
-        echo json_encode(['messages' => $msgs, 'info' => $partner]); exit;
+        echo json_encode(['messages' => $msgs, 'info' => $partner, 'typing' => $typing_users]); exit;
     }
 
     // 5. SEND MESSAGE
@@ -296,7 +313,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($action === 'start_call') {
         $conv_id = (int)$_POST['conversation_id'];
         $call_type = ($_POST['call_type'] ?? 'video') === 'audio' ? 'audio' : 'video';
-        $room_id = 'Workack-' . substr(md5(uniqid()), 0, 10);
+        $room_id = 'Workack-Call-' . substr(md5(uniqid()), 0, 10);
         
         $store_value = ($call_type === 'audio') ? 'audio:' . $room_id : $room_id;
         $conn->query("INSERT INTO chat_messages (conversation_id, sender_id, message, message_type) VALUES ($conv_id, $my_id, '$store_value', 'call')");
@@ -304,6 +321,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         
         echo json_encode(['status' => 'ok', 'room_id' => $room_id, 'call_type' => $call_type]); exit;
     }
+    
     if ($action === 'check_incoming_call') {
         $conv_id = (int)($_POST['conversation_id'] ?? 0);
         $sql = "SELECT cr.id, cr.conversation_id, cr.room_id, cr.call_type, COALESCE(ep.full_name, u.username) as caller_name, ep.profile_img as caller_avatar, c.type as conv_type, c.group_name 
@@ -325,6 +343,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } else { echo json_encode(['has_call' => false]); }
         exit;
     }
+    
     if ($action === 'answer_call' || $action === 'decline_call' || $action === 'end_call_request') {
         $stat = ($action === 'answer_call') ? 'answered' : (($action === 'decline_call') ? 'declined' : 'ended');
         if(isset($_POST['call_id'])) $conn->query("UPDATE call_requests SET status = '$stat' WHERE id = " . (int)$_POST['call_id']);
@@ -333,6 +352,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $row = $conn->query("SELECT room_id, call_type FROM call_requests WHERE id = " . (int)$_POST['call_id'])->fetch_assoc();
             echo json_encode(['status' => 'ok', 'room_id' => $row['room_id'], 'call_type' => $row['call_type']]); exit;
         }
+        echo json_encode(['status' => 'ok']); exit;
+    }
+
+    // TYPING INDICATORS
+    if ($action === 'start_typing') {
+        $conv_id = (int)$_POST['conversation_id'];
+        $stmt = $conn->prepare("INSERT INTO typing_status (conversation_id, user_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP");
+        $stmt->bind_param("ii", $conv_id, $my_id); $stmt->execute();
+        echo json_encode(['status' => 'ok']); exit;
+    }
+    if ($action === 'stop_typing') {
+        $conv_id = (int)$_POST['conversation_id'];
+        $stmt = $conn->prepare("DELETE FROM typing_status WHERE conversation_id = ? AND user_id = ?");
+        $stmt->bind_param("ii", $conv_id, $my_id); $stmt->execute();
         echo json_encode(['status' => 'ok']); exit;
     }
 }
@@ -371,6 +404,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .search-box i { position: absolute; left: 25px; top: 25px; color: var(--text-muted); }
         
         .chat-list { flex: 1; overflow-y: auto; }
+        .chat-list::-webkit-scrollbar { width: 4px; }
+        .chat-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        
         .chat-item { display: flex; align-items: center; padding: 15px; cursor: pointer; border-bottom: 1px solid #f8fafc; transition: 0.2s;}
         .chat-item:hover { background: #f1f5f9; }
         .chat-item.active { background: #f0fdfa; border-right: 4px solid var(--primary); }
@@ -382,10 +418,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         /* CHAT AREA */
         .chat-area { flex: 1; display: flex; flex-direction: column; background: #efeae2; position: relative;}
-        
-        /* Chat Background Pattern */
         .chat-area::before {
-            content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0.06; pointer-events: none;
+            content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0.05; pointer-events: none;
             background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231b5a5a' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
         }
 
@@ -395,6 +429,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .btn-icon:hover { background: #e2e8f0; color: var(--primary); }
         
         .messages-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; z-index: 5;}
+        .messages-box::-webkit-scrollbar { width: 6px; }
+        .messages-box::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
         .msg-wrapper { display: flex; flex-direction: column; max-width: 65%; position: relative;}
         .msg-wrapper.incoming { align-self: flex-start; }
         .msg-wrapper.outgoing { align-self: flex-end; }
@@ -438,7 +475,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); } 70% { box-shadow: 0 0 0 20px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
         
         /* Edit Mode Bar */
-        #editModeBar { display: none; background: #f1f5f9; padding: 10px 20px; border-top: 1px solid var(--border); align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary);}
+        #editModeBar { display: none; background: #f1f5f9; padding: 10px 20px; border-top: 1px solid var(--border); align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
 
         /* Mobile Adjustments */
         #mobileBackBtn { display: none; }
@@ -477,24 +514,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </aside>
 
         <section class="chat-area" id="chatArea">
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted); text-align:center; padding:20px;">
+            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted); text-align:center; padding:20px; z-index:5;">
                 <div style="width: 100px; height: 100px; background: #e2e8f0; border-radius: 50%; display:flex; align-items:center; justify-content:center; margin-bottom: 20px;">
                     <i class="ri-message-3-fill" style="font-size:3rem; color: #94a3b8;"></i>
                 </div>
                 <h3 style="font-size: 1.5rem; color: var(--text-dark); margin-bottom: 8px;">Workack Team Chat</h3>
-                <p>Send and receive messages securely.<br>Select a conversation to start.</p>
-            </div>
-            
-            <div id="videoOverlay">
-                <div class="video-overlay-header">
-                    <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
-                        <i class="ri-record-circle-fill" style="color:#ef4444; font-size:0.9rem;"></i> <span id="callTypeLabel">Live Meeting</span>
-                    </h3>
-                    <button onclick="closeCall()" style="background:#ef4444; border:none; color:white; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:6px;">
-                        <i class="ri-phone-x-line"></i> End Call
-                    </button>
-                </div>
-                <div id="jitsiContainer" style="flex:1;"></div>
+                <p>Send and receive messages securely.<br>Select a conversation from the left to start.</p>
             </div>
         </section>
     </div>
@@ -511,7 +536,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </div>
     </div>
 </div>
-<style>@keyframes jump { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }</style>
 
 <div class="modal-overlay" id="groupModal">
     <div class="modal">
@@ -529,17 +553,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <script>
     let activeConvId = null;
     let editingMsgId = null;
-    let pollInterval = null;
+    let masterPollInterval = null; // --- FIX: Merged Interval ---
+    let isFetchingMessages = false;
+    let isSidebarFetching = false;
+    let lastFetchedMsgId = 0;
     let isUserScrolling = false;
     let selectedMembers = new Set();
     let jitsiApi = null;
     const myUserName = "<?php echo htmlspecialchars($my_username, ENT_QUOTES, 'UTF-8'); ?>";
-    const myUserId = <?php echo $my_id; ?>;
     let currentIncomingCall = null;
     let searchDebounce = null;
     let typingTimer = null;
 
-    // --- Responsive Sidebar Logic ---
+    // --- Responsive Layout Logic ---
     function setupLayoutObserver() {
         const primarySidebar = document.querySelector('.sidebar-primary');
         const secondarySidebar = document.querySelector('.sidebar-secondary');
@@ -580,11 +606,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     // --- Core Chat Logic ---
     function loadSidebar() {
+        if(isSidebarFetching) return;
+        isSidebarFetching = true;
+
         let fd = new FormData();
         fd.append('action', 'get_recent_chats');
         fetch(window.location.href, { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
+            isSidebarFetching = false;
             let html = '';
             data.forEach(c => {
                 let active = (c.conversation_id == activeConvId) ? 'active' : '';
@@ -607,19 +637,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             });
             if(data.length === 0) html = '<div style="text-align:center; padding: 30px; color:var(--text-muted);">No active chats</div>';
             document.getElementById('chatList').innerHTML = html;
-        });
+        })
+        .catch(() => { isSidebarFetching = false; });
     }
 
     function loadConversation(convId) {
+        if(activeConvId === convId) return; // Don't reload if already active
+        
         activeConvId = convId;
         editingMsgId = null;
+        lastFetchedMsgId = 0; // Reset delta fetch
+        isUserScrolling = false;
         toggleMobileSidebar();
 
         document.getElementById('chatArea').innerHTML = `
             <div class="chat-header" id="chatHeader">
                 <div style="display:flex; align-items:center; gap:15px;">
                     <button id="mobileBackBtn" class="btn-icon" onclick="backToList()"><i class="ri-arrow-left-line"></i></button>
-                    <img src="" id="headerAvatar" class="avatar" style="width:42px;height:42px;margin:0;">
+                    <img src="" id="headerAvatar" class="avatar" style="width:42px;height:42px;margin:0;border:none;">
                     <div style="display:flex; flex-direction:column;">
                         <h3 id="headerName" style="font-size:1.05rem; color:var(--text-dark); margin:0; line-height:1.2;">Loading...</h3>
                         <span id="typingIndicator" style="font-size:0.75rem; color:var(--primary); height:14px; font-style:italic;"></span>
@@ -674,7 +709,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         msgInput.addEventListener('blur', stopTyping);
 
         fetchMessages(true); 
-        startSmartPolling();
     }
 
     function backToList() {
@@ -687,7 +721,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         isUserScrolling = (box.scrollHeight - box.scrollTop - box.clientHeight > 50);
     }
 
-    // Creates the HTML string for a single message
     function buildMessageHTML(m) {
         let cls = m.is_me ? 'outgoing' : 'incoming';
         let content = m.message;
@@ -744,26 +777,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     function fetchMessages(isInitialLoad = false) {
-        if(!activeConvId) return;
+        if(!activeConvId || isFetchingMessages) return;
+        isFetchingMessages = true;
+
         let fd = new FormData();
         fd.append('action', 'get_messages');
         fd.append('conversation_id', activeConvId);
+        fd.append('last_msg_id', lastFetchedMsgId);
 
         fetch(window.location.href, { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
+            isFetchingMessages = false;
             let msgs = data.messages;
             let info = data.info;
             let box = document.getElementById('msgBox');
             if(!box) return;
 
-            // Set Header Info
             if(info && isInitialLoad) {
                 document.getElementById('headerAvatar').src = info.profile_img;
                 document.getElementById('headerName').innerText = info.display_name;
             }
 
-            // Typing Indicator
             let typingDiv = document.getElementById('typingIndicator');
             if(data.typing && data.typing.length > 0) {
                 typingDiv.textContent = data.typing.join(', ') + ' typing...';
@@ -771,33 +806,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 typingDiv.textContent = '';
             }
 
-            // Smart Render - Only update changed, append new
             if (msgs.length > 0) {
-                // To prevent jumping, we build a map of existing nodes
-                let existingNodes = Array.from(box.children);
-                let existingMap = new Map();
-                existingNodes.forEach(n => {
-                    if(n.id && n.id.startsWith('msg-')) existingMap.set(parseInt(n.dataset.id), n);
-                });
-
                 msgs.forEach(m => {
-                    if (existingMap.has(m.id)) {
-                        // Node exists, check if content changed (dumb replace for safety)
-                        let oldNode = existingMap.get(m.id);
-                        let newHTML = buildMessageHTML(m);
-                        if (oldNode.outerHTML !== newHTML) {
-                            oldNode.outerHTML = newHTML; // update in place
-                        }
+                    lastFetchedMsgId = Math.max(lastFetchedMsgId, m.id);
+                    let existingMsg = document.getElementById(`msg-${m.id}`);
+                    
+                    if (existingMsg) {
+                        existingMsg.outerHTML = buildMessageHTML(m);
                     } else {
-                        // New message
                         box.insertAdjacentHTML('beforeend', buildMessageHTML(m));
-                        if(!isUserScrolling) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
                     }
                 });
+                
+                if(!isUserScrolling) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
             } else if (isInitialLoad) {
                 box.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted); font-size:0.9rem;">Start of conversation.</div>';
             }
-        });
+        })
+        .catch(() => { isFetchingMessages = false; });
     }
 
     function submitMessage() {
@@ -810,14 +836,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             fd.append('action', 'edit_message');
             fd.append('message_id', editingMsgId);
             fd.append('new_text', txt);
-            cancelEdit(); // Reset UI
+            cancelEdit();
+            lastFetchedMsgId = 0; 
+            document.getElementById('msgBox').innerHTML = ''; 
         } else {
             fd.append('action', 'send_message');
             fd.append('conversation_id', activeConvId);
             fd.append('message', txt);
             fd.append('type', 'text');
             
-            // Optimistic UI append
             let box = document.getElementById('msgBox');
             box.insertAdjacentHTML('beforeend', `<div class="msg-wrapper outgoing"><div class="msg outgoing" style="opacity:0.7;">${escapeHTML(txt)} <div class="msg-meta"><i class="ri-time-line"></i></div></div></div>`);
             box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
@@ -832,14 +859,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         stopTyping();
     }
 
-    // --- Message Editing & Deleting ---
     function toggleMsgMenu(e, id) {
         e.stopPropagation();
         document.querySelectorAll('.msg-dropdown').forEach(d => d.style.display = 'none');
         document.getElementById('msg-drop-' + id).style.display = 'block';
     }
     
-    // Close dropdowns on body click
     document.addEventListener('click', () => {
         document.querySelectorAll('.msg-dropdown, #chatOptionsDropdown').forEach(d => d.style.display = 'none');
     });
@@ -870,12 +895,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 let fd = new FormData();
                 fd.append('action', 'delete_message');
                 fd.append('message_id', id);
-                fetch(window.location.href, { method: 'POST', body: fd }).then(() => fetchMessages(false));
+                fetch(window.location.href, { method: 'POST', body: fd }).then(() => {
+                    lastFetchedMsgId = 0; 
+                    document.getElementById('msgBox').innerHTML = '';
+                    fetchMessages(false);
+                });
             }
         });
     }
 
-    // --- Chat Options (Header Menu) ---
     function toggleHeaderMenu(e) {
         e.stopPropagation();
         let menu = document.getElementById('chatOptionsDropdown');
@@ -890,18 +918,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }).then((res) => {
             if(res.isConfirmed) {
                 let fd = new FormData();
-                fd.append('action', type + '_chat'); // clear_chat or delete_chat
+                fd.append('action', type + '_chat');
                 fd.append('conversation_id', activeConvId);
                 fetch(window.location.href, { method: 'POST', body: fd }).then(() => {
                     activeConvId = null;
-                    document.getElementById('chatArea').innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; color:var(--text-muted);">Chat removed.</div>';
+                    document.getElementById('chatArea').innerHTML = '<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted);"><div style="width: 100px; height: 100px; background: #e2e8f0; border-radius: 50%; display:flex; align-items:center; justify-content:center; margin-bottom: 20px;"><i class="ri-delete-bin-fill" style="font-size:3rem; color: #94a3b8;"></i></div><h3 style="font-size: 1.5rem; color: var(--text-dark);">Chat Removed</h3></div>';
                     loadSidebar();
                 });
             }
         });
     }
 
-    // --- File Upload ---
     function handleFileUpload(input) {
         if(!input.files.length || !activeConvId) return;
         let fd = new FormData();
@@ -909,7 +936,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fd.append('conversation_id', activeConvId);
         fd.append('file', input.files[0]);
         
-        // Optimistic UI
         let box = document.getElementById('msgBox');
         box.insertAdjacentHTML('beforeend', `<div class="msg-wrapper outgoing"><div class="msg outgoing" style="opacity:0.7;">Uploading file...</div></div>`);
         box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
@@ -921,18 +947,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         });
     }
 
-    // --- Polling ---
+    // --- FIX: OPTIMIZED POLLING ---
+    // Combined 3 separate intervals into 1 single, slower loop to stop Max Connections limit.
     function startSmartPolling() {
-        if(pollInterval) clearInterval(pollInterval);
-        let tick = 0;
-        pollInterval = setInterval(() => {
-            if (document.hidden) return;
-            if (activeConvId) fetchMessages(false);
-            if (++tick % 2 === 0) loadSidebar(); // Reload sidebar every 4 seconds
-        }, 2000);
+        if(masterPollInterval) clearInterval(masterPollInterval);
+
+        masterPollInterval = setInterval(() => {
+            if (!document.hidden) {
+                // Check Incoming Calls
+                checkIncomingCalls();
+                
+                // Load Sidebar
+                loadSidebar();
+                
+                // Load Messages if chat is open
+                if (activeConvId) {
+                    fetchMessages(false);
+                }
+            }
+        }, 8000); // 8 seconds is safe for Shared Hosting (450 connections/hour max)
     }
 
-    // --- Create Group Logic ---
+    function checkIncomingCalls() {
+        if(currentIncomingCall) return;
+        let fd = new FormData();
+        fd.append('action', 'check_incoming_call');
+        fd.append('conversation_id', activeConvId || 0);
+        fetch(window.location.href, { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+            if(data.has_call && !currentIncomingCall) {
+                currentIncomingCall = data.call;
+                document.getElementById('incomingCallerAvatar').src = data.call.caller_avatar;
+                document.getElementById('incomingCallerName').textContent = data.call.display_label;
+                document.getElementById('incomingCallLabel').textContent = data.call.call_type === 'audio' ? 'Incoming Voice Call' : 'Incoming Video Call';
+                document.getElementById('incomingCallModal').style.display = 'flex';
+            }
+        }).catch(() => {});
+    }
+
     function openGroupModal() { 
         document.getElementById('groupModal').style.display = 'flex'; 
         selectedMembers.clear(); 
@@ -952,7 +1003,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 let safeName = u.display_name.replace(/'/g, "\\'");
                 html += `<div onclick="toggleMember(${u.id}, this)" style="padding:10px 15px; display:flex; align-items:center; gap:12px; cursor:pointer; border-bottom:1px solid #f1f5f9; transition:0.2s; ${isSel}">
                             ${icon}
-                            <img src="${u.profile_img}" style="width:30px;height:30px;border-radius:50%;">
+                            <img src="${u.profile_img}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
                             <div style="font-weight:600; font-size:0.9rem;">${u.display_name}</div>
                         </div>`;
             });
@@ -991,7 +1042,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         });
     }
 
-    // --- Search Users (New Chat) ---
     document.getElementById('userSearch').addEventListener('input', function(e) {
         let val = e.target.value.trim();
         let results = document.getElementById('searchResults');
@@ -1006,7 +1056,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             fetch(window.location.href, { method: 'POST', body: fd })
             .then(r => r.json())
             .then(data => {
-                let html = data.map(u => `<div class="search-item" onclick="startChat(${u.id});"><img src="${u.profile_img}" style="width:35px;height:35px;border-radius:50%;"><div><div style="font-weight:600; font-size:0.9rem;">${u.display_name}</div><div style="font-size:0.75rem;color:var(--text-muted);">${u.role}</div></div></div>`).join('');
+                let html = data.map(u => `<div class="search-item" onclick="startChat(${u.id});"><img src="${u.profile_img}" style="width:35px;height:35px;border-radius:50%;object-fit:cover;"><div><div style="font-weight:600; font-size:0.9rem;">${u.display_name}</div><div style="font-size:0.75rem;color:var(--text-muted);">${u.role}</div></div></div>`).join('');
                 results.innerHTML = html || '<div style="padding:15px;text-align:center;color:#888;">No users found</div>';
             });
         }, 300);
@@ -1023,7 +1073,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .then(data => { if(data.id) loadConversation(data.id); });
     }
 
-    // --- Call Logic (Jitsi + Polling) ---
     function startCall(type) {
         if(!activeConvId) return;
         let fd = new FormData();
@@ -1033,7 +1082,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fetch(window.location.href, { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'ok') {
                 openEmbeddedMeeting(data.room_id, type);
-                fetchMessages(false); // Reload to show call link in chat
+                lastFetchedMsgId = 0; 
+                fetchMessages(false);
             }
         });
     }
@@ -1042,15 +1092,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         let overlay = document.getElementById('videoOverlay');
         overlay.style.display = 'flex';
         document.getElementById('callTypeLabel').textContent = type === 'audio' ? 'Voice Call' : 'Video Meeting';
+        
         if(jitsiApi) jitsiApi.dispose();
-        jitsiApi = new JitsiMeetExternalAPI('meet.jit.si', {
+        
+        const options = {
             roomName: roomId,
             width: '100%',
             height: '100%',
             parentNode: document.getElementById('jitsiContainer'),
-            configOverwrite: { startWithVideoMuted: type==='audio', startAudioOnly: type==='audio' },
+            configOverwrite: { 
+                startWithVideoMuted: type === 'audio', 
+                startAudioOnly: type === 'audio',
+                prejoinPageEnabled: false,          
+                disableDeepLinking: true            
+            },
+            interfaceConfigOverwrite: {
+                SHOW_JITSI_WATERMARK: false,
+                SHOW_WATERMARK_FOR_GUESTS: false,
+                SHOW_BRAND_WATERMARK: false,
+                SHOW_PROMOTIONAL_CLOSE_PAGE: false,
+                DEFAULT_LOGO_URL: '',
+                DEFAULT_WELCOME_PAGE_LOGO_URL: '',
+                APP_NAME: 'Workack Call',
+                NATIVE_APP_NAME: 'Workack Call',
+                PROVIDER_NAME: 'Workack',
+                HIDE_INVITE_MORE_HEADER: true
+            },
             userInfo: { displayName: myUserName }
-        });
+        };
+
+        jitsiApi = new JitsiMeetExternalAPI('meet.jit.si', options);
     }
 
     function closeCall() {
@@ -1059,23 +1130,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         let fd = new FormData(); fd.append('action', 'end_call_request'); fd.append('conversation_id', activeConvId);
         fetch(window.location.href, { method: 'POST', body: fd });
     }
-
-    // Check for incoming calls
-    setInterval(() => {
-        if(document.hidden || currentIncomingCall) return;
-        let fd = new FormData();
-        fd.append('action', 'check_incoming_call');
-        fd.append('conversation_id', activeConvId || 0);
-        fetch(window.location.href, { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            if(data.has_call && !currentIncomingCall) {
-                currentIncomingCall = data.call;
-                document.getElementById('incomingCallerAvatar').src = data.call.caller_avatar;
-                document.getElementById('incomingCallerName').textContent = data.call.display_label;
-                document.getElementById('incomingCallLabel').textContent = data.call.call_type === 'audio' ? 'Incoming Voice Call' : 'Incoming Video Call';
-                document.getElementById('incomingCallModal').style.display = 'flex';
-            }
-        });
-    }, 3000);
 
     function acceptIncomingCall() {
         if(!currentIncomingCall) return;
@@ -1098,7 +1152,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         currentIncomingCall = null;
     }
 
-    // Typing Indicators
     function startTyping() {
         let fd = new FormData(); fd.append('action', 'start_typing'); fd.append('conversation_id', activeConvId);
         fetch(window.location.href, { method: 'POST', body: fd });
@@ -1110,7 +1163,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fetch(window.location.href, { method: 'POST', body: fd });
     }
 
-    // Helper
     function escapeHTML(str) {
         return str.replace(/[&<>'"]/g, tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag]));
     }

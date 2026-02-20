@@ -7,9 +7,9 @@ global $conn;
 if (!$conn) {
     // --- DATABASE CONFIGURATION ---
     $host = "srv1507.hstgr.io"; 
-    $user = "u957189082_workack";
-    $pass = "Workack$2026";
-    $db   = "u957189082_workack";
+    $user = "u957189082_workackv2";
+    $pass = "Work$2026";
+    $db   = "u957189082_workackv2";
 
     // Establish Connection
     $conn = mysqli_connect($host, $user, $pass, $db);
