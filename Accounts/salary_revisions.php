@@ -1,7 +1,56 @@
 <?php 
-// salary_revisions.php (Accountant Role)
-include '../sidebars.php'; 
-include '../header.php';
+// salary_revisions.php (Accountant / CFO Role)
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+require_once '../include/db_connect.php';
+
+$msg = '';
+
+// --- 1. HANDLE APPROVE / REJECT ACTIONS ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $req_id = intval($_POST['req_id']);
+    $action = $_POST['action'];
+
+    if ($action === 'approve') {
+        // Fetch new salary details
+        $stmt = $conn->prepare("SELECT emp_id_code, new_salary FROM salary_hike_requests WHERE id = ?");
+        $stmt->bind_param("i", $req_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        
+        if ($res->num_rows > 0) {
+            $row = $res->fetch_assoc();
+            $emp_code = $row['emp_id_code'];
+            $new_salary = $row['new_salary'];
+
+            // Update main employee_onboarding table (Collation Fix included)
+            $upd_sal = $conn->prepare("UPDATE employee_onboarding SET salary = ? WHERE emp_id_code COLLATE utf8mb4_unicode_ci = ? COLLATE utf8mb4_unicode_ci");
+            $upd_sal->bind_param("ds", $new_salary, $emp_code);
+            
+            if($upd_sal->execute()) {
+                // Mark request as Approved
+                $conn->query("UPDATE salary_hike_requests SET status = 'Approved' WHERE id = $req_id");
+                $msg = "<div class='alert-box' style='background:#dcfce7; border-left-color:#16a34a; color:#166534;'>
+                            <i class='ph-fill ph-check-circle' style='font-size:20px;'></i> 
+                            <div><strong>Approved!</strong> Salary for $emp_code has been officially updated in the database.</div>
+                        </div>";
+            }
+        }
+    } elseif ($action === 'reject') {
+        $conn->query("UPDATE salary_hike_requests SET status = 'Rejected' WHERE id = $req_id");
+        $msg = "<div class='alert-box' style='background:#fee2e2; border-left-color:#dc2626; color:#991b1b;'>
+                    <i class='ph-fill ph-x-circle' style='font-size:20px;'></i> 
+                    <div><strong>Rejected!</strong> The salary hike request was declined.</div>
+                </div>";
+    }
+}
+
+// --- 2. FETCH ALL REQUESTS SENT BY HR ---
+// (Collation Fix included to avoid Illegal mix of collations error)
+$sql = "SELECT r.*, ep.full_name, ep.department 
+        FROM salary_hike_requests r 
+        LEFT JOIN employee_profiles ep ON r.emp_id_code COLLATE utf8mb4_unicode_ci = ep.emp_id_code COLLATE utf8mb4_unicode_ci 
+        ORDER BY FIELD(r.status, 'Pending', 'Approved', 'Rejected'), r.requested_date DESC";
+$result = $conn->query($sql);
 ?>
 
 <!DOCTYPE html>
@@ -9,7 +58,7 @@ include '../header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Salary Revisions & Increments</title>
+    <title>Salary Revisions & Approvals</title>
     
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -39,6 +88,7 @@ include '../header.php';
             width: calc(100% - var(--primary-sidebar-width));
             transition: margin-left 0.3s ease;
             min-height: 100vh;
+            box-sizing: border-box;
         }
 
         .header-area { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
@@ -50,225 +100,152 @@ include '../header.php';
             background: white; padding: 25px; border-radius: 12px;
             box-shadow: var(--card-shadow); border: 1px solid var(--border-color); margin-bottom: 30px;
         }
-        .card-header { border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; }
+        .card-header { border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
         .card-header h3 { margin: 0; font-size: 16px; color: var(--theme-color); display: flex; align-items: center; gap: 8px; }
-
-        /* --- FORM GRID --- */
-        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; }
-        .form-group { display: flex; flex-direction: column; gap: 6px; }
-        .form-group label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
-        .form-group input, .form-group select, .form-group textarea {
-            padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px;
-            outline: none; font-size: 14px; background: #fff; transition: 0.2s;
-        }
-        .form-group input:focus { border-color: var(--theme-color); box-shadow: 0 0 0 3px var(--theme-light); }
-        .form-group input[readonly] { background-color: #f8fafc; color: #94a3b8; cursor: not-allowed; }
 
         /* --- TABLES --- */
         .table-responsive { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; min-width: 600px; }
-        th { background: #f8fafc; padding: 12px 15px; text-align: left; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; border-bottom: 2px solid var(--border-color); }
-        td { padding: 14px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: var(--text-main); vertical-align: middle; }
+        table { width: 100%; border-collapse: collapse; min-width: 900px; }
+        th { background: #f8fafc; padding: 14px 15px; text-align: left; font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; border-bottom: 2px solid var(--border-color); }
+        td { padding: 16px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: var(--text-main); vertical-align: middle; }
+        tr:hover { background-color: #f8fafc; }
         
         /* --- STATUS BADGES --- */
-        .badge { padding: 5px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+        .badge { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
         .badge.pending { background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5; }
         .badge.approved { background: #f0fdf4; color: #15803d; border: 1px solid #dcfce7; }
         .badge.rejected { background: #fef2f2; color: #b91c1c; border: 1px solid #fee2e2; }
 
         /* --- ACTION BUTTONS --- */
         .btn-primary {
-            background: var(--theme-color); color: white; padding: 12px 25px;
+            background: var(--theme-color); color: white; padding: 10px 20px;
             border: none; border-radius: 8px; font-weight: 600; cursor: pointer;
-            display: flex; align-items: center; gap: 8px; transition: 0.2s;
+            display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;
+            text-decoration: none; font-size: 13px;
         }
         .btn-primary:hover { background: #134e4e; transform: translateY(-1px); }
+
+        .btn-approve { background: #10b981; color: white; border: none; padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s; }
+        .btn-approve:hover { background: #059669; }
         
+        .btn-reject { background: white; color: #ef4444; border: 1px solid #fecaca; padding: 8px 14px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s; }
+        .btn-reject:hover { background: #fee2e2; }
+        
+        /* Alerts */
         .alert-box {
             background: #e0f2fe; border-left: 4px solid #0284c7; padding: 15px;
-            margin-bottom: 25px; color: #075985; font-size: 13px; display: flex; align-items: center; gap: 10px; border-radius: 6px;
+            margin-bottom: 25px; color: #075985; font-size: 13px; display: flex; align-items: center; gap: 10px; border-radius: 8px; font-weight: 500;
         }
     </style>
 </head>
 <body>
 
+<?php 
+$sidebarPath = __DIR__ . '/sidebars.php';
+if (!file_exists($sidebarPath)) { $sidebarPath = __DIR__ . '/../sidebars.php'; }
+if (file_exists($sidebarPath)) { include($sidebarPath); }
+if (file_exists('../header.php')) { include('../header.php'); }
+?>
+
 <main class="main-content">
     
     <div class="header-area">
         <div>
-            <h2>Salary Revision & Increments</h2>
-            <p>Request salary structure changes for CFO approval.</p>
+            <h2>Salary Approvals Dashboard</h2>
+            <p>Review and authorize performance-based salary increments requested by HR.</p>
         </div>
         <button class="btn-primary" style="background: white; color: var(--text-main); border: 1px solid var(--border-color);" onclick="window.location.href='payslip.php'">
             <i class="ph-bold ph-receipt"></i> Go to Payroll Generation
         </button>
     </div>
 
+    <?= $msg ?>
+
     <div class="alert-box">
         <i class="ph-fill ph-info" style="font-size: 20px;"></i>
-        <span><strong>Workflow:</strong> Request Salary Change ➝ <strong>CFO Approves</strong> ➝ System Updates Master Data ➝ Accountant Generates Payroll.</span>
+        <span><strong>Accounts Workflow:</strong> HR Evaluates Performance ➝ HR Sends Request ➝ <strong>CFO/Accounts Approves here</strong> ➝ Employee Salary is Officially Updated.</span>
     </div>
 
-    <div style="display: grid; grid-template-columns: 1fr 1.5fr; gap: 25px;">
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="ph-fill ph-clock-counter-clockwise"></i> Pending & Processed Revisions</h3>
+        </div>
         
-        <div class="card">
-            <div class="card-header">
-                <h3><i class="ph-fill ph-user-gear"></i> Request Revision</h3>
-            </div>
-            <form id="revisionForm" onsubmit="event.preventDefault(); sendToCFO();">
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label>Search Employee</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="text" id="empId" placeholder="Enter Emp ID (e.g., IGS001)" onblur="fetchEmployee()">
-                        <button type="button" class="btn-primary" style="padding: 10px;" onclick="fetchEmployee()"><i class="ph-bold ph-magnifying-glass"></i></button>
-                    </div>
-                </div>
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Requested Date</th>
+                        <th>Emp ID</th>
+                        <th>Employee Name</th>
+                        <th>Current Salary</th>
+                        <th>Hike %</th>
+                        <th>Proposed Salary</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if ($result && $result->num_rows > 0): ?>
+                        <?php while($row = $result->fetch_assoc()): ?>
+                            <tr style="<?= $row['status'] == 'Pending' ? 'background: #f8fafc;' : '' ?>">
+                                <td style="color: #64748b;"><?= date('d M Y, h:i A', strtotime($row['requested_date'])) ?></td>
+                                <td><strong><?= htmlspecialchars($row['emp_id_code']) ?></strong></td>
+                                <td>
+                                    <div style="font-weight: 600;"><?= htmlspecialchars($row['full_name'] ?? 'Unknown Employee') ?></div>
+                                    <div style="font-size: 11px; color: #64748b;"><?= htmlspecialchars($row['department'] ?? 'N/A') ?></div>
+                                </td>
+                                <td>₹<?= number_format($row['old_salary']) ?></td>
+                                <td><strong style="color: #10b981;">+<?= floatval($row['hike_percent']) ?>%</strong></td>
+                                <td style="font-size: 15px; font-weight: 800; color: var(--theme-color);">₹<?= number_format($row['new_salary']) ?></td>
+                                <td>
+                                    <?php if($row['status'] == 'Pending'): ?>
+                                        <span class="badge pending"><i class="ph-fill ph-hourglass"></i> Pending CFO</span>
+                                    <?php elseif($row['status'] == 'Approved'): ?>
+                                        <span class="badge approved"><i class="ph-fill ph-check-circle"></i> Approved</span>
+                                    <?php else: ?>
+                                        <span class="badge rejected"><i class="ph-fill ph-x-circle"></i> Rejected</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if($row['status'] == 'Pending'): ?>
+                                        <div style="display: flex; gap: 8px;">
+                                            <form method="POST" style="margin:0;">
+                                                <input type="hidden" name="req_id" value="<?= $row['id'] ?>">
+                                                <input type="hidden" name="action" value="approve">
+                                                <button type="submit" class="btn-approve" onclick="return confirm('Approve this salary hike? The employee\'s official salary will be updated immediately.')">
+                                                    <i class="ph-bold ph-check"></i> Approve
+                                                </button>
+                                            </form>
 
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label>Employee Name</label>
-                    <input type="text" id="empName" placeholder="Name will appear here..." readonly>
-                    <input type="hidden" id="empDept">
-                </div>
-
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
-                    <div class="form-group">
-                        <label>Current Salary (₹)</label>
-                        <input type="text" id="currentSalary" value="0.00" readonly>
-                    </div>
-                    <div class="form-group">
-                        <label>New Salary (₹)</label>
-                        <input type="number" id="newSalary" placeholder="Enter new amount" required style="border-color: var(--theme-color); font-weight: 700;">
-                    </div>
-                </div>
-
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label>Effective Month</label>
-                    <input type="month" id="effectiveMonth" required>
-                </div>
-
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label>Reason for Revision / Remarks</label>
-                    <textarea id="remarks" rows="3" placeholder="e.g., Annual Appraisal, Promotion to Team Lead..." required></textarea>
-                </div>
-
-                <button type="submit" class="btn-primary" style="width: 100%; justify-content: center;">
-                    <i class="ph-bold ph-paper-plane-right"></i> Send to CFO for Approval
-                </button>
-            </form>
+                                            <form method="POST" style="margin:0;">
+                                                <input type="hidden" name="req_id" value="<?= $row['id'] ?>">
+                                                <input type="hidden" name="action" value="reject">
+                                                <button type="submit" class="btn-reject" onclick="return confirm('Are you sure you want to reject this salary hike?')">
+                                                    <i class="ph-bold ph-x"></i> Reject
+                                                </button>
+                                            </form>
+                                        </div>
+                                    <?php else: ?>
+                                        <span style="font-size:12px; color:#94a3b8; font-weight: 600;"><i class="ph-bold ph-lock-key"></i> Processed</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endwhile; ?>
+                    <?php else: ?>
+                        <tr>
+                            <td colspan="8" style="text-align: center; padding: 40px; color: #94a3b8;">
+                                <i class="ph-fill ph-tray" style="font-size: 32px; margin-bottom: 10px; display: block;"></i>
+                                No salary hike requests from HR at the moment.
+                            </td>
+                        </tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
         </div>
-
-        <div class="card">
-            <div class="card-header">
-                <h3><i class="ph-fill ph-clock-counter-clockwise"></i> Revision Status Tracker</h3>
-            </div>
-            <div class="table-responsive">
-                <table class="history-table">
-                    <thead>
-                        <tr>
-                            <th>Emp ID</th>
-                            <th>Name</th>
-                            <th>Old Salary</th>
-                            <th>New Salary</th>
-                            <th>Requested On</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="requestTableBody">
-                        <tr>
-                            <td><strong>IGS005</strong></td>
-                            <td>Karthik R<br><span style="font-size:11px; color:#64748b;">IT Dept</span></td>
-                            <td>₹35,000</td>
-                            <td style="font-weight:700; color:var(--theme-color);">₹42,000</td>
-                            <td>17-Feb-2026</td>
-                            <td><span class="badge pending"><i class="ph-fill ph-hourglass"></i> Pending CFO</span></td>
-                        </tr>
-                        <tr>
-                            <td><strong>IGS002</strong></td>
-                            <td>Priya S<br><span style="font-size:11px; color:#64748b;">HR Dept</span></td>
-                            <td>₹28,000</td>
-                            <td style="font-weight:700; color:var(--theme-color);">₹32,000</td>
-                            <td>10-Feb-2026</td>
-                            <td><span class="badge approved"><i class="ph-fill ph-check-circle"></i> Approved</span></td>
-                        </tr>
-                        <tr>
-                            <td><strong>IGS012</strong></td>
-                            <td>Suresh K<br><span style="font-size:11px; color:#64748b;">Support</span></td>
-                            <td>₹20,000</td>
-                            <td style="font-weight:700; color:var(--theme-color);">₹28,000</td>
-                            <td>05-Feb-2026</td>
-                            <td><span class="badge rejected"><i class="ph-fill ph-x-circle"></i> Rejected</span></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
     </div>
+
 </main>
-
-<script>
-    // --- 1. MOCK FETCH EMPLOYEE ---
-    function fetchEmployee() {
-        const id = document.getElementById('empId').value.toUpperCase();
-        const nameField = document.getElementById('empName');
-        const salaryField = document.getElementById('currentSalary');
-        
-        if(id === 'IGS001') {
-            nameField.value = "Ram Kumar (Sr. Developer)";
-            salaryField.value = "50,000";
-        } else if(id === 'IGS002') {
-            nameField.value = "Priya S (HR Manager)";
-            salaryField.value = "28,000";
-        } else {
-            // Default mock for demo
-            nameField.value = "Demo Employee";
-            salaryField.value = "25,000";
-        }
-    }
-
-    // --- 2. SEND TO CFO LOGIC ---
-    function sendToCFO() {
-        const empId = document.getElementById('empId').value;
-        const empName = document.getElementById('empName').value;
-        const oldSal = document.getElementById('currentSalary').value;
-        const newSal = document.getElementById('newSalary').value;
-        const date = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-
-        if(!empId || !newSal) {
-            alert("Please fill all required fields.");
-            return;
-        }
-
-        // Simulate API delay
-        const btn = document.querySelector('button[type="submit"]');
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Sending...';
-        btn.disabled = true;
-
-        setTimeout(() => {
-            // Add new row to table
-            const table = document.getElementById('requestTableBody');
-            const newRow = `
-                <tr style="background: #f0fdf4; animation: highlight 1s;">
-                    <td><strong>${empId.toUpperCase()}</strong></td>
-                    <td>${empName.split('(')[0]}<br><span style="font-size:11px; color:#64748b;">Pending</span></td>
-                    <td>₹${oldSal}</td>
-                    <td style="font-weight:700; color:var(--theme-color);">₹${Number(newSal).toLocaleString('en-IN')}</td>
-                    <td>${date}</td>
-                    <td><span class="badge pending"><i class="ph-fill ph-hourglass"></i> Pending CFO</span></td>
-                </tr>
-            `;
-            table.insertAdjacentHTML('afterbegin', newRow);
-
-            // Reset Form
-            document.getElementById('revisionForm').reset();
-            btn.innerHTML = originalText;
-            btn.disabled = false;
-
-            alert("Request Sent Successfully!\n\nThe CFO will be notified to review this salary revision.");
-        }, 1000);
-    }
-</script>
 
 </body>
 </html>
