@@ -20,6 +20,12 @@ if (file_exists($dbPath)) {
     die("Critical Error: Cannot find database connection file.");
 }
 
+// Determine Assets Directory Base Path
+$assetsBase = 'assets/profiles/';
+if (!is_dir(__DIR__ . '/' . $assetsBase)) {
+    $assetsBase = '../assets/profiles/';
+}
+
 // =========================================================================
 // 3. PROCESS AJAX: ADD NEW CLIENT
 // =========================================================================
@@ -27,13 +33,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     
     $fname = mysqli_real_escape_string($conn, $_POST['first_name']);
     $lname = mysqli_real_escape_string($conn, $_POST['last_name']);
-    $username = mysqli_real_escape_string($conn, $_POST['username']);
     $email = mysqli_real_escape_string($conn, $_POST['email']);
     $phone = mysqli_real_escape_string($conn, $_POST['phone']);
     $company = mysqli_real_escape_string($conn, $_POST['company']);
     $status = mysqli_real_escape_string($conn, $_POST['status']);
     $address = mysqli_real_escape_string($conn, $_POST['address']);
-    $password = password_hash($_POST['password'], PASSWORD_DEFAULT); // Secure hashing
     $project_name = mysqli_real_escape_string($conn, $_POST['project_name']);
 
     // Generate Client ID (e.g. CLI-001)
@@ -45,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     // Handle Profile Image Upload
     $profile_img = null;
     if (isset($_FILES['profile_img']) && $_FILES['profile_img']['error'] === UPLOAD_ERR_OK) {
-        $upload_dir = (file_exists('../assets/profiles/')) ? '../assets/profiles/' : 'assets/profiles/';
+        $upload_dir = __DIR__ . '/' . $assetsBase;
         if (!is_dir($upload_dir)) { mkdir($upload_dir, 0777, true); }
         
         $ext = strtolower(pathinfo($_FILES["profile_img"]["name"], PATHINFO_EXTENSION));
@@ -60,13 +64,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     // Insert into Clients table
-    $stmt = $conn->prepare("INSERT INTO clients (client_id, first_name, last_name, username, email, password, phone, company, status, address, profile_img) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("sssssssssss", $client_id, $fname, $lname, $username, $email, $password, $phone, $company, $status, $address, $profile_img);
+    $stmt = $conn->prepare("INSERT INTO clients (client_id, first_name, last_name, email, phone, company, status, address, profile_img) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("sssssssss", $client_id, $fname, $lname, $email, $phone, $company, $status, $address, $profile_img);
     
     if ($stmt->execute()) {
-        // Automatically create a project for them if requested!
+        // Automatically create a project for them if requested
         if(!empty($project_name)) {
-            $leader_id = $_SESSION['user_id']; // Default assign to whoever is creating it
+            $leader_id = $_SESSION['user_id']; // Assign to creator by default
             $proj_stmt = $conn->prepare("INSERT INTO projects (project_name, client_name, leader_id, status, priority, start_date) VALUES (?, ?, ?, 'Active', 'Medium', CURDATE())");
             $proj_stmt->bind_param("ssi", $project_name, $company, $leader_id);
             $proj_stmt->execute();
@@ -105,10 +109,15 @@ $client_result = $conn->query($client_query);
 while($row = $client_result->fetch_assoc()) {
     // Smart Image Resolver
     $imgSource = $row['profile_img'];
-    if(empty($imgSource)) {
+    if(empty($imgSource) || $imgSource === 'default_user.png') {
         $imgSource = "https://ui-avatars.com/api/?name=".urlencode($row['first_name'].' '.$row['last_name'])."&background=random";
-    } else {
-        $imgSource = (file_exists('../assets/profiles/')) ? '../assets/profiles/' . $imgSource : 'assets/profiles/' . $imgSource;
+    } elseif (!str_starts_with($imgSource, 'http')) {
+        // Validate file actually exists on the server to prevent broken images
+        if (file_exists(__DIR__ . '/' . $assetsBase . $imgSource)) {
+            $imgSource = $assetsBase . $imgSource;
+        } else {
+            $imgSource = "https://ui-avatars.com/api/?name=".urlencode($row['first_name'].' '.$row['last_name'])."&background=random";
+        }
     }
     $row['avatar'] = $imgSource;
 
@@ -178,7 +187,7 @@ while($row = $client_result->fetch_assoc()) {
         /* Main Content Adjustments */
         .main-content {
             flex-grow: 1;
-            margin-left: 95px; /* Matches the sidebar width */
+            margin-left: 95px; 
             width: calc(100% - 95px);
             padding: 2rem;
             background-color: #f7f7f7;
@@ -194,26 +203,12 @@ while($row = $client_result->fetch_assoc()) {
             padding: 12px 16px; font-size: 14px; vertical-align: middle; border-bottom: 1px solid #f3f4f6;
         }
 
-        /* Modal & Tabs */
+        /* Modal */
         .modal-overlay { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
-        .tab-btn { padding-bottom: 12px; font-size: 14px; font-weight: 700; color: #9ca3af; border-bottom: 2px solid transparent; transition: all 0.3s; }
-        .tab-btn.active { color: #1a534f; border-bottom: 2px solid #1a534f; }
-
-        /* Toggle Switch UI */
-        .switch { position: relative; display: inline-block; width: 38px; height: 20px; }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px; }
-        .slider:before { position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
-        input:checked + .slider { background-color: #1a534f; }
-        input:checked + .slider:before { transform: translateX(18px); }
-
-        .permission-row { border-bottom: 1px solid #f3f4f6; }
-        .permission-row:last-child { border-bottom: none; }
 
         .form-input { width: 100%; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 6px; outline: none; transition: border-color 0.2s; }
         .form-input:focus { border-color: #1a534f; }
         .required-star { color: #ef4444; margin-left: 2px; }
-        .custom-checkbox { width: 18px; height: 18px; accent-color: #1a534f; cursor: pointer; }
         
         .sort-dropdown-menu { box-shadow: 0 10px 30px rgba(0,0,0,0.1); border: 1px solid #f1f1f1; }
         .sort-item { padding: 12px 24px; color: #333d5e; font-size: 15px; transition: all 0.2s; cursor: pointer; }
@@ -432,12 +427,7 @@ while($row = $client_result->fetch_assoc()) {
             <form id="addClientForm" onsubmit="submitClientForm(event)" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="add_client">
                 
-                <div class="px-6 pt-4 flex space-x-8 border-b border-gray-100">
-                    <button type="button" onclick="switchTab('basic')" id="tab-basic" class="tab-btn active">Basic Information</button>
-                    <button type="button" onclick="switchTab('permissions')" id="tab-permissions" class="tab-btn">Permissions & Control</button>
-                </div>
-
-                <div id="content-basic" class="p-8 max-h-[65vh] overflow-y-auto">
+                <div class="p-8 max-h-[75vh] overflow-y-auto">
                     <div class="bg-gray-50 rounded-xl p-6 mb-8 border border-dashed border-gray-300 flex items-center space-x-6">
                         <img id="imgPreview" src="https://ui-avatars.com/api/?name=New+Client&background=f1f5f9&color=94a3b8" class="w-20 h-20 rounded-full border border-gray-200 shadow-sm object-cover">
                         <div>
@@ -460,16 +450,8 @@ while($row = $client_result->fetch_assoc()) {
                             <input type="text" name="last_name" class="form-input bg-gray-50" placeholder="e.g. Doe">
                         </div>
                         <div>
-                            <label class="block text-sm font-bold mb-1">Username <span class="required-star">*</span></label>
-                            <input type="text" name="username" required class="form-input bg-gray-50" placeholder="Login ID">
-                        </div>
-                        <div>
                             <label class="block text-sm font-bold mb-1">Email Address <span class="required-star">*</span></label>
                             <input type="email" name="email" required class="form-input bg-gray-50" placeholder="client@company.com">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-bold mb-1">Password <span class="required-star">*</span></label>
-                            <input type="password" name="password" required class="form-input bg-gray-50" placeholder="Create a strong password">
                         </div>
                         <div>
                             <label class="block text-sm font-bold mb-1">Phone Number <span class="required-star">*</span></label>
@@ -481,8 +463,8 @@ while($row = $client_result->fetch_assoc()) {
                         </div>
                         
                         <div>
-                            <label class="block text-sm font-bold mb-1">Company Name</label>
-                            <input type="text" name="company" class="form-input bg-gray-50" placeholder="Enter Company Name">
+                            <label class="block text-sm font-bold mb-1">Company Name <span class="required-star">*</span></label>
+                            <input type="text" name="company" required class="form-input bg-gray-50" placeholder="Enter Company Name">
                         </div>
                         <div>
                             <label class="block text-sm font-bold mb-1 text-teal-700">Assign/Create Project</label>
@@ -504,43 +486,9 @@ while($row = $client_result->fetch_assoc()) {
                     </div>
                 </div>
 
-                <div id="content-permissions" class="hidden p-8 max-h-[65vh] overflow-y-auto">
-                    <div class="bg-blue-50 text-blue-700 p-3 rounded-lg text-sm mb-5 border border-blue-100">
-                        <i class="fa-solid fa-circle-info mr-2"></i> Set what modules this client can access when they log into the portal.
-                    </div>
-                    
-                    <div class="w-full">
-                        <div class="grid grid-cols-7 gap-4 pb-4 border-b border-gray-200 mb-2">
-                            <div class="col-span-2 text-xs font-bold text-gray-400 uppercase tracking-wider">Module Access</div>
-                            <div class="text-xs font-bold text-gray-400 text-center uppercase tracking-wider">Read</div>
-                            <div class="text-xs font-bold text-gray-400 text-center uppercase tracking-wider">Write</div>
-                            <div class="text-xs font-bold text-gray-400 text-center uppercase tracking-wider">Create</div>
-                            <div class="text-xs font-bold text-gray-400 text-center uppercase tracking-wider">Delete</div>
-                            <div class="text-xs font-bold text-gray-400 text-center uppercase tracking-wider">Import</div>
-                        </div>
-
-                        <?php 
-                        $modules = ['Projects', 'Tasks', 'Invoices', 'Support Tickets', 'Files'];
-                        foreach($modules as $mod):
-                        ?>
-                        <div class="grid grid-cols-7 gap-4 py-3 items-center permission-row">
-                            <div class="col-span-2 flex items-center space-x-3">
-                                <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
-                                <span class="text-sm font-bold text-gray-700"><?php echo $mod; ?></span>
-                            </div>
-                            <div class="flex justify-center"><input type="checkbox" checked class="custom-checkbox"></div>
-                            <div class="flex justify-center"><input type="checkbox" class="custom-checkbox"></div>
-                            <div class="flex justify-center"><input type="checkbox" class="custom-checkbox"></div>
-                            <div class="flex justify-center"><input type="checkbox" class="custom-checkbox"></div>
-                            <div class="flex justify-center"><input type="checkbox" class="custom-checkbox"></div>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-
                 <div class="px-8 py-4 bg-gray-50 flex justify-end space-x-3 border-t border-gray-200">
                     <button type="button" onclick="toggleModal(false)" class="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-bold rounded-lg shadow-sm hover:bg-gray-100 transition">Cancel</button>
-                    <button type="submit" class="px-8 py-2.5 bg-custom-teal text-white font-bold rounded-lg shadow-md hover-teal transition flex items-center">
+                    <button type="submit" id="submitClientBtn" class="px-8 py-2.5 bg-custom-teal text-white font-bold rounded-lg shadow-md hover-teal transition flex items-center">
                         <i class="fa-solid fa-save mr-2"></i> Save Client
                     </button>
                 </div>
@@ -579,20 +527,16 @@ while($row = $client_result->fetch_assoc()) {
         }
         document.addEventListener('DOMContentLoaded', setupLayoutObserver);
 
-        // UI View Toggles
-        function switchTab(tab) {
-            document.getElementById('tab-basic').classList.toggle('active', tab === 'basic');
-            document.getElementById('tab-permissions').classList.toggle('active', tab === 'permissions');
-            document.getElementById('content-basic').classList.toggle('hidden', tab !== 'basic');
-            document.getElementById('content-permissions').classList.toggle('hidden', tab !== 'permissions');
-        }
-
         function toggleModal(show) {
             document.getElementById('addClientModal').classList.toggle('hidden', !show);
             if(show) {
                 document.getElementById('addClientForm').reset();
                 document.getElementById('imgPreview').src = 'https://ui-avatars.com/api/?name=New+Client&background=f1f5f9&color=94a3b8';
-                switchTab('basic'); 
+                
+                // Reset Submit button in case it was disabled previously
+                const btn = document.getElementById('submitClientBtn');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-save mr-2"></i> Save Client';
             }
         }
 
@@ -644,10 +588,18 @@ while($row = $client_result->fetch_assoc()) {
             });
         }
 
-        // Handle AJAX Form Submission
+        // Handle AJAX Form Submission (WITH DOUBLE-CLICK PREVENTION)
         function submitClientForm(e) {
             e.preventDefault();
+            
             const form = document.getElementById('addClientForm');
+            const submitBtn = document.getElementById('submitClientBtn');
+            const originalBtnHtml = submitBtn.innerHTML;
+
+            // 1. Disable button immediately to prevent double submission
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Saving...';
+
             const formData = new FormData(form);
 
             fetch(window.location.href, {
@@ -667,7 +619,15 @@ while($row = $client_result->fetch_assoc()) {
                     });
                 } else {
                     Swal.fire('Error', 'Failed to add client. Try again.', 'error');
+                    // 2. Re-enable button if it fails so they can try again
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalBtnHtml;
                 }
+            })
+            .catch(error => {
+                Swal.fire('Error', 'A network error occurred.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalBtnHtml;
             });
         }
 
@@ -676,9 +636,14 @@ while($row = $client_result->fetch_assoc()) {
             e.stopPropagation();
             document.getElementById('exportMenu').classList.toggle('hidden');
         }
-        window.onclick = function() {
+        window.onclick = function(event) {
             if(document.getElementById('exportMenu')) {
                 document.getElementById('exportMenu').classList.add('hidden');
+            }
+            
+            const modal = document.getElementById('addClientModal');
+            if (event.target == modal) { 
+                toggleModal(false); 
             }
         }
     </script>
