@@ -2,9 +2,15 @@
 // 1. Start Session (if not already started)
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 2. Path Logic
-$base_path = isset($path_to_root) ? $path_to_root : '';
+// --- IMPROVED DYNAMIC PATH ---
+$script_path = $_SERVER['SCRIPT_NAME']; // e.g., /workack2.0/manager/dashboard.php
+$path_parts = explode('/', trim($script_path, '/'));
 
+// If your project is in a folder like 'workack2.0', we skip the first part
+// Otherwise, count all parts except the filename
+$folder_depth = count($path_parts) - 2; // -1 for project folder, -1 for filename
+
+$base_path = ($folder_depth > 0) ? str_repeat('../', $folder_depth) : './';
 // 3. Get Logged-in User Data
 $user_email = $_SESSION['username'] ?? 'Guest';
 $user_role  = $_SESSION['role'] ?? 'User';
