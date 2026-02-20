@@ -9,11 +9,11 @@ $headerPath = 'header.php';
 
 // Include the Database Connection
 if (file_exists($dbPath)) {
-    include_once $dbPath;
+    require_once $dbPath;
 } else {
     // Fallback if the path is slightly different in this directory
     if(file_exists('./include/db_connect.php')) {
-        include_once './include/db_connect.php';
+        require_once './include/db_connect.php';
         $sidebarPath = './sidebars.php';
         $headerPath = './header.php';
     } else {

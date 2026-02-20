@@ -8,7 +8,7 @@ $sidebarPath = './sidebars.php';
 $headerPath = './header.php';
 
 if (file_exists($dbPath)) {
-    include_once($dbPath);
+    require_once $dbPath;
 } else {
     die("Critical Error: db_connect.php not found.");
 }

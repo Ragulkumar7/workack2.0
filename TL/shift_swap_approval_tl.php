@@ -1,6 +1,6 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-include_once('../include/db_connect.php');
+require_once '../include/db_connect.php';
 
 // Security: Check if user is logged in
 if (!isset($_SESSION['user_id'])) { 

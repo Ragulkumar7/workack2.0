@@ -3,7 +3,7 @@
 
 // 1. SESSION & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-include 'include/db_connect.php'; // Ensure DB connection is included
+require_once 'include/db_connect.php'; // Ensure DB connection is included
 
 // 2. PATHS
 $sidebarPath = __DIR__ . '/sidebars.php'; 

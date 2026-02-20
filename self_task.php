@@ -7,12 +7,12 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 $dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
 
 if (file_exists($dbPath)) {
-    include_once($dbPath);
+    require_once $dbPath;
 } else {
     // Fallback if the above fails: try relative path
     $dbPath = __DIR__ . '/include/db_connect.php';
     if(file_exists($dbPath)) {
-        include_once($dbPath);
+        require_once $dbPath;
     } else {
         die("<div style='color:red; padding:20px; border:1px solid red;'>
             <b>Error:</b> db_connect.php not found.<br>

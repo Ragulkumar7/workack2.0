@@ -1,7 +1,7 @@
 <?php
 // view_announcements.php
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-include 'include/db_connect.php'; 
+require_once 'include/db_connect.php'; 
 
 if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 
