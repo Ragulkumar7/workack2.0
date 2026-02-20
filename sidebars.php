@@ -98,7 +98,7 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['System Admin', 'HR', 'HR Executive'],
+                'allowed' => ['System Admin', 'HR'],
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
                     ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
@@ -109,6 +109,7 @@ $sections = [
                     ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
                 ]
             ],
+            // HR Executive attendance
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 

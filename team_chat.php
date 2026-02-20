@@ -10,23 +10,12 @@ $my_id = $_SESSION['user_id'];
 $my_role = trim($_SESSION['role'] ?? 'Employee');
 $my_username = $_SESSION['username'] ?? 'User';
 
-// Microsoft Teams-style role-based chat. Groups: all participants can chat.
-$ROLE_CHAT_MATRIX = [
-    'Team Lead'    => ['Employee', 'Manager', 'Team Lead'],
-    'Employee'     => ['Employee', 'Team Lead'],
-    'Manager'      => ['Team Lead', 'HR Executive', 'Manager'],
-    'HR Executive' => ['Manager', 'HR Executive', 'HR'],
-    'HR'           => ['HR Executive', 'CEO', 'HR'],
-    'System Admin' => ['CEO', 'HR', 'HR Executive'],
-    'IT Admin'     => ['Manager', 'Team Lead', 'Employee', 'IT Executive'],
-    'IT Executive' => ['Manager', 'IT Admin', 'Employee'],
-    'Accounts'     => ['Manager', 'CFO', 'Accounts'],
-    'CFO'          => ['Accounts', 'Manager', 'CFO'],
-    'CEO'          => ['HR', 'System Admin', 'Manager', 'CFO'],
-];
-$allowed_roles = $ROLE_CHAT_MATRIX[$my_role] ?? ['Employee', 'Team Lead'];
-
+// Ensure necessary tables/columns exist
 $conn->query("CREATE TABLE IF NOT EXISTS call_requests (id INT AUTO_INCREMENT PRIMARY KEY, conversation_id INT NOT NULL, caller_id INT NOT NULL, room_id VARCHAR(64) NOT NULL, call_type ENUM('audio','video') DEFAULT 'video', status ENUM('ringing','answered','declined','ended') DEFAULT 'ringing', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, INDEX idx_conv_status (conversation_id, status))");
+if ($conn->query("SHOW COLUMNS FROM chat_messages LIKE 'edited_at'")->num_rows === 0) $conn->query("ALTER TABLE chat_messages ADD COLUMN edited_at DATETIME NULL DEFAULT NULL");
+if ($conn->query("SHOW COLUMNS FROM chat_messages LIKE 'deleted_at'")->num_rows === 0) $conn->query("ALTER TABLE chat_messages ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL");
+if ($conn->query("SHOW COLUMNS FROM chat_participants LIKE 'muted_until'")->num_rows === 0) $conn->query("ALTER TABLE chat_participants ADD COLUMN muted_until DATETIME NULL DEFAULT NULL");
+if ($conn->query("SHOW COLUMNS FROM chat_participants LIKE 'hidden_at'")->num_rows === 0) $conn->query("ALTER TABLE chat_participants ADD COLUMN hidden_at DATETIME NULL DEFAULT NULL");
 
 // --- AJAX HANDLERS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -37,18 +26,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
     $action = $_POST['action'];
 
-    // 1. SEARCH USERS (role-filtered: TL↔Team+Manager, Employee↔Team+TL, Manager↔TL+HR Exec)
+    // 1. SEARCH USERS (Unrestricted - Anyone can search anyone)
     if ($action === 'search_users') {
-        $term = "%" . $_POST['term'] . "%";
-        $ph = implode(',', array_fill(0, count($allowed_roles), '?'));
-        $types = 'sssi' . str_repeat('s', count($allowed_roles));
-        $params = array_merge([$term, $term, $term, $my_id], $allowed_roles);
+        $term = "%" . ($_POST['term'] ?? '') . "%";
         $sql = "SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as display_name, ep.profile_img 
                 FROM users u 
                 LEFT JOIN employee_profiles ep ON u.id = ep.user_id
-                WHERE (ep.full_name LIKE ? OR u.username LIKE ? OR u.role LIKE ?) AND u.id != ? AND COALESCE(u.role,'Employee') IN ($ph) LIMIT 15";
+                WHERE (ep.full_name LIKE ? OR u.username LIKE ? OR u.role LIKE ?) AND u.id != ? LIMIT 50";
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param($types, ...$params);
+        $stmt->bind_param("sssi", $term, $term, $term, $my_id);
         $stmt->execute();
         $res = $stmt->get_result();
         $users = [];
@@ -60,32 +46,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // 2. CREATE GROUP (members must be in allowed roles)
+    // 2. CREATE GROUP
     if ($action === 'create_group') {
         $group_name = trim($_POST['group_name'] ?? '');
         $members = json_decode($_POST['members'] ?? '[]', true);
+        
         if (empty($group_name) || !is_array($members) || empty($members)) {
-            echo json_encode(['status' => 'error', 'message' => 'Invalid data']); exit;
+            echo json_encode(['status' => 'error', 'message' => 'Please provide a group name and select at least one member.']); 
+            exit;
         }
+        
         $members = array_filter(array_unique(array_map('intval', $members)));
-        if (empty($members)) { echo json_encode(['status' => 'error', 'message' => 'No valid members.']); exit; }
-        $valid = $conn->query("SELECT id, role FROM users WHERE id IN (" . implode(',', $members) . ")");
+        
+        // Fetch valid members to ensure they exist
+        $valid = $conn->query("SELECT id FROM users WHERE id IN (" . implode(',', $members) . ")");
         $ok_ids = [];
         while ($r = $valid->fetch_assoc()) {
-            if (in_array(trim($r['role'] ?? 'Employee'), $allowed_roles)) $ok_ids[] = $r['id'];
+            $ok_ids[] = $r['id'];
         }
-        $members = $ok_ids;
-        if (empty($members)) {
-            echo json_encode(['status' => 'error', 'message' => 'No valid members selected.']); exit;
+        
+        if (empty($ok_ids)) {
+            echo json_encode(['status' => 'error', 'message' => 'Selected members are invalid.']); 
+            exit;
         }
 
         $stmt = $conn->prepare("INSERT INTO chat_conversations (type, group_name, created_by) VALUES ('group', ?, ?)");
         $stmt->bind_param("si", $group_name, $my_id);
-        $stmt->execute();
+        if(!$stmt->execute()) {
+             echo json_encode(['status' => 'error', 'message' => 'Database error.']); exit;
+        }
+        
         $conv_id = $conn->insert_id;
 
         $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($conv_id, $my_id)");
-        foreach ($members as $uid) {
+        foreach ($ok_ids as $uid) {
             $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($conv_id, $uid)");
         }
 
@@ -100,10 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($action === 'get_recent_chats') {
         $sql = "SELECT c.id as conversation_id, c.type, c.group_name,
                     COALESCE(ep.full_name, u.username, 'Unknown User') as name, ep.profile_img as avatar_db, COALESCE(u.role, '') as role,
-                    m.message as last_msg, m.message_type, m.created_at as time,
+                    m.message as last_msg, m.message_type, m.created_at as time, cp.muted_until,
                     (SELECT COUNT(*) FROM chat_messages cm WHERE cm.conversation_id = c.id AND cm.is_read = 0 AND cm.sender_id != ?) as unread
                 FROM chat_conversations c
-                JOIN chat_participants cp ON c.id = cp.conversation_id AND cp.user_id = ?
+                JOIN chat_participants cp ON c.id = cp.conversation_id AND cp.user_id = ? AND cp.hidden_at IS NULL
                 LEFT JOIN chat_participants cp2 ON c.id = cp2.conversation_id AND cp2.user_id != ?
                 LEFT JOIN users u ON cp2.user_id = u.id
                 LEFT JOIN employee_profiles ep ON u.id = ep.user_id
@@ -132,6 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             else if ($row['message_type'] == 'file') $row['last_msg'] = '📎 Attachment';
 
             $row['time'] = $row['time'] ? date('h:i A', strtotime($row['time'])) : '';
+            $row['muted'] = !empty($row['muted_until']) && strtotime($row['muted_until']) > time();
             $chats[] = $row;
         }
         echo json_encode($chats);
@@ -196,6 +191,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } else {
             $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=6366f1&color=fff"];
         }
+        $mu = $conn->query("SELECT muted_until FROM chat_participants WHERE conversation_id = $conv_id AND user_id = $my_id")->fetch_assoc();
+        $partner['muted'] = !empty($mu['muted_until']) && strtotime($mu['muted_until']) > time();
 
         echo json_encode(['messages' => $msgs, 'info' => $partner, 'conv_type' => $conv_info['type']]);
         exit;
@@ -230,16 +227,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // 6. START CHAT (validate target is in allowed roles)
+    // 6. START CHAT
     if ($action === 'start_chat') {
         $target_user_id = (int)$_POST['target_user_id'];
-        $chk = $conn->prepare("SELECT role FROM users WHERE id = ?");
-        $chk->bind_param("i", $target_user_id);
-        $chk->execute();
-        $tr = $chk->get_result()->fetch_assoc();
-        if (!$tr || !in_array(trim($tr['role'] ?? 'Employee'), $allowed_roles)) {
-            echo json_encode(['status' => 'denied', 'id' => 0]); exit;
-        }
+        
         $sql = "SELECT c.id FROM chat_conversations c
                 JOIN chat_participants cp1 ON c.id = cp1.conversation_id
                 JOIN chat_participants cp2 ON c.id = cp2.conversation_id
@@ -250,13 +241,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $res = $stmt->get_result();
 
         if ($row = $res->fetch_assoc()) {
-            echo json_encode(['id' => $row['id']]);
+            $conn->query("UPDATE chat_participants SET hidden_at = NULL WHERE conversation_id = {$row['id']} AND user_id = $my_id");
+            echo json_encode(['status' => 'success', 'id' => $row['id']]);
         } else {
             $conn->query("INSERT INTO chat_conversations (type) VALUES ('direct')");
             $new_id = $conn->insert_id;
             $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($new_id, $my_id)");
             $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($new_id, $target_user_id)");
-            echo json_encode(['id' => $new_id]);
+            echo json_encode(['status' => 'success', 'id' => $new_id]);
         }
         exit;
     }
@@ -298,7 +290,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // 9. CHECK INCOMING CALL - poll for calls where I am a participant (not the caller)
+    // 9. CHECK INCOMING CALL 
     if ($action === 'check_incoming_call') {
         $conv_id = isset($_POST['conversation_id']) ? (int)$_POST['conversation_id'] : 0;
         $stmt = $conn->prepare("SELECT cr.id, cr.conversation_id, cr.caller_id, cr.room_id, cr.call_type, cr.created_at,
@@ -343,10 +335,66 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // 12. END CALL (caller hangs up - clear ringing for others)
+    // 12. END CALL
     if ($action === 'end_call_request') {
         $conv_id = (int)$_POST['conversation_id'];
         $conn->query("UPDATE call_requests SET status = 'ended' WHERE conversation_id = $conv_id AND caller_id = $my_id AND status = 'ringing'");
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
+
+    // 13. EDIT MESSAGE
+    if ($action === 'edit_message') {
+        $msg_id = (int)$_POST['message_id'];
+        $new_text = trim($_POST['message'] ?? '');
+        if (empty($new_text)) { echo json_encode(['status' => 'error']); exit; }
+        $stmt = $conn->prepare("UPDATE chat_messages SET message = ?, edited_at = NOW() WHERE id = ? AND sender_id = ? AND message_type IN ('text','file') AND deleted_at IS NULL");
+        $stmt->bind_param("sii", $new_text, $msg_id, $my_id);
+        $stmt->execute();
+        echo json_encode(['status' => $stmt->affected_rows ? 'ok' : 'denied']);
+        exit;
+    }
+
+    // 14. DELETE MESSAGE
+    if ($action === 'delete_message') {
+        $msg_id = (int)$_POST['message_id'];
+        $stmt = $conn->prepare("UPDATE chat_messages SET deleted_at = NOW(), message = 'This message was deleted' WHERE id = ? AND sender_id = ?");
+        $stmt->bind_param("ii", $msg_id, $my_id);
+        $stmt->execute();
+        echo json_encode(['status' => $stmt->affected_rows ? 'ok' : 'denied']);
+        exit;
+    }
+
+    // 15. MUTE CHAT
+    if ($action === 'mute_chat') {
+        $conv_id = (int)$_POST['conversation_id'];
+        $dur = (int)($_POST['duration'] ?? 0); 
+        $until = date('Y-m-d H:i:s', strtotime($dur === 0 ? '+8 hours' : ($dur === 1 ? '+1 week' : '+100 years')));
+        $stmt = $conn->prepare("UPDATE chat_participants SET muted_until = ? WHERE conversation_id = ? AND user_id = ?");
+        $stmt->bind_param("sii", $until, $conv_id, $my_id);
+        $stmt->execute();
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
+
+    // 16. UNMUTE CHAT
+    if ($action === 'unmute_chat') {
+        $conv_id = (int)$_POST['conversation_id'];
+        $conn->query("UPDATE chat_participants SET muted_until = NULL WHERE conversation_id = $conv_id AND user_id = $my_id");
+        echo json_encode(['status' => 'ok']);
+        exit;
+    }
+
+    // 17. DELETE CHAT
+    if ($action === 'delete_chat') {
+        $conv_id = (int)$_POST['conversation_id'];
+        $chk = $conn->prepare("SELECT 1 FROM chat_participants WHERE conversation_id = ? AND user_id = ?");
+        $chk->bind_param("ii", $conv_id, $my_id);
+        $chk->execute();
+        if (!$chk->get_result()->fetch_assoc()) { echo json_encode(['status' => 'denied']); exit; }
+        $stmt = $conn->prepare("UPDATE chat_participants SET hidden_at = NOW() WHERE conversation_id = ? AND user_id = ?");
+        $stmt->bind_param("ii", $conv_id, $my_id);
+        $stmt->execute();
         echo json_encode(['status' => 'ok']);
         exit;
     }
@@ -417,9 +465,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .btn-icon { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--text-secondary); cursor: pointer; transition: 0.2s; font-size: 1.3rem; background: #f1f5f9; border:none;}
         .btn-icon:hover { background: #e2e8f0; color: var(--primary-color); }
         
-        .menu-dropdown { position: absolute; top: 50px; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 180px; display: none; z-index: 100; overflow: hidden; }
+        .menu-dropdown { position: absolute; top: 50px; right: 0; background: white; border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 200px; display: none; z-index: 100; overflow: hidden; }
         .menu-dropdown.show { display: block; }
         .menu-item { padding: 12px 18px; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; color: var(--text-main); font-weight: 500; transition: 0.2s; }
+        .msg-context-menu { position: absolute; background: white; border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 8px 20px rgba(0,0,0,0.12); padding: 6px 0; min-width: 140px; display: none; z-index: 150; }
+        .msg-context-menu.show { display: block; }
+        .msg-context-menu .ctx-item { padding: 10px 16px; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 10px; color: var(--text-main); }
+        .msg-context-menu .ctx-item:hover { background: #f8fafc; }
+        .msg-context-menu .ctx-item.danger { color: #ef4444; }
         .menu-item:hover { background: #f8fafc; }
         .menu-item.danger { color: #ef4444; border-top: 1px solid #f1f5f9; }
 
@@ -427,7 +480,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .messages-box::-webkit-scrollbar { width: 6px; }
         .messages-box::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
-        .msg-wrapper { display: flex; flex-direction: column; max-width: 75%; }
+        .msg-wrapper { display: flex; flex-direction: column; max-width: 75%; position: relative; }
+        .msg-wrapper .msg-actions { opacity: 0; position: absolute; right: 8px; top: 4px; display: flex; gap: 4px; transition: opacity 0.2s; }
+        .msg-wrapper:hover .msg-actions { opacity: 1; }
         .msg-wrapper.incoming { align-self: flex-start; }
         .msg-wrapper.outgoing { align-self: flex-end; }
         
@@ -552,11 +607,25 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
     </div>
 </div>
 
+<div class="modal-overlay" id="editMsgModal" onclick="if(event.target===this)closeEditModal()">
+    <div class="modal" onclick="event.stopPropagation()">
+        <h3>Edit Message</h3>
+        <textarea id="editMsgInput" rows="3" style="width:100%; padding:12px; border:1px solid var(--border-color); border-radius:8px; resize:none; font-size:15px;"></textarea>
+        <div class="modal-actions" style="margin-top:16px;">
+            <button class="btn-cancel" onclick="closeEditModal()">Cancel</button>
+            <button class="btn-create" onclick="saveEditMessage()">Save</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="groupModal">
     <div class="modal">
         <h3>Create New Group</h3>
         <input type="text" id="groupName" placeholder="Enter Group Name">
         <p style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:8px; font-weight: 500;">Select Members:</p>
+        
+        <div id="selectedTags" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px;"></div>
+        
         <input type="text" id="memberSearch" placeholder="Search names..." oninput="searchForGroup(this.value)">
         <div class="user-select-list" id="groupUserList"></div>
         <div class="modal-actions">
@@ -570,21 +639,21 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
     let activeConvId = null;
     let pollInterval = null;
     let lastFetchedMsgId = 0; 
-    let selectedMembers = new Set();
     let isUserScrolling = false;
-    // INCOMING CALL
-    
-    // FETCH LOCK: Fixes the duplicate message bug
     let isFetching = false; 
+
+    // Group Member Storage Data
+    let selectedMembers = new Set();
+    let selectedMembersData = new Map(); // Stores the mapped Names for the tags
 
     // JITSI API INSTANCE
     let jitsiApi = null;
-    const myUserName = "<?php echo htmlspecialchars($my_username); ?>";
+    const myUserName = "<?php echo htmlspecialchars($my_username, ENT_QUOTES, 'UTF-8'); ?>";
     
     let currentIncomingCall = null;
     let searchDebounce = null;
 
-    // 1. SEARCH USERS (debounced 350ms)
+    // 1. SEARCH USERS FOR DIRECT CHAT
     document.getElementById('userSearch').addEventListener('input', function(e) {
         let val = e.target.value.trim();
         document.getElementById('searchResults').style.display = val.length < 2 ? 'none' : 'block';
@@ -615,7 +684,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         fetch('team_chat.php', { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
-            if (data.status === 'denied') { alert('You cannot start a chat with this user based on your role.'); return; }
+            if (data.status === 'error') { alert(data.message); return; }
             if (data.id) loadConversation(data.id, true);
         });
     }
@@ -632,14 +701,14 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
             data.forEach(c => {
                 let active = (c.conversation_id == activeConvId) ? 'active' : '';
                 let unread = c.unread > 0 ? `<span style="background:var(--primary-color); color:white; font-size:0.7rem; font-weight:bold; padding:2px 6px; border-radius:10px;">${c.unread}</span>` : '';
-                let displayName = c.name ? c.name : 'Unknown';
+                let muteTag = c.muted ? '<span style="font-size:0.65rem; color:#94a3b8; margin-left:4px;">Muted</span>' : '';
                 
                 html += `
                 <div class="chat-item ${active}" onclick="loadConversation(${c.conversation_id})">
                     <img src="${c.avatar}" class="avatar">
                     <div style="flex:1; min-width:0;">
                         <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                            <div style="font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${displayName}</div>
+                            <div style="font-weight:600; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name || 'Unknown'}${muteTag}</div>
                             <div style="font-size:0.7rem; color:var(--text-secondary);">${c.time}</div>
                         </div>
                         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -711,7 +780,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
     function fetchMessages(isInitialLoad = false) {
         if(!activeConvId || isFetching) return;
         
-        isFetching = true; // Lock to prevent duplicate append
+        isFetching = true; 
 
         let fd = new FormData();
         fd.append('action', 'get_messages');
@@ -721,7 +790,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         fetch('team_chat.php', { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
-            isFetching = false; // Unlock
+            isFetching = false; 
             
             let msgs = data.messages;
             let info = data.info;
@@ -729,6 +798,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
             if(!box) return; 
 
             if(isInitialLoad && info) {
+                chatMuted = !!info.muted;
                 let headerHTML = `
                     <div style="display:flex; align-items:center; gap:15px;">
                         <img src="${info.profile_img}" class="avatar" style="width:42px; height:42px; margin:0;">
@@ -742,8 +812,9 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
                         <button class="btn-icon" onclick="startCall('video', this)" title="Video Call"><i class="ri-vidicon-line"></i></button>
                         <button class="btn-icon" onclick="toggleMenu()"><i class="ri-more-2-fill"></i></button>
                         <div class="menu-dropdown" id="chatMenu">
-                            <div class="menu-item"><i class="ri-user-line"></i> View Profile</div>
-                            <div class="menu-item danger" onclick="clearChat()"><i class="ri-delete-bin-line"></i> Clear Chat</div>
+                            <div class="menu-item" id="muteMenuItem" onclick="toggleMuteChat()"><i class="ri-notification-3-line"></i> <span id="muteMenuText">${chatMuted ? 'Unmute' : 'Mute notifications'}</span></div>
+                            <div class="menu-item" onclick="clearChat()"><i class="ri-delete-bin-line"></i> Clear messages</div>
+                            <div class="menu-item danger" onclick="deleteChat()"><i class="ri-chat-delete-line"></i> Delete chat</div>
                         </div>
                     </div>
                 `;
@@ -759,9 +830,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
             if (msgs.length > 0) {
                 let html = '';
                 msgs.forEach(m => {
-                    // Update tracker safely
                     lastFetchedMsgId = Math.max(lastFetchedMsgId, m.id); 
-                    
                     let cls = m.is_me ? 'outgoing' : 'incoming';
                     let content = m.message;
                     
@@ -779,26 +848,28 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
                                     <div class="msg-time">${m.time}</div>
                                  </div></div>`;
                     } else {
-                        if(m.message_type === 'image') content = `<img src="${m.attachment_path}">`;
+                        let isDeleted = !!m.deleted_at;
+                        if(isDeleted) content = '<em style="color:#94a3b8; font-size:0.9rem;">This message was deleted</em>';
+                        else if(m.message_type === 'image') content = `<img src="${m.attachment_path}">`;
                         else if(m.message_type === 'file') content = `<a href="${m.attachment_path}" target="_blank" style="text-decoration:none; color:inherit; font-weight:600;"><i class="ri-file-text-fill"></i> ${m.message}</a>`;
                         
                         let senderName = (!m.is_me && info && info.is_group) ? `<div style="font-size:0.75rem; color:var(--primary-color); font-weight:700; margin-bottom:4px;">${m.display_name}</div>` : '';
+                        let editedBadge = m.edited_at ? ' <span style="font-size:0.65rem; opacity:0.8;">(edited)</span>' : '';
+                        let safeMsg = (m.message||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/\r?\n/g,' ');
+                        let canEditDel = m.is_me && !isDeleted && (m.message_type === 'text' || m.message_type === 'file') ? `<div class="msg-actions"><button class="btn-icon" style="width:28px;height:28px;font-size:0.85rem;" onclick="event.stopPropagation();openEditModal(${m.id}, this.closest('.msg-wrapper'))" title="Edit"><i class="ri-edit-line"></i></button><button class="btn-icon" style="width:28px;height:28px;font-size:0.85rem;color:#ef4444;" onclick="event.stopPropagation();deleteMessage(${m.id})" title="Delete"><i class="ri-delete-bin-line"></i></button></div>` : '';
 
-                        html += `<div class="msg-wrapper ${cls}">
+                        html += `<div class="msg-wrapper ${cls}" id="msg-${m.id}" data-msg-text="${safeMsg}">${canEditDel}
                                     <div class="msg ${cls}">
                                         ${senderName}
                                         ${content}
-                                        <div class="msg-time">${m.time}</div>
+                                        <div class="msg-time">${m.time}${editedBadge}</div>
                                     </div>
                                  </div>`;
                     }
                 });
 
                 box.insertAdjacentHTML('beforeend', html);
-                
-                if (isInitialLoad || !isUserScrolling) {
-                    scrollToBottom(box);
-                }
+                if (isInitialLoad || !isUserScrolling) { scrollToBottom(box); }
             } else if (isInitialLoad && msgs.length === 0) {
                 box.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-secondary);"><div style="font-size:3rem; margin-bottom:10px;">👋</div>Say hello and start the conversation!</div>';
             }
@@ -810,7 +881,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         setTimeout(() => { el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); }, 50);
     }
 
-    // 6. SEND MESSAGE (Optimistic UI for text)
+    // 6. SEND MESSAGE
     function sendMessage(type = 'text', content = null) {
         let input = document.getElementById('msgInput');
         let txt = content ? content : (input ? input.value.trim() : '');
@@ -852,7 +923,6 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         .then(() => {
             let tempMsg = document.getElementById(`temp-${tempId}`);
             if(tempMsg) tempMsg.remove();
-            
             fetchMessages(false); 
             isUserScrolling = false; 
         });
@@ -862,10 +932,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         if(input.files.length > 0) { sendMessage('file'); }
     }
 
-    // =======================================================
-    // EMBEDDED JITSI CALL INTEGRATION (MS TEAMS STYLE)
-    // =======================================================
-    
+    // JITSI CALLS
     function startCall(type, btnElement) {
         if(!activeConvId) return;
         if(btnElement) {
@@ -887,8 +954,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
                 sendMessage('call', type === 'audio' ? 'audio:' + meetId : meetId);
                 openEmbeddedMeeting(meetId, type);
             } else alert('Could not start call. Please try again.');
-        })
-        .catch(() => alert('Could not start call. Please try again.'));
+        });
     }
 
     function openEmbeddedMeeting(roomId, type = 'video') {
@@ -936,21 +1002,17 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         };
         
         jitsiApi = new JitsiMeetExternalAPI(domain, options);
-        
         jitsiApi.addEventListener('videoConferenceJoined', hideJitsiLoading);
         jitsiApi.addEventListener('videoConferenceLeft', () => { closeCall(); });
         jitsiApi.addEventListener('readyToClose', () => { closeCall(); });
-        setTimeout(hideJitsiLoading, 12000); // Fallback if event doesn't fire
+        setTimeout(hideJitsiLoading, 12000); 
         function hideJitsiLoading() {
             (document.getElementById('jitsiLoading') || document.querySelector('.jitsi-loading'))?.classList?.remove('show');
         }
     }
 
     function closeCall() {
-        if(jitsiApi) {
-            jitsiApi.dispose();
-            jitsiApi = null;
-        }
+        if(jitsiApi) { jitsiApi.dispose(); jitsiApi = null; }
         let ov = document.getElementById('videoOverlay');
         if(ov) { ov.style.display = 'none'; document.getElementById('jitsiLoading')?.classList?.remove('show'); }
         if(activeConvId) {
@@ -961,10 +1023,59 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         }
     }
 
+    let editingMsgId = null;
+    let chatMuted = false;
 
     function toggleMenu() { 
         let menu = document.getElementById('chatMenu');
         if(menu) menu.classList.toggle('show'); 
+    }
+
+    function openEditModal(msgId, wrapperEl) {
+        editingMsgId = msgId;
+        let el = typeof wrapperEl === 'object' ? wrapperEl : document.getElementById('msg-'+msgId);
+        document.getElementById('editMsgInput').value = el ? (el.getAttribute('data-msg-text') || '').replace(/&quot;/g,'"').replace(/&amp;/g,'&').replace(/&lt;/g,'<') : '';
+        document.getElementById('editMsgModal').style.display = 'flex';
+    }
+    function closeEditModal() { document.getElementById('editMsgModal').style.display = 'none'; editingMsgId = null; }
+    function saveEditMessage() {
+        if(!editingMsgId) return;
+        let txt = document.getElementById('editMsgInput').value.trim();
+        if(!txt) return;
+        let fd = new FormData();
+        fd.append('action', 'edit_message');
+        fd.append('message_id', editingMsgId);
+        fd.append('message', txt);
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => { if(data.status === 'ok') { closeEditModal(); lastFetchedMsgId = 0; fetchMessages(true); } });
+    }
+    function deleteMessage(msgId) {
+        if(!confirm('Delete this message?')) return;
+        let fd = new FormData();
+        fd.append('action', 'delete_message');
+        fd.append('message_id', msgId);
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => { if(data.status === 'ok') { lastFetchedMsgId = 0; fetchMessages(true); } });
+    }
+    function toggleMuteChat() {
+        let fd = new FormData();
+        fd.append('action', chatMuted ? 'unmute_chat' : 'mute_chat');
+        fd.append('conversation_id', activeConvId);
+        if(!chatMuted) fd.append('duration', 0);
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(() => { chatMuted = !chatMuted; document.getElementById('muteMenuText').textContent = chatMuted ? 'Unmute' : 'Mute notifications'; document.getElementById('chatMenu').classList.remove('show'); loadSidebar(); });
+    }
+    function deleteChat() {
+        if(!confirm('Remove this chat from your list?')) return;
+        let fd = new FormData();
+        fd.append('action', 'delete_chat');
+        fd.append('conversation_id', activeConvId);
+        fetch('team_chat.php', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(() => { activeConvId = null; document.getElementById('chatArea').innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-secondary);"><div style="width:80px;height:80px;background:#e2e8f0;border-radius:50%;display:flex;align-items:center;justify-content:center;margin-bottom:20px;"><i class="ri-message-3-line" style="font-size:2.5rem;color:#94a3b8;"></i></div><h3 style="font-size:1.2rem;color:var(--text-main);margin-bottom:5px;">Workack Team Chat</h3><p>Select a conversation from the sidebar.</p></div>`; loadSidebar(); });
     }
     
     function clearChat() {
@@ -980,15 +1091,29 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         });
     }
 
-    // GROUP CREATION
-    function openGroupModal() { document.getElementById('groupModal').style.display = 'flex'; selectedMembers.clear(); updateGroupList(); document.getElementById('groupName').value = ''; document.getElementById('memberSearch').value = '';}
+    // ==============================================
+    // IMPROVED: GROUP CREATION WITH VISUAL TAGS
+    // ==============================================
+    
+    function openGroupModal() { 
+        document.getElementById('groupModal').style.display = 'flex'; 
+        selectedMembers.clear(); 
+        selectedMembersData.clear(); 
+        renderSelectedTags();
+        document.getElementById('groupName').value = ''; 
+        document.getElementById('memberSearch').value = '';
+        
+        // Auto-fetch all valid members immediately
+        searchForGroup(''); 
+    }
+    
     function closeGroupModal() { document.getElementById('groupModal').style.display = 'none'; }
 
     function searchForGroup(val) {
-        if(val.length < 1) { document.getElementById('groupUserList').innerHTML = ''; return; }
         let fd = new FormData();
         fd.append('action', 'search_users');
-        fd.append('term', val);
+        fd.append('term', val); 
+
         fetch('team_chat.php', { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
@@ -997,36 +1122,53 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
                 let isSel = selectedMembers.has(u.id) ? 'selected' : '';
                 let checkIcon = isSel ? '<i class="ri-checkbox-circle-fill" style="color:var(--primary-color); font-size:1.2rem; margin-left:auto;"></i>' : '';
                 
-                html += `<div class="user-option ${isSel}" onclick="toggleMember(${u.id}, this)">
+                let safeName = u.display_name.replace(/'/g, "\\'");
+                html += `<div class="user-option ${isSel}" onclick="toggleMember(${u.id}, '${safeName}', this)">
                             <img src="${u.profile_img}" style="width:30px; height:30px; border-radius:50%;">
                             <div style="font-weight:600; color:var(--text-main);">${u.display_name}</div>
                             ${checkIcon}
                          </div>`;
             });
-            document.getElementById('groupUserList').innerHTML = html;
+            document.getElementById('groupUserList').innerHTML = html || '<div style="padding:15px; text-align:center; color:#888;">No members found</div>';
         });
     }
 
-    function toggleMember(uid, el) {
+    function toggleMember(uid, name, el = null) {
         if(selectedMembers.has(uid)) { 
             selectedMembers.delete(uid); 
-            el.classList.remove('selected'); 
-            let icon = el.querySelector('.ri-checkbox-circle-fill');
-            if(icon) icon.remove();
+            selectedMembersData.delete(uid);
+            if(el) {
+                el.classList.remove('selected'); 
+                let icon = el.querySelector('.ri-checkbox-circle-fill');
+                if(icon) icon.remove();
+            }
         }
         else { 
             selectedMembers.add(uid); 
-            el.classList.add('selected'); 
-            el.insertAdjacentHTML('beforeend', '<i class="ri-checkbox-circle-fill" style="color:var(--primary-color); font-size:1.2rem; margin-left:auto;"></i>');
+            selectedMembersData.set(uid, name);
+            if(el) {
+                el.classList.add('selected'); 
+                el.insertAdjacentHTML('beforeend', '<i class="ri-checkbox-circle-fill" style="color:var(--primary-color); font-size:1.2rem; margin-left:auto;"></i>');
+            }
         }
+        renderSelectedTags();
+        if(!el) searchForGroup(document.getElementById('memberSearch').value);
     }
 
-    function updateGroupList() { document.getElementById('groupUserList').innerHTML = '<div style="padding:15px; color:#888; font-size:0.9rem; text-align:center;">Type a name above to find members.</div>'; }
+    function renderSelectedTags() {
+        let html = '';
+        selectedMembersData.forEach((name, id) => {
+            html += `<span style="background:var(--primary-light); color:white; padding:5px 12px; border-radius:20px; font-size:0.8rem; display:flex; align-items:center; gap:6px;">
+                        ${name} <i class="ri-close-circle-line" style="cursor:pointer; font-size:1rem;" onclick="toggleMember(${id}, '${name.replace(/'/g, "\\'")}')"></i>
+                     </span>`;
+        });
+        document.getElementById('selectedTags').innerHTML = html;
+    }
 
     function createGroup() {
         let name = document.getElementById('groupName').value.trim();
         if(!name) { alert('Please enter a group name.'); return; }
-        if(selectedMembers.size === 0) { alert('Please select at least one member.'); return; }
+        if(selectedMembers.size === 0) { alert('Please select at least one member from the list below.'); return; }
 
         let fd = new FormData();
         fd.append('action', 'create_group');
@@ -1041,13 +1183,25 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         fetch('team_chat.php', { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
-            closeGroupModal();
-            loadConversation(data.conversation_id, true);
             btn.innerHTML = oldText;
             btn.disabled = false;
+            
+            // Check for actual success response
+            if (data.status === 'success') {
+                closeGroupModal();
+                loadConversation(data.conversation_id, true);
+            } else {
+                alert('Error: ' + (data.message || 'Something went wrong.'));
+            }
+        })
+        .catch(err => {
+            btn.innerHTML = oldText;
+            btn.disabled = false;
+            alert('Failed to connect to the server.');
         });
     }
 
+    // CLOSE MENUS ON CLICK OUTSIDE
     document.addEventListener('click', function(e) {
         if (!e.target.closest('.header-actions')) {
             let menu = document.getElementById('chatMenu');
@@ -1059,7 +1213,8 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         }
     });
 
-    function pollIncomingCall() {
+    // STARTUP
+    setInterval(function pollIncomingCall() {
         if(document.hidden || currentIncomingCall || document.getElementById('videoOverlay')?.style?.display === 'flex') return;
         let fd = new FormData();
         fd.append('action', 'check_incoming_call');
@@ -1075,7 +1230,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
                 document.getElementById('incomingCallModal').classList.add('show');
             }
         }).catch(()=>{});
-    }
+    }, 2000);
 
     function acceptIncomingCall() {
         if(!currentIncomingCall) return;
@@ -1089,10 +1244,7 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
             currentIncomingCall = null;
             if(data.room_id) {
                 let convId = data.conversation_id || activeConvId;
-                if(convId) {
-                    activeConvId = convId;
-                    loadConversation(convId, true);
-                }
+                if(convId) { activeConvId = convId; loadConversation(convId, true); }
                 setTimeout(() => openEmbeddedMeeting(data.room_id, data.call_type || 'video'), 400);
             }
         });
@@ -1108,7 +1260,6 @@ if(file_exists('sidebars.php')) include 'sidebars.php';
         currentIncomingCall = null;
     }
 
-    setInterval(pollIncomingCall, 2000);
     loadSidebar();
 </script>
 
