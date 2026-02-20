@@ -13,11 +13,18 @@ $db_path = __DIR__ . '/include/db_connect.php';
 if (file_exists($db_path)) {
     require_once $db_path;
 } else {
-    require_once 'include/db_connect.php'; 
+    require_once '../include/db_connect.php'; 
 }
 
 $user_id = $_SESSION['user_id'];
-$user_role = $_SESSION['role'];
+
+// Get user role accurately from DB
+$role_query = "SELECT role FROM users WHERE id = ?";
+$stmt = $conn->prepare($role_query);
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$user_role = $stmt->get_result()->fetch_assoc()['role'];
+$stmt->close();
 
 // =========================================================================
 // 2. PROCESS AJAX LEAVE ACTIONS (Approve/Reject)
@@ -26,22 +33,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset(
     $leave_id = intval($_POST['leave_id']);
     $new_status = $_POST['status']; 
     
-    $column_to_update = "";
+    $column_to_update = "hr_status"; // Default to HR
 
-    // Determine which role is making the approval
     if ($user_role === 'Team Lead') {
         $column_to_update = "tl_status";
     } elseif ($user_role === 'Manager') {
         $column_to_update = "manager_status";
-    } elseif ($user_role === 'HR' || $user_role === 'HR Executive') {
-        $column_to_update = "hr_status";
-    } else {
-        echo "error";
-        exit();
     }
 
-    // UPDATED LOGIC: Update BOTH the specific role status (tl_status) AND the overall status
-    // This ensures the employee sees the exact status ("Approved" or "Rejected") immediately
+    // Update the role-specific status AND the global status
     $update_query = "UPDATE leave_requests SET $column_to_update = ?, status = ? WHERE id = ?";
     $update_stmt = $conn->prepare($update_query);
     $update_stmt->bind_param("ssi", $new_status, $new_status, $leave_id);
@@ -60,10 +60,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset(
 // =========================================================================
 // 3. FETCH DATA FOR UI DISPLAY
 // =========================================================================
-// Fetching the user's name from profile table, falling back to users table if null
 $base_select = "SELECT lr.*, 
                 COALESCE(ep.full_name, u.name, 'Unknown Employee') as emp_name, 
                 COALESCE(ep.designation, u.role, 'Employee') as emp_role,
+                ep.profile_img,
                 (SELECT COALESCE(SUM(total_days), 0) FROM leave_requests 
                  WHERE user_id = lr.user_id 
                    AND status = 'Approved' 
@@ -76,19 +76,21 @@ $base_select = "SELECT lr.*,
 
 $query = "";
 if ($user_role === 'Team Lead') {
-    $query = "$base_select WHERE lr.tl_id = ? ORDER BY lr.created_at DESC";
+    // TL sees direct reports
+    $query = "$base_select WHERE ep.reporting_to = ? OR lr.tl_id = ? ORDER BY lr.created_at DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("ii", $user_id, $user_id);
 } elseif ($user_role === 'Manager') {
-    $query = "$base_select WHERE lr.manager_id = ? AND lr.tl_status = 'Approved' ORDER BY lr.created_at DESC";
-} elseif ($user_role === 'HR' || $user_role === 'HR Executive') {
-    $query = "$base_select WHERE lr.manager_status = 'Approved' ORDER BY lr.created_at DESC";
+    // Manager sees direct reports OR reports under their TLs
+    $query = "$base_select WHERE ep.manager_id = ? OR ep.reporting_to = ? OR lr.manager_id = ? ORDER BY lr.created_at DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("iii", $user_id, $user_id, $user_id);
 } else {
-    die("Access Denied.");
+    // HR, Admin, Executives see everything
+    $query = "$base_select ORDER BY lr.created_at DESC";
+    $stmt = $conn->prepare($query);
 }
 
-$stmt = $conn->prepare($query);
-if ($user_role === 'Team Lead' || $user_role === 'Manager') {
-    $stmt->bind_param("i", $user_id);
-}
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -98,20 +100,40 @@ $approved_count = 0;
 $rejected_count = 0;
 
 while ($row = $result->fetch_assoc()) {
+    // Determine which status column applies to the current viewer
     $display_status = 'Pending';
-    if ($user_role === 'Team Lead') { $display_status = $row['tl_status']; }
-    if ($user_role === 'Manager') { $display_status = $row['manager_status']; }
-    if ($user_role === 'HR' || $user_role === 'HR Executive') { $display_status = $row['hr_status']; }
+    if ($user_role === 'Team Lead') { 
+        $display_status = $row['tl_status']; 
+    } elseif ($user_role === 'Manager') { 
+        $display_status = $row['manager_status']; 
+    } else { 
+        $display_status = $row['hr_status']; 
+    }
+
+    // If anyone rejected it, globally show it as rejected
+    if ($row['status'] === 'Rejected') {
+        $display_status = 'Rejected';
+    } elseif ($row['status'] === 'Approved') {
+        $display_status = 'Approved';
+    }
 
     if ($display_status === 'Pending') $pending_count++;
     if ($display_status === 'Approved') $approved_count++;
     if ($display_status === 'Rejected') $rejected_count++;
 
-    // Explicitly mapping the keys to make sure they pass to the HTML below
+    // Format Image Source
+    $imgSource = $row['profile_img'];
+    if(empty($imgSource) || $imgSource === 'default_user.png') {
+        $imgSource = "https://ui-avatars.com/api/?name=".urlencode($row['emp_name'])."&background=random";
+    } elseif (!str_starts_with($imgSource, 'http') && strpos($imgSource, 'assets/profiles/') === false) {
+        $imgSource = './assets/profiles/' . $imgSource; 
+    }
+
     $leave_requests[] = [
         'id' => $row['id'],
         'emp_name' => $row['emp_name'],
         'emp_role' => $row['emp_role'],
+        'avatar' => $imgSource,
         'leave_type' => $row['leave_type'],
         'start_date' => $row['start_date'],
         'end_date' => $row['end_date'],
@@ -119,14 +141,19 @@ while ($row = $result->fetch_assoc()) {
         'created_at' => $row['created_at'],
         'reason' => $row['reason'],
         'current_month_leaves' => $row['current_month_leaves'],
-        'display_status' => $display_status
+        'display_status' => $display_status,
+        'global_status' => $row['status']
     ];
 }
 $stmt->close();
 $conn->close(); 
 
-$sidebarPath = __DIR__ . '/sidebars.php'; 
-if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
+$sidebarPath = '../sidebars.php';
+$headerPath = '../header.php';
+if (!file_exists($sidebarPath)) { 
+    $sidebarPath = 'sidebars.php'; 
+    $headerPath = 'header.php'; 
+}
 ?>
 
 <!DOCTYPE html>
@@ -140,39 +167,49 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script> 
 
     <style>
-        :root { --primary: #f97316; --primary-hover: #ea580c; --bg-body: #f8f9fa; --text-main: #1e293b; --text-muted: #64748b; --border: #e2e8f0; --white: #ffffff; --success: #10b981; --danger: #ef4444; }
-        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; padding: 0; color: var(--text-main); }
-        .main-content { margin-left: 95px; padding: 24px 32px; min-height: 100vh; transition: all 0.3s ease; }
+        :root { --primary: #f97316; --primary-hover: #ea580c; --bg-body: #f8f9fa; --text-main: #1e293b; --text-muted: #64748b; --border: #e2e8f0; --white: #ffffff; --success: #10b981; --danger: #ef4444; --sidebar-width: 95px;}
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; padding: 0; color: var(--text-main); overflow-x: hidden;}
+        
+        .main-content { margin-left: var(--sidebar-width); padding: 24px 32px; min-height: 100vh; transition: all 0.3s ease; width: calc(100% - var(--sidebar-width)); box-sizing: border-box;}
+        
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; gap: 15px; flex-wrap: wrap; }
         .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; color: #0f172a; }
         .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
+        
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
         .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid var(--border); position: relative; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
-        .stat-info h4 { font-size: 13px; color: var(--text-muted); margin: 0 0 5px 0; font-weight: 500; }
+        .stat-info h4 { font-size: 13px; color: var(--text-muted); margin: 0 0 5px 0; font-weight: 500; text-transform: uppercase; }
         .stat-info h2 { font-size: 28px; font-weight: 700; margin: 0; color: var(--text-main); }
         .stat-icon { width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
         .card-pending .stat-icon { background: #fff7ed; color: #f97316; } .card-approved .stat-icon { background: #f0fdf4; color: #16a34a; } .card-rejected .stat-icon { background: #fef2f2; color: #dc2626; } .card-total .stat-icon { background: #eff6ff; color: #2563eb; }
+        
         .list-section { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .filters-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
         .search-box { flex: 2; min-width: 250px; display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
         .search-box input { border: none; outline: none; width: 100%; font-size: 13px; margin-left: 8px; }
         .filter-select { flex: 1; min-width: 150px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--text-main); outline: none; cursor: pointer; }
+        
         .table-responsive { overflow-x: auto; width: 100%; }
         table { width: 100%; border-collapse: collapse; min-width: 900px; }
         thead { background: #f8fafc; border-bottom: 1px solid var(--border); }
         th { text-align: left; font-size: 12px; color: #475569; padding: 14px 20px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
         td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; font-size: 13px; vertical-align: middle; }
         tr:hover { background-color: #fcfcfc; }
+        
         .emp-profile { display: flex; align-items: center; gap: 12px; }
-        .emp-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #64748b; flex-shrink: 0;}
+        .emp-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #e2e8f0; display: flex; align-items: center; justify-content: center; flex-shrink: 0;}
         .emp-info { display: flex; flex-direction: column; gap: 2px;} .emp-name { font-weight: 600; color: #0f172a; } .emp-dept { font-size: 11px; color: #64748b; }
         .leave-month-badge { font-size: 10px; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px; display: inline-block; width: fit-content; margin-top: 2px; }
+        
         .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
         .status-Pending { background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; } .status-Approved { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; } .status-Rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
         .leave-type { font-weight: 500; padding: 4px 8px; border-radius: 4px; background: #f1f5f9; color: #334155; font-size: 12px; }
+        
         .action-container { display: flex; gap: 8px; }
         .btn-icon { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--border); background: white; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; color: var(--text-muted); }
         .btn-icon:hover { background: #f8fafc; color: var(--primary); } .btn-approve:hover { background: #dcfce7; color: #166534; border-color: #bbf7d0; } .btn-reject:hover { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+        
+        /* Modal Transitions */
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
         .modal-overlay.active { display: flex; animation: fadeUp 0.2s ease-out; }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -183,18 +220,23 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
         .detail-item label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; } .detail-item p { margin: 0; font-size: 14px; font-weight: 500; color: #1e293b; }
         .reason-box { background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px; } .reason-box p { font-size: 13px; color: #334155; line-height: 1.5; margin: 0; }
         .modal-footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
-        .btn { padding: 10px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; } .btn-outline { background: white; border: 1px solid var(--border); color: #334155; } .btn-green { background: var(--success); color: white; } .btn-red { background: var(--danger); color: white; }
+        .btn { padding: 10px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; } .btn-outline { background: white; border: 1px solid var(--border); color: #334155; }
+
+        @media (max-width: 992px) {
+            .main-content { margin-left: 0; width: 100%; padding: 16px; }
+        }
     </style>
 </head>
 <body>
 
-    <?php if (file_exists($sidebarPath)) { include($sidebarPath); } ?>
+    <?php include $sidebarPath; ?>
 
-    <div class="main-content">
-        
-        <div class="page-header">
+    <div class="main-content" id="mainContent">
+        <?php include $headerPath; ?>
+
+        <div class="page-header mt-4">
             <div>
-                <h1>Leave Approvals (<?php echo htmlspecialchars($user_role); ?>)</h1>
+                <h1>Leave Approvals <span style="color: var(--primary); font-size: 18px;">(<?php echo htmlspecialchars($user_role); ?>)</span></h1>
                 <div class="breadcrumb">
                     <i data-lucide="home" style="width:14px;"></i>
                     <span>/</span> Leaves <span>/</span> <span style="font-weight:600; color:#0f172a;">Approvals</span>
@@ -234,17 +276,17 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
         </div>
 
         <div class="list-section">
-            
             <div class="filters-row">
                 <div class="search-box">
                     <i data-lucide="search" style="width:16px; color:#94a3b8;"></i>
-                    <input type="text" id="searchInput" placeholder="Search employee..." onkeyup="filterTable()">
+                    <input type="text" id="searchInput" placeholder="Search employee name or type..." onkeyup="filterTable()">
                 </div>
                 <select class="filter-select" id="typeFilter" onchange="filterTable()">
                     <option value="">All Leave Types</option>
                     <option value="Medical">Medical</option>
                     <option value="Casual">Casual</option>
                     <option value="Annual">Annual</option>
+                    <option value="Other">Other</option>
                 </select>
                 <select class="filter-select" id="statusFilter" onchange="filterTable()">
                     <option value="">All Status</option>
@@ -273,7 +315,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                                 <tr>
                                     <td>
                                         <div class="emp-profile">
-                                            <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($leave['emp_name']); ?>&background=random" class="emp-avatar" alt="User">
+                                            <img src="<?php echo $leave['avatar']; ?>" class="emp-avatar" alt="User">
                                             <div class="emp-info">
                                                 <span class="emp-name"><?php echo htmlspecialchars($leave['emp_name']); ?></span>
                                                 <span class="emp-dept"><?php echo htmlspecialchars($leave['emp_role']); ?></span>
@@ -283,7 +325,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                                     </td>
                                     <td><span class="leave-type"><?php echo htmlspecialchars($leave['leave_type']); ?></span></td>
                                     <td><?php echo date('d M Y', strtotime($leave['start_date'])) . ' - ' . date('d M Y', strtotime($leave['end_date'])); ?></td>
-                                    <td><?php echo str_pad($leave['total_days'], 2, '0', STR_PAD_LEFT); ?></td>
+                                    <td style="font-weight: 600;"><?php echo str_pad($leave['total_days'], 2, '0', STR_PAD_LEFT); ?></td>
                                     <td><?php echo date('d M Y', strtotime($leave['created_at'])); ?></td>
                                     <td>
                                         <?php 
@@ -294,10 +336,11 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                                     </td>
                                     <td>
                                         <div class="action-container">
-                                            <?php if($leave['display_status'] === 'Pending'): ?>
+                                            <?php if($leave['display_status'] === 'Pending' && $leave['global_status'] !== 'Rejected'): ?>
                                                 <button class="btn-icon btn-approve" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Approved')" title="Approve"><i data-lucide="check" style="width:16px;"></i></button>
                                                 <button class="btn-icon btn-reject" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Rejected')" title="Reject"><i data-lucide="x" style="width:16px;"></i></button>
                                             <?php endif; ?>
+                                            
                                             <button class="btn-icon" onclick="viewDetails('<?php echo htmlspecialchars(addslashes($leave['emp_name'])); ?>', '<?php echo htmlspecialchars($leave['leave_type']); ?>', '<?php echo date('d M Y', strtotime($leave['start_date'])) . ' - ' . date('d M Y', strtotime($leave['end_date'])); ?>', '<?php echo htmlspecialchars(addslashes($leave['reason'])); ?>', '<?php echo $leave['total_days']; ?>', '<?php echo $leave['current_month_leaves']; ?>')" title="View Details"><i data-lucide="eye" style="width:16px;"></i></button>
                                         </div>
                                     </td>
@@ -305,7 +348,10 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                             <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="7" style="text-align: center; color: #64748b; padding: 30px;">No leave requests found for your attention.</td>
+                                <td colspan="7" style="text-align: center; color: #64748b; padding: 40px;">
+                                    <i data-lucide="inbox" style="width: 48px; height: 48px; color: #cbd5e1; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto;"></i>
+                                    No leave requests found for your attention.
+                                </td>
                             </tr>
                         <?php endif; ?>
                     </tbody>
@@ -340,7 +386,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                     </div>
                     <div class="detail-item">
                         <label>Approved Leaves (This Month)</label>
-                        <p id="mMonthLeaves" style="color:#2563eb;">--</p>
+                        <p id="mMonthLeaves" style="color:#2563eb; font-weight: 700;">--</p>
                     </div>
                 </div>
 
@@ -360,6 +406,47 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
     <script>
         lucide.createIcons();
 
+        // Responsive Sidebar logic 
+        function setupLayoutObserver() {
+            const primarySidebar = document.querySelector('.sidebar-primary');
+            const secondarySidebar = document.querySelector('.sidebar-secondary');
+            const mainContent = document.getElementById('mainContent');
+            
+            if (!primarySidebar || !mainContent) return;
+
+            const updateMargin = () => {
+                if (window.innerWidth <= 992) {
+                    mainContent.style.marginLeft = '0';
+                    mainContent.style.width = '100%';
+                    return;
+                }
+                let totalWidth = primarySidebar.offsetWidth;
+                if (secondarySidebar && secondarySidebar.classList.contains('open')) {
+                    totalWidth += secondarySidebar.offsetWidth;
+                }
+                mainContent.style.marginLeft = totalWidth + 'px';
+                mainContent.style.width = `calc(100% - ${totalWidth}px)`;
+            };
+
+            const ro = new ResizeObserver(() => { updateMargin(); });
+            ro.observe(primarySidebar);
+
+            if (secondarySidebar) {
+                const mo = new MutationObserver((mutations) => {
+                    mutations.forEach((mutation) => {
+                        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                            updateMargin();
+                        }
+                    });
+                });
+                mo.observe(secondarySidebar, { attributes: true, attributeFilter: ['class'] });
+            }
+            window.addEventListener('resize', updateMargin);
+            updateMargin();
+        }
+        document.addEventListener('DOMContentLoaded', setupLayoutObserver);
+
+        // Filter functionality
         function filterTable() {
             const search = document.getElementById('searchInput').value.toLowerCase();
             const type = document.getElementById('typeFilter').value.toLowerCase();
@@ -385,6 +472,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
             });
         }
 
+        // Modal Functionality
         const modal = document.getElementById('approvalModal');
 
         function viewDetails(name, type, date, reason, days, monthLeaves) {
@@ -404,6 +492,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
             document.body.style.overflow = 'auto';
         }
 
+        // Leave Update Action
         function updateLeave(leaveId, newStatus) {
             Swal.fire({
                 title: 'Are you sure?',
