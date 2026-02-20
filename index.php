@@ -5,8 +5,10 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start(); 
 }
 
-// 1. Include your DB connection
-require_once './include/db_connect.php';
+define('ROOT_PATH', __DIR__ . '/');
+
+// Now, no matter where you are, you can include the DB like this:
+require_once ROOT_PATH . 'include/db_connect.php';
 
 $error_message = "";
 

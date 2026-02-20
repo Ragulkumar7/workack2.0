@@ -127,7 +127,7 @@ while ($row = $result->fetch_assoc()) {
     if(empty($imgSource) || $imgSource === 'default_user.png') {
         $imgSource = "https://ui-avatars.com/api/?name=".urlencode($row['emp_name'])."&background=random";
     } elseif (!str_starts_with($imgSource, 'http') && strpos($imgSource, 'assets/profiles/') === false) {
-        $imgSource = '../assets/profiles/' . $imgSource; 
+        $imgSource = './assets/profiles/' . $imgSource; 
     }
 
     $leave_requests[] = [
