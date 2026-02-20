@@ -1,6 +1,6 @@
 <?php 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-include '../include/db_connect.php'; 
+require_once '../include/db_connect.php'; 
 
 // ---------------------------------------------------------
 // FETCH MANAGERS BY DEPARTMENT FOR DYNAMIC DROPDOWN

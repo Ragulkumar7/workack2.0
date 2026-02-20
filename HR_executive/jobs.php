@@ -1,5 +1,5 @@
 <?php
-include '../include/db_connect.php'; 
+require_once '../include/db_connect.php'; 
 
 // --- CSV Export Logic ---
 if (isset($_GET['export']) && $_GET['export'] == 'csv') {

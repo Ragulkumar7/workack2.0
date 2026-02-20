@@ -8,7 +8,7 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 $dbPath = './include/db_connect.php';
 
 if (file_exists($dbPath)) {
-    include_once($dbPath);
+    require_once $dbPath;
 } else {
     die("Error: db_connect.php not found at " . htmlspecialchars($dbPath));
 }
