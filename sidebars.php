@@ -87,10 +87,10 @@ $sections = [
             ],
 
             // --- TEAM CHAT (Common) ---
-            [
-                'name' => 'Team Chat', 
+           [
+               'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
-                'icon' => 'message-circle', 
+               'icon' => 'message-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR']
             ],
             
@@ -382,7 +382,7 @@ $sections = [
     'name' => 'Salary Revisions', 
     'path' => $base . 'Accounts/salary_revisions.php', 
     'icon' => 'trending-up', // அல்லது 'history'
-    'allowed' => ['Accounts', 'HR', 'CFO']
+    'allowed' => ['Accounts', 'CFO']
 ]
         ]
     ],  
