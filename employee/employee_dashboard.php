@@ -69,11 +69,14 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
     $employee_email = $user_info['email'] ?? $user_info['username'];
     $joining_date = $user_info['joining_date'] ? date("d M Y", strtotime($user_info['joining_date'])) : "Not Set";
     
-    // Generate Avatar URL if no image
-    if(empty($user_info['profile_img'])) {
-        $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($employee_name) . "&background=ffffff&color=0d9488&size=128&bold=true";
-    } else {
-        $profile_img = $user_info['profile_img'];
+    // FIXED: Properly format the profile image path
+    $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($employee_name) . "&background=0d9488&color=fff&size=128&bold=true";
+    if (!empty($user_info['profile_img']) && $user_info['profile_img'] !== 'default_user.png') {
+        if (str_starts_with($user_info['profile_img'], 'http')) {
+            $profile_img = $user_info['profile_img'];
+        } else {
+            $profile_img = '../assets/profiles/' . $user_info['profile_img'];
+        }
     }
 }
 
@@ -582,7 +585,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 <div class="card overflow-hidden">
                     <div class="bg-teal-700 p-8 flex flex-col items-center text-center">
                         <div class="relative mb-3">
-                            <img src="<?php echo $profile_img; ?>" class="w-24 h-24 rounded-full border-4 border-white shadow-lg">
+                            <img src="<?php echo $profile_img; ?>" class="w-24 h-24 rounded-full border-4 border-white shadow-lg object-cover">
                             <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($employee_name); ?></h2>

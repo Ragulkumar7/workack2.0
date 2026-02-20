@@ -4,8 +4,8 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- FIXED DATABASE CONNECTION (Absolute Path) ---
 $dbPath = '../include/db_connect.php'; 
-$sidebarPath = '../sidebars.php';
-$headerPath = '../header.php';
+$sidebarPath = 'sidebars.php';
+$headerPath = 'header.php';
 
 // Include the Database Connection
 if (file_exists($dbPath)) {
@@ -25,7 +25,7 @@ if (file_exists($dbPath)) {
 
 // 2. CHECK LOGIN
 if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) { 
-    header("Location: ../index.php"); 
+    header("Location: ./index.php"); 
     exit(); 
 }
 
@@ -55,7 +55,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // Handle Profile Image Upload
         if (isset($_FILES['profile_img']) && $_FILES['profile_img']['error'] === UPLOAD_ERR_OK) {
-            $upload_dir = '../assets/profiles/';
+            $upload_dir = './assets/profiles/';
             // Create directory if it doesn't exist
             if (!is_dir($upload_dir)) { 
                 mkdir($upload_dir, 0777, true); 
@@ -200,7 +200,7 @@ if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user
     if (str_starts_with($profile['profile_img'], 'http')) {
         $display_img = $profile['profile_img'];
     } else {
-        $display_img = '../assets/profiles/' . $profile['profile_img'];
+        $display_img = './assets/profiles/' . $profile['profile_img'];
     }
 }
 ?>

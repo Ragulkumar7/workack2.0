@@ -1,59 +1,126 @@
 <?php
+// admin_attendance.php
 
-include 'sidebars.php'; 
-include 'header.php';
-
-// attendance_admin.php
-
-// 1. SESSION START
+// 1. SESSION START & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-// Check auth (uncomment in production)
-// if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 
-// 2. MOCK DATA GENERATION
- $departments = ['IT', 'HR', 'Sales', 'Marketing', 'Finance'];
- $attendanceData = [];
+// Security check
+if (!isset($_SESSION['user_id'])) { 
+    header("Location: index.php"); 
+    exit(); 
+}
 
-// Generate data for the last 30 days
-for ($i = 1; $i <= 50; $i++) {
-    $day = rand(1, 30); 
-    $month = date('m');
-    $year = date('Y');
-    $dateStr = sprintf("%04d-%02d-%02d", $year, $month, $day);
+// SMART PATH RESOLVER
+$dbPath = 'include/db_connect.php';
+if (file_exists($dbPath)) {
+    require_once $dbPath;
+    $sidebarPath = 'sidebars.php';
+    $headerPath = 'header.php';
+} elseif (file_exists('../include/db_connect.php')) {
+    require_once '../include/db_connect.php';
+    $sidebarPath = '../sidebars.php';
+    $headerPath = '../header.php';
+} else {
+    die("Critical Error: Cannot find database connection file.");
+}
+
+$current_user_id = $_SESSION['user_id'];
+$today_str = date('Y-m-d');
+
+// 2. FETCH LOGGED-IN USER ROLE
+$role_query = "SELECT role FROM users WHERE id = ?";
+$stmt = $conn->prepare($role_query);
+$stmt->bind_param("i", $current_user_id);
+$stmt->execute();
+$role_res = $stmt->get_result()->fetch_assoc();
+$user_role = $role_res['role'];
+$stmt->close();
+
+// 3. FETCH TOTAL EMPLOYEES COUNT BASED ON ROLE
+$total_emp_sql = "SELECT COUNT(*) as count FROM employee_profiles";
+if ($user_role === 'Manager') {
+    // Manager sees direct reports and their downline
+    $total_emp_sql .= " WHERE manager_id = $current_user_id 
+                        OR reporting_to = $current_user_id 
+                        OR reporting_to IN (SELECT user_id FROM employee_profiles WHERE manager_id = $current_user_id OR reporting_to = $current_user_id)";
+}
+$total_emp_res = mysqli_query($conn, $total_emp_sql);
+$total_employees = mysqli_fetch_assoc($total_emp_res)['count'];
+
+// 4. FETCH EXISTING ATTENDANCE DATA
+$query = "SELECT 
+            a.id, 
+            a.user_id,
+            a.date, 
+            a.punch_in, 
+            a.punch_out, 
+            a.production_hours, 
+            a.status,
+            ep.emp_id_code, 
+            ep.full_name, 
+            ep.designation, 
+            ep.department, 
+            ep.profile_img,
+            (SELECT SUM(TIMESTAMPDIFF(MINUTE, break_start, IFNULL(break_end, NOW()))) FROM attendance_breaks WHERE attendance_id = a.id) as break_mins
+          FROM attendance a
+          JOIN employee_profiles ep ON a.user_id = ep.user_id";
+
+// Filter for Managers
+if ($user_role === 'Manager') {
+    $query .= " WHERE ep.manager_id = ? 
+                OR ep.reporting_to = ? 
+                OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE manager_id = ? OR reporting_to = ?)";
+}
+$query .= " ORDER BY a.date DESC";
+
+$stmt = $conn->prepare($query);
+if ($user_role === 'Manager') {
+    $stmt->bind_param("iiii", $current_user_id, $current_user_id, $current_user_id, $current_user_id);
+}
+$stmt->execute();
+$result = $stmt->get_result();
+
+$attendanceData = [];
+$users_punched_in_today = [];
+
+while ($row = $result->fetch_assoc()) {
+    // Track who has punched in today to calculate absentees later
+    if ($row['date'] === $today_str) {
+        $users_punched_in_today[] = $row['user_id'];
+    }
+
+    $status = $row['status'] ?: 'Present';
+    $checkIn = $row['punch_in'] ? date('h:i A', strtotime($row['punch_in'])) : '-';
+    $checkOut = $row['punch_out'] ? date('h:i A', strtotime($row['punch_out'])) : '-';
+    $break = ($row['break_mins'] !== null) ? $row['break_mins'] . ' Min' : '0 Min';
     
-    // Generate Display ID (e.g., EMP-001)
-    $displayId = "EMP-" . str_pad($i, 3, '0', STR_PAD_LEFT);
-    
-    // Random Status Logic
-    $statusRand = rand(0, 10);
-    $status = 'Present';
-    $checkIn = '09:00 AM';
-    $checkOut = '06:00 PM';
-    $break = '20 Min';
+    // Calculate Late Minutes
     $late = '0 Min';
-    $prod = '8.55 Hrs';
+    if ($row['status'] === 'Late' && $row['punch_in']) {
+        $shift_start = strtotime(date('Y-m-d 09:00:00', strtotime($row['punch_in'])));
+        $actual_in = strtotime($row['punch_in']);
+        if ($actual_in > $shift_start) {
+            $late = floor(($actual_in - $shift_start) / 60) . ' Min';
+        }
+    }
 
-    if ($statusRand > 8) { 
-        $status = 'Absent'; 
-        $checkIn = '-'; $checkOut = '-'; $break = '-'; $late = '-'; $prod = '0 Hrs';
-    } elseif ($statusRand == 7) {
-        $status = 'Late'; 
-        $late = rand(5, 45) . ' Min';
-        $checkIn = '09:' . $late . ' AM';
-    } elseif ($statusRand == 6) {
-        $status = 'Half Day';
-        $prod = '4.30 Hrs';
-        $checkOut = '01:00 PM';
+    $prod = $row['production_hours'] ? number_format($row['production_hours'], 2) . ' Hrs' : '0 Hrs';
+
+    $imgSource = $row['profile_img'];
+    if(empty($imgSource) || $imgSource === 'default_user.png') {
+        $imgSource = "https://ui-avatars.com/api/?name=".urlencode($row['full_name'])."&background=random";
+    } elseif (!str_starts_with($imgSource, 'http') && strpos($imgSource, 'assets/profiles/') === false) {
+        $imgSource = 'assets/profiles/' . $imgSource; 
     }
 
     $attendanceData[] = [
-        "id" => $i,
-        "emp_id" => $displayId,
-        "name" => "Employee " . $i,
-        "avatar" => "https://i.pravatar.cc/150?img=" . ($i + 10),
-        "role" => "Staff Member",
-        "dept" => $departments[array_rand($departments)],
-        "date" => $dateStr,
+        "id" => $row['id'],
+        "emp_id" => $row['emp_id_code'] ?? 'N/A',
+        "name" => $row['full_name'] ?? 'Unknown',
+        "avatar" => $imgSource,
+        "role" => $row['designation'] ?? 'Employee',
+        "dept" => $row['department'] ?? 'Unassigned',
+        "date" => $row['date'],
         "status" => $status,
         "checkin" => $checkIn,
         "checkout" => $checkOut,
@@ -62,9 +129,48 @@ for ($i = 1; $i <= 50; $i++) {
         "production" => $prod
     ];
 }
+$stmt->close();
 
-// Pass data to JS
- $jsonData = json_encode($attendanceData);
+// 5. INJECT "ABSENT" RECORDS FOR EMPLOYEES WHO HAVEN'T PUNCHED IN TODAY
+$emp_query = "SELECT user_id, emp_id_code, full_name, designation, department, profile_img FROM employee_profiles";
+if ($user_role === 'Manager') {
+    $emp_query .= " WHERE manager_id = $current_user_id 
+                    OR reporting_to = $current_user_id 
+                    OR reporting_to IN (SELECT user_id FROM employee_profiles WHERE manager_id = $current_user_id OR reporting_to = $current_user_id)";
+}
+
+$emp_res = mysqli_query($conn, $emp_query);
+while($emp = mysqli_fetch_assoc($emp_res)) {
+    // If this employee is NOT in the array of people who punched in today
+    if (!in_array($emp['user_id'], $users_punched_in_today)) {
+        
+        $imgSource = $emp['profile_img'];
+        if(empty($imgSource) || $imgSource === 'default_user.png') {
+            $imgSource = "https://ui-avatars.com/api/?name=".urlencode($emp['full_name'])."&background=random";
+        } elseif (!str_starts_with($imgSource, 'http') && strpos($imgSource, 'assets/profiles/') === false) {
+            $imgSource = 'assets/profiles/' . $imgSource; 
+        }
+
+        $attendanceData[] = [
+            "id" => 'abs_' . $emp['user_id'], // Unique ID for modal identification
+            "emp_id" => $emp['emp_id_code'] ?? 'N/A',
+            "name" => $emp['full_name'] ?? 'Unknown',
+            "avatar" => $imgSource,
+            "role" => $emp['designation'] ?? 'Employee',
+            "dept" => $emp['department'] ?? 'Unassigned',
+            "date" => $today_str,
+            "status" => 'Absent',
+            "checkin" => '-',
+            "checkout" => '-',
+            "break" => '0 Min',
+            "late" => '-',
+            "production" => '0.00 Hrs'
+        ];
+    }
+}
+
+// Pass database records to JavaScript
+$jsonData = json_encode($attendanceData);
 ?>
 
 <!DOCTYPE html>
@@ -74,7 +180,6 @@ for ($i = 1; $i <= 50; $i++) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HRMS - Attendance Management</title>
     
-    <!-- Dependencies -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -87,7 +192,7 @@ for ($i = 1; $i <= 50; $i++) {
             --bg-body: #f1f5f9; 
             --text-dark: #1e293b;
             --text-muted: #64748b;
-            --sidebar-width: 95px; /* Start matching sidebars.php width */
+            --sidebar-width: 95px;
         }
         body { 
             background-color: var(--bg-body); 
@@ -135,17 +240,17 @@ for ($i = 1; $i <= 50; $i++) {
             font-weight: 600; 
             display: inline-block;
         }
-        .status-present { background: #dcfce7; color: #166534; }
+        .status-present, .status-ontime { background: #dcfce7; color: #166534; }
         .status-absent { background: #fee2e2; color: #991b1b; }
         .status-late { background: #fef9c3; color: #854d0e; }
-        .status-half { background: #e0f2fe; color: #075985; }
+        .status-half, .status-wfh { background: #e0f2fe; color: #075985; }
 
         /* Custom Elements */
         .avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .action-btn { padding: 0.4rem 0.8rem; font-size: 0.8rem; border-radius: 6px; transition: all 0.2s; }
         
         /* Modal Transitions */
-        .modal-backdrop { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        .modal-backdrop-custom { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
         .custom-modal { display: none; }
         .custom-modal.active { display: flex; }
         
@@ -160,9 +265,11 @@ for ($i = 1; $i <= 50; $i++) {
 </head>
 <body>
 
+    <?php include $sidebarPath; ?>
+    <?php include $headerPath; ?>
+
     <div class="main-wrapper" id="mainWrapper">
         
-        <!-- Page Header -->
         <div class="d-flex justify-content-between align-items-center mb-4">
             <div>
                 <h2 class="fw-bold text-dark fs-4 mb-1">Attendance Management</h2>
@@ -175,7 +282,6 @@ for ($i = 1; $i <= 50; $i++) {
             </div>
         </div>
 
-        <!-- Stats Overview -->
         <div class="row g-4 mb-4">
             <div class="col-md-3">
                 <div class="stat-card p-3 d-flex align-items-center">
@@ -184,7 +290,7 @@ for ($i = 1; $i <= 50; $i++) {
                     </div>
                     <div>
                         <div class="text-muted small fw-bold text-uppercase">Total Employees</div>
-                        <div class="fs-5 fw-bold">1,240</div>
+                        <div class="fs-5 fw-bold"><?php echo number_format($total_employees); ?></div>
                     </div>
                 </div>
             </div>
@@ -223,10 +329,8 @@ for ($i = 1; $i <= 50; $i++) {
             </div>
         </div>
 
-        <!-- Filters & Table Card -->
         <div class="table-card overflow-hidden">
             
-            <!-- Filter Toolbar -->
             <div class="p-3 border-bottom bg-light d-flex flex-wrap gap-3 align-items-center justify-content-between">
                 <div class="d-flex flex-wrap gap-2">
                     <select id="filterMonth" class="form-select form-select-sm border-secondary-subtle shadow-none" style="width: 140px;">
@@ -235,19 +339,12 @@ for ($i = 1; $i <= 50; $i++) {
                         <option value="<?php echo date('Y-m', strtotime('-1 month')); ?>">Last Month</option>
                     </select>
 
-                    <select id="filterDept" class="form-select form-select-sm border-secondary-subtle shadow-none" style="width: 140px;">
-                        <option value="">All Depts</option>
-                        <option value="IT">IT</option>
-                        <option value="HR">HR</option>
-                        <option value="Sales">Sales</option>
-                        <option value="Marketing">Marketing</option>
-                    </select>
-
                     <select id="filterStatus" class="form-select form-select-sm border-secondary-subtle shadow-none" style="width: 120px;">
                         <option value="">All Status</option>
-                        <option value="Present">Present</option>
+                        <option value="On Time">On Time</option>
                         <option value="Absent">Absent</option>
                         <option value="Late">Late</option>
+                        <option value="WFH">WFH</option>
                     </select>
                 </div>
                 
@@ -257,7 +354,6 @@ for ($i = 1; $i <= 50; $i++) {
                 </div>
             </div>
 
-            <!-- Data Table -->
             <div class="table-responsive">
                 <table class="table table-hover mb-0">
                     <thead>
@@ -274,12 +370,10 @@ for ($i = 1; $i <= 50; $i++) {
                         </tr>
                     </thead>
                     <tbody id="attendanceTableBody">
-                        <!-- Rows injected via JS -->
-                    </tbody>
+                        </tbody>
                 </table>
             </div>
             
-            <!-- Pagination Placeholder -->
             <div class="p-3 border-top d-flex justify-content-between align-items-center">
                 <span class="text-muted small">Showing <span id="showingCount">0</span> records</span>
                 <nav>
@@ -294,9 +388,8 @@ for ($i = 1; $i <= 50; $i++) {
         </div>
     </div>
 
-    <!-- VIEW REPORT MODAL -->
-    <div id="viewModal" class="custom-modal fixed-top modal-backdrop w-100 h-100 align-items-center justify-content-center z-50">
-        <div class="bg-white rounded-4 shadow-lg w-100" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
+    <div id="viewModal" class="custom-modal fixed-top modal-backdrop-custom w-100 h-100 align-items-center justify-content-center z-50">
+        <div class="bg-white rounded-4 shadow-lg w-100 mx-3" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
             <div class="p-4 border-bottom d-flex justify-content-between align-items-center bg-primary text-white rounded-top-4">
                 <h5 class="mb-0 fw-bold"><i class="fa-regular fa-file-lines me-2"></i>Detailed Report</h5>
                 <button onclick="closeModal('viewModal')" class="btn btn-sm btn-light text-primary fw-bold rounded-circle p-0 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">&times;</button>
@@ -317,7 +410,6 @@ for ($i = 1; $i <= 50; $i++) {
                     </div>
                 </div>
 
-                <!-- Timeline Visualization -->
                 <div class="bg-light p-4 rounded-3 mb-4 border">
                     <div class="d-flex justify-content-between text-center mb-2">
                         <div>
@@ -338,12 +430,6 @@ for ($i = 1; $i <= 50; $i++) {
                         <div class="progress-bar bg-warning" role="progressbar" style="width: 10%"></div>
                         <div class="progress-bar bg-danger" role="progressbar" style="width: 45%"></div>
                     </div>
-                    <div class="d-flex justify-content-between mt-2 text-muted small" style="font-size: 0.7rem;">
-                        <span>09:00</span>
-                        <span>01:00</span>
-                        <span>01:20</span>
-                        <span>06:00</span>
-                    </div>
                 </div>
 
                 <div class="row g-3">
@@ -355,7 +441,7 @@ for ($i = 1; $i <= 50; $i++) {
                     </div>
                     <div class="col-6">
                         <div class="p-3 border rounded-3">
-                            <div class="text-muted small">Overtime</div>
+                            <div class="text-muted small">Late Arrival</div>
                             <div class="fw-bold fs-4" id="vm-late">00h 00m</div>
                         </div>
                     </div>
@@ -364,14 +450,13 @@ for ($i = 1; $i <= 50; $i++) {
         </div>
     </div>
 
-    <!-- Toast Notification -->
     <div id="toast">Action Successful</div>
 
     <script>
-        // 1. INITIALIZE DATA
+        // 1. INITIALIZE DATA FROM PHP
         let allRecords = <?php echo $jsonData; ?>;
 
-        // 2. AUTO-ADJUST LAYOUT BASED ON SIDEBAR WIDTH (UPDATED LOGIC)
+        // 2. AUTO-ADJUST LAYOUT BASED ON SIDEBAR WIDTH
         function setupLayoutObserver() {
             const primarySidebar = document.querySelector('.sidebar-primary');
             const secondarySidebar = document.querySelector('.sidebar-secondary');
@@ -379,30 +464,19 @@ for ($i = 1; $i <= 50; $i++) {
             
             if (!primarySidebar || !mainWrapper) return;
 
-            // Function to calculate total width based on sidebar state
             const updateMargin = () => {
                 let totalWidth = 0;
-
-                // Always add primary sidebar width
                 totalWidth += primarySidebar.offsetWidth;
 
-                // If secondary sidebar is open (has class 'open'), add its width
                 if (secondarySidebar && secondarySidebar.classList.contains('open')) {
                     totalWidth += secondarySidebar.offsetWidth;
                 }
-
-                // Update CSS Variable
                 document.documentElement.style.setProperty('--sidebar-width', totalWidth + 'px');
             };
 
-            // A. Observe Primary Sidebar for size changes (e.g. window resize)
-            const ro = new ResizeObserver(() => { 
-                updateMargin(); 
-            });
+            const ro = new ResizeObserver(() => { updateMargin(); });
             ro.observe(primarySidebar);
 
-            // B. Observe Secondary Sidebar for class changes (Opening/Closing)
-            // MutationObserver detects when the 'open' class is toggled via JS
             if (secondarySidebar) {
                 const mo = new MutationObserver((mutations) => {
                     mutations.forEach((mutation) => {
@@ -414,17 +488,14 @@ for ($i = 1; $i <= 50; $i++) {
                 mo.observe(secondarySidebar, { attributes: true, attributeFilter: ['class'] });
             }
 
-            // Initial set
             updateMargin();
         }
 
-        // Run observer on load
         document.addEventListener('DOMContentLoaded', setupLayoutObserver);
 
         // 3. DOM ELEMENTS
         const tableBody = document.getElementById('attendanceTableBody');
         const filterMonth = document.getElementById('filterMonth');
-        const filterDept = document.getElementById('filterDept');
         const filterStatus = document.getElementById('filterStatus');
         const searchInput = document.getElementById('searchInput');
         const showingCount = document.getElementById('showingCount');
@@ -442,27 +513,23 @@ for ($i = 1; $i <= 50; $i++) {
             let lateCount = 0;
             let absentCount = 0;
 
-            // Get Filter Values
             const monthVal = filterMonth.value;
-            const deptVal = filterDept.value;
             const statusVal = filterStatus.value;
             const searchVal = searchInput.value.toLowerCase();
 
-            // Filter Logic
             const filteredData = allRecords.filter(record => {
-                const recordMonth = record.date.substring(0, 7);
+                const recordMonth = record.date.substring(0, 7); // Gets YYYY-MM
                 
                 const matchMonth = monthVal === "" || recordMonth === monthVal;
-                const matchDept = deptVal === "" || record.dept === deptVal;
                 const matchStatus = statusVal === "" || record.status === statusVal;
                 const matchSearch = record.name.toLowerCase().includes(searchVal) || record.emp_id.toLowerCase().includes(searchVal);
 
-                return matchMonth && matchDept && matchStatus && matchSearch;
+                return matchMonth && matchStatus && matchSearch;
             });
 
             // Update Stats based on filtered view
             filteredData.forEach(rec => {
-                if(rec.status === 'Present') presentCount++;
+                if(rec.status === 'On Time' || rec.status === 'Present') presentCount++;
                 else if(rec.status === 'Late') lateCount++;
                 else if(rec.status === 'Absent') absentCount++;
             });
@@ -473,7 +540,6 @@ for ($i = 1; $i <= 50; $i++) {
             statAbsent.innerText = absentCount;
             showingCount.innerText = filteredData.length;
 
-            // Generate Rows
             if(filteredData.length === 0) {
                 tableBody.innerHTML = `<tr><td colspan="9" class="text-center py-5 text-muted">No records found matching filters.</td></tr>`;
                 return;
@@ -483,7 +549,7 @@ for ($i = 1; $i <= 50; $i++) {
                 let statusClass = 'status-present';
                 if(rec.status === 'Absent') statusClass = 'status-absent';
                 if(rec.status === 'Late') statusClass = 'status-late';
-                if(rec.status === 'Half Day') statusClass = 'status-half';
+                if(rec.status === 'WFH') statusClass = 'status-wfh';
 
                 const row = `
                     <tr>
@@ -506,9 +572,8 @@ for ($i = 1; $i <= 50; $i++) {
                         <td>${rec.checkout}</td>
                         <td><span class="fw-bold text-dark">${rec.production}</span></td>
                         <td class="text-end">
-                            <!-- VIEW BUTTON ONLY (EDIT REMOVED) -->
-                            <button onclick="openViewModal(${rec.id})" class="btn btn-sm btn-light text-primary" title="View Report">
-                                <i class="fa-solid fa-eye"></i>
+                            <button onclick="openViewModal('${rec.id}')" class="btn btn-sm btn-light text-primary border" title="View Report">
+                                <i class="fa-solid fa-eye"></i> View
                             </button>
                         </td>
                     </tr>
@@ -519,7 +584,6 @@ for ($i = 1; $i <= 50; $i++) {
 
         // 5. EVENT LISTENERS
         filterMonth.addEventListener('change', renderTable);
-        filterDept.addEventListener('change', renderTable);
         filterStatus.addEventListener('change', renderTable);
         searchInput.addEventListener('input', renderTable);
 
@@ -534,9 +598,9 @@ for ($i = 1; $i <= 50; $i++) {
             document.body.style.overflow = 'auto';
         }
 
-        // Open View Details
         function openViewModal(id) {
-            const rec = allRecords.find(r => r.id === id);
+            // Note: Use String() comparison because ID might be an int OR a string like 'abs_20'
+            const rec = allRecords.find(r => String(r.id) === String(id));
             if(!rec) return;
 
             document.getElementById('vm-name').innerText = rec.name;
@@ -548,6 +612,7 @@ for ($i = 1; $i <= 50; $i++) {
             document.getElementById('vm-out').innerText = rec.checkout;
             document.getElementById('vm-break').innerText = rec.break;
             document.getElementById('vm-total').innerText = rec.production;
+            document.getElementById('vm-late').innerText = rec.late;
             
             openModal('viewModal');
         }
