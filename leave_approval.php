@@ -31,20 +31,30 @@ $stmt->close();
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset($_POST['status'])) {
     $leave_id = intval($_POST['leave_id']);
-    $new_status = $_POST['status']; 
+    $new_status = $_POST['status']; // 'Approved' or 'Rejected'
     
-    $column_to_update = "hr_status"; // Default to HR
+    // Fetch current statuses
+    $fetch = $conn->prepare("SELECT tl_status, manager_status, hr_status, status FROM leave_requests WHERE id = ?");
+    $fetch->bind_param("i", $leave_id);
+    $fetch->execute();
+    $curr = $fetch->get_result()->fetch_assoc();
+    $fetch->close();
 
-    if ($user_role === 'Team Lead') {
-        $column_to_update = "tl_status";
-    } elseif ($user_role === 'Manager') {
-        $column_to_update = "manager_status";
-    }
+    $tl_stat = $curr['tl_status'];
+    $mgr_stat = $curr['manager_status'];
+    $hr_stat = $curr['hr_status'];
+    $global_stat = $new_status; // Set global to whatever they clicked
+    $approved_by = $user_role;  // Track exactly who clicked the button
 
-    // Update the role-specific status AND the global status
-    $update_query = "UPDATE leave_requests SET $column_to_update = ?, status = ? WHERE id = ?";
+    // Update specific role statuses based on who is logged in
+    if ($user_role === 'Team Lead') { $tl_stat = $new_status; }
+    if ($user_role === 'Manager') { $mgr_stat = $new_status; }
+    if ($user_role === 'HR' || $user_role === 'HR Executive') { $hr_stat = $new_status; }
+
+    // Update everything in the database
+    $update_query = "UPDATE leave_requests SET tl_status=?, manager_status=?, hr_status=?, status=?, approved_by=? WHERE id=?";
     $update_stmt = $conn->prepare($update_query);
-    $update_stmt->bind_param("ssi", $new_status, $new_status, $leave_id);
+    $update_stmt->bind_param("sssssi", $tl_stat, $mgr_stat, $hr_stat, $global_stat, $approved_by, $leave_id);
 
     if ($update_stmt->execute()) {
         echo "success";
@@ -100,33 +110,24 @@ $approved_count = 0;
 $rejected_count = 0;
 
 while ($row = $result->fetch_assoc()) {
-    // Determine which status column applies to the current viewer
-    $display_status = 'Pending';
-    if ($user_role === 'Team Lead') { 
-        $display_status = $row['tl_status']; 
-    } elseif ($user_role === 'Manager') { 
-        $display_status = $row['manager_status']; 
-    } else { 
-        $display_status = $row['hr_status']; 
-    }
+    $viewer_status = 'Pending';
+    if ($user_role === 'Team Lead') { $viewer_status = $row['tl_status']; } 
+    elseif ($user_role === 'Manager') { $viewer_status = $row['manager_status']; } 
+    else { $viewer_status = $row['hr_status']; }
 
-    // If anyone rejected it, globally show it as rejected
-    if ($row['status'] === 'Rejected') {
-        $display_status = 'Rejected';
-    } elseif ($row['status'] === 'Approved') {
-        $display_status = 'Approved';
-    }
+    $global_status = $row['status'] ?: 'Pending';
 
-    if ($display_status === 'Pending') $pending_count++;
-    if ($display_status === 'Approved') $approved_count++;
-    if ($display_status === 'Rejected') $rejected_count++;
+    // Update Top Counter Cards
+    if ($global_status === 'Pending') $pending_count++;
+    if ($global_status === 'Approved') $approved_count++;
+    if ($global_status === 'Rejected') $rejected_count++;
 
     // Format Image Source
     $imgSource = $row['profile_img'];
     if(empty($imgSource) || $imgSource === 'default_user.png') {
         $imgSource = "https://ui-avatars.com/api/?name=".urlencode($row['emp_name'])."&background=random";
     } elseif (!str_starts_with($imgSource, 'http') && strpos($imgSource, 'assets/profiles/') === false) {
-        $imgSource = './assets/profiles/' . $imgSource; 
+        $imgSource = '../assets/profiles/' . $imgSource; 
     }
 
     $leave_requests[] = [
@@ -141,8 +142,12 @@ while ($row = $result->fetch_assoc()) {
         'created_at' => $row['created_at'],
         'reason' => $row['reason'],
         'current_month_leaves' => $row['current_month_leaves'],
-        'display_status' => $display_status,
-        'global_status' => $row['status']
+        'viewer_status' => $viewer_status, 
+        'global_status' => $global_status, 
+        'tl_status' => $row['tl_status'],
+        'mgr_status' => $row['manager_status'],
+        'hr_status' => $row['hr_status'],
+        'approved_by' => $row['approved_by']
     ];
 }
 $stmt->close();
@@ -201,8 +206,11 @@ if (!file_exists($sidebarPath)) {
         .emp-info { display: flex; flex-direction: column; gap: 2px;} .emp-name { font-weight: 600; color: #0f172a; } .emp-dept { font-size: 11px; color: #64748b; }
         .leave-month-badge { font-size: 10px; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px; display: inline-block; width: fit-content; margin-top: 2px; }
         
-        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+        .status-badge-container { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; width: fit-content;}
         .status-Pending { background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; } .status-Approved { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; } .status-Rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+        .approved-by-text { font-size: 10px; color: #64748b; font-weight: 500; margin-left: 2px; }
+
         .leave-type { font-weight: 500; padding: 4px 8px; border-radius: 4px; background: #f1f5f9; color: #334155; font-size: 12px; }
         
         .action-container { display: flex; gap: 8px; }
@@ -222,6 +230,13 @@ if (!file_exists($sidebarPath)) {
         .modal-footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
         .btn { padding: 10px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; } .btn-outline { background: white; border: 1px solid var(--border); color: #334155; }
 
+        /* Approval Track UI */
+        .approval-track { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 15px; margin-bottom: 20px; }
+        .approval-track h6 { margin: 0 0 12px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .track-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+        .track-item:last-child { border-bottom: none; padding-bottom: 0; }
+        .track-item span { font-size: 13px; font-weight: 500; color: var(--text-main); }
+        
         @media (max-width: 992px) {
             .main-content { margin-left: 0; width: 100%; padding: 16px; }
         }
@@ -247,28 +262,28 @@ if (!file_exists($sidebarPath)) {
         <div class="stats-grid">
             <div class="stat-card card-pending">
                 <div class="stat-info">
-                    <h4>Pending Requests</h4>
+                    <h4>My Pending Tasks</h4>
                     <h2><?php echo $pending_count; ?></h2>
                 </div>
                 <div class="stat-icon"><i data-lucide="clock"></i></div>
             </div>
             <div class="stat-card card-approved">
                 <div class="stat-info">
-                    <h4>Approved</h4>
+                    <h4>Global Approved</h4>
                     <h2><?php echo $approved_count; ?></h2>
                 </div>
                 <div class="stat-icon"><i data-lucide="check-circle-2"></i></div>
             </div>
             <div class="stat-card card-rejected">
                 <div class="stat-info">
-                    <h4>Rejected</h4>
+                    <h4>Global Rejected</h4>
                     <h2><?php echo $rejected_count; ?></h2>
                 </div>
                 <div class="stat-icon"><i data-lucide="x-circle"></i></div>
             </div>
             <div class="stat-card card-total">
                 <div class="stat-info">
-                    <h4>Total Handled</h4>
+                    <h4>Total Team Requests</h4>
                     <h2><?php echo count($leave_requests); ?></h2>
                 </div>
                 <div class="stat-icon"><i data-lucide="users"></i></div>
@@ -329,19 +344,36 @@ if (!file_exists($sidebarPath)) {
                                     <td><?php echo date('d M Y', strtotime($leave['created_at'])); ?></td>
                                     <td>
                                         <?php 
-                                            $badgeClass = "status-" . $leave['display_status'];
-                                            $icon = ($leave['display_status'] == 'Approved') ? 'check' : (($leave['display_status'] == 'Rejected') ? 'x' : 'clock');
+                                            $badgeClass = "status-" . $leave['global_status'];
+                                            $icon = ($leave['global_status'] == 'Approved') ? 'check' : (($leave['global_status'] == 'Rejected') ? 'x' : 'clock');
                                         ?>
-                                        <span class="status-badge <?php echo $badgeClass; ?>"><i data-lucide="<?php echo $icon; ?>" style="width:10px;"></i> <?php echo $leave['display_status']; ?></span>
+                                        <div class="status-badge-container">
+                                            <span class="status-badge <?php echo $badgeClass; ?>"><i data-lucide="<?php echo $icon; ?>" style="width:10px;"></i> <?php echo $leave['global_status']; ?></span>
+                                            <?php if($leave['global_status'] !== 'Pending' && !empty($leave['approved_by'])): ?>
+                                                <span class="approved-by-text">by <?php echo htmlspecialchars($leave['approved_by']); ?></span>
+                                            <?php endif; ?>
+                                        </div>
                                     </td>
                                     <td>
                                         <div class="action-container">
-                                            <?php if($leave['display_status'] === 'Pending' && $leave['global_status'] !== 'Rejected'): ?>
+                                            <?php if($leave['global_status'] === 'Pending'): ?>
                                                 <button class="btn-icon btn-approve" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Approved')" title="Approve"><i data-lucide="check" style="width:16px;"></i></button>
                                                 <button class="btn-icon btn-reject" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Rejected')" title="Reject"><i data-lucide="x" style="width:16px;"></i></button>
                                             <?php endif; ?>
                                             
-                                            <button class="btn-icon" onclick="viewDetails('<?php echo htmlspecialchars(addslashes($leave['emp_name'])); ?>', '<?php echo htmlspecialchars($leave['leave_type']); ?>', '<?php echo date('d M Y', strtotime($leave['start_date'])) . ' - ' . date('d M Y', strtotime($leave['end_date'])); ?>', '<?php echo htmlspecialchars(addslashes($leave['reason'])); ?>', '<?php echo $leave['total_days']; ?>', '<?php echo $leave['current_month_leaves']; ?>')" title="View Details"><i data-lucide="eye" style="width:16px;"></i></button>
+                                            <button class="btn-icon" onclick="viewDetails(
+                                                '<?php echo htmlspecialchars(addslashes($leave['emp_name'])); ?>', 
+                                                '<?php echo htmlspecialchars($leave['leave_type']); ?>', 
+                                                '<?php echo date('d M Y', strtotime($leave['start_date'])) . ' - ' . date('d M Y', strtotime($leave['end_date'])); ?>', 
+                                                '<?php echo htmlspecialchars(addslashes($leave['reason'])); ?>', 
+                                                '<?php echo $leave['total_days']; ?>', 
+                                                '<?php echo $leave['current_month_leaves']; ?>',
+                                                '<?php echo $leave['global_status']; ?>',
+                                                '<?php echo htmlspecialchars(addslashes($leave['approved_by'] ?? '')); ?>',
+                                                '<?php echo $leave['tl_status']; ?>',
+                                                '<?php echo $leave['mgr_status']; ?>',
+                                                '<?php echo $leave['hr_status']; ?>'
+                                            )" title="View Details"><i data-lucide="eye" style="width:16px;"></i></button>
                                         </div>
                                     </td>
                                 </tr>
@@ -367,6 +399,23 @@ if (!file_exists($sidebarPath)) {
                 <i data-lucide="x" style="cursor:pointer; color:#94a3b8;" onclick="closeModal()"></i>
             </div>
             <div class="modal-body">
+                
+                <div class="approval-track" id="approvalTrackBox">
+                    <h6>Approval Chain Status</h6>
+                    <div class="track-item" id="trackTL">
+                        <span>Team Lead</span>
+                        <span id="mTlStatus" class="status-badge">--</span>
+                    </div>
+                    <div class="track-item" id="trackMgr">
+                        <span>Manager</span>
+                        <span id="mMgrStatus" class="status-badge">--</span>
+                    </div>
+                    <div class="track-item" id="trackHR">
+                        <span>HR Admin</span>
+                        <span id="mHrStatus" class="status-badge">--</span>
+                    </div>
+                </div>
+
                 <div class="detail-grid">
                     <div class="detail-item">
                         <label>Employee Name</label>
@@ -387,6 +436,10 @@ if (!file_exists($sidebarPath)) {
                     <div class="detail-item">
                         <label>Approved Leaves (This Month)</label>
                         <p id="mMonthLeaves" style="color:#2563eb; font-weight: 700;">--</p>
+                    </div>
+                    <div class="detail-item">
+                        <label>Final Global Status</label>
+                        <p id="mStatus" style="font-weight: 700; color: #0f172a;">--</p>
                     </div>
                 </div>
 
@@ -458,7 +511,10 @@ if (!file_exists($sidebarPath)) {
                 if(row.cells.length < 2) return; 
                 const name = row.querySelector('.emp-name').innerText.toLowerCase();
                 const lType = row.querySelector('td:nth-child(2)').innerText.toLowerCase();
-                const lStatus = row.querySelector('.status-badge').innerText.toLowerCase();
+                
+                // Get the text from the status badge container
+                const statusContainer = row.querySelector('.status-badge-container');
+                const lStatus = statusContainer ? statusContainer.innerText.toLowerCase() : '';
 
                 const matchesSearch = name.includes(search);
                 const matchesType = type === '' || lType.includes(type);
@@ -475,13 +531,44 @@ if (!file_exists($sidebarPath)) {
         // Modal Functionality
         const modal = document.getElementById('approvalModal');
 
-        function viewDetails(name, type, date, reason, days, monthLeaves) {
+        // Helper to set badge colors dynamically
+        function setBadge(elementId, status) {
+            const el = document.getElementById(elementId);
+            el.innerText = status;
+            el.className = 'status-badge status-' + status;
+        }
+
+        function viewDetails(name, type, date, reason, days, monthLeaves, status, approvedBy, tlStat, mgrStat, hrStat) {
             document.getElementById('mName').innerText = name;
             document.getElementById('mType').innerText = type;
             document.getElementById('mDate').innerText = date;
             document.getElementById('mReason').innerText = reason;
             document.getElementById('mDays').innerText = days + " Day(s)";
             document.getElementById('mMonthLeaves').innerText = monthLeaves + " Day(s)";
+            
+            // Set Approval Track Badges
+            setBadge('mTlStatus', tlStat);
+            setBadge('mMgrStatus', mgrStat);
+            setBadge('mHrStatus', hrStat);
+
+            // Hide pending tracks
+            document.getElementById('trackTL').style.display = (tlStat === 'Pending') ? 'none' : 'flex';
+            document.getElementById('trackMgr').style.display = (mgrStat === 'Pending') ? 'none' : 'flex';
+            document.getElementById('trackHR').style.display = (hrStat === 'Pending') ? 'none' : 'flex';
+
+            // Hide the entire box if no one has approved/rejected yet
+            const approvalBox = document.getElementById('approvalTrackBox');
+            if (tlStat === 'Pending' && mgrStat === 'Pending' && hrStat === 'Pending') {
+                approvalBox.style.display = 'none';
+            } else {
+                approvalBox.style.display = 'block';
+            }
+
+            let statusText = status;
+            if(status !== 'Pending' && approvedBy !== '') {
+                statusText += " (by " + approvedBy + ")";
+            }
+            document.getElementById('mStatus').innerText = statusText;
             
             modal.classList.add('active');
             document.body.style.overflow = 'hidden';
