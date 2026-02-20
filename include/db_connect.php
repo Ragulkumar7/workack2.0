@@ -8,7 +8,7 @@ if (!$conn) {
     // --- DATABASE CONFIGURATION ---
     $host = "srv1507.hstgr.io"; 
     $user = "u957189082_workacknew";
-    $pass = "Workack$2026";
+    $pass = "Workacknew$2026";
     $db   = "u957189082_workacknew";
 
     // Establish Connection
