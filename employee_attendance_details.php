@@ -38,11 +38,9 @@ $designation  = $profile_data['designation'] ?? "Staff";
 // --- DATE FILTER LOGIC ---
 $filter_date = isset($_GET['date']) ? $_GET['date'] : '';
 if($filter_date) {
-    // If a date is selected, show just that date
     $currentDateRange = date('d M Y', strtotime($filter_date));
     $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY date DESC";
 } else {
-    // Default: Last 7 Days
     $currentDateRange = date('d M Y', strtotime('-7 days')) . " - " . date('d M Y');
     $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 7 DAY) ORDER BY date DESC";
 }
@@ -71,21 +69,15 @@ $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
     $days_count++;
-    
-    // Calculate Production
     $prod = floatval($row['production_hours']);
     $total_production += $prod;
 
-    // Calculate Late
-    if ($row['status'] == 'Late') {
-        $late_days++;
-    }
+    if ($row['status'] == 'Late') { $late_days++; }
 
-    // Calculate Overtime (Threshold: 9 hours)
     $overtime = ($prod > 9) ? ($prod - 9) : 0;
     $total_overtime += $overtime;
 
-    // Calculate Break
+    // --- BREAK CALCULATION & DATABASE UPDATE LOGIC ---
     $break_min = 0;
     $daily_break_hours = 0;
     
@@ -98,6 +90,16 @@ while ($row = $result->fetch_assoc()) {
         if($daily_break_hours < 0) $daily_break_hours = 0;
         
         $break_min = round($daily_break_hours * 60);
+
+        // --- UPDATED DATABASE SYNC BLOCK ---
+        // Only update if the database value is currently empty
+        if (empty($row['break_time'])) {
+            $update_sql = "UPDATE attendance SET break_time = ? WHERE id = ?";
+            $update_stmt = $conn->prepare($update_sql);
+            $update_stmt->bind_param("si", $break_min, $row['id']);
+            $update_stmt->execute();
+            $update_stmt->close();
+        }
     }
 
     $sum_work += ($prod - $overtime);
@@ -123,7 +125,6 @@ $avg_production = ($days_count > 0) ? number_format($total_production / $days_co
 
 // D. Calculate Graph Percentages
 $grand_total_hours = $sum_work + $sum_break + $sum_overtime;
-
 if ($grand_total_hours > 0) {
     $pct_work = ($sum_work / $grand_total_hours) * 100;
     $pct_break = ($sum_break / $grand_total_hours) * 100;
@@ -156,12 +157,6 @@ if ($grand_total_hours > 0) {
         .bg-absent { background: #fee2e2; color: #991b1b; }
         .bg-late { background: #fee2e2; color: #b91c1c; }
         .modal-backdrop-custom { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
-        @keyframes pulse-orange {
-            0% { box-shadow: 0 0 0 0 rgba(255, 165, 0, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(255, 165, 0, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(255, 165, 0, 0); }
-        }
-        .break-active { animation: pulse-orange 2s infinite; }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -187,22 +182,22 @@ if ($grand_total_hours > 0) {
         <div class="grid grid-cols-12 gap-6 mb-8">
             <div class="col-span-12 lg:col-span-3 card p-6 text-center shadow-md h-fit">
                 <div class="flex justify-end mb-2">
-                    <span id="systemStatus" class="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-1 rounded">MANAGEMENT VIEW</span>
+                    <span class="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-1 rounded">MANAGEMENT VIEW</span>
                 </div>
                 <div class="w-24 h-24 rounded-full border-4 border-orange-500 p-1 mx-auto mb-4 relative">
                     <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($employeeName); ?>&background=random" class="rounded-full w-full h-full object-cover">
-                    <div id="activeIndicator" class="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 border-2 border-white rounded-full"></div>
+                    <div class="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 border-2 border-white rounded-full"></div>
                 </div>
                 <h2 class="text-lg font-bold text-slate-800"><?php echo htmlspecialchars($employeeName); ?></h2>
                 <p class="text-slate-500 text-xs mb-6"><?php echo htmlspecialchars($designation); ?> (<?php echo htmlspecialchars($employeeID); ?>)</p>
                 
-                <div id="statusTag" class="bg-slate-100 text-slate-500 py-2 px-4 rounded-md mb-4 text-sm font-medium transition-all shadow-sm">
+                <div class="bg-slate-100 text-slate-500 py-2 px-4 rounded-md mb-4 text-sm font-medium shadow-sm">
                     Status: Tracking History
                 </div>
 
                 <div class="bg-slate-50 rounded-xl p-3 mt-6 border border-slate-100">
                     <p class="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Total Production (Period)</p>
-                    <p class="text-xl font-bold text-slate-800" id="liveTimer"><?php echo number_format($total_production, 2); ?> Hrs</p>
+                    <p class="text-xl font-bold text-slate-800"><?php echo number_format($total_production, 2); ?> Hrs</p>
                 </div>
             </div>
 
@@ -211,47 +206,18 @@ if ($grand_total_hours > 0) {
                     <div class="card p-4 border-l-4 border-orange-500">
                         <p class="text-slate-400 text-xs font-bold uppercase">Avg. Production</p>
                         <h3 class="text-2xl font-bold"><?php echo $avg_production; ?> <small class="text-slate-400 font-normal">Hrs</small></h3>
-                        <p class="text-emerald-500 text-[10px] font-bold mt-2"><i class="fa fa-chart-line"></i> Dynamic Stat</p>
                     </div>
                     <div class="card p-4 border-l-4 border-blue-500">
                         <p class="text-slate-400 text-xs font-bold uppercase">Late Logins</p>
                         <h3 class="text-2xl font-bold"><?php echo sprintf("%02d", $late_days); ?> <small class="text-slate-400 font-normal">Days</small></h3>
-                        <p class="text-red-500 text-[10px] font-bold mt-2">Total Flagged</p>
                     </div>
                     <div class="card p-4 border-l-4 border-emerald-500">
                         <p class="text-slate-400 text-xs font-bold uppercase">Total Attendance</p>
                         <h3 class="text-2xl font-bold"><?php echo ($days_count > 0) ? '100%' : '0%'; ?></h3>
-                        <p class="text-slate-400 text-[10px] font-bold mt-2">Annual Record</p>
                     </div>
                     <div class="card p-4 border-l-4 border-purple-500">
                         <p class="text-slate-400 text-xs font-bold uppercase">Overtime</p>
                         <h3 class="text-2xl font-bold"><?php echo number_format($total_overtime, 1); ?> <small class="text-slate-400 font-normal">Hrs</small></h3>
-                        <p class="text-blue-500 text-[10px] font-bold mt-2">Approved</p>
-                    </div>
-                </div>
-
-                <div class="card p-6">
-                    <div class="flex justify-between items-center mb-6">
-                        <h4 class="font-bold text-slate-700">Weekly Performance</h4>
-                        <span class="text-xs text-slate-400 italic">Target: 9 Hrs / Day</span>
-                    </div>
-                    
-                    <?php if($grand_total_hours > 0): ?>
-                        <div class="h-12 w-full bg-slate-100 rounded-2xl flex overflow-hidden p-1.5 border border-slate-200">
-                            <div class="h-full bg-emerald-500 rounded-xl shadow-sm transition-all duration-700 ease-out" style="width: <?php echo $pct_work; ?>%" title="Production: <?php echo round($pct_work); ?>%"></div>
-                            <div class="h-full bg-amber-400 rounded-xl mx-1 shadow-sm transition-all duration-700 ease-out" style="width: <?php echo $pct_break; ?>%" title="Breaks: <?php echo round($pct_break); ?>%"></div>
-                            <div class="h-full bg-blue-500 rounded-xl shadow-sm transition-all duration-700 ease-out" style="width: <?php echo $pct_overtime; ?>%" title="Overtime: <?php echo round($pct_overtime); ?>%"></div>
-                        </div>
-                    <?php else: ?>
-                        <div class="h-12 w-full bg-slate-50 rounded-2xl flex items-center justify-center border border-slate-100 text-slate-300 text-xs font-semibold">
-                            No performance data recorded yet
-                        </div>
-                    <?php endif; ?>
-
-                    <div class="flex justify-between text-[10px] text-slate-400 font-bold px-2 mt-2 tracking-widest uppercase">
-                        <span>Working (<?php echo round($pct_work); ?>%)</span>
-                        <span>Break (<?php echo round($pct_break); ?>%)</span>
-                        <span>Overtime (<?php echo round($pct_overtime); ?>%)</span>
                     </div>
                 </div>
 
@@ -261,26 +227,20 @@ if ($grand_total_hours > 0) {
                         <div class="flex items-center gap-2">
                             <form action="" method="GET" class="flex items-center">
                                 <input type="hidden" name="id" value="<?php echo $view_user_id; ?>">
-                                <input type="date" name="date" class="pl-4 pr-2 py-2 border border-slate-200 rounded-lg text-xs font-semibold bg-slate-50 cursor-pointer hover:bg-slate-100 focus:outline-none focus:border-orange-500 transition-colors" 
+                                <input type="date" name="date" class="pl-4 pr-2 py-2 border border-slate-200 rounded-lg text-xs font-semibold bg-slate-50 cursor-pointer" 
                                        value="<?php echo isset($_GET['date']) ? $_GET['date'] : ''; ?>" 
-                                       onchange="this.form.submit()" 
-                                       title="Select a date to filter records">
-                                
-                                <?php if(isset($_GET['date'])): ?>
-                                    <a href="employee_attendance_details.php?id=<?php echo $view_user_id; ?>" class="ml-2 text-xs text-red-500 font-bold hover:underline">Clear Filter</a>
-                                <?php endif; ?>
+                                       onchange="this.form.submit()">
                             </form>
-                            
                             <span class="text-xs text-slate-400 font-medium ml-2 border-l pl-2 border-slate-200">
                                 <?php echo $currentDateRange; ?>
                             </span>
                         </div>
                     </div>
                     <div class="table-responsive">
-                        <table class="table table-hover mb-0" id="attendanceTable">
+                        <table class="table table-hover mb-0">
                             <thead>
                                 <tr>
-                                    <th>Date</th><th>Check In</th><th>Check Out</th><th>Status</th><th>Production</th><th>Late</th><th>Overtime</th><th class="text-center">Action</th>
+                                    <th>Date</th><th>Check In</th><th>Check Out</th><th>Status</th><th>Break Time</th><th>Production</th><th>Late</th><th>Overtime</th><th class="text-center">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
@@ -296,10 +256,9 @@ if ($grand_total_hours > 0) {
                                             if($row['status'] == 'Absent') $pillClass = 'bg-absent';
                                             if($row['status_raw'] == 'Late') $pillClass = 'bg-late';
                                             ?>
-                                            <span class="status-pill <?php echo $pillClass; ?>">
-                                                <?php echo $row['status']; ?>
-                                            </span>
+                                            <span class="status-pill <?php echo $pillClass; ?>"><?php echo $row['status']; ?></span>
                                         </td>
+                                        <td><span class="text-amber-600 font-semibold"><?php echo $row['break']; ?></span></td>
                                         <td><span class="font-bold text-slate-800"><?php echo $row['production']; ?></span></td>
                                         <td class="<?php echo $row['late'] != '-' ? 'text-red-500 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['late']; ?></td>
                                         <td class="<?php echo $row['overtime'] != '-' ? 'text-blue-600 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['overtime']; ?></td>
@@ -311,7 +270,7 @@ if ($grand_total_hours > 0) {
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
-                                    <tr><td colspan="8" class="text-center p-4 text-slate-400">No attendance records found for this period.</td></tr>
+                                    <tr><td colspan="9" class="text-center p-4 text-slate-400">No attendance records found for this period.</td></tr>
                                 <?php endif; ?>
                             </tbody>
                         </table>
@@ -342,24 +301,19 @@ if ($grand_total_hours > 0) {
     </div>
 
     <script>
-        lucide.createIcons();
         const reportModal = document.getElementById('reportDetailModal');
-
         function openReportModal(data) {
             document.getElementById('detDate').innerText = data.date;
             document.getElementById('detIn').innerText = data.checkin;
             document.getElementById('detOut').innerText = data.checkout;
             document.getElementById('detStatus').innerText = data.status;
-            
             reportModal.classList.remove('hidden');
             reportModal.classList.add('flex');
         }
-
         function closeReportModal() {
             reportModal.classList.add('hidden');
             reportModal.classList.remove('flex');
         }
-
         window.onclick = function(event) {
             if (event.target == reportModal) closeReportModal();
         }
