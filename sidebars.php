@@ -91,7 +91,7 @@ $sections = [
                 'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                 'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR']
             ],
             
             // --- ATTENDANCE (HR& HR Executive) ---
@@ -107,6 +107,16 @@ $sections = [
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
                     ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
+                ]
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['HR Executive'],
+                'subItems' => [
+                    ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
+                    ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_approval_tl.php', 'icon' => 'replce'],
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                 ]
             ],
             //Only manger  attendance management and timesheet
@@ -133,6 +143,7 @@ $sections = [
                 'subItems' => [
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_approval_tl.php', 'icon' => 'replce'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
@@ -148,7 +159,8 @@ $sections = [
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
-                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home']
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'shift_swap_request.php', 'icon' => 'arrow-left-right'],
                 ]
             ],
 
