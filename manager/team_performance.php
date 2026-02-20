@@ -31,7 +31,6 @@ function calculateGrade($score) {
 }
 
 // 2. FETCH TEAM LEADS AND THEIR PERFORMANCE
-// FIXED: Changed from tl_performance to employee_performance to use the new unified table structure
 $tl_query = "
     SELECT u.id as tl_id, 
            COALESCE(u.name, ep.full_name) as tl_name, 
@@ -135,7 +134,13 @@ if ($tl_result) {
                     <div class="bg-slate-800 p-5 flex justify-between items-center">
                         <div class="flex items-center gap-4">
                             <?php 
-                                $tl_img_src = !empty($tl['tl_img']) ? $tl['tl_img'] : 'https://ui-avatars.com/api/?name='.urlencode($tl['tl_name']).'&background=random';
+                                // FIXED: Team Lead Image Resolver
+                                $tl_img_src = $tl['tl_img'];
+                                if(empty($tl_img_src) || $tl_img_src === 'default_user.png') {
+                                    $tl_img_src = 'https://ui-avatars.com/api/?name='.urlencode($tl['tl_name'] ?? 'User').'&background=random';
+                                } elseif (!str_starts_with($tl_img_src, 'http') && strpos($tl_img_src, 'assets/profiles/') === false) {
+                                    $tl_img_src = '../assets/profiles/' . $tl_img_src; 
+                                }
                             ?>
                             <img src="<?php echo $tl_img_src; ?>" class="w-12 h-12 rounded-full border-2 border-white shadow-sm object-cover">
                             <div>
@@ -146,7 +151,7 @@ if ($tl_result) {
                     </div>
 
                     <?php
-                        // FIXED: Replaced the team_members query with the new joined employee_profiles/employee_performance query
+                        // Fetching team members
                         $tm_query = "
                             SELECT ep.user_id as id, 
                                    ep.full_name, 
@@ -187,7 +192,14 @@ if ($tl_result) {
                                     <?php foreach($members as $emp): 
                                         $grade = ($emp['performance'] && $emp['performance'] !== 'N/A') ? $emp['performance'] : calculateGrade($emp['performance_score']);
                                         $badgeClass = getBadgeClass($grade);
-                                        $emp_img = (!empty($emp['profile_image']) && $emp['profile_image'] !== 'default_user.png') ? $emp['profile_image'] : 'https://ui-avatars.com/api/?name='.urlencode($emp['full_name']).'&background=random';
+                                        
+                                        // FIXED: Team Member Image Resolver
+                                        $emp_img = $emp['profile_image'];
+                                        if(empty($emp_img) || $emp_img === 'default_user.png') {
+                                            $emp_img = 'https://ui-avatars.com/api/?name='.urlencode($emp['full_name'] ?? 'User').'&background=random';
+                                        } elseif (!str_starts_with($emp_img, 'http') && strpos($emp_img, 'assets/profiles/') === false) {
+                                            $emp_img = '../assets/profiles/' . $emp_img; 
+                                        }
                                         
                                         // Package employee data securely for JS
                                         $empData = [
