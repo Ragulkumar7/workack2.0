@@ -178,6 +178,7 @@ $sections = [
                 'path' => $base . 'IT_Executive/stock_maintenance.php', // File path-ai check seithu kollungal
                 'icon' => 'package', // Lucide icon for stock/package
                 'allowed' => ['IT Admin', 'IT Executive']
+            ],
             // --- TASK MANAGEMENT ---
             [
                 'name' => 'Task Management', 
