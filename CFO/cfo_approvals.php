@@ -16,9 +16,18 @@ if (!isset($conn) || $conn === null) { die("Database connection failed."); }
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
     $id = intval($_POST['id']);
-    $newStatus = ($_POST['action'] === 'Approve') ? 'Approved' : 'Rejected';
+    $type = $_POST['type'] ?? '';
+    $action = $_POST['action'];
 
-    $updateSql = "UPDATE invoices SET status = '$newStatus' WHERE id = $id";
+    // Determine which table to update based on the request type
+    if ($type === 'Purchase Order') {
+        $newStatus = ($action === 'Approve') ? 'Approved' : 'Rejected';
+        $updateSql = "UPDATE purchase_orders SET approval_status = '$newStatus' WHERE id = $id";
+    } else {
+        $newStatus = ($action === 'Approve') ? 'Approved' : 'Rejected';
+        $updateSql = "UPDATE invoices SET status = '$newStatus' WHERE id = $id";
+    }
+
     if (mysqli_query($conn, $updateSql)) {
         echo json_encode(['status' => 'success']);
     } else {
@@ -31,10 +40,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // 3. FETCH REAL DATA FROM DB
 // =========================================================================
 
-// Fetch Summary Counts
-$pendingPosCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as cnt FROM invoices WHERE status = 'Pending Approval' AND invoice_no LIKE 'PO%'"))['cnt'] ?? 0;
-$pendingInvsCount = mysqli_fetch_assoc(mysqli_query($conn, "SELECT COUNT(*) as cnt FROM invoices WHERE status = 'Pending Approval' AND invoice_no LIKE 'INV%'"))['cnt'] ?? 0;
-$totalPendingVal = mysqli_fetch_assoc(mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status = 'Pending Approval'"))['val'] ?? 0;
+// Fetch Summary Counts (Using @ to suppress warnings if tables are missing)
+$pendingPosCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM purchase_orders WHERE approval_status = 'Pending'"))['cnt'] ?? 0;
+$pendingInvsCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM invoices WHERE status = 'Pending Approval'"))['cnt'] ?? 0;
+
+$valPOs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM purchase_orders WHERE approval_status = 'Pending'"))['val'] ?? 0;
+$valInvs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status = 'Pending Approval'"))['val'] ?? 0;
+$totalPendingVal = $valPOs + $valInvs;
 
 $summary = [
     'pending_pos' => $pendingPosCount,
@@ -42,40 +54,80 @@ $summary = [
     'total_pending_value' => $totalPendingVal
 ];
 
-// Fetch Actual Pending Requests (Join with clients table to get name)
+// Fetch Actual Pending Requests
 $pending_requests = [];
-$resPending = mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i 
-                                   JOIN clients c ON i.client_id = c.id 
-                                   WHERE i.status = 'Pending Approval' 
-                                   ORDER BY i.created_at DESC");
-while($row = mysqli_fetch_assoc($resPending)) {
-    $pending_requests[] = [
-        'id_db' => $row['id'], // Real DB Primary Key
-        'id' => $row['invoice_no'], 
-        'type' => (strpos($row['invoice_no'], 'INV') !== false) ? 'Invoice' : 'Purchase Order',
-        'vendor_client' => $row['client_name'],
-        'by' => 'Accountant', // You can link this to a user table later
-        'amount' => $row['grand_total'],
-        'date' => date('d-M-Y', strtotime($row['invoice_date']))
-    ];
+
+// Get Purchase Orders
+$resPendingPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status = 'Pending' ORDER BY created_at DESC");
+if($resPendingPOs) {
+    while($row = mysqli_fetch_assoc($resPendingPOs)) {
+        $pending_requests[] = [
+            'id_db' => $row['id'],
+            'id' => $row['po_number'], 
+            'type' => 'Purchase Order',
+            'vendor_client' => $row['vendor_name'],
+            'by' => 'Accountant',
+            'amount' => $row['grand_total'],
+            'date' => date('d-M-Y', strtotime($row['po_date']))
+        ];
+    }
 }
+
+// Get Invoices
+$resPendingInvs = @mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status = 'Pending Approval' ORDER BY i.created_at DESC");
+if($resPendingInvs) {
+    while($row = mysqli_fetch_assoc($resPendingInvs)) {
+        $pending_requests[] = [
+            'id_db' => $row['id'],
+            'id' => $row['invoice_no'], 
+            'type' => 'Invoice',
+            'vendor_client' => $row['client_name'],
+            'by' => 'Accountant', 
+            'amount' => $row['grand_total'],
+            'date' => date('d-M-Y', strtotime($row['invoice_date']))
+        ];
+    }
+}
+
+// Sort combined pending requests by date (newest first)
+usort($pending_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
+
 
 // Fetch Real Approval History
 $history_requests = [];
-$resHistory = mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i 
-                                   JOIN clients c ON i.client_id = c.id 
-                                   WHERE i.status IN ('Approved', 'Rejected') 
-                                   ORDER BY i.created_at DESC LIMIT 10");
-while($row = mysqli_fetch_assoc($resHistory)) {
-    $history_requests[] = [
-        'id' => $row['invoice_no'],
-        'type' => (strpos($row['invoice_no'], 'INV') !== false) ? 'Invoice' : 'Purchase Order',
-        'vendor_client' => $row['client_name'],
-        'amount' => $row['grand_total'],
-        'status' => $row['status'],
-        'date' => date('d-M-Y', strtotime($row['invoice_date']))
-    ];
+
+// Get History Purchase Orders
+$resHistoryPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 10");
+if($resHistoryPOs) {
+    while($row = mysqli_fetch_assoc($resHistoryPOs)) {
+        $history_requests[] = [
+            'id' => $row['po_number'],
+            'type' => 'Purchase Order',
+            'vendor_client' => $row['vendor_name'],
+            'amount' => $row['grand_total'],
+            'status' => $row['approval_status'],
+            'date' => date('d-M-Y', strtotime($row['po_date']))
+        ];
+    }
 }
+
+// Get History Invoices
+$resHistoryInvs = @mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status IN ('Approved', 'Rejected') ORDER BY i.created_at DESC LIMIT 10");
+if($resHistoryInvs) {
+    while($row = mysqli_fetch_assoc($resHistoryInvs)) {
+        $history_requests[] = [
+            'id' => $row['invoice_no'],
+            'type' => 'Invoice',
+            'vendor_client' => $row['client_name'],
+            'amount' => $row['grand_total'],
+            'status' => $row['status'],
+            'date' => date('d-M-Y', strtotime($row['invoice_date']))
+        ];
+    }
+}
+
+// Sort combined history requests by date
+usort($history_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
 include '../sidebars.php'; 
 include '../header.php';
@@ -198,7 +250,7 @@ include '../header.php';
                         ?>
                         <tr id="row-<?= $req['id'] ?>">
                             <td>
-                                <a class="req-id" onclick="openDetailsModal('<?= $req['id'] ?>', '<?= $req['type'] ?>', '<?= $req['vendor_client'] ?>', '<?= $req['amount'] ?>')">
+                                <a class="req-id" onclick="openDetailsModal('<?= $req['id'] ?>', '<?= $req['type'] ?>', '<?= htmlspecialchars($req['vendor_client'], ENT_QUOTES) ?>', '<?= $req['amount'] ?>')">
                                     <i class="ph <?= $icon ?>"></i> <?= $req['id'] ?>
                                 </a>
                                 <div style="font-size:11px; color:var(--text-muted); margin-top:4px;"><?= $req['type'] ?></div>
@@ -209,8 +261,8 @@ include '../header.php';
                             <td class="amount-col">₹<?= number_format($req['amount'], 2) ?></td>
                             <td>
                                 <div class="action-btns">
-                                    <button class="btn-sm btn-approve" onclick="openActionModal('<?= $req['id_db'] ?>', '<?= $req['id'] ?>', 'Approve')"><i class="ph ph-check"></i> Approve</button>
-                                    <button class="btn-sm btn-reject" onclick="openActionModal('<?= $req['id_db'] ?>', '<?= $req['id'] ?>', 'Reject')"><i class="ph ph-x"></i> Reject</button>
+                                    <button class="btn-sm btn-approve" onclick="openActionModal('<?= $req['id_db'] ?>', '<?= $req['id'] ?>', 'Approve', '<?= $req['type'] ?>')"><i class="ph ph-check"></i> Approve</button>
+                                    <button class="btn-sm btn-reject" onclick="openActionModal('<?= $req['id_db'] ?>', '<?= $req['id'] ?>', 'Reject', '<?= $req['type'] ?>')"><i class="ph ph-x"></i> Reject</button>
                                 </div>
                             </td>
                         </tr>
@@ -239,7 +291,7 @@ include '../header.php';
                             <td><span class="status-badge <?= $badge ?>"><i class="ph <?= $icon ?>"></i> <?= $hist['status'] ?></span></td>
                             <td style="text-align: right;">
                                 <?php if($hist['status'] == 'Approved'): ?>
-                                <button class="btn-sm btn-view" onclick="printApprovedDocument('<?= $hist['id'] ?>', '<?= $hist['type'] ?>', '<?= $hist['vendor_client'] ?>', '<?= $hist['amount'] ?>', '<?= $hist['date'] ?>')"><i class="ph ph-printer"></i> Print</button>
+                                <button class="btn-sm btn-view" onclick="printApprovedDocument('<?= $hist['id'] ?>', '<?= $hist['type'] ?>', '<?= htmlspecialchars($hist['vendor_client'], ENT_QUOTES) ?>', '<?= $hist['amount'] ?>', '<?= $hist['date'] ?>')"><i class="ph ph-printer"></i> Print</button>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -259,6 +311,7 @@ include '../header.php';
             <input type="hidden" id="activeDbId">
             <input type="hidden" id="activeInvoiceNo">
             <input type="hidden" id="activeAction">
+            <input type="hidden" id="activeReqType">
             <div class="form-group"><label>Remarks (Mandatory for Rejection)</label><textarea id="actionRemarks" rows="3"></textarea></div>
         </div>
         <div class="modal-footer">
@@ -287,10 +340,12 @@ include '../header.php';
 
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-    function openActionModal(dbId, invoiceNo, action) {
+    // Updated openActionModal to accept and pass the reqType (Invoice or Purchase Order)
+    function openActionModal(dbId, invoiceNo, action, reqType) {
         document.getElementById('activeDbId').value = dbId;
         document.getElementById('activeInvoiceNo').value = invoiceNo;
         document.getElementById('activeAction').value = action;
+        document.getElementById('activeReqType').value = reqType;
         document.getElementById('modalReqId').textContent = invoiceNo;
         
         const text = document.getElementById('modalActionText');
@@ -305,6 +360,7 @@ include '../header.php';
         const dbId = document.getElementById('activeDbId').value;
         const invoiceNo = document.getElementById('activeInvoiceNo').value;
         const action = document.getElementById('activeAction').value;
+        const reqType = document.getElementById('activeReqType').value;
         const remarks = document.getElementById('actionRemarks').value.trim();
 
         if (action === 'Reject' && remarks === '') { alert("Please provide a reason."); return; }
@@ -312,6 +368,7 @@ include '../header.php';
         const formData = new FormData();
         formData.append('id', dbId);
         formData.append('action', action);
+        formData.append('type', reqType);
         formData.append('remarks', remarks);
 
         fetch('', { method: 'POST', body: formData })

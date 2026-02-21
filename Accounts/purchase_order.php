@@ -1,7 +1,82 @@
 <?php 
+include '../include/db_connect.php'; 
+
+// --- BACKEND LOGIC: Handle PO Deletion ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'delete_po') {
+    $id = intval($_POST['id']);
+    if (mysqli_query($conn, "DELETE FROM purchase_orders WHERE id = $id")) {
+        echo "success";
+    } else {
+        echo "error";
+    }
+    exit;
+}
+
+// --- BACKEND LOGIC: Fetch PO Items for View Modal ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'get_po_details') {
+    $id = intval($_POST['id']);
+    $query = mysqli_query($conn, "SELECT pi.*, p.po_number FROM po_line_items pi JOIN purchase_orders p ON pi.po_number = p.po_number WHERE p.id = $id");
+    $items = [];
+    while($row = mysqli_fetch_assoc($query)) { $items[] = $row; }
+    echo json_encode($items);
+    exit;
+}
+
+// --- BACKEND LOGIC: Save the PO Data to the Database ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['po_no'])) {
+    $po_no = mysqli_real_escape_string($conn, $_POST['po_no']);
+    $po_date = mysqli_real_escape_string($conn, $_POST['po_date']);
+    $vendor_name = mysqli_real_escape_string($conn, $_POST['shop_name']);
+    $vendor_gstin = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
+    $expected_delivery = mysqli_real_escape_string($conn, $_POST['delivery_date'] ?? null);
+    $po_status = mysqli_real_escape_string($conn, $_POST['status']);
+    $payment_mode = mysqli_real_escape_string($conn, $_POST['payment_mode']);
+    $remark = mysqli_real_escape_string($conn, $_POST['remark'] ?? '');
+    
+    $net_total = floatval($_POST['net_total'] ?? 0);
+    $tax_amount = floatval($_POST['tax_amount'] ?? 0);
+    $freight_charges = floatval($_POST['transport_charges'] ?? 0);
+    $grand_total = floatval($_POST['grand_total'] ?? 0);
+    $paid_amount = floatval($_POST['paid_amount'] ?? 0);
+    $balance_amount = floatval($_POST['balance_amount'] ?? 0);
+
+    $insert_po = "INSERT INTO purchase_orders 
+        (po_number, po_date, vendor_name, vendor_gstin, expected_delivery, po_status, payment_mode, terms_conditions, net_total, tax_amount, freight_charges, grand_total, paid_amount, balance_amount, approval_status) 
+        VALUES 
+        ('$po_no', '$po_date', '$vendor_name', '$vendor_gstin', '$expected_delivery', '$po_status', '$payment_mode', '$remark', '$net_total', '$tax_amount', '$freight_charges', '$grand_total', '$paid_amount', '$balance_amount', 'Pending')";
+
+    if (mysqli_query($conn, $insert_po)) {
+        if (isset($_POST['materials']) && is_array($_POST['materials'])) {
+            $count = count($_POST['materials']);
+            for ($i = 0; $i < $count; $i++) {
+                $material = mysqli_real_escape_string($conn, $_POST['materials'][$i]);
+                $item_code = mysqli_real_escape_string($conn, $_POST['item_code'][$i] ?? '');
+                $hsn_code = mysqli_real_escape_string($conn, $_POST['hsn_code'][$i] ?? '');
+                $qty = floatval($_POST['qtys'][$i] ?? 0);
+                $unit = mysqli_real_escape_string($conn, $_POST['unit'][$i] ?? '');
+                $price = floatval($_POST['prices'][$i] ?? 0);
+                $discount = floatval($_POST['discount'][$i] ?? 0);
+                $gst = floatval($_POST['gst_percent'][$i] ?? 0);
+                $line_total = floatval($_POST['totals'][$i] ?? 0);
+
+                if (!empty($material)) {
+                    $insert_item = "INSERT INTO po_line_items 
+                        (po_number, item_description, item_code, hsn_code, quantity, unit, rate, discount_percent, gst_percent, line_total) 
+                        VALUES 
+                        ('$po_no', '$material', '$item_code', '$hsn_code', '$qty', '$unit', '$price', '$discount', '$gst', '$line_total')";
+                    mysqli_query($conn, $insert_item);
+                }
+            }
+        }
+        echo "success";
+    } else {
+        echo "error: " . mysqli_error($conn);
+    }
+    exit;
+}
+
 include '../sidebars.php'; 
 include '../header.php';
-// Commented out includes for testing purposes, uncomment in your real file
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -15,7 +90,6 @@ include '../header.php';
 
     <style>
         :root {
-            /* Sidebar Variables (from Code 1) */
             --sidebar-bg: #0f172a;
             --accent: #d4af37;
             --accent-hover: #c19b2e;
@@ -25,141 +99,32 @@ include '../header.php';
             --hover-bg: rgba(255, 255, 255, 0.08);
             --border-color: rgba(255, 255, 255, 0.1);
             --sidebar-width: 280px;
-
-            /* UI Variables (from Code 2) */
             --primary-color: #1b5a5a;
             --accent-gold: #D4AF37;
             --bg-light: #f8fafc;
             --border: #e4e4e7;
         }
 
-        body { 
-            background-color: var(--bg-light); 
-            font-family: "Plus Jakarta Sans", sans-serif; 
-            color: #1e293b; 
-            margin: 0;
-            padding: 0;
-        }
+        body { background-color: var(--bg-light); font-family: "Plus Jakarta Sans", sans-serif; color: #1e293b; margin: 0; padding: 0; }
 
-        /* --- SIDEBAR STYLES (From Code 1) --- */
-        .sidebar {
-            width: var(--sidebar-width);
-            height: 95vh;
-            background: var(--sidebar-bg);
-            color: var(--text-main);
-            display: flex;
-            flex-direction: column;
-            margin: 2.5vh 0 0 1.5vw;
-            border-radius: 24px;
-            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
-            position: fixed;
-            left: 0;
-            top: 0;
-            overflow: hidden;
-            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-            z-index: 1000;
-        }
-
-        .logo-area { padding: 25px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border-color); }
-        .logo-image { width: 50px; height: 50px; border-radius: 10px; object-fit: cover; box-shadow: 0 0 15px var(--accent-glow); }
-        .logo-text { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; color: white; }
-        .logo-text span { color: var(--accent); }
-
-        .lang-switcher-container { padding: 15px 25px; border-bottom: 1px solid var(--border-color); }
-        .lang-switch { display: flex; background: rgba(255, 255, 255, 0.05); padding: 4px; border-radius: 12px; position: relative; border: 1px solid var(--border-color); }
-        .lang-btn { flex: 1; padding: 8px 0; border: none; background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 700; cursor: pointer; z-index: 2; transition: color 0.3s ease; text-align: center; }
-        .lang-btn.active { color: var(--sidebar-bg); }
-        .lang-slider { position: absolute; width: calc(50% - 4px); height: calc(100% - 8px); background: var(--accent); border-radius: 8px; top: 4px; left: 4px; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 1; }
-        body.lang-ta .lang-slider { transform: translateX(100%); }
-
-        .nav-scroll { flex: 1; overflow-y: auto; padding: 20px 15px; scrollbar-width: none; -ms-overflow-style: none; }
-        .nav-scroll::-webkit-scrollbar { display: none; }
-        .nav-list { list-style: none; padding: 0; margin: 0; }
-        .nav-item { margin-bottom: 5px; }
-        .nav-link { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-radius: 12px; color: var(--text-muted); text-decoration: none; transition: all 0.3s ease; cursor: pointer; font-weight: 500; font-size: 14px; }
-        .nav-link-content { display: flex; align-items: center; gap: 12px; }
-        .nav-link i { font-size: 20px; }
-        .chevron { font-size: 14px !important; transition: transform 0.3s; }
-        .nav-link:hover { background: var(--hover-bg); color: white; padding-left: 20px; }
-
-        .submenu { max-height: 0; overflow: hidden; transition: max-height 0.4s ease-out; padding-left: 15px; position: relative; list-style: none; margin: 0; }
-        .submenu::before { content: ""; position: absolute; left: 33px; top: 0; bottom: 0; width: 2px; background: rgba(255, 255, 255, 0.05); }
-        .submenu-link { display: flex; align-items: center; padding: 10px 15px 10px 25px; color: var(--text-muted); font-size: 13px; text-decoration: none; margin: 2px 0; border-radius: 8px; transition: 0.2s; position: relative; }
-        .submenu-link:hover { color: white; background: rgba(255, 255, 255, 0.03); }
-
-        .nav-item.open > .submenu { max-height: 800px; }
-        .nav-item.open > .nav-link .chevron { transform: rotate(180deg); color: white; }
-        .nav-item.open > .nav-link { color: white; background: var(--hover-bg); }
-        .submenu-link.active-sub { color: var(--accent); font-weight: 600; background: rgba(255, 255, 255, 0.03); }
-
-        .user-profile { padding: 20px; background: rgba(0, 0, 0, 0.2); border-top: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px; }
-        .user-img { width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; }
-        .user-info h4 { font-size: 14px; color: white; margin: 0; }
-        .user-info p { font-size: 11px; color: var(--text-muted); margin: 0; }
-
-        /* --- MAIN CONTENT & UI STYLES (From Code 2 + Merged Logic) --- */
-        .main-content {
-            margin-left: 95px; /* Added to prevent overlap with your external sidebar */
-            padding: 30px;
-            transition: all 0.3s ease;
-            min-height: 100vh;
-        }
-
+        .main-content { margin-left: 95px; padding: 30px; transition: all 0.3s ease; min-height: 100vh; }
         .header-section { margin-bottom: 25px; }
         .header-section h2 { color: var(--primary-color); font-weight: 700; margin: 0; }
         .header-section p { color: #71717a; font-size: 13px; margin: 5px 0 0; }
 
-        .card { 
-            background: #fff; 
-            border-radius: 12px; 
-            border: 1px solid var(--border); 
-            margin-bottom: 30px; 
-            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
-            overflow: hidden;
-        }
-
-        .card-header { 
-            background: var(--primary-color); 
-            padding: 15px 25px; 
-            border-bottom: 3px solid var(--accent-gold); 
-        }
+        .card { background: #fff; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); overflow: hidden; }
+        .card-header { background: var(--primary-color); padding: 15px 25px; border-bottom: 3px solid var(--accent-gold); }
         .card-header h3 { color: #fff; margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;}
-
         .card-body { padding: 25px; }
 
-        .form-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 20px; 
-        }
-
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
         .form-group { display: flex; flex-direction: column; gap: 6px; }
         label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #52525b; }
-        
-        input, select, textarea { 
-            padding: 10px; 
-            border: 1px solid var(--border); 
-            border-radius: 8px; 
-            font-size: 13px; 
-            outline: none; 
-            background: #fff;
-            color: #3f3f46;
-            font-family: inherit;
-        }
+        input, select, textarea { padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: #fff; color: #3f3f46; font-family: inherit; }
         input:focus, select:focus, textarea:focus { border-color: var(--primary-color); }
         input[readonly] { background: #f4f4f5; }
 
-        .section-title { 
-            font-size: 14px; 
-            font-weight: 700; 
-            color: var(--primary-color); 
-            margin: 25px 0 15px; 
-            padding-bottom: 8px; 
-            border-bottom: 1px dashed var(--border); 
-        }
-
-        /* Merged Custom Form Components */
+        .section-title { font-size: 14px; font-weight: 700; color: var(--primary-color); margin: 25px 0 15px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
         .stacked-input-container { display: flex; flex-direction: column; }
         .stacked-input-container input:first-child { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
         .stacked-input-container input:last-child { border-top-left-radius: 0; border-top-right-radius: 0; background-color: #f8fafc; font-size: 11px; height: 32px; }
@@ -168,28 +133,17 @@ include '../header.php';
         .qty-unit-group input { border: none !important; width: 60%; text-align: center; border-radius: 0; }
         .qty-unit-group select { border: none !important; width: 40%; background: #f4f4f5; border-left: 1px solid var(--border) !important; cursor: pointer; border-radius: 0;}
 
-        /* Tables */
         .table-responsive { overflow-x: auto; margin-bottom: 10px; }
         .items-table, .history-table { width: 100%; border-collapse: collapse; }
-        .items-table th, .history-table th { 
-            background: #f4f4f5; 
-            padding: 12px; 
-            text-align: left; 
-            font-size: 11px; 
-            text-transform: uppercase; 
-            color: #71717a; 
-            font-weight: 700;
-        }
+        .items-table th, .history-table th { background: #f4f4f5; padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase; color: #71717a; font-weight: 700;}
         .items-table td, .history-table td { padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
 
-        /* Buttons & Summaries */
         .btn-add-row { background: transparent; color: #10b981; border: 1px dashed #10b981; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s;}
         .btn-add-row:hover { background: #f0fdf4; }
 
         .terms-summary-wrapper { display: flex; flex-wrap: wrap; gap: 30px; margin-top: 10px; }
         .terms-section { flex: 1; min-width: 300px; }
         .summary-section { width: 340px; }
-
         .summary-box { background: #eefcfd; padding: 20px; border-radius: 10px; border: 1px solid #c7ecee; }
         .summary-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 13px; color: #3f3f46; }
         .summary-row input { text-align: right; background: transparent; border: none; font-weight: 600; width: 120px; outline: none; padding: 0; color: inherit;}
@@ -205,17 +159,19 @@ include '../header.php';
         .action-btns { display: flex; gap: 10px; justify-content: center; align-items: center;}
         .btn-icon { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: none; transition: 0.2s; cursor: pointer; font-size: 16px;}
         .btn-print { background: #e0e7ff; color: #4338ca; }
-        .btn-print:hover { background: #c7d2fe; }
         .btn-delete { background: #fee2e2; color: #991b1b; }
-        .btn-delete:hover { background: #fecaca; }
-        .btn-remove-row { color: #ef4444; cursor: pointer; font-size: 18px; border: none; background: transparent; padding: 5px; }
+        .btn-view { background: #fef3c7; color: #d97706; }
+        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-block; text-align: center; }
+        .bg-pending { background: #fef3c7; color: #d97706; }
+        .bg-approved { background: #dcfce7; color: #15803d; }
+        .bg-rejected { background: #fee2e2; color: #b91c1c; }
 
-        @media (max-width: 768px) { 
-            .sidebar { transform: translateX(-120%); margin: 0; height: 100vh; border-radius: 0; } 
-            .main-content { margin-left: 0; padding: 15px; } 
-            .form-grid { grid-template-columns: 1fr; }
-            .summary-section { width: 100%; }
-        }
+        /* Modal Styles */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; display: none; justify-content: center; align-items: center; }
+        .modal-content { background: white; border-radius: 12px; width: 90%; max-width: 800px; max-height: 80vh; overflow-y: auto; padding: 25px; position: relative; }
+        .close-modal { position: absolute; top: 15px; right: 15px; font-size: 24px; cursor: pointer; color: #64748b; }
+
+        @media (max-width: 768px) { .main-content { margin-left: 0; padding: 15px; } .form-grid { grid-template-columns: 1fr; } .summary-section { width: 100%; } }
         @media print { .main-content { margin: 0; padding: 0; } .sidebar, .btn-add-row, .card-footer, .history-section, .btn-save, .btn-outline { display: none; } }
     </style>
 </head>
@@ -236,11 +192,12 @@ include '../header.php';
                 <div class="form-grid">
                     <div class="form-group">
                         <label><span data-key="label-po-no">Purchase Order Number</span></label>
-                        <input type="text" name="po_no" value="PO-20260221-691" readonly>
+                        <?php $new_po_no = "PO-" . date('Ymd') . "-" . rand(100, 999); ?>
+                        <input type="text" name="po_no" value="<?= $new_po_no ?>" readonly>
                     </div>
                     <div class="form-group">
                         <label><span data-key="label-po-date">PO Date</span></label>
-                        <input type="date" name="po_date" value="2026-02-21">
+                        <input type="date" name="po_date" value="<?= date('Y-m-d') ?>">
                     </div>
                     <div class="form-group">
                         <label><span data-key="label-vendor-name">Vendor Name *</span></label>
@@ -287,8 +244,7 @@ include '../header.php';
                                 <th width="5%"></th>
                             </tr>
                         </thead>
-                        <tbody id="items-container">
-                            </tbody>
+                        <tbody id="items-container"></tbody>
                     </table>
                 </div>
                 <button type="button" class="btn-add-row" onclick="addNewRow()">
@@ -323,7 +279,7 @@ include '../header.php';
                             </div>
                             <div class="summary-row">
                                 <span data-key="label-tax-amt">Tax Amount</span>
-                                <input type="text" id="taxAmount" value="0.00" readonly>
+                                <input type="text" id="taxAmount" name="tax_amount" value="0.00" readonly>
                             </div>
                             <div class="summary-row">
                                 <span data-key="label-freight">Freight Charges (+)</span>
@@ -348,7 +304,7 @@ include '../header.php';
                 <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 30px; border-top: 1px solid var(--border); padding-top: 20px;">
                     <button type="button" class="btn-save btn-outline" onclick="location.reload()" data-key="btn-reset">Reset</button>
                     <button type="button" class="btn-save" id="submitBtn" onclick="savePO()">
-                        <span data-key="btn-generate">Generate PO</span> <i class="ph-bold ph-arrow-right"></i>
+                        <span data-key="btn-generate">SUBMIT PO</span> <i class="ph-bold ph-arrow-right"></i>
                     </button>
                 </div>
             </div>
@@ -370,46 +326,38 @@ include '../header.php';
                             <th data-key="label-grand-total">Grand Total</th>
                             <th data-key="label-paid-amt">Paid</th>
                             <th data-key="label-bal-payable">Balance</th>
+                            <th data-key="label-status">Status</th>
                             <th class="text-center" style="text-align: center;" data-key="th-action">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <tr id='row_90'>
-                            <td style="color: var(--primary-color); font-weight: 700;">PO-20260204-429</td>
-                            <td>30-11--0001</td>
-                            <td>test</td>
-                            <td>₹4,672.80</td>
-                            <td>₹0.00</td>
-                            <td style="color: #ef4444; font-weight: 700;">₹4,672.80</td>
-                            <td class="action-btns">
-                                <button class='btn-icon btn-print' onclick='printPO(90)'><i class='ph-bold ph-printer'></i></button>
-                                <button class='btn-icon btn-delete' onclick='deletePO(90)'><i class='ph-bold ph-trash'></i></button>
-                            </td>
-                        </tr>
-                        <tr id='row_88'>
-                            <td style="color: var(--primary-color); font-weight: 700;">PP00088</td>
-                            <td>30-11--0001</td>
-                            <td>test</td>
-                            <td>₹-1,888.00</td>
-                            <td>₹0.00</td>
-                            <td style="color: #10b981; font-weight: 700;">₹-1,888.00</td>
-                            <td class="action-btns">
-                                <button class='btn-icon btn-print' onclick='printPO(88)'><i class='ph-bold ph-printer'></i></button>
-                                <button class='btn-icon btn-delete' onclick='deletePO(88)'><i class='ph-bold ph-trash'></i></button>
-                            </td>
-                        </tr>
-                        <tr id='row_87'>
-                            <td style="color: var(--primary-color); font-weight: 700;">PP00087</td>
-                            <td>04-02-2026</td>
-                            <td>testing</td>
-                            <td>₹40,200.00</td>
-                            <td>₹-2.00</td>
-                            <td style="color: #ef4444; font-weight: 700;">₹40,202.00</td>
-                            <td class="action-btns">
-                                <button class='btn-icon btn-print' onclick='printPO(87)'><i class='ph-bold ph-printer'></i></button>
-                                <button class='btn-icon btn-delete' onclick='deletePO(87)'><i class='ph-bold ph-trash'></i></button>
-                            </td>
-                        </tr>
+                        <?php
+                        $history_query = mysqli_query($conn, "SELECT * FROM purchase_orders ORDER BY id DESC LIMIT 50");
+                        if ($history_query && mysqli_num_rows($history_query) > 0) {
+                            while ($row = mysqli_fetch_assoc($history_query)) {
+                                $db_id = $row['id'];
+                                $bal_color = ($row['balance_amount'] > 0) ? '#ef4444' : '#10b981';
+                                $status_class = ($row['approval_status'] === 'Approved') ? 'bg-approved' : (($row['approval_status'] === 'Rejected') ? 'bg-rejected' : 'bg-pending');
+                        ?>
+                                <tr id='row_<?= $db_id ?>'>
+                                    <td style="color: var(--primary-color); font-weight: 700;"><?= htmlspecialchars($row['po_number']) ?></td>
+                                    <td><?= date('d-m-Y', strtotime($row['po_date'])) ?></td>
+                                    <td><?= htmlspecialchars($row['vendor_name']) ?></td>
+                                    <td style="font-weight: 600;">₹<?= number_format($row['grand_total'], 2) ?></td>
+                                    <td>₹<?= number_format($row['paid_amount'], 2) ?></td>
+                                    <td style="color: <?= $bal_color ?>; font-weight: 700;">₹<?= number_format($row['balance_amount'], 2) ?></td>
+                                    <td><span class="status-badge <?= $status_class ?>"><?= htmlspecialchars($row['approval_status'] ?? 'Pending') ?></span></td>
+                                    <td class="action-btns">
+                                        <button type="button" class='btn-icon btn-view' onclick='viewPODetails(<?= $db_id ?>, "<?= htmlspecialchars($row['po_number']) ?>")' title="View"><i class='ph-bold ph-eye'></i></button>
+                                        <button type="button" class='btn-icon btn-print' onclick='printPO(<?= $db_id ?>)' title="Print"><i class='ph-bold ph-printer'></i></button>
+                                        <button type="button" class='btn-icon btn-delete' onclick='deletePO(<?= $db_id ?>)' title="Delete"><i class='ph-bold ph-trash'></i></button>
+                                    </td>
+                                </tr>
+                        <?php 
+                            } 
+                        } else { ?>
+                            <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">No purchase orders found.</td></tr>
+                        <?php } ?>
                     </tbody>
                 </table>
             </div>
@@ -417,45 +365,79 @@ include '../header.php';
     </div>
 </main>
 
+<div class="modal-overlay" id="viewModal">
+    <div class="modal-content">
+        <span class="close-modal" onclick="closeModal()">&times;</span>
+        <h3 id="modalPOTitle" style="color: var(--primary-color); margin-bottom: 20px;"></h3>
+        <div class="table-responsive">
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th>Item Description</th>
+                        <th>HSN</th>
+                        <th>Qty</th>
+                        <th>Rate</th>
+                        <th>Disc%</th>
+                        <th>GST%</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody id="modalBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
 <script>
-    /**
-     * Language Setup (Modified slightly from Code 1 to not depend on removed sidebar HTML)
-     */
+    function viewPODetails(id, poNum) {
+        $('#modalPOTitle').text('Purchase Order: ' + poNum);
+        $.post(window.location.href, {ajax_action: 'get_po_details', id: id}, function(data) {
+            const items = JSON.parse(data);
+            let html = '';
+            items.forEach(item => {
+                html += `<tr>
+                    <td>${item.item_description}</td>
+                    <td>${item.hsn_code}</td>
+                    <td>${item.quantity} ${item.unit}</td>
+                    <td>₹${parseFloat(item.rate).toFixed(2)}</td>
+                    <td>${item.discount_percent}%</td>
+                    <td>${item.gst_percent}%</td>
+                    <td>₹${parseFloat(item.line_total).toFixed(2)}</td>
+                </tr>`;
+            });
+            $('#modalBody').html(html);
+            $('#viewModal').css('display', 'flex');
+        });
+    }
+
+    function closeModal() { $('#viewModal').hide(); }
+
     async function changeLang(lang) {
         try {
             localStorage.setItem('rupnidhi_lang', lang);
             const response = await fetch(`lang/${lang}.json`);
             if (!response.ok) throw new Error("Language file not found");
             const translations = await response.json();
-
             document.querySelectorAll('[data-key]').forEach(el => {
                 const key = el.getAttribute('data-key');
                 if (translations[key]) {
-                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-                        el.setAttribute('placeholder', translations[key]);
-                    } else {
-                        if (el.children.length === 0) {
-                            el.innerText = translations[key];
-                        } else {
+                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') { el.setAttribute('placeholder', translations[key]); } 
+                    else {
+                        if (el.children.length === 0) { el.innerText = translations[key]; } 
+                        else {
                             const textNode = Array.from(el.childNodes).find(node => node.nodeType === 3 && node.textContent.trim() !== "");
                             if (textNode) textNode.textContent = translations[key];
                         }
                     }
                 }
             });
-
-            if (lang === 'ta') { document.body.classList.add('lang-ta'); } 
-            else { document.body.classList.remove('lang-ta'); }
-
-            const btnEn = document.getElementById('btn-en');
-            const btnTa = document.getElementById('btn-ta');
+            if (lang === 'ta') { document.body.classList.add('lang-ta'); } else { document.body.classList.remove('lang-ta'); }
+            const btnEn = document.getElementById('btn-en'), btnTa = document.getElementById('btn-ta');
             if (btnEn && btnTa) {
                 if (lang === 'en') { btnEn.classList.add('active'); btnTa.classList.remove('active'); } 
                 else { btnTa.classList.add('active'); btnEn.classList.remove('active'); }
             }
-        } catch (error) {
-            console.error("Language Error:", error);
-        }
+        } catch (error) { console.error("Language Error:", error); }
     }
 
     document.addEventListener("DOMContentLoaded", () => {
@@ -464,9 +446,6 @@ include '../header.php';
         addNewRow();
     });
 
-    /**
-     * Form Logic (From Code 1, utilizing Code 2 UI Structure)
-     */
     function addNewRow() {
         const count = $('#items-container tr').length + 1;
         const row = `<tr>
@@ -476,107 +455,54 @@ include '../header.php';
                 <input type="text" name="item_code[]" data-key="ph-item-code" placeholder="Item Code">
             </td>
             <td><input type="text" name="hsn_code[]" data-key="th-hsn" placeholder="HSN" style="width:100%;"></td>
-            <td>
-                <div class="qty-unit-group">
-                    <input type="number" name="qtys[]" class="qty" value="0" step="0.01">
-                    <select name="unit[]">
-                        <option data-key="unit-kg">Kg</option>
-                        <option data-key="unit-nos">Nos</option>
-                        <option data-key="unit-pcs">Pcs</option>
-                    </select>
-                </div>
-            </td>
+            <td><div class="qty-unit-group"><input type="number" name="qtys[]" class="qty" value="0" step="0.01"><select name="unit[]"><option data-key="unit-kg">Kg</option><option data-key="unit-nos">Nos</option><option data-key="unit-pcs">Pcs</option></select></div></td>
             <td><input type="number" name="prices[]" class="price" value="0" step="0.01" style="width:100%;"></td>
             <td><input type="number" name="discount[]" class="discount" value="0" style="width:100%;"></td>
-            <td>
-                <select name="gst_percent[]" class="gst" style="width:100%;">
-                    <option value="0">0%</option>
-                    <option value="5">5%</option>
-                    <option value="12">12%</option>
-                    <option value="18" selected>18%</option>
-                </select>
-            </td>
+            <td><select name="gst_percent[]" class="gst" style="width:100%;"><option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18" selected>18%</option></select></td>
             <td><input type="text" name="totals[]" class="line_total" readonly value="0.00" style="width:100%; font-weight:600;"></td>
-            <td style="text-align: center; vertical-align: middle;">
-                <button type="button" class="btn-remove-row" onclick="removeRow(this)"><i class="ph-bold ph-trash"></i></button>
-            </td>
+            <td style="text-align: center; vertical-align: middle;"><button type="button" class="btn-remove-row" onclick="removeRow(this)"><i class="ph-bold ph-trash"></i></button></td>
         </tr>`;
         $('#items-container').append(row);
-
         const currentLang = localStorage.getItem('rupnidhi_lang') || 'en';
         if(typeof changeLang === 'function') { changeLang(currentLang); }
     }
 
-    function removeRow(btn) { 
-        if($('#items-container tr').length > 1) { 
-            $(btn).closest('tr').remove(); 
-            calculateTotals(); 
-        } 
-    }
+    function removeRow(btn) { if($('#items-container tr').length > 1) { $(btn).closest('tr').remove(); calculateTotals(); } }
 
     $(document).on('input', '.qty, .price, .discount, .gst, #transport, #paidAmount', calculateTotals);
 
     function calculateTotals() {
         let subTotal = 0, totalTax = 0;
         $('#items-container tr').each(function() {
-            let qty = parseFloat($(this).find('.qty').val()) || 0;
-            let price = parseFloat($(this).find('.price').val()) || 0;
-            let disc = parseFloat($(this).find('.discount').val()) || 0;
-            let gst = parseFloat($(this).find('.gst').val()) || 0;
-            
-            let basePrice = qty * price;
-            let afterDisc = basePrice - (basePrice * (disc / 100));
-            let taxValue = afterDisc * (gst / 100);
-            let lineTotal = afterDisc + taxValue;
-            
+            let qty = parseFloat($(this).find('.qty').val()) || 0, price = parseFloat($(this).find('.price').val()) || 0, disc = parseFloat($(this).find('.discount').val()) || 0, gst = parseFloat($(this).find('.gst').val()) || 0;
+            let basePrice = qty * price, afterDisc = basePrice - (basePrice * (disc / 100)), taxValue = afterDisc * (gst / 100), lineTotal = afterDisc + taxValue;
             $(this).find('.line_total').val(lineTotal.toFixed(2));
-            subTotal += afterDisc; 
-            totalTax += taxValue;
+            subTotal += afterDisc; totalTax += taxValue;
         });
-        
-        let freight = parseFloat($('#transport').val()) || 0;
-        let grandTotal = subTotal + totalTax + freight;
-        let paid = parseFloat($('#paidAmount').val()) || 0;
-        
-        $('#netTotal').val(subTotal.toFixed(2));
-        $('#taxAmount').val(totalTax.toFixed(2));
-        $('#grandTotal').val(grandTotal.toFixed(2));
-        $('#balanceAmount').val((grandTotal - paid).toFixed(2));
+        let freight = parseFloat($('#transport').val()) || 0, grandTotal = subTotal + totalTax + freight, paid = parseFloat($('#paidAmount').val()) || 0;
+        $('#netTotal').val(subTotal.toFixed(2)); $('#taxAmount').val(totalTax.toFixed(2)); $('#grandTotal').val(grandTotal.toFixed(2)); $('#balanceAmount').val((grandTotal - paid).toFixed(2));
     }
 
     function savePO() {
         if(!$('#shopName').val()) { alert("Please enter Vendor Name"); return; }
         const btn = $('#submitBtn');
         btn.prop('disabled', true).html('Saving... <i class="ph-bold ph-spinner"></i>');
-        
         $.ajax({
             url: window.location.href, type: 'POST', data: $('#poForm').serialize(),
-            success: function(response) { alert("Purchase Order Saved Successfully!"); location.reload(); },
-            error: function() { alert("Error saving data."); btn.prop('disabled', false).html('<span data-key="btn-generate">Generate PO</span> <i class="ph-bold ph-arrow-right"></i>'); }
+            success: function(response) { 
+                if (response.trim() === 'success') { alert("Purchase Order Saved Successfully and sent to CFO for approval!"); location.reload(); } 
+                else { alert("Database Error: " + response); btn.prop('disabled', false).html('<span data-key="btn-generate">SUBMIT PO</span> <i class="ph-bold ph-arrow-right"></i>'); }
+            },
+            error: function() { alert("Error connecting to server."); btn.prop('disabled', false).html('<span data-key="btn-generate">SUBMIT PO</span> <i class="ph-bold ph-arrow-right"></i>'); }
         });
     }
 
-    function deletePO(id) {
-        if(confirm("Are you sure you want to delete this Purchase Order?")) {
-            $.post(window.location.href, {ajax_action: 'delete_po', id: id}, function(res) {
-                if(res.trim() === 'success') { $('#row_' + id).fadeOut(); } else { alert("Error deleting record."); }
-            });
-        }
-    }
+    function deletePO(id) { if(confirm("Are you sure you want to delete this Purchase Order?")) { $.post(window.location.href, {ajax_action: 'delete_po', id: id}, function(res) { if(res.trim() === 'success') { $('#row_' + id).fadeOut(); } else { alert("Error deleting record."); } }); } }
 
     function printPO(id) {
-        const existingFrame = document.getElementById('printFrame');
-        if (existingFrame) { document.body.removeChild(existingFrame); }
-        const iframe = document.createElement('iframe');
-        iframe.id = 'printFrame';
-        iframe.style.position = 'fixed';
-        iframe.style.right = '0';
-        iframe.style.bottom = '0';
-        iframe.style.width = '0';
-        iframe.style.height = '0';
-        iframe.style.border = '0';
-        iframe.src = 'poprint.php?id=' + id;
-        document.body.appendChild(iframe);
+        const existingFrame = document.getElementById('printFrame'); if (existingFrame) { document.body.removeChild(existingFrame); }
+        const iframe = document.createElement('iframe'); iframe.id = 'printFrame'; iframe.style.position = 'fixed'; iframe.style.right = '0'; iframe.style.bottom = '0'; iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0';
+        iframe.src = 'poprint.php?id=' + id; document.body.appendChild(iframe);
     }
 </script>
 </body>
