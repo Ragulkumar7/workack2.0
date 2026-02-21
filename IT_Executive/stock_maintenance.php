@@ -101,6 +101,9 @@ include '../header.php';
         .form-group { margin-bottom: 15px; }
         .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 5px; }
         .form-control { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
+         @media (max-width: 992px) {
+            #mainContent { margin-left: 0 !important; width: 100% !important; padding: 16px; }
+        }
     </style>
 </head>
 <body>
