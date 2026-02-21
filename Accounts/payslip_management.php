@@ -1,491 +1,119 @@
 <?php
-// payslip.php
-
-// 1. SESSION & PATH SETUP
+// payslip_management.php
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
- $path_to_root = ''; 
-include 'include/db_connect.php'; 
 
-// 2. MOCK DATA
- $employees = [
-    ['id' => 1, 'name' => 'Stephan Peralt', 'role' => 'Team Lead', 'avatar' => 'https://i.pravatar.cc/150?u=1'],
-    ['id' => 2, 'name' => 'Andrew Jermia', 'role' => 'Project Lead', 'avatar' => 'https://i.pravatar.cc/150?u=2'],
-    ['id' => 3, 'name' => 'Doglas Martini', 'role' => 'Product Designer', 'avatar' => 'https://i.pravatar.cc/150?u=3'],
-    ['id' => 4, 'name' => 'John Doe', 'role' => 'Backend Developer', 'avatar' => 'https://i.pravatar.cc/150?u=4'],
-];
+// 1. DATABASE CONNECTION
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+if (file_exists($dbPath)) { require_once $dbPath; } 
+else { require_once $projectRoot . '/include/db_connect.php'; }
 
- $payslips = [
-    ['id' => 'PAY-008', 'emp_id' => 1, 'emp' => 'Stephan Peralt', 'month' => 'March 2025', 'amount' => '$4,500', 'status' => 'Pending', 'date' => '2025-03-10'],
-    ['id' => 'PAY-007', 'emp_id' => 2, 'emp' => 'Andrew Jermia', 'month' => 'Feb 2025', 'amount' => '$5,200', 'status' => 'Approved', 'date' => '2025-02-28'],
-    ['id' => 'PAY-006', 'emp_id' => 3, 'emp' => 'Doglas Martini', 'month' => 'Feb 2025', 'amount' => '$3,800', 'status' => 'Rejected', 'date' => '2025-02-28'],
-];
+if (!isset($conn) || $conn === null) { die("Database connection failed."); }
 
- $view = $_GET['view'] ?? 'generate';
+// --- 2. HANDLE APPROVAL ACTIONS ---
+if (isset($_GET['action']) && isset($_GET['req_id'])) {
+    $req_id = mysqli_real_escape_string($conn, $_GET['req_id']);
+    $status = ($_GET['action'] == 'approve') ? 'Approved' : 'Rejected';
+    $reply = ($status == 'Approved') ? 'Your payslip has been generated and sent.' : 'Request rejected. Contact Accounts.';
+
+    $updateSql = "UPDATE payslip_requests SET status = '$status', accounts_reply = '$reply' WHERE request_id = '$req_id'";
+    mysqli_query($conn, $updateSql);
+    header("Location: payslip_management.php?view=approvals&success=1");
+    exit();
+}
+
+// --- 3. FETCH PENDING REQUESTS FROM DB ---
+$sql_pending = "SELECT p.*, u.name as emp_name FROM payslip_requests p 
+                JOIN users u ON p.user_id = u.id 
+                WHERE p.status = 'Pending' 
+                ORDER BY p.requested_date DESC";
+$res_pending = mysqli_query($conn, $sql_pending);
+
+// --- 4. FETCH HISTORY FROM DB ---
+$sql_history = "SELECT p.*, u.name as emp_name FROM payslip_requests p 
+                JOIN users u ON p.user_id = u.id 
+                WHERE p.status IN ('Approved', 'Rejected') 
+                ORDER BY p.requested_date DESC LIMIT 20";
+$res_history = mysqli_query($conn, $sql_history);
+
+$view = $_GET['view'] ?? 'approvals';
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payslip Management</title>
+    <title>Payslip Management | Accounts</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
-        
-        /* Sidebar Layout Logic */
-        #mainContent { margin-left: 95px; transition: margin-left 0.3s ease; width: calc(100% - 95px); }
-        #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
-
-        /* Custom Select Styling */
-        select {
-            background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
-            background-position: right 0.5rem center;
-            background-repeat: no-repeat;
-            background-size: 1.5em 1.5em;
-            padding-right: 2.5rem;
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-        }
-        
-        .hover-card { transition: all 0.3s ease; }
-        .hover-card:hover { box-shadow: 0 20px 40px -15px rgba(0,0,0,0.1); }
+        #mainContent { margin-left: 95px; width: calc(100% - 95px); }
     </style>
 </head>
 <body class="text-slate-800">
-
     <?php include '../sidebars.php'; ?>
     <?php include '../header.php'; ?>
 
-    <main id="mainContent" class="p-6 lg:p-8 min-h-screen">
-        
-        <!-- Header Section -->
-        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+    <main id="mainContent" class="p-8 min-h-screen">
+        <div class="flex justify-between items-center mb-8">
             <div>
-                <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Payslip Management</h1>
-                <nav class="flex text-sm text-gray-500 mt-2">
-                    <ol class="inline-flex items-center space-x-2">
-                    </ol>
-                </nav>
+                <h1 class="text-2xl font-bold text-slate-800">Payslip Request Management</h1>
+                <p class="text-sm text-gray-500 mt-1">Review and process employee payslip requests.</p>
             </div>
-            <div class="flex gap-2 bg-white p-1.5 rounded-xl shadow-sm border border-gray-100">
-                <a href="?view=generate" class="px-5 py-2 text-sm font-semibold rounded-lg transition <?php echo $view == 'generate' ? 'bg-teal-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'; ?>">
-                    <i class="fa-solid fa-plus mr-1"></i> Generate
-                </a>
-                <a href="?view=approvals" class="px-5 py-2 text-sm font-semibold rounded-lg transition <?php echo $view == 'approvals' ? 'bg-teal-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'; ?>">
-                    <i class="fa-solid fa-clock mr-1"></i> Approvals
-                </a>
-                <a href="?view=history" class="px-5 py-2 text-sm font-semibold rounded-lg transition <?php echo $view == 'history' ? 'bg-teal-600 text-white shadow' : 'text-slate-600 hover:bg-slate-50'; ?>">
-                    <i class="fa-solid fa-history mr-1"></i> History
-                </a>
+            <div class="flex gap-2 bg-white p-1 rounded-xl shadow-sm border border-gray-100">
+                <a href="?view=approvals" class="px-5 py-2 text-sm font-semibold rounded-lg transition <?php echo $view == 'approvals' ? 'bg-teal-600 text-white' : 'text-slate-600'; ?>">Pending Approvals</a>
+                <a href="?view=history" class="px-5 py-2 text-sm font-semibold rounded-lg transition <?php echo $view == 'history' ? 'bg-teal-600 text-white' : 'text-slate-600'; ?>">Process History</a>
             </div>
         </div>
-
-        <!-- Notification Toast Container -->
-        <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2"></div>
-
-        <!-- Content Area -->
-        <?php if($view == 'generate'): ?>
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div class="lg:col-span-2">
-                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm hover-card overflow-hidden">
-                    <div class="p-6 border-b border-gray-100 bg-gradient-to-r from-slate-50 to-white">
-                        <h2 class="font-bold text-lg text-slate-800 flex items-center gap-2">
-                            <i class="fa-solid fa-file-invoice-dollar text-teal-600"></i> Generate New Payslip
-                        </h2>
-                        <p class="text-xs text-gray-500 mt-1">Fill in the details below to generate a salary slip.</p>
-                    </div>
-                    
-                    <form id="generateForm" class="p-6 space-y-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Select Employee <span class="text-red-500">*</span></label>
-                                <select id="employeeSelect" class="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500 outline-none bg-white" required>
-                                    <option value="" disabled selected>Choose an employee...</option>
-                                    <?php foreach($employees as $emp): ?>
-                                        <option value="<?php echo $emp['id']; ?>" data-avatar="<?php echo $emp['avatar']; ?>">
-                                            <?php echo $emp['name']; ?> - <?php echo $emp['role']; ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-500 uppercase mb-2">Payment Mode</label>
-                                <select class="w-full border border-gray-200 rounded-xl p-3 text-sm focus:ring-2 focus:ring-teal-500 outline-none bg-white">
-                                    <option>Bank Transfer</option>
-                                    <option>Cheque</option>
-                                    <option>Cash</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <!-- Pay Period Configuration Block -->
-                        <div class="p-5 bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl border border-slate-200">
-                            <label class="block text-xs font-bold text-slate-500 uppercase mb-3">Pay Period Configuration</label>
-                            
-                            <!-- Radio Toggles -->
-                            <div class="flex flex-wrap items-center gap-6 mb-5">
-                                <label class="flex items-center gap-2 text-sm cursor-pointer group">
-                                    <input type="radio" name="period_type" value="month" checked onclick="togglePeriodView('month')" class="w-4 h-4 text-teal-600 focus:ring-teal-500">
-                                    <span class="font-medium text-slate-700 group-hover:text-teal-600">Month Wise</span>
-                                </label>
-                                <label class="flex items-center gap-2 text-sm cursor-pointer group">
-                                    <input type="radio" name="period_type" value="range" onclick="togglePeriodView('range')" class="w-4 h-4 text-teal-600 focus:ring-teal-500">
-                                    <span class="font-medium text-slate-700 group-hover:text-teal-600">Custom Range</span>
-                                </label>
-                            </div>
-                            
-                            <!-- Dynamic Input Fields -->
-                            <div class="relative min-h-[90px]">
-                                <!-- View 1: Month Wise -->
-                                <div id="input-month-wise" class="transition-all duration-300">
-                                    <p class="text-[11px] text-slate-500 mb-3 bg-blue-50 p-2 rounded-lg border border-blue-100">
-                                        <i class="fa-solid fa-info-circle text-blue-400 mr-1"></i>
-                                        Generates salary for the entire selected month (1st to End).
-                                    </p>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label class="text-xs text-slate-500 font-medium">Month <span class="text-red-500">*</span></label>
-                                            <input type="month" id="payMonth" class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
-                                        </div>
-                                        <div>
-                                            <label class="text-xs text-slate-500 font-medium">Year</label>
-                                            <select class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
-                                                <option>2025</option>
-                                                <option>2026</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- View 2: Custom Range -->
-                                <div id="input-custom-range" class="hidden transition-all duration-300">
-                                    <p class="text-[11px] text-slate-500 mb-3 bg-orange-50 p-2 rounded-lg border border-orange-100">
-                                        <i class="fa-solid fa-exclamation-triangle text-orange-400 mr-1"></i>
-                                        Useful for pro-rata (new joiners) or final settlements (resignations).
-                                    </p>
-                                    <div class="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label class="text-xs text-slate-500 font-medium">Start Date <span class="text-red-500">*</span></label>
-                                            <input type="date" id="startDate" class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
-                                        </div>
-                                        <div>
-                                            <label class="text-xs text-slate-500 font-medium">End Date <span class="text-red-500">*</span></label>
-                                            <input type="date" id="endDate" class="w-full border border-gray-200 rounded-xl p-2.5 text-sm mt-1 bg-white">
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
-                            <button type="button" class="px-5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg transition">Cancel</button>
-                            <button type="submit" class="bg-teal-600 text-white px-8 py-2.5 rounded-lg text-sm font-bold hover:bg-teal-700 transition shadow-lg shadow-teal-200 flex items-center gap-2">
-                                <i class="fa-solid fa-paper-plane"></i> Generate & Send
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Sidebar -->
-            <div class="space-y-6">
-                <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover-card">
-                    <h3 class="font-bold text-sm text-slate-700 mb-4 flex items-center justify-between">
-                        Recent Transactions
-                        <span class="text-[10px] bg-slate-100 px-2 py-1 rounded-full font-bold">Today</span>
-                    </h3>
-                    <div class="space-y-3">
-                        <?php foreach(array_slice($payslips, 0, 3) as $slip): 
-                            $empData = array_filter($employees, fn($e) => $e['name'] == $slip['emp']);
-                            $empAvatar = $empData ? reset($empData)['avatar'] : 'https://i.pravatar.cc/150?u=default';
-                        ?>
-                        <div class="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50 transition cursor-pointer border border-transparent hover:border-gray-100">
-                            <img src="<?php echo $empAvatar; ?>" class="w-10 h-10 rounded-full object-cover">
-                            <div class="flex-1 min-w-0">
-                                <p class="text-xs font-bold text-slate-800 truncate"><?php echo $slip['emp']; ?></p>
-                                <p class="text-[10px] text-gray-400"><?php echo $slip['id']; ?> • <?php echo $slip['date']; ?></p>
-                            </div>
-                            <span class="text-sm font-bold text-teal-600"><?php echo $slip['amount']; ?></span>
-                        </div>
-                        <?php endforeach; ?>
-                    </div>
-                </div>
-                
-                <div class="bg-gradient-to-br from-indigo-500 to-purple-600 p-6 rounded-2xl text-white shadow-lg">
-                    <h3 class="font-bold text-sm mb-2">Quick Stats</h3>
-                    <p class="text-[10px] opacity-80 mb-4">Total Payroll Processed this month</p>
-                    <p class="text-3xl font-black">$135,000</p>
-                </div>
-            </div>
-        </div>
-        <?php endif; ?>
 
         <?php if($view == 'approvals'): ?>
-        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover-card">
-            <div class="p-6 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-slate-50 to-white">
-                <div>
-                    <h3 class="font-bold text-lg text-slate-800">Pending Accounts Approval</h3>
-                    <p class="text-xs text-gray-500 mt-1">Review and approve generated payslips</p>
-                </div>
-                <span class="bg-orange-100 text-orange-600 px-4 py-1.5 rounded-full text-xs font-bold shadow-sm">Pending: 1</span>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse">
-                    <thead class="bg-slate-50 text-xs uppercase text-slate-500 border-b border-gray-100">
-                        <tr>
-                            <th class="p-5 font-bold">Payslip ID</th>
-                            <th class="p-5 font-bold">Employee</th>
-                            <th class="p-5 font-bold">Period</th>
-                            <th class="p-5 font-bold">Amount</th>
-                            <th class="p-5 font-bold">Status</th>
-                            <th class="p-5 font-bold text-right">Action</th>
-                        </tr>
-                    </thead>
-                    <tbody class="text-sm">
-                        <tr class="hover:bg-slate-50 transition border-b border-gray-50">
-                            <td class="p-5 font-bold text-teal-600">PAY-008</td>
-                            <td class="p-5">
-                                <div class="flex items-center gap-3">
-                                    <img src="https://i.pravatar.cc/150?u=1" class="w-8 h-8 rounded-full">
-                                    <span class="font-medium text-slate-800">Stephan Peralt</span>
-                                </div>
-                            </td>
-                            <td class="p-5 text-slate-500">March 2025</td>
-                            <td class="p-5 font-bold text-slate-800">$4,500</td>
-                            <td class="p-5"><span class="bg-orange-100 text-orange-600 px-3 py-1 rounded-full text-xs font-bold">Pending</span></td>
-                            <td class="p-5 text-right space-x-2">
-                                <button onclick="showNotification('success', 'Payslip Approved', 'The payslip has been finalized and sent.')" class="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 transition shadow-sm">
-                                    <i class="fa-solid fa-check mr-1"></i> Approve
-                                </button>
-                                <button onclick="showNotification('error', 'Payslip Rejected', 'Returned to HR for correction.')" class="bg-red-50 text-red-500 px-4 py-2 rounded-lg text-xs font-bold hover:bg-red-100 transition border border-red-100">
-                                    <i class="fa-solid fa-times mr-1"></i> Reject
-                                </button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <table class="w-full text-left">
+                <thead class="bg-slate-50 text-xs uppercase text-slate-500 font-bold border-b">
+                    <tr><th class="p-5">Request ID</th><th class="p-5">Employee</th><th class="p-5">Period</th><th class="p-5">Priority</th><th class="p-5 text-right">Action</th></tr>
+                </thead>
+                <tbody class="text-sm divide-y divide-gray-50">
+                    <?php while($row = mysqli_fetch_assoc($res_pending)): ?>
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="p-5 font-bold text-teal-600"><?php echo $row['request_id']; ?></td>
+                        <td class="p-5 font-medium"><?php echo $row['emp_name']; ?></td>
+                        <td class="p-5"><?php echo date('M d', strtotime($row['from_date'])); ?> - <?php echo date('M d, Y', strtotime($row['to_date'])); ?></td>
+                        <td class="p-5"><span class="px-2 py-1 rounded-lg text-[10px] font-bold bg-orange-50 text-orange-600"><?php echo $row['priority']; ?></span></td>
+                        <td class="p-5 text-right space-x-2">
+                            <a href="?action=approve&req_id=<?php echo $row['request_id']; ?>" class="bg-teal-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-teal-700 transition shadow-sm"><i class="fa-solid fa-check mr-1"></i> Approve</a>
+                            <a href="?action=reject&req_id=<?php echo $row['request_id']; ?>" class="bg-red-50 text-red-500 px-4 py-2 rounded-lg text-xs font-bold border border-red-100"><i class="fa-solid fa-times mr-1"></i> Reject</a>
+                        </td>
+                    </tr>
+                    <?php endwhile; if(mysqli_num_rows($res_pending) == 0) echo "<tr><td colspan='5' class='p-10 text-center text-gray-400'>No pending requests.</td></tr>"; ?>
+                </tbody>
+            </table>
         </div>
         <?php endif; ?>
 
         <?php if($view == 'history'): ?>
-        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover-card">
-            <div class="p-6 border-b flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h3 class="font-bold text-lg text-slate-800">Payslip History</h3>
-                    <p class="text-xs text-gray-500 mt-1">View and download past transactions</p>
-                </div>
-                <div class="relative">
-                    <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
-                    <input type="text" placeholder="Search ID or Name..." class="border border-gray-200 rounded-lg pl-8 pr-4 py-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none w-64">
-                </div>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                    <thead class="bg-slate-50 text-slate-500 text-xs uppercase border-b border-gray-100">
-                        <tr>
-                            <th class="p-5 font-bold">ID</th>
-                            <th class="p-5 font-bold">Employee</th>
-                            <th class="p-5 font-bold">Month</th>
-                            <th class="p-5 font-bold">Amount</th>
-                            <th class="p-5 font-bold">Status</th>
-                            <th class="p-5 font-bold text-right">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach($payslips as $row): 
-                            $statusColor = $row['status'] == 'Approved' ? 'bg-green-100 text-green-600' : ($row['status'] == 'Pending' ? 'bg-orange-100 text-orange-600' : 'bg-red-100 text-red-600');
-                        ?>
-                        <tr class="hover:bg-slate-50 transition border-b border-gray-50">
-                            <td class="p-5 text-teal-600 font-bold"><?php echo $row['id']; ?></td>
-                            <td class="p-5 font-medium text-slate-800"><?php echo $row['emp']; ?></td>
-                            <td class="p-5 text-slate-500"><?php echo $row['month']; ?></td>
-                            <td class="p-5 font-bold text-slate-800"><?php echo $row['amount']; ?></td>
-                            <td class="p-5"><span class="<?php echo $statusColor; ?> px-3 py-1 rounded-full text-xs font-bold"><?php echo $row['status']; ?></span></td>
-                            <td class="p-5 text-right">
-                                <button onclick="downloadPayslip('<?php echo $row['id']; ?>', '<?php echo $row['emp']; ?>', '<?php echo $row['month']; ?>', '<?php echo $row['amount']; ?>')" class="bg-teal-50 text-teal-600 hover:bg-teal-100 transition px-4 py-2 rounded-lg text-xs font-bold border border-teal-100">
-                                    <i class="fa-solid fa-download mr-1"></i> Download
-                                </button>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        <?php endif; ?>
-
-    </main>
-
-    <!-- Hidden Template for Print -->
-    <div id="payslipPrintArea" style="display: none;">
-        <div style="padding: 40px; font-family: 'Inter', sans-serif; color: #333;">
-            <div style="border-bottom: 2px solid #0d9488; padding-bottom: 20px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
-                <h1 style="color: #0d9488; margin: 0; font-size: 24px; font-weight: 700;">PAYSLIP</h1>
-                <div style="text-align: right;">
-                    <h2 style="margin: 0; font-size: 18px; font-weight: 700;" id="print-company">Workack Technologies</h2>
-                    <p style="margin: 0; font-size: 12px; color: #666;">123 Business Avenue, Tech Park</p>
-                </div>
-            </div>
-            
-            <div style="display: flex; justify-content: space-between; margin-bottom: 30px; background: #f8fafc; padding: 15px; border-radius: 8px;">
-                <div>
-                    <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 600;">EMPLOYEE NAME</p>
-                    <p style="margin: 5px 0 0; font-size: 16px; font-weight: 700;" id="print-emp-name">-</p>
-                </div>
-                <div>
-                    <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 600;">PAY SLIP ID</p>
-                    <p style="margin: 5px 0 0; font-size: 16px; font-weight: 700;" id="print-id">-</p>
-                </div>
-                <div>
-                    <p style="margin: 0; font-size: 12px; color: #64748b; font-weight: 600;">PAY PERIOD</p>
-                    <p style="margin: 5px 0 0; font-size: 16px; font-weight: 700;" id="print-month">-</p>
-                </div>
-            </div>
-
-            <table style="width: 100%; border-collapse: collapse; margin-bottom: 30px;">
-                <thead>
-                    <tr style="background: #0d9488; color: white;">
-                        <th style="padding: 12px; text-align: left; font-size: 12px;">EARNINGS</th>
-                        <th style="padding: 12px; text-align: right; font-size: 12px;">AMOUNT</th>
-                    </tr>
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <table class="w-full text-left text-sm divide-y divide-gray-50">
+                <thead class="bg-slate-50 text-slate-500 text-xs uppercase font-bold">
+                    <tr><th class="p-5">ID</th><th class="p-5">Employee</th><th class="p-5">Status</th><th class="p-5">Date Processed</th><th class="p-5 text-right">Reply</th></tr>
                 </thead>
                 <tbody>
-                    <tr style="border-bottom: 1px solid #e2e8f0;">
-                        <td style="padding: 12px; color: #334155;">Basic Salary</td>
-                        <td style="padding: 12px; text-align: right; font-weight: 600;" id="print-amount">-</td>
+                    <?php while($row = mysqli_fetch_assoc($res_history)): 
+                        $badge = ($row['status'] == 'Approved') ? 'bg-teal-100 text-teal-700' : 'bg-red-100 text-red-700';
+                    ?>
+                    <tr>
+                        <td class="p-5 font-bold"><?php echo $row['request_id']; ?></td>
+                        <td class="p-5 font-medium"><?php echo $row['emp_name']; ?></td>
+                        <td class="p-5"><span class="<?php echo $badge; ?> px-3 py-1 rounded-full text-xs font-bold"><?php echo $row['status']; ?></span></td>
+                        <td class="p-5 text-slate-500"><?php echo date('d M Y', strtotime($row['requested_date'])); ?></td>
+                        <td class="p-5 text-right text-xs italic text-gray-400"><?php echo $row['accounts_reply']; ?></td>
                     </tr>
-                    <tr style="border-bottom: 1px solid #e2e8f0;">
-                        <td style="padding: 12px; color: #334155;">House Rent Allowance (HRA)</td>
-                        <td style="padding: 12px; text-align: right; font-weight: 600;">$500.00</td>
-                    </tr>
-                    <tr style="border-bottom: 1px solid #e2e8f0;">
-                        <td style="padding: 12px; color: #334155;">Special Allowance</td>
-                        <td style="padding: 12px; text-align: right; font-weight: 600;">$200.00</td>
-                    </tr>
+                    <?php endwhile; ?>
                 </tbody>
             </table>
-
-            <div style="background: #0d9488; color: white; padding: 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-weight: 700; font-size: 14px;">NET PAY</span>
-                <span style="font-weight: 800; font-size: 20px;" id="print-total">-</span>
-            </div>
-
-            <div style="margin-top: 50px; text-align: center; color: #94a3b8; font-size: 10px;">
-                <p>Generated via Workack HRMS. This is a computer generated document.</p>
-            </div>
         </div>
-    </div>
-
-    <script>
-        // Pass PHP data to JS
-        const payslipData = <?php echo json_encode($payslips); ?>;
-
-        // 1. Toggle Logic for Period Selection
-        function togglePeriodView(type) {
-            const monthWiseBlock = document.getElementById('input-month-wise');
-            const customRangeBlock = document.getElementById('input-custom-range');
-
-            if (type === 'month') {
-                monthWiseBlock.classList.remove('hidden');
-                customRangeBlock.classList.add('hidden');
-            } else {
-                monthWiseBlock.classList.add('hidden');
-                customRangeBlock.classList.remove('hidden');
-            }
-        }
-
-        // 2. Form Validation
-        document.getElementById('generateForm').addEventListener('submit', function(e) {
-            e.preventDefault();
-            const empSelect = document.getElementById('employeeSelect');
-            const periodType = document.querySelector('input[name="period_type"]:checked').value;
-
-            if (!empSelect.value) {
-                showNotification('error', 'Validation Error', 'Please select an employee.');
-                return;
-            }
-
-            if (periodType === 'month') {
-                const payMonth = document.getElementById('payMonth').value;
-                if (!payMonth) {
-                    showNotification('error', 'Validation Error', 'Please select a pay month.');
-                    return;
-                }
-                // Logic: Full month calculation
-                console.log("Processing Month Wise:", payMonth);
-            } else {
-                const startDate = document.getElementById('startDate').value;
-                const endDate = document.getElementById('endDate').value;
-                if (!startDate || !endDate) {
-                    showNotification('error', 'Validation Error', 'Please select both Start and End dates.');
-                    return;
-                }
-                if (new Date(startDate) > new Date(endDate)) {
-                    showNotification('error', 'Invalid Dates', 'Start date cannot be after End date.');
-                    return;
-                }
-                // Logic: Custom period calculation
-                console.log("Processing Custom Range:", startDate, "to", endDate);
-            }
-
-            showNotification('success', 'Payslip Generated', 'Request has been sent to accounts for approval.');
-        });
-
-        // 3. Download Functionality
-        function downloadPayslip(id, name, month, amount) {
-            document.getElementById('print-id').innerText = id;
-            document.getElementById('print-emp-name').innerText = name;
-            document.getElementById('print-month').innerText = month;
-            document.getElementById('print-amount').innerText = amount;
-            document.getElementById('print-total').innerText = amount;
-
-            const content = document.getElementById('payslipPrintArea').innerHTML;
-            const printWindow = window.open('', '_blank');
-            
-            printWindow.document.write(`
-                <html>
-                <head>
-                    <title>Payslip ${id}</title>
-                    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-                    <style>body { font-family: 'Inter', sans-serif; -webkit-print-color-adjust: exact; }</style>
-                </head>
-                <body>${content}</body>
-                </html>
-            `);
-
-            printWindow.document.close();
-            setTimeout(() => { printWindow.print(); }, 500);
-        }
-
-        // 4. Toast Notification System
-        function showNotification(type, title, message) {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            const bgColor = type === 'success' ? 'bg-white border-l-4 border-teal-500' : 'bg-white border-l-4 border-red-500';
-            const iconColor = type === 'success' ? 'text-teal-500' : 'text-red-500';
-            const icon = type === 'success' ? 'fa-circle-check' : 'fa-circle-xmark';
-
-            toast.className = `p-4 rounded-xl shadow-lg border border-gray-100 flex items-start gap-3 min-w-[320px] transform transition-all duration-300 translate-x-full opacity-0 ${bgColor}`;
-            toast.innerHTML = `
-                <div class="mt-0.5"><i class="fa-solid ${icon} ${iconColor} text-lg"></i></div>
-                <div>
-                    <h4 class="font-bold text-sm text-gray-800">${title}</h4>
-                    <p class="text-xs text-gray-500 mt-1">${message}</p>
-                </div>
-            `;
-
-            container.appendChild(toast);
-            requestAnimationFrame(() => { toast.classList.remove('translate-x-full', 'opacity-0'); });
-            setTimeout(() => {
-                toast.classList.add('translate-x-full', 'opacity-0');
-                setTimeout(() => { toast.remove(); }, 300);
-            }, 4000);
-        }
-    </script>
+        <?php endif; ?>
+    </main>
 </body>
 </html>
