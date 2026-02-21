@@ -10,11 +10,6 @@ include('../include/db_connect.php');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    // =========================================================================
-    // 🌟 ONE-SHOT AUTO-FIX (DATABASE SELF-HEALING) 🌟
-    // எந்த phpMyAdmin வேலையும் தேவையில்லை. இந்த கோட் தானாகவே டேட்டாபேஸை சரிசெய்யும்.
-    // =========================================================================
-    
     // 1. Check if the 'time_taken' column exists
     $check_col = $conn->query("SHOW COLUMNS FROM tickets LIKE 'time_taken'");
     if ($check_col && $check_col->num_rows === 0) {
@@ -83,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($stmt->execute()) {
             echo "<script>
                     alert('Ticket Resolution Saved Successfully!');
-                    window.location.href = 'உங்களின்_மெயின்_டிக்கெட்_பேஜ்.php'; 
+                    window.location.href = 'it_exec_main_ticket.php'; 
                   </script>";
         }
         } else {
