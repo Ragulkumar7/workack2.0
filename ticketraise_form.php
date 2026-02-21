@@ -4,23 +4,24 @@
 // 1. Session & DB Connection
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// ROBUST DATABASE CONNECTION
+// ROBUST DATABASE CONNECTION & ABSOLUTE PATH RESOLUTION
 $projectRoot = __DIR__; 
 $dbPath = $projectRoot . '/../include/db_connect.php';
 
+// Check if the script is running from a subfolder (like /employee/) or the root folder
 if (file_exists($dbPath)) {
     require_once $dbPath;
+    $upload_base_dir = $projectRoot . '/../uploads/tickets/'; // Resolves to workack2.0/uploads/tickets/
 } else {
-    // Fallback path
     $dbPath = $projectRoot . '/include/db_connect.php';
     if(file_exists($dbPath)) {
         require_once $dbPath;
+        $upload_base_dir = $projectRoot . '/uploads/tickets/'; // Resolves to workack2.0/uploads/tickets/
     } else {
         die("Database connection file not found at: " . $dbPath);
     }
 }
 
-// CRITICAL FIX: Ensure $conn exists. If your db_connect.php uses a different variable name (like $con or $link), change it here!
 if (!isset($conn) || $conn === null) {
     die("Database connection variable (\$conn) is null or not found in db_connect.php.");
 }
@@ -29,7 +30,7 @@ if (!isset($conn) || $conn === null) {
 $show_success_alert = false;
 $show_error_alert = false;
 
-// --- NEW: HANDLE FORM SUBMISSION LOGIC ---
+// --- HANDLE FORM SUBMISSION LOGIC ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
     $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1); 
     $ticket_code = $_POST['ticket_code'];
@@ -41,18 +42,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
     
     $attachment = NULL;
 
-    // Handle File Upload
+    // Handle File Upload Exceptionally
     if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
-        $upload_dir = '../uploads/tickets/'; 
-        if (!is_dir($upload_dir)) {
-            mkdir($upload_dir, 0777, true);
-        }
-        $file_extension = pathinfo($_FILES["attachment"]["name"], PATHINFO_EXTENSION);
-        $new_filename = time() . '_' . uniqid() . '.' . $file_extension;
-        $target_file = $upload_dir . $new_filename;
         
+        // Ensure directory exists absolutely
+        if (!is_dir($upload_base_dir)) {
+            mkdir($upload_base_dir, 0777, true);
+        }
+        
+        // Make extension lowercase to prevent .PDF vs .pdf issues
+        $file_extension = strtolower(pathinfo($_FILES["attachment"]["name"], PATHINFO_EXTENSION));
+        $new_filename = time() . '_' . uniqid() . '.' . $file_extension;
+        
+        // Exact physical path on your XAMPP server
+        $target_file = $upload_base_dir . $new_filename;
+        
+        // Move file and save DB path
         if (move_uploaded_file($_FILES["attachment"]["tmp_name"], $target_file)) {
-            // Save relative path exactly as your DB schema expects
+            // Save standardized relative path for DB
             $attachment = 'uploads/tickets/' . $new_filename;
         }
     }
@@ -70,7 +77,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
         $notif_title = "New Ticket: " . $ticket_code;
         $notif_msg = "Dept: " . $department . " | Priority: " . $priority;
         
-        // Find IT Admins and System Admins and insert a notification for them
         $notif_query = "INSERT INTO notifications (user_id, title, message, type) 
                         SELECT id, ?, ?, 'alert' FROM users WHERE role IN ('IT Admin', 'System Admin')";
         $notif_stmt = $conn->prepare($notif_query);
@@ -275,8 +281,8 @@ $user_name = $_SESSION['username'] ?? 'User';
                             <label class="form-label">Priority <span class="text-red-500">*</span></label>
                             <select name="priority" id="priority" class="form-control" required>
                                 <option value="" disabled selected>Select Priority</option>
-                                <option value="High">🔴 High - Urgent</option>
-                                <option value="Medium">🟠 Medium</option>
+                                <option value="High">🚨 High - Urgent</option>
+                                <option value="Medium">⚡ Medium</option>
                                 <option value="Low">🟢 Low - Routine</option>
                             </select>
                         </div>
@@ -340,9 +346,8 @@ $user_name = $_SESSION['username'] ?? 'User';
             icon: 'success',
             confirmButtonColor: '#1b5a5a'
         }).then(() => {
-            // REMOVED REDIRECT - STAYS ON SAME PAGE AND CLEARS FORM
-            document.getElementById('ticketForm').reset();
-            document.getElementById('fileNameDisplay').classList.add('hidden');
+            // RELOAD THE PAGE to generate a brand new Ticket ID
+            window.location.href = window.location.href; 
         });
     });
 </script>

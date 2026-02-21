@@ -165,6 +165,13 @@ $sections = [
                     ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
                 ]
             ],
+            // --- EXTERNAL ATTENDANCE (IT ADMIN) ---
+            [
+                'name' => 'External<br>Attendance', 
+                'path' => $base . 'ITadmin/external_attendance.php', // File ITadmin folder-il aanenkil 'ITadmin/external_attendance.php' ennu maattuka
+                'icon' => 'calendar-clock', 
+                'allowed' => ['IT Admin']
+            ],
 
             // --- TASK MANAGEMENT ---
             [
