@@ -17,7 +17,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         if ($input['action'] === 'edit') {
-            // Use the date provided from the row or current if empty
             $formattedDate = date('Y-m-d', strtotime($input['date']));
             $stmt = mysqli_prepare($conn, "UPDATE hardware_assets SET acquisition_date = ?, category = ?, asset_name = ?, barcode = ?, system_id = ?, status = ?, invoice_number = ? WHERE id = ?");
             mysqli_stmt_bind_param($stmt, "sssssssi", $formattedDate, $input['cat'], $input['desc'], $input['bar'], $input['sys'], $input['cond'], $input['inv'], $input['id']);
@@ -28,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// 3. FETCH LIVE STATS (Converted to mysqli)
+// 3. FETCH LIVE STATS
 $resTotal = mysqli_query($conn, "SELECT COUNT(*) FROM hardware_assets");
 $statTotal = mysqli_fetch_array($resTotal)[0];
 
@@ -50,6 +49,7 @@ include '../header.php';
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise IT | Stock Management</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
@@ -63,18 +63,19 @@ include '../header.php';
             --text-muted: #64748b;
         }
 
-        body { font-family: 'Inter', sans-serif; background-color: var(--background); margin: 0; padding: 20px; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--background); margin: 0; padding: 10px; }
         .dashboard-container { max-width: 1400px; margin: 0 auto; }
         
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap: 15px; }
+        
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
         .stat-card { background: var(--surface); padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
         .stat-card small { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .stat-card div { font-size: 28px; font-weight: 700; color: var(--brand-primary); margin-top: 5px; }
+        .stat-card div { font-size: 24px; font-weight: 700; color: var(--brand-primary); margin-top: 5px; }
 
-        .toolbar { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: white; border-radius: 12px 12px 0 0; border: 1px solid #e2e8f0; border-bottom: none; }
-        .search-bar { padding: 10px 15px; width: 400px; border-radius: 8px; border: 1px solid #cbd5e1; }
-        .action-btns { display: flex; gap: 10px; }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: white; border-radius: 12px 12px 0 0; border: 1px solid #e2e8f0; border-bottom: none; flex-wrap: wrap; gap: 15px; }
+        .search-bar { padding: 10px 15px; width: 100%; max-width: 400px; border-radius: 8px; border: 1px solid #cbd5e1; }
+        .action-btns { display: flex; gap: 10px; flex-wrap: wrap; }
         
         .dropdown { position: relative; display: inline-block; }
         .dropbtn { background: white; border: 1px solid #cbd5e1; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; }
@@ -82,10 +83,10 @@ include '../header.php';
         .dropdown-content a { color: black; padding: 12px 16px; text-decoration: none; display: block; font-size: 14px; }
         .dropdown:hover .dropdown-content { display: block; }
 
-        .btn-register { background: var(--brand-primary); color: white; padding: 8px 16px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; }
+        .btn-register { background: var(--brand-primary); color: white; padding: 8px 16px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; white-space: nowrap; }
 
-        .table-container { background: white; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; overflow: hidden; }
-        table { width: 100%; border-collapse: collapse; }
+        .table-container { background: white; border-radius: 0 0 12px 12px; border: 1px solid #e2e8f0; overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; min-width: 900px; }
         th { background: #f8fafc; padding: 15px; text-align: left; font-size: 12px; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid #e2e8f0; }
         td { padding: 15px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
         
@@ -95,14 +96,25 @@ include '../header.php';
         .cat-tag { color: var(--brand-accent); font-weight: 700; }
 
         /* Modal */
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
-        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 450px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(4px); padding: 15px; }
+        .modal-content { background: white; padding: 25px; border-radius: 16px; width: 100%; max-width: 450px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); max-height: 90vh; overflow-y: auto; }
         .modal-content h3 { margin-top: 0; color: var(--brand-primary); border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .form-group { margin-bottom: 15px; }
+        .form-group { margin-bottom: 12px; }
         .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 5px; }
-        .form-control { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
-         @media (max-width: 992px) {
-            #mainContent { margin-left: 0 !important; width: 100% !important; padding: 16px; }
+        .form-control { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; font-size: 14px; }
+
+        /* RESPONSIVE BREAKPOINTS */
+        @media (max-width: 1024px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 640px) {
+            .stats-grid { grid-template-columns: 1fr; }
+            .page-header { flex-direction: column; align-items: flex-start; }
+            .action-btns { width: 100%; }
+            .btn-register, .dropdown, .dropbtn { width: 100%; }
+            .toolbar { flex-direction: column; align-items: stretch; }
+            .search-bar { max-width: 100%; }
         }
     </style>
 </head>
@@ -111,7 +123,7 @@ include '../header.php';
 <div class="dashboard-container">
     <div class="page-header">
         <div>
-            <h1 style="margin:0; color:var(--brand-primary)">Corporate Hardware Ledger</h1>
+            <h1 style="margin:0; color:var(--brand-primary); font-size: 1.5rem;">Corporate Hardware Ledger</h1>
             <p style="margin:5px 0; color:var(--text-muted)">Internal Asset & Stock Tracking System</p>
         </div>
         <div class="action-btns">
@@ -134,7 +146,8 @@ include '../header.php';
     </div>
 
     <div class="toolbar">
-        <input type="text" class="search-bar" placeholder="Search by description, system no, or barcode...">
+        <input type="text" class="search-bar" placeholder="Search assets...">
+        <div style="color: var(--text-muted); font-size: 12px;">Showing live inventory</div>
     </div>
 
     <div class="table-container">
@@ -144,17 +157,17 @@ include '../header.php';
                     <th>S.No</th>
                     <th>Purchase Date</th>
                     <th>Category</th>
-                    <th>Hardware Description</th>
-                    <th>Barcode / Serial</th>
+                    <th>Description</th>
+                    <th>Barcode</th>
                     <th>System No</th>
                     <th>Condition</th>
-                    <th>Invoice No</th>
+                    <th>Invoice</th>
                     <th>Action</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (empty($assets)): ?>
-                    <tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">No assets found in database. Click "Register Asset" to add one.</td></tr>
+                    <tr><td colspan="9" style="text-align:center; padding: 40px; color: var(--text-muted);">No assets found.</td></tr>
                 <?php else: $sno=1; foreach($assets as $row): ?>
                     <tr>
                         <td><?= $sno++ ?></td>
@@ -175,7 +188,7 @@ include '../header.php';
 
 <div id="assetModal" class="modal">
     <div class="modal-content">
-        <h3 id="modalTitle">Register New Asset</h3>
+        <h3 id="modalTitle">Register Asset</h3>
         <input type="hidden" id="assetId">
         <input type="hidden" id="assetDate">
         
@@ -185,11 +198,11 @@ include '../header.php';
         </div>
         <div class="form-group">
             <label>Category</label>
-            <input type="text" id="inCat" class="form-control" placeholder="e.g., Laptop, Monitor, Router">
+            <input type="text" id="inCat" class="form-control" placeholder="e.g., Laptop">
         </div>
         <div class="form-group">
-            <label>Hardware Description</label>
-            <input type="text" id="inDesc" class="form-control" placeholder="e.g., MacBook Pro M3">
+            <label>Description</label>
+            <input type="text" id="inDesc" class="form-control">
         </div>
         <div class="form-group">
             <label>Barcode / Serial</label>
@@ -234,8 +247,7 @@ function openModal(action, data = null) {
         title.innerText = "Register New Asset";
         document.getElementById('assetId').value = '';
         document.getElementById('assetDate').value = '';
-        document.querySelectorAll('.form-control').forEach(el => el.value = '');
-        // UPDATED: Removed reset for inCat dropdown index as it is now a text field
+        document.querySelectorAll('.form-control').forEach(el => { if(el.tagName === 'INPUT') el.value = '' });
         document.getElementById('inCond').selectedIndex = 0;
     }
     modal.style.display = 'flex';
@@ -266,14 +278,13 @@ async function submitAsset() {
         if(result.success) {
             location.reload();
         } else {
-            alert("Error saving data. Please try again.");
+            alert("Error saving data.");
         }
     } catch (err) {
         console.error(err);
     }
 }
 
-// Close modal when clicking outside
 window.onclick = function(event) {
     if (event.target == document.getElementById('assetModal')) closeModal();
 }
