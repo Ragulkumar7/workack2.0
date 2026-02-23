@@ -350,7 +350,6 @@ include '../header.php';
                                     <td class="action-btns">
                                         <button type="button" class='btn-icon btn-view' onclick='viewPODetails(<?= $db_id ?>, "<?= htmlspecialchars($row['po_number']) ?>")' title="View"><i class='ph-bold ph-eye'></i></button>
                                         <button type="button" class='btn-icon btn-print' onclick='printPO(<?= $db_id ?>)' title="Print"><i class='ph-bold ph-printer'></i></button>
-                                        <button type="button" class='btn-icon btn-delete' onclick='deletePO(<?= $db_id ?>)' title="Delete"><i class='ph-bold ph-trash'></i></button>
                                     </td>
                                 </tr>
                         <?php 

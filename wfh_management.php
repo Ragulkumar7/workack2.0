@@ -290,7 +290,7 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                 </div>
             </div>
             <div class="header-actions">
-                <button class="btn"><i data-lucide="download" style="width:16px;"></i> Export Log</button>
+                <button class="btn btn-primary"><i data-lucide="download" style="width:16px;"></i> Export Log</button>
             </div>
         </div>
 

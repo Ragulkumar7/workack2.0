@@ -130,8 +130,8 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
     <script src="https://cdn.tailwindcss.com"></script> <style>
         /* --- GLOBAL VARIABLES & RESET --- */
         :root {
-            --primary: #f97316;
-            --primary-hover: #ea580c;
+            --primary: #1b5a5a;
+            --primary-hover: #134040;
             --bg-body: #f8f9fa;
             --text-main: #1e293b;
             --text-muted: #64748b;

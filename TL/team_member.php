@@ -89,8 +89,8 @@ $conn->close();
 
     <style>
         :root {
-            --primary: #f97316;
-            --primary-hover: #ea580c;
+            --primary: #1b5a5a;
+            --primary-hover: #134040;
             --text-main: #1f2937;
             --text-muted: #6b7280;
             --border: #e5e7eb;

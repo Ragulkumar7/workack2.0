@@ -483,7 +483,7 @@ $hourly_stats = [
                                     <p class="font-black text-2xl text-emerald-700"><?php echo $leave_left; ?></p>
                                 </div>
                             </div>
-                            <a href="leave_request.php" class="w-full mt-auto bg-slate-800 text-white py-3 rounded-xl font-bold text-xs shadow hover:bg-slate-700 transition flex items-center justify-center gap-2">
+                            <a href="../employee/leave_request.php" class="w-full mt-auto bg-[#1b5a5a] text-white py-3 rounded-xl font-bold text-xs shadow hover:bg-[#134040] transition flex items-center justify-center gap-2">
                                 <i class="fa-solid fa-calendar-plus"></i> Apply Leave
                             </a>
                         </div>

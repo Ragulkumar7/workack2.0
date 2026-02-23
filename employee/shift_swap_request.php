@@ -52,7 +52,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; font-size: 13px; }
         #mainContent { margin-left: 95px; padding: 40px; }
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); background: #fff; }
-        .btn-primary-orange { background: #ff5e3a; border: none; color: white; transition: 0.3s; }
+        .btn-primary-orange { background: #1b5a5a; border: none; color: white; transition: 0.3s; }
+        .btn-primary-orange:hover { background: #134040; color: white; }
         .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
         .badge-pending { background: #fff7ed; color: #9a3412; }
         .badge-approved { background: #dcfce7; color: #166534; }
@@ -78,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Shift Date</label>
-                            <input type="date" name="request_date" required class="w-full p-3 border border-slate-200 rounded-lg focus:border-orange-500">
+                            <input type="date" name="request_date" required class="w-full p-3 border border-slate-200 rounded-lg focus:border-teal-500">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Current Shift</label>
@@ -99,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-400 uppercase mb-2">Reason</label>
-                        <textarea name="reason" rows="3" required class="w-full p-3 border border-slate-200 rounded-lg"></textarea>
+                        <textarea name="reason" rows="3" required class="w-full p-3 border border-slate-200 rounded-lg focus:border-teal-500"></textarea>
                     </div>
                     <button type="submit" name="submitButton" class="btn-primary-orange px-10 py-3 rounded-xl font-bold shadow-lg">Submit Request</button>
                 </form>
@@ -140,8 +141,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                 <td>
                                     <div class="text-[11px]">
                                         <span class="text-slate-400"><?php echo $row['current_shift']; ?></span>
-                                        <i class="fa fa-arrow-right mx-1 text-orange-400"></i>
-                                        <span class="text-orange-600 font-bold"><?php echo $row['requested_shift']; ?></span>
+                                        <i class="fa fa-arrow-right mx-1 text-teal-600"></i>
+                                        <span class="text-teal-700 font-bold"><?php echo $row['requested_shift']; ?></span>
                                     </div>
                                 </td>
                                 <td>

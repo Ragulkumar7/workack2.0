@@ -84,7 +84,7 @@ $user_role = (!empty($profile['designation'])) ? $profile['designation'] : "Staf
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        :root { --primary: #ea580c; --primary-hover: #c2410c; --bg-body: #f8f9fa; --text-main: #1f2937; --text-muted: #6b7280; --border: #e5e7eb; --white: #ffffff; }
+        :root { --primary: #1b5a5a; --primary-hover: #134040; --bg-body: #f8f9fa; --text-main: #1f2937; --text-muted: #6b7280; --border: #e5e7eb; --white: #ffffff; }
         body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; padding: 0; color: var(--text-main); }
         .main-content { margin-left: 95px; padding: 24px 32px; min-height: 100vh; transition: all 0.3s ease; }
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 15px; }
