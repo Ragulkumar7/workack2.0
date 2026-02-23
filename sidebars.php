@@ -422,6 +422,18 @@ $sections = [
             ],
         ]
     ],
+    // --- MASTERS (ACCOUNTS ROLE) ---
+        [
+            'label' => 'Masters',
+            'items' => [
+                [
+                'name' => 'Masters', 
+                'path' => $base . 'accounts/masters.php', 
+                'icon' => 'database', 
+                'allowed' => ['Accounts']
+            ],
+            ]
+        ],
     //ticket raise
     [
         'label' => 'Ticket Raise',
