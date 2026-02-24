@@ -19,7 +19,7 @@ $current_view = $_GET['view'] ?? '';
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
 // Added 'hr_executive' to ensure paths correctly use '../' to go to root.
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo'])) {
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo','sales_manager','sales_executive'])) {
     $base = '../';
 } else {
     $base = '';
@@ -84,6 +84,19 @@ $sections = [
                 'path' => $base . 'CFO/cfo_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['CFO'] 
+            ],
+            // --- SALES DASHBOARD ---
+            [
+                'name' => 'Sales Dashboard', 
+                'path' => $base . 'sales_manager/sales_dashboard.php', 
+                'icon' => 'bar-chart-3', // Lucide icon for sales/charts
+                'allowed' => ['Sales Manager']
+            ],
+             [
+                'name' => 'Sales Dashboard', 
+                'path' => $base . 'sales_executive/sales_executive_dashboard.php', 
+                'icon' => 'bar-chart-3', // Lucide icon for sales/charts
+                'allowed' => ['Sales Executive']
             ],
 
             // --- TEAM CHAT (Common) ---
@@ -315,7 +328,7 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO']
+                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO','sales_manager','sales_executive']
             ],
 
             // --- TICKETS ---
@@ -378,20 +391,20 @@ $sections = [
                 'name' => 'Invoices', 
                 'path' => $base . 'Accounts/new_invoice.php', 
                 'icon' => 'file-text', 
-                'allowed' => ['Accounts'] 
+                'allowed' => ['Accounts', 'CFO'] 
             ],
             [
                 'name' => 'Purchase Orders', 
                 'path' => $base . 'Accounts/purchase_order.php', 
                 'icon' => 'shopping-cart', 
-                'allowed' => ['Accounts'] 
+                'allowed' => ['Accounts', 'CFO'] 
             ],
             // --- GENERAL LEDGER (ACCOUNTS ROLE) ---
             [
                 'name' => 'General Ledger', 
                 'path' => $base . 'Accounts/ledger.php', 
                 'icon' => 'book-open', // Lucide icon for ledger
-                'allowed' => ['Accounts']
+                'allowed' => ['Accounts', 'CFO']
             ],
         ]
     ],
@@ -401,7 +414,7 @@ $sections = [
     [
     'name' => 'Salary Revisions', 
     'path' => $base . 'Accounts/salary_revisions.php', 
-    'icon' => 'trending-up', // அல்லது 'history'
+    'icon' => 'trending-up', // 'history'
     'allowed' => ['Accounts', 'CFO']
 ]
         ]
