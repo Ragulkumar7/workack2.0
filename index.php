@@ -60,12 +60,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                             header("Location: HR_executive/HR_executive_dashboard.php");
                             break;
                         case 'Employee':
+                            header("Location: employee/employee_dashboard.php");
+                            break;
                         case 'Digital Marketing':
                             header("Location: employee/employee_dashboard.php");
                             break;
-                        case 'Sales':             
-                        case 'Accounts':
-                            header("Location: Accounts/Accounts_dashboard.php");
+                        case 'Sales Manager':  
+                            header("Location: sales_manager/sales_dashboard.php");
+                            break;           
+                        case 'Sales Executive':
+                            header("Location: sales_executive/sales_executive_dashboard.php");
                             break;
                         case 'IT Admin':
                             header("Location: ITadmin/ITadmin_dashboard.php");
@@ -208,8 +212,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         <option value="Team Lead">Team Lead</option>
                         <option value="Employee" selected>Employee</option>
                         <option value="Accounts">Accounts</option>
-                        <option value="Sales">Sales</option>
-                        <option value="Digital Marketing">Digital Marketing</option>
+                        <option value="Sales Manager">Sales Manager</option>
+                        <option value="Sales Executive">Sales Executive</option>
                         <option value="IT Admin">IT Admin</option>
                         <option value="IT Executive">IT Executive</option>
                         <option value="CFO">CFO</option>
