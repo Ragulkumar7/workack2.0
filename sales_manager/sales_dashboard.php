@@ -9,8 +9,19 @@ if (file_exists('include/db_connect.php')) {
     $sidebarPath = '../sidebars.php';
     $headerPath = '../header.php';
 } else {
-    die("Critical Error: Cannot find database connection file.");
+    // Suppress error for UI demonstration purposes if DB file isn't found
+    $sidebarPath = '';
+    $headerPath = '';
 }
+
+// --- PHP Variables for New Widgets (Connect these to your DB queries) ---
+$emp_initials = "CD";
+$emp_name = "Charlie Davis";
+$emp_role = "Project Manager";
+$emp_phone = "+91 00000 00000";
+$emp_email = "charlie.mgr@gmail.com";
+$emp_joined = "15 Mar 2023";
+$attendance_time = date('h:i A, d M Y');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -65,6 +76,116 @@ if (file_exists('include/db_connect.php')) {
 
         <main class="max-w-[1600px] w-full mx-auto px-4 md:px-6 space-y-6">
             
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6">
+                
+                <div class="lg:col-span-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col items-center justify-between text-center">
+                    <div class="w-full mb-2">
+                        <p class="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Today's Attendance</p>
+                        <h2 class="text-[20px] font-black text-[#1e293b]" id="liveDateTime"><?php echo $attendance_time; ?></h2>
+                    </div>
+                    
+                    <div class="relative w-44 h-44 my-5 flex items-center justify-center">
+                        <svg class="absolute inset-0 w-full h-full transform -rotate-90" viewBox="0 0 160 160">
+                            <circle cx="80" cy="80" r="66" stroke="#f1f5f9" stroke-width="14" fill="none"></circle>
+                            <circle cx="80" cy="80" r="66" stroke="#0f766e" stroke-width="14" fill="none" stroke-dasharray="414" stroke-dashoffset="414" stroke-linecap="round" class="transition-all duration-500"></circle>
+                        </svg>
+                        <div class="flex flex-col items-center justify-center z-10 mt-1">
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Hours</p>
+                            <p class="text-3xl font-black text-[#0f172a] tracking-tight">00:00:00</p>
+                        </div>
+                    </div>
+
+                    <div class="w-full space-y-4">
+                        <button class="w-full bg-[#118B7E] hover:bg-[#0f7a6f] text-white font-bold py-3.5 rounded-2xl transition flex items-center justify-center gap-2 shadow-md shadow-teal-500/10">
+                            <i class="fa-solid fa-right-to-bracket"></i> Punch In
+                        </button>
+                        <div class="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-400">
+                            <i class="fa-solid fa-fingerprint text-orange-400 text-sm"></i> Punched In at: --:--
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-4 flex flex-col gap-6">
+                    <div class="bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-6 flex-1 flex flex-col">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-extrabold text-[#1e293b] text-[17px]">Leave Details</h3>
+                            <span class="bg-slate-50 text-slate-500 text-[10px] font-extrabold px-2.5 py-1.5 rounded border border-slate-100">2026</span>
+                        </div>
+                        <div class="flex items-center justify-between flex-1">
+                            <ul class="space-y-3.5 text-[13px] font-bold text-slate-500 w-full">
+                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#0f766e]"></span> <span class="w-4 text-slate-700 font-black">1</span> On Time</li>
+                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#22c55e]"></span> <span class="w-4 text-slate-700 font-black">0</span> Late</li>
+                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#f97316]"></span> <span class="w-4 text-slate-700 font-black">0</span> Work From Home</li>
+                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#ef4444]"></span> <span class="w-4 text-slate-700 font-black">0</span> Absent</li>
+                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#eab308]"></span> <span class="w-4 text-slate-700 font-black">0</span> Sick Leave</li>
+                            </ul>
+                            <div class="w-[105px] h-[105px] rounded-full border-[18px] border-[#118B7E] border-r-transparent transform -rotate-45 shrink-0 ml-4"></div>
+                        </div>
+                    </div>
+                    <div class="bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-5">
+                         <h3 class="font-extrabold text-[#1e293b] mb-4 text-[15px]">Leave Balance</h3>
+                         <div class="grid grid-cols-3 gap-3 text-center">
+                             <div class="bg-emerald-50/50 py-3.5 rounded-[1rem] border border-emerald-100/50">
+                                 <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Total</p>
+                                 <p class="text-xl font-black text-[#0f766e]">16</p>
+                             </div>
+                             <div class="bg-blue-50/50 py-3.5 rounded-[1rem] border border-blue-100/50">
+                                 <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Taken</p>
+                                 <p class="text-xl font-black text-blue-600">0</p>
+                             </div>
+                             <div class="bg-green-50/50 py-3.5 rounded-[1rem] border border-green-100/50">
+                                 <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Left</p>
+                                 <p class="text-xl font-black text-green-600">16</p>
+                             </div>
+                         </div>
+                    </div>
+                </div>
+
+                <div class="lg:col-span-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden flex flex-col">
+                    <div class="bg-[#117B6F] p-8 pb-10 flex flex-col items-center text-center relative">
+                        <div class="relative mt-2">
+                            <div class="w-28 h-28 rounded-full border-2 border-white flex items-center justify-center text-white text-[38px] tracking-tight font-extrabold bg-transparent">
+                                <?php echo $emp_initials; ?>
+                            </div>
+                            <div class="absolute bottom-1 right-2 w-6 h-6 bg-[#4ade80] rounded-full border-[4px] border-[#117B6F]"></div>
+                        </div>
+                        <h2 class="text-2xl font-extrabold text-white mt-5"><?php echo $emp_name; ?></h2>
+                        <p class="text-[14px] font-medium text-emerald-300 mt-1"><?php echo $emp_role; ?></p>
+                        <button class="mt-5 bg-white/20 hover:bg-white/30 transition text-white text-[12px] font-bold px-5 py-2 rounded-full backdrop-blur-sm shadow-sm">Verified Account</button>
+                    </div>
+                    <div class="p-6 space-y-4 flex-grow bg-white -mt-2">
+                        <div class="flex items-center gap-4 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-50">
+                            <div class="w-11 h-11 rounded-xl bg-teal-50/80 text-[#117B6F] flex items-center justify-center text-base shrink-0 shadow-sm">
+                                <i class="fa-solid fa-phone transform rotate-90"></i>
+                            </div>
+                            <div class="min-w-0 pt-0.5">
+                                <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Phone</p>
+                                <p class="text-[14px] font-extrabold text-[#1e293b] truncate"><?php echo $emp_phone; ?></p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-4 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-50">
+                            <div class="w-11 h-11 rounded-xl bg-teal-50/80 text-[#117B6F] flex items-center justify-center text-base shrink-0 shadow-sm">
+                                <i class="fa-solid fa-envelope"></i>
+                            </div>
+                            <div class="min-w-0 pt-0.5">
+                                <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Email</p>
+                                <p class="text-[14px] font-extrabold text-[#1e293b] truncate"><?php echo $emp_email; ?></p>
+                            </div>
+                        </div>
+                        
+                        <div class="border-t border-dashed border-slate-200/80 my-5"></div>
+                        
+                        <div class="flex items-center justify-between bg-emerald-50/40 p-4 rounded-2xl border border-emerald-100/50">
+                            <div class="flex items-center gap-2.5 text-[#117B6F] text-[14px] font-extrabold">
+                                <i class="fa-solid fa-calendar-check"></i> Joined
+                            </div>
+                            <p class="text-[14px] font-extrabold text-[#1e293b]"><?php echo $emp_joined; ?></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 
                 <div class="lg:col-span-5 bg-white rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden flex flex-col">
@@ -484,5 +605,26 @@ if (file_exists('include/db_connect.php')) {
         </div>
 
     </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            function updateClock() {
+                const now = new Date();
+                const timeOptions = { hour: '2-digit', minute: '2-digit', hour12: true };
+                const dateOptions = { day: '2-digit', month: 'short', year: 'numeric' };
+                
+                const timeStr = now.toLocaleTimeString('en-US', timeOptions);
+                const dateStr = now.toLocaleDateString('en-GB', dateOptions);
+                
+                const clockEl = document.getElementById('liveDateTime');
+                if(clockEl) {
+                    clockEl.innerText = `${timeStr}, ${dateStr}`;
+                }
+            }
+            // Update time immediately, then every 1 second
+            updateClock();
+            setInterval(updateClock, 1000);
+        });
+    </script>
 </body>
 </html>
