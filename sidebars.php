@@ -386,6 +386,13 @@ $sections = [
                 'icon' => 'shopping-cart', 
                 'allowed' => ['Accounts'] 
             ],
+            // --- GENERAL LEDGER (ACCOUNTS ROLE) ---
+            [
+                'name' => 'General Ledger', 
+                'path' => $base . 'Accounts/ledger.php', 
+                'icon' => 'book-open', // Lucide icon for ledger
+                'allowed' => ['Accounts']
+            ],
         ]
     ],
     [
