@@ -9,6 +9,15 @@ else { require_once $projectRoot . '/include/db_connect.php'; }
 
 if (!isset($conn) || $conn === null) { die("Database connection failed."); }
 
+// Fetch clients for auto-suggest in the Income form
+$clients_query = mysqli_query($conn, "SELECT client_name FROM clients ORDER BY client_name ASC");
+$clients_list = [];
+if ($clients_query) {
+    while($c = mysqli_fetch_assoc($clients_query)) { 
+        $clients_list[] = $c['client_name']; 
+    }
+}
+
 // 2. HANDLE FORM SUBMISSION (Save to Database)
 $success_msg = null;
 $error = null;
@@ -364,7 +373,13 @@ include '../header.php';
             <div class="entry-row-container">
                 <div class="row-label" style="color: var(--success);">Income (In)</div>
                 <input type="text" name="remarks" placeholder="Description (e.g., Project Payment)" required>
-                <input type="text" name="party_name" placeholder="Received From (Client Name)" required>
+                
+                <input type="text" name="party_name" list="client_list" placeholder="Received From (Client Name)" required>
+                <datalist id="client_list">
+                    <?php foreach($clients_list as $client): ?>
+                        <option value="<?php echo htmlspecialchars($client); ?>"></option>
+                    <?php endforeach; ?>
+                </datalist>
                 
                 <select name="bank_name" required>
                     <option value="">Select Bank</option>

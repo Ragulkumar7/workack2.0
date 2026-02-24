@@ -56,7 +56,7 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
 }
 
 // --- LEAVE LOGIC ---
-$leaves_total = 20; 
+$leaves_total = 20; // Example: Execs might have more leave
 $leaves_taken = 0;
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = mysqli_prepare($conn, $leave_sql);
@@ -91,10 +91,7 @@ while ($row = mysqli_fetch_assoc($stat_res)) {
 $attendance_record = null;
 $total_hours_today = "00:00:00";
 $display_punch_in = "--:--";
-$display_break_time = "00:00:00";
 $total_seconds_worked = 0;
-$total_break_seconds = 0;
-$live_break_seconds = 0;
 $is_on_break = false; 
 
 $check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
@@ -103,6 +100,7 @@ mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
 mysqli_stmt_execute($check_stmt);
 $attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
 
+$total_break_seconds = 0;
 $break_start_ts = 0;
 
 if ($attendance_record) {
@@ -123,7 +121,6 @@ if ($attendance_record) {
     $total_break_seconds = $sum_res['total'] ?? 0;
 }
 
-// Handle Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $now_db = date('Y-m-d H:i:s');
     if ($_POST['action'] == 'punch_in' && !$attendance_record) {
@@ -165,27 +162,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 if ($attendance_record) {
     $display_punch_in = date('h:i A', strtotime($attendance_record['punch_in']));
     $start_ts = strtotime($attendance_record['punch_in']);
-    
     if ($is_on_break) { $now_ts = $break_start_ts; } 
     elseif ($attendance_record['punch_out']) { $now_ts = strtotime($attendance_record['punch_out']); } 
     else { $now_ts = time(); }
     
-    // Production calculation
     $total_seconds_worked = max(0, ($now_ts - $start_ts) - $total_break_seconds);
     $hours = floor($total_seconds_worked / 3600);
     $mins = floor(($total_seconds_worked % 3600) / 60);
     $secs = $total_seconds_worked % 60;
     $total_hours_today = sprintf('%02d:%02d:%02d', $hours, $mins, $secs);
-
-    // Live Break calculation
-    $live_break_seconds = $total_break_seconds;
-    if ($is_on_break) {
-        $live_break_seconds += (time() - $break_start_ts);
-    }
-    $b_hours = floor($live_break_seconds / 3600);
-    $b_mins = floor(($live_break_seconds % 3600) / 60);
-    $b_secs = $live_break_seconds % 60;
-    $display_break_time = sprintf('%02d:%02d:%02d', $b_hours, $b_mins, $b_secs);
 }
 
 // -------------------------------------------------------------------------
@@ -206,13 +191,15 @@ $months = [
     '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
 ];
 
+// Fetch Real KPI Data
 $kpi = ['income' => 0, 'expense' => 0, 'profit' => 0, 'ar' => 0];
 
 $kpi['income'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
 $kpi['expense'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
 $kpi['profit'] = $kpi['income'] - $kpi['expense'];
-$kpi['ar'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status != 'Paid'"))['val'] ?? 0; 
+$kpi['ar'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status != 'Paid'"))['val'] ?? 0; // Accounts Receivable (Unpaid Invoices)
 
+// Recent Invoices
 $recent_invoices = [];
 $res_inv = @mysqli_query($conn, "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status FROM invoices i JOIN clients c ON i.client_id = c.id ORDER BY i.created_at DESC LIMIT 3");
 if($res_inv){
@@ -230,6 +217,14 @@ for($m=1; $m<=12; $m++) {
     $rev_income[] = $inc;
     $rev_expense[] = $exp;
     $rev_profit[] = $inc - $exp;
+}
+
+// Chart 2: CFO Budget vs Actual
+$budget_labels = ['Salaries', 'Rent', 'Marketing', 'Operations', 'Tech'];
+$budget_actual = [];
+foreach($budget_labels as $bl) {
+    $val = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE remarks LIKE '%$bl%' AND MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
+    $budget_actual[] = $val;
 }
 
 include '../sidebars.php'; 
@@ -410,7 +405,7 @@ include '../header.php';
                     <div>
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <span class="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded">Year <?php echo $selected_year; ?></span>
+                            <span class="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded">Year 2026</span>
                         </div>
                         <div class="grid grid-cols-3 gap-3 mb-6">
                             <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
@@ -498,12 +493,7 @@ include '../header.php';
                             <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-2.5 rounded-lg text-sm cursor-not-allowed">Completed</button>
                         <?php endif; ?>
                     </form>
-                    
-                    <div class="flex justify-between w-full text-[10px] text-gray-500 mt-3 font-semibold uppercase">
-                        <span>In: <span class="text-slate-700"><?php echo $display_punch_in; ?></span></span>
-                        <span>Break: <span id="breakTimer" class="text-amber-600" data-on-break="<?php echo $is_on_break ? 'true' : 'false'; ?>" data-break-total="<?php echo $live_break_seconds; ?>"><?php echo $display_break_time; ?></span></span>
-                    </div>
-
+                    <p class="text-[10px] text-gray-400 mt-3 font-semibold uppercase">In: <?php echo $display_punch_in; ?></p>
                 </div>
             </div>
 
@@ -607,43 +597,27 @@ include '../header.php';
     </main>
 
     <script>
-        // 1. DUAL LIVE TIMER LOGIC (PRODUCTION & BREAK)
+        // 1. LIVE TIMER LOGIC 
         const timerElement = document.getElementById('liveTimer');
-        const breakTimerElement = document.getElementById('breakTimer');
         const progressRing = document.getElementById('progressRing');
-        
         const isRunning = timerElement.getAttribute('data-running') === 'true';
-        const isOnBreak = breakTimerElement.getAttribute('data-on-break') === 'true';
-        
         let totalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-        let totalBreakSeconds = parseInt(breakTimerElement.getAttribute('data-break-total')) || 0;
         const startTime = new Date().getTime(); 
 
-        function formatTime(totalSecs) {
-            const h = Math.floor(totalSecs / 3600);
-            const m = Math.floor((totalSecs % 3600) / 60);
-            const s = totalSecs % 60;
-            return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-        }
-
         function updateTimer() {
+            if (!isRunning) return; 
             const now = new Date().getTime();
             const diffSeconds = Math.floor((now - startTime) / 1000);
+            const currentTotal = totalSeconds + diffSeconds;
+            const hours = Math.floor(currentTotal / 3600);
+            const minutes = Math.floor((currentTotal % 3600) / 60);
+            const seconds = currentTotal % 60;
             
-            if (isRunning) {
-                const currentTotal = totalSeconds + diffSeconds;
-                timerElement.innerText = formatTime(currentTotal);
-                const progress = Math.min(currentTotal / 32400, 1);
-                if(progressRing) progressRing.style.strokeDashoffset = 352 - (progress * 352);
-            }
-            
-            if (isOnBreak) {
-                const currentBreakTotal = totalBreakSeconds + diffSeconds;
-                breakTimerElement.innerText = formatTime(currentBreakTotal);
-            }
+            timerElement.innerText = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+            const progress = Math.min(currentTotal / 32400, 1);
+            if(progressRing) progressRing.style.strokeDashoffset = 352 - (progress * 352);
         }
-        
-        if (isRunning || isOnBreak) setInterval(updateTimer, 1000);
+        if (isRunning) setInterval(updateTimer, 1000);
 
         // 2. APEXCHART FOR LEAVE DETAILS
         const attData = [<?php echo $stats_ontime; ?>, <?php echo $stats_late; ?>, <?php echo $stats_wfh; ?>, <?php echo $stats_absent; ?>, <?php echo $stats_sick; ?>];

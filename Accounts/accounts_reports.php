@@ -35,15 +35,12 @@ if ($inc_query && $row = $inc_query->fetch_assoc()) {
     $kpi['total_income'] = $row['total'] ?? 0;
 }
 
-// Unpaid Invoices (Approved but not paid yet)
-$unpaid_inv = $conn->query("SELECT SUM(grand_total) as total FROM invoices WHERE status = 'Approved' OR status = 'Unpaid'");
-if ($unpaid_inv && $row = $unpaid_inv->fetch_assoc()) {
-    $kpi['unpaid_invoices'] = $row['total'] ?? 0;
+// Total Expense (From General Ledger or Purchase Orders)
+$po_exp = 0;
+$po_query = $conn->query("SELECT SUM(grand_total) as total FROM purchase_orders");
+if ($po_query && $row = $po_query->fetch_assoc()) {
+    $po_exp = $row['total'] ?? 0;
 }
-
-// Total Expense (From Purchase Orders + Salary)
-$po_exp = $conn->query("SELECT SUM(grand_total) as total FROM purchase_orders WHERE approval_status = 'Approved'")->fetch_assoc()['total'] ?? 0;
-// Assuming you have a salary history table, if not just using POs for now
 $kpi['total_expense'] = $po_exp; 
 
 // Net Profit
@@ -69,26 +66,45 @@ if ($client_count && $row = $client_count->fetch_assoc()) {
 
 
 // --- FETCH REAL DATA FOR TABS ---
-
-// 1. Clients Data
+// 1. Clients Data (Smart Matching Ledger with Invoices)
 $real_clients = [];
-$client_sql = "SELECT c.client_name, c.id, SUM(i.grand_total) as total_invoiced 
-               FROM clients c 
-               LEFT JOIN invoices i ON c.id = i.client_id 
-               GROUP BY c.id";
+$client_sql = "
+    SELECT 
+        c.id, 
+        c.client_name, 
+        c.gst_number, 
+        c.mobile_number, 
+        c.payment_method,
+        COALESCE(inv.total_invoiced, 0) as total_invoiced,
+        (COALESCE(inv.total_invoiced, 0) - COALESCE(ldg.total_paid, 0)) as account_balance
+    FROM clients c
+    LEFT JOIN (
+        SELECT client_id, SUM(grand_total) as total_invoiced 
+        FROM invoices 
+        WHERE status NOT IN ('Draft', 'Rejected')
+        GROUP BY client_id
+    ) inv ON c.id = inv.client_id
+    LEFT JOIN (
+        SELECT TRIM(LOWER(party_name)) as p_name, SUM(credit_amount) as total_paid 
+        FROM general_ledger 
+        WHERE credit_amount > 0 
+        GROUP BY TRIM(LOWER(party_name))
+    ) ldg ON TRIM(LOWER(c.client_name)) = ldg.p_name
+";
+
 $c_res = $conn->query($client_sql);
 if ($c_res) {
     while ($row = $c_res->fetch_assoc()) {
         $real_clients[] = [
             'name' => $row['client_name'],
-            'gst' => 'N/A', // Update if you add GST to clients table
-            'loc' => 'N/A', // Update if you add Location
-            'mob' => 'N/A', // Update if you add Mobile
-            'total' => $row['total_invoiced'] ?? 0
+            'gst' => $row['gst_number'] ? $row['gst_number'] : 'N/A',
+            'mob' => $row['mobile_number'] ? $row['mobile_number'] : 'N/A',
+            'payment_method' => $row['payment_method'] ? $row['payment_method'] : 'N/A',
+            'total' => $row['total_invoiced'],
+            'balance' => $row['account_balance']
         ];
     }
 }
-
 // 2. Employees Data
 $real_employees = [];
 $emp_sql = "SELECT emp_id_code, full_name, department, designation, joining_date FROM employee_profiles WHERE status = 'Active'";
@@ -100,7 +116,7 @@ if ($e_res) {
             'name' => $row['full_name'],
             'dept' => $row['department'],
             'desig' => $row['designation'],
-            'type' => 'Permanent', // Update if tracking emp_type
+            'type' => 'Permanent', 
             'doj' => $row['joining_date'] ? date('d-m-Y', strtotime($row['joining_date'])) : 'N/A'
         ];
     }
@@ -116,15 +132,15 @@ if ($po_res) {
             'no' => $row['po_number'],
             'vendor' => $row['vendor_name'],
             'date' => date('d-m-Y', strtotime($row['po_date'])),
-            'grand' => $row['grand_total'],
+            'total' => $row['grand_total'],
             'paid' => $row['paid_amount'],
-            'bal' => $row['balance_amount']
+            'balance' => $row['balance_amount']
         ];
     }
 }
 
 // 4. Invoices Data
-$real_invoices = [];
+$real_inv = [];
 $inv_sql = "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status 
             FROM invoices i 
             LEFT JOIN clients c ON i.client_id = c.id 
@@ -132,7 +148,7 @@ $inv_sql = "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i
 $inv_res = $conn->query($inv_sql);
 if ($inv_res) {
     while ($row = $inv_res->fetch_assoc()) {
-        $real_invoices[] = [
+        $real_inv[] = [
             'no' => $row['invoice_no'],
             'client' => $row['client_name'] ?? 'Unknown',
             'date' => date('d-m-Y', strtotime($row['invoice_date'])),
@@ -142,21 +158,16 @@ if ($inv_res) {
     }
 }
 
-// Keeping Mock for Salary & Ledger until tables exist
-$mock_salary = [
-    ['month' => date('M Y'), 'id' => 'EMP-007', 'name' => 'Aparna M A', 'basic' => 30000, 'hra' => 800, 'deduct' => 6250, 'net' => 24050, 'status' => 'Paid']
-];
+// Chart Logic
+$chart_income_data = [];
+$chart_expense_data = [];
+for ($m=1; $m<=12; $m++) {
+    $inc_m = $conn->query("SELECT SUM(grand_total) as val FROM invoices WHERE MONTH(invoice_date) = $m AND YEAR(invoice_date) = '$selected_year' AND status='Paid'");
+    $chart_income_data[] = ($inc_m && $r = $inc_m->fetch_assoc()) ? ($r['val'] ?? 0) : 0;
 
-$mock_ledger = [
-    ['date' => '2026-02-21', 'type' => 'Income', 'cat' => 'Invoice', 'party' => 'Arvind Builders', 'desc' => 'INV-2026-02-491', 'amount' => 4956, 'mode' => 'Credit'],
-    ['date' => '2026-02-21', 'type' => 'Expense', 'cat' => 'PO', 'party' => 'prem', 'desc' => 'PO-20260221-691', 'amount' => 24.53, 'mode' => 'Debit'],
-];
-
-// Chart Data (Mocked for trend visualization, build dynamic later based on months)
-$chart_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
-$chart_income = [20000, 146556, 0, 0, 0, 0];
-$chart_expense = [10000, 29.53, 0, 0, 0, 0];
-
+    $exp_m = $conn->query("SELECT SUM(grand_total) as val FROM purchase_orders WHERE MONTH(po_date) = $m AND YEAR(po_date) = '$selected_year'");
+    $chart_expense_data[] = ($exp_m && $r = $exp_m->fetch_assoc()) ? ($r['val'] ?? 0) : 0;
+}
 ?>
 
 <!DOCTYPE html>
@@ -164,62 +175,35 @@ $chart_expense = [10000, 29.53, 0, 0, 0, 0];
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Management Reports - Workack</title>
+    <title>Master Reports | Workack</title>
     
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <style>
-        :root {
-            --theme-color: #1b5a5a;
-            --theme-dark: #134e4e;
-            --accent-gold: #D4AF37;
-            --bg-body: #f3f4f6;
-            --text-main: #1e293b;
-            --text-light: #64748b;
-            --success: #059669;
-            --danger: #dc2626;
-            --warning: #d97706;
-            --sidebar-width: 95px; 
-        }
+        :root { --theme-color: #1b5a5a; --bg-body: #f3f4f6; --text-main: #1e293b; --text-muted: #64748b; --border-color: #e2e8f0; }
+        body { background-color: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; color: var(--text-main); }
+        .main-content { margin-left: 95px; padding: 30px; }
 
-        body { background: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); margin: 0; padding: 0; }
-        .main-content { 
-            margin-left: var(--sidebar-width); 
-            padding: 30px; 
-            width: calc(100% - var(--sidebar-width)); 
-            box-sizing: border-box; 
-            z-index: 1; /* Add z-index to stay below fixed header if you have one */
-        }
-
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 25px;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-
+        /* Headers & Buttons */
+        .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 25px; }
+        .page-header h2 { margin: 0; color: var(--theme-color); font-weight: 700; font-size: 24px; }
+        .btn-export { background: #10b981; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; }
+        
         /* KPI Cards */
-        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .kpi-card { 
-            background: white; padding: 20px; border-radius: 12px; 
-            border-left: 4px solid var(--theme-color);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03); position: relative;
-            transition: transform 0.2s;
-        }
-        .kpi-value { font-size: 24px; font-weight: 800; margin-top: 8px; color: var(--text-main); }
-
-        /* Drill-Down Tabs */
-        .drill-down-container { background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); margin-top: 30px; overflow: hidden; border: 1px solid #e2e8f0; }
-        .tab-nav { display: flex; border-bottom: 1px solid #e2e8f0; background: #fafafa; overflow-x: auto; scrollbar-width: none; }
-        .tab-nav::-webkit-scrollbar { display: none; }
+        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .kpi-card { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid var(--border-color); border-left: 4px solid var(--theme-color); }
+        .kpi-val { font-size: 22px; font-weight: 800; margin-top: 5px; color: var(--text-main); }
+        .kpi-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+        
+        /* Tabs */
+        .report-card { background: white; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 4px 15px rgba(0,0,0,0.03); overflow: hidden; margin-bottom: 30px; }
+        .tabs-header { display: flex; background: #f8fafc; border-bottom: 1px solid var(--border-color); overflow-x: auto; }
         .tab-btn { 
-            padding: 15px 25px; border: none; background: none; font-size: 13px; font-weight: 700; 
-            color: var(--text-light); cursor: pointer; border-bottom: 2px solid transparent; 
+            padding: 15px 25px; background: none; border: none; font-size: 13px; font-weight: 700; 
+            color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; 
             transition: 0.2s; white-space: nowrap; 
         }
         .tab-btn.active { color: var(--theme-color); border-bottom-color: var(--theme-color); background: white; }
@@ -229,75 +213,30 @@ $chart_expense = [10000, 29.53, 0, 0, 0, 0];
 
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-        /* --- FIX: Charts Section --- */
+        /* Charts Section */
         .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
         .chart-container {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.03);
-            height: 360px;               /* ← give it a fixed pixel height */
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;            /* ← very important here */
+            background: white; padding: 20px; border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.03); height: 360px;
+            display: flex; flex-direction: column; overflow: hidden;
         }
 
-        .canvas-wrapper {
-            position: relative;
-            flex: 1 1 auto;              /* better flex behavior */
-            min-height: 0;
-            width: 100%;
-            padding-bottom: 20px;        /* ← breathing room at bottom if needed */
-        }
+        .canvas-wrapper { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; }
+        .chart-container h3 { margin: 0 0 15px 0; font-size: 15px; color: var(--text-main); }
 
-        .canvas-wrapper canvas {
-            position: absolute !important;
-            inset: 0 !important;         /* force canvas to fill wrapper exactly */
-        }
-
-        /* Table Styling */
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th { text-align: left; padding: 12px 15px; background: #f8fafc; color: var(--text-light); font-size: 11px; font-weight: 700; text-transform: uppercase; }
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 12px 15px; background: #f1f5f9; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 2px solid #e2e8f0; }
         td { padding: 12px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
-
-        /* Badges */
-        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; }
-        .st-paid, .st-approved { background: #dcfce7; color: #15803d; }
-        .st-unpaid, .st-rejected { background: #fee2e2; color: #b91c1c; }
-        .st-pending, .st-draft { background: #fef3c7; color: #d97706; }
-        .amt-pos { color: var(--success); font-weight: 600; }
-        .amt-neg { color: var(--danger); font-weight: 600; }
-
-        .btn-export-excel { 
-            background: #059669; color: white; border: none; padding: 8px 15px; 
-            border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; 
-            display: flex; align-items: center; gap: 6px; float: right; margin-bottom: 15px;
-        }
-
-        .table-responsive {
-            overflow-x: auto;
-            width: 100%;
-        }
-
-        @media (max-width: 992px) { 
-            .main-content { 
-                margin-left: 0; 
-                width: 100%; 
-                padding: 15px; 
-                /* Ensures the content sits below a fixed mobile header, adjust padding-top if needed based on your header height */
-                padding-top: 80px; 
-            } 
-            .charts-row { grid-template-columns: 1fr; } 
-            
-            /* Add some spacing for header wrapping on small screens */
-            .page-header {
-                flex-direction: column;
-                align-items: flex-start !important;
-            }
-            .btn-export-excel {
-                align-self: flex-start;
-            }
-        }
+        .amt-pos { color: #059669; font-weight: 700; }
+        .amt-neg { color: #dc2626; font-weight: 700; }
+        
+        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 700; display: inline-block; }
+        .st-paid { background: #dcfce7; color: #16a34a; }
+        .st-pend { background: #fef9c3; color: #d97706; }
+        .st-over { background: #fee2e2; color: #dc2626; }
+        .st-appr { background: #dcfce7; color: #16a34a; }
+        .st-draft { background: #f1f5f9; color: #64748b; }
     </style>
 </head>
 <body>
@@ -305,200 +244,241 @@ $chart_expense = [10000, 29.53, 0, 0, 0, 0];
 <main class="main-content">
     <div class="page-header">
         <div>
-            <h2 style="color: var(--theme-color); font-weight: 700; margin: 0;">Financial Intelligence</h2>
-            <p style="color: var(--text-light); font-size: 13px; margin: 5px 0 0 0;">Executive Overview & Overall Growth</p>
+            <h2>Master Financial Reports</h2>
+            <p>Comprehensive overview of accounts, clients, and company health</p>
         </div>
-        <button class="btn-export-excel" onclick="exportFullReport()" style="background: var(--theme-color); margin: 0;">
-            <i class="ph ph-file-arrow-down"></i> Export All Data
-        </button>
+        <div style="display: flex; gap: 10px;">
+            <form method="GET" style="display: flex; gap: 10px;">
+                <select name="year" style="padding: 10px; border: 1px solid #ddd; border-radius: 8px;">
+                    <option value="2026" <?= $selected_year=='2026'?'selected':'' ?>>2026</option>
+                    <option value="2025" <?= $selected_year=='2025'?'selected':'' ?>>2025</option>
+                </select>
+                <button type="submit" style="background: var(--theme-color); color: white; border: none; padding: 10px 15px; border-radius: 8px; cursor:pointer;">Filter</button>
+            </form>
+            <button class="btn-export" onclick="exportFullReport()"><i class="ph-bold ph-microsoft-excel-logo"></i> Export All to Excel</button>
+        </div>
     </div>
 
     <div class="kpi-grid">
-        <div class="kpi-card income">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">TOTAL INCOME (PAID)</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['total_income'], 2); ?></div>
+        <div class="kpi-card">
+            <div class="kpi-title">Gross Revenue (Paid)</div>
+            <div class="kpi-val" style="color: #059669;">₹<?= number_format($kpi['total_income'], 2) ?></div>
         </div>
-        <div class="kpi-card expense">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">TOTAL EXPENSES (PO)</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['total_expense'], 2); ?></div>
+        <div class="kpi-card" style="border-left-color: #dc2626;">
+            <div class="kpi-title">Total PO / Expenses</div>
+            <div class="kpi-val" style="color: #dc2626;">₹<?= number_format($kpi['total_expense'], 2) ?></div>
         </div>
-        <div class="kpi-card profit">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">NET PROFIT</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['net_profit'], 2); ?></div>
+        <div class="kpi-card" style="border-left-color: #3b82f6;">
+            <div class="kpi-title">Net Profit Margin</div>
+            <div class="kpi-val" style="color: #3b82f6;">₹<?= number_format($kpi['net_profit'], 2) ?></div>
         </div>
-        <div class="kpi-card" style="border-left-color: var(--warning);">
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-light);">PENDING INVOICES</div>
-            <div class="kpi-value">₹<?php echo number_format($kpi['pending_invoices'], 2); ?></div>
+        <div class="kpi-card" style="border-left-color: #f59e0b;">
+            <div class="kpi-title">Pending Invoices (A/R)</div>
+            <div class="kpi-val" style="color: #f59e0b;">₹<?= number_format($kpi['pending_invoices'], 2) ?></div>
+        </div>
+        <div class="kpi-card" style="border-left-color: #8b5cf6;">
+            <div class="kpi-title">Active Database</div>
+            <div class="kpi-val" style="font-size: 16px; margin-top: 8px;"><?= $kpi['total_clients'] ?> Clients | <?= $kpi['active_employees'] ?> Staff</div>
         </div>
     </div>
 
     <div class="charts-row">
         <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px; color: var(--text-main);"><i class="ph ph-chart-bar"></i> Income vs Expense Trend</div>
+            <h3>Revenue vs Expense Trend (<?= $selected_year ?>)</h3>
             <div class="canvas-wrapper">
-                <canvas id="financeChart"></canvas>
+                <canvas id="trendChart"></canvas>
             </div>
         </div>
         <div class="chart-container">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 15px; color: var(--text-main);"><i class="ph ph-chart-pie"></i> Payment Status</div>
+            <h3>Invoice Status Breakdown</h3>
             <div class="canvas-wrapper">
-                <canvas id="invoiceChart"></canvas>
+                <canvas id="invChart"></canvas>
             </div>
         </div>
     </div>
 
-    <div class="drill-down-container">
-        <div style="padding: 15px 20px; font-weight: 800; color: var(--theme-color); border-bottom: 1px solid #eee;">
-            | Departmental Drill-Down
-        </div>
-        <div class="tab-nav">
-            <button class="tab-btn active" onclick="openTab(event, 'clients')">Client Master</button>
-            <button class="tab-btn" onclick="openTab(event, 'employees')">Employee Master</button>
-            <button class="tab-btn" onclick="openTab(event, 'salary')">Salary History</button>
-            <button class="tab-btn" onclick="openTab(event, 'ledger')">Company Ledger</button>
-            <button class="tab-btn" onclick="openTab(event, 'po')">Purchase Orders</button>
-            <button class="tab-btn" onclick="openTab(event, 'invoices')">Invoices</button>
+    <div class="report-card">
+        <div class="tabs-header">
+            <button class="tab-btn active" onclick="switchTab(event, 'tab-clients')">Client Billing</button>
+            <button class="tab-btn" onclick="switchTab(event, 'tab-emp')">Employee Data</button>
+            <button class="tab-btn" onclick="switchTab(event, 'tab-po')">Purchase Orders</button>
+            <button class="tab-btn" onclick="switchTab(event, 'tab-inv')">Invoices List</button>
         </div>
 
-        <div id="clients" class="tab-pane active">
-            <button class="btn-export-excel" onclick="exportTable('tableClients', 'Clients_Data')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <div class="table-responsive">
+        <div id="tab-clients" class="tab-pane active">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                <h3 style="margin:0; font-size:16px;">Client Billing Overview</h3>
+                <button class="btn-export" onclick="exportTable('tableClients', 'Client_Report')"><i class="ph ph-download-simple"></i> Excel</button>
+            </div>
+            <div style="overflow-x: auto;">
                 <table id="tableClients">
-                    <thead><tr><th>Client Name</th><th>GST</th><th>Location</th><th>Mobile</th><th style="text-align:right">Total Invoiced</th></tr></thead>
+                    <thead>
+                        <tr>
+                            <th style="width: 50px;">S.No</th>
+                            <th>Client Name</th>
+                            <th>GST</th>
+                            <th>Mobile Number</th>
+                            <th>Payment Method</th>
+                            <th style="text-align:right">Total Invoiced</th>
+                            <th style="text-align:right">Total Account Balance</th>
+                        </tr>
+                    </thead>
                     <tbody>
-                        <?php foreach ($real_clients as $c): ?>
-                        <tr><td><b><?= htmlspecialchars($c['name']) ?></b></td><td><?= $c['gst'] ?></td><td><?= $c['loc'] ?></td><td><?= $c['mob'] ?></td><td class="amt-pos" style="text-align:right">₹<?= number_format($c['total'], 2) ?></td></tr>
+                        <?php $sno = 1; foreach ($real_clients as $c): ?>
+                        <tr>
+                            <td><?= $sno++ ?></td>
+                            <td><b><?= htmlspecialchars($c['name']) ?></b></td>
+                            <td><?= htmlspecialchars($c['gst']) ?></td>
+                            <td><?= htmlspecialchars($c['mob']) ?></td>
+                            <td><span style="background: #f8fafc; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; border: 1px solid #e2e8f0;"><?= htmlspecialchars($c['payment_method']) ?></span></td>
+                            <td class="amt-pos" style="text-align:right">₹<?= number_format($c['total'], 2) ?></td>
+                            <td style="text-align:right; font-weight: 700; color: #1b5a5a;">₹<?= number_format($c['balance'], 2) ?></td>
+                        </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <div id="employees" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableEmployees', 'Employees')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <div class="table-responsive">
+        <div id="tab-emp" class="tab-pane">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                <h3 style="margin:0; font-size:16px;">Employee Directory</h3>
+                <button class="btn-export" onclick="exportTable('tableEmployees', 'Employee_Report')"><i class="ph ph-download-simple"></i> Excel</button>
+            </div>
+            <div style="overflow-x: auto;">
                 <table id="tableEmployees">
-                    <thead><tr><th>ID</th><th>Name</th><th>Dept</th><th>Designation</th><th>Type</th><th>DOJ</th></tr></thead>
+                    <thead><tr><th>Emp ID</th><th>Name</th><th>Department</th><th>Designation</th><th>Date of Join</th></tr></thead>
                     <tbody>
                         <?php foreach ($real_employees as $e): ?>
-                        <tr><td><?= htmlspecialchars($e['id']) ?></td><td><b><?= htmlspecialchars($e['name']) ?></b></td><td><?= htmlspecialchars($e['dept']) ?></td><td><?= htmlspecialchars($e['desig']) ?></td><td><?= $e['type'] ?></td><td><?= $e['doj'] ?></td></tr>
+                        <tr>
+                            <td><b><?= $e['id'] ?></b></td>
+                            <td><?= htmlspecialchars($e['name']) ?></td>
+                            <td><?= htmlspecialchars($e['dept']) ?></td>
+                            <td><?= htmlspecialchars($e['desig']) ?></td>
+                            <td><?= $e['doj'] ?></td>
+                        </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <div id="salary" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableSalary', 'Salary_History')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <div class="table-responsive">
-                <table id="tableSalary">
-                    <thead><tr><th>Month</th><th>Name</th><th>Basic</th><th>HRA</th><th>Net Pay</th><th>Status</th></tr></thead>
-                    <tbody>
-                        <?php foreach ($mock_salary as $s): ?>
-                        <tr><td><?= $s['month'] ?></td><td><b><?= $s['name'] ?></b></td><td><?= number_format($s['basic']) ?></td><td><?= number_format($s['hra']) ?></td><td class="amt-pos">₹<?= number_format($s['net']) ?></td><td><span class="status-badge st-paid"><?= $s['status'] ?></span></td></tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
+        <div id="tab-po" class="tab-pane">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                <h3 style="margin:0; font-size:16px;">Purchase Order Report</h3>
+                <button class="btn-export" onclick="exportTable('tablePO', 'PO_Report')"><i class="ph ph-download-simple"></i> Excel</button>
             </div>
-        </div>
-
-        <div id="ledger" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableLedger', 'Ledger')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <div class="table-responsive">
-                <table id="tableLedger">
-                    <thead><tr><th>Date</th><th>Category</th><th>Party</th><th>Description</th><th style="text-align:right">Debit</th><th style="text-align:right">Credit</th></tr></thead>
-                    <tbody>
-                        <?php foreach ($mock_ledger as $row): ?>
-                        <tr><td><?= $row['date'] ?></td><td><?= $row['cat'] ?></td><td><b><?= $row['party'] ?></b></td><td><?= $row['desc'] ?></td><td class="amt-neg" style="text-align:right"><?= $row['mode']=='Debit' ? '₹'.number_format($row['amount'],2) : '-' ?></td><td class="amt-pos" style="text-align:right"><?= $row['mode']=='Credit' ? '₹'.number_format($row['amount'],2) : '-' ?></td></tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div id="po" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tablePO', 'Purchase_Orders')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <div class="table-responsive">
+            <div style="overflow-x: auto;">
                 <table id="tablePO">
-                    <thead><tr><th>PO No</th><th>Vendor</th><th>Date</th><th>Grand Total</th><th>Paid</th><th>Balance</th></tr></thead>
+                    <thead><tr><th>PO Number</th><th>Vendor</th><th>Date</th><th style="text-align:right">Total</th><th style="text-align:right">Paid</th><th style="text-align:right">Balance</th></tr></thead>
                     <tbody>
-                        <?php foreach ($real_po as $po): ?>
-                        <tr><td><b><?= htmlspecialchars($po['no']) ?></b></td><td><?= htmlspecialchars($po['vendor']) ?></td><td><?= $po['date'] ?></td><td>₹<?= number_format($po['grand'], 2) ?></td><td class="amt-pos">₹<?= number_format($po['paid'], 2) ?></td><td class="amt-neg">₹<?= number_format($po['bal'], 2) ?></td></tr>
+                        <?php foreach ($real_po as $p): ?>
+                        <tr>
+                            <td><b><?= htmlspecialchars($p['no']) ?></b></td>
+                            <td><?= htmlspecialchars($p['vendor']) ?></td>
+                            <td><?= $p['date'] ?></td>
+                            <td style="text-align:right">₹<?= number_format($p['total'], 2) ?></td>
+                            <td class="amt-pos" style="text-align:right">₹<?= number_format($p['paid'], 2) ?></td>
+                            <td class="amt-neg" style="text-align:right">₹<?= number_format($p['balance'], 2) ?></td>
+                        </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <div id="invoices" class="tab-pane">
-            <button class="btn-export-excel" onclick="exportTable('tableInvoices', 'Invoices')"><i class="ph ph-microsoft-excel-logo"></i> XLS</button>
-            <div class="table-responsive">
-                <table id="tableInvoices">
-                    <thead><tr><th>Invoice #</th><th>Client</th><th>Date</th><th>Total</th><th>Status</th></tr></thead>
+        <div id="tab-inv" class="tab-pane">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                <h3 style="margin:0; font-size:16px;">Invoice Aging & Status</h3>
+                <button class="btn-export" onclick="exportTable('tableInv', 'Invoice_Report')"><i class="ph ph-download-simple"></i> Excel</button>
+            </div>
+            <div style="overflow-x: auto;">
+                <table id="tableInv">
+                    <thead><tr><th>Invoice No</th><th>Client</th><th>Date</th><th style="text-align:right">Total Amount</th><th>Status</th></tr></thead>
                     <tbody>
-                        <?php foreach ($real_invoices as $inv): 
-                            $st_class = 'st-pending';
-                            if ($inv['status'] === 'Paid' || $inv['status'] === 'Approved') $st_class = 'st-paid';
-                            if ($inv['status'] === 'Unpaid' || $inv['status'] === 'Rejected') $st_class = 'st-unpaid';
+                        <?php foreach ($real_inv as $i): 
+                            $bg = 'st-pend';
+                            if($i['status'] == 'Paid') $bg = 'st-paid';
+                            if($i['status'] == 'Approved') $bg = 'st-appr';
+                            if($i['status'] == 'Draft') $bg = 'st-draft';
+                            if($i['status'] == 'Rejected' || strpos(strtolower($i['status']), 'overdue') !== false) $bg = 'st-over';
                         ?>
-                        <tr><td><b><?= htmlspecialchars($inv['no']) ?></b></td><td><?= htmlspecialchars($inv['client']) ?></td><td><?= $inv['date'] ?></td><td>₹<?= number_format($inv['total'], 2) ?></td><td><span class="status-badge <?= $st_class ?>"><?= htmlspecialchars($inv['status']) ?></span></td></tr>
+                        <tr>
+                            <td><b><?= htmlspecialchars($i['no']) ?></b></td>
+                            <td><?= htmlspecialchars($i['client']) ?></td>
+                            <td><?= $i['date'] ?></td>
+                            <td class="amt-pos" style="text-align:right">₹<?= number_format($i['total'], 2) ?></td>
+                            <td><span class="status-badge <?= $bg ?>"><?= htmlspecialchars($i['status']) ?></span></td>
+                        </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
             </div>
         </div>
+
     </div>
 </main>
 
 <script>
-    // Tab Navigation Logic
-    function openTab(evt, tabName) {
-        let i, tabPane, tabBtn;
-        tabPane = document.getElementsByClassName("tab-pane");
-        for (i = 0; i < tabPane.length; i++) { tabPane[i].style.display = "none"; tabPane[i].classList.remove("active"); }
-        tabBtn = document.getElementsByClassName("tab-btn");
-        for (i = 0; i < tabBtn.length; i++) { tabBtn[i].className = tabBtn[i].className.replace(" active", ""); }
-        document.getElementById(tabName).style.display = "block";
-        document.getElementById(tabName).classList.add("active");
-        evt.currentTarget.className += " active";
+    function switchTab(evt, id) {
+        document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+        evt.currentTarget.classList.add('active');
     }
 
-    // Charting
-    const ctxFinance = document.getElementById('financeChart').getContext('2d');
-    new Chart(ctxFinance, {
-        type: 'bar',
+    // Chart.js Implementations
+    const trendCtx = document.getElementById('trendChart').getContext('2d');
+    new Chart(trendCtx, {
+        type: 'line',
         data: {
-            labels: <?php echo json_encode($chart_months); ?>,
+            labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
             datasets: [
-                { label: 'Income', data: <?php echo json_encode($chart_income); ?>, backgroundColor: '#059669', borderRadius: 4 },
-                { label: 'Expenses', data: <?php echo json_encode($chart_expense); ?>, backgroundColor: '#dc2626', borderRadius: 4 }
+                {
+                    label: 'Income (₹)',
+                    data: <?= json_encode($chart_income_data) ?>,
+                    borderColor: '#059669',
+                    backgroundColor: 'rgba(5, 150, 105, 0.1)',
+                    fill: true, tension: 0.4
+                },
+                {
+                    label: 'Expense (₹)',
+                    data: <?= json_encode($chart_expense_data) ?>,
+                    borderColor: '#dc2626',
+                    backgroundColor: 'transparent',
+                    borderDash: [5,5], tension: 0.4
+                }
             ]
         },
         options: { 
             responsive: true, 
             maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true, grid: { borderDash: [2, 2] } },
-                x: { grid: { display: false } }
-            },
-            plugins: {
-                legend: { position: 'top', align: 'end' }
-            }
+            plugins: { legend: { position: 'bottom', labels: { usePointStyle: true } } },
+            scales: { y: { beginAtZero: true, grid: { borderDash: [2,2] } }, x: { grid: { display: false } } }
         }
     });
 
-    const invData = [<?php echo $kpi['total_income']; ?>, <?php echo $kpi['unpaid_invoices']; ?>, <?php echo $kpi['pending_invoices']; ?>];
-    const sumInv = invData.reduce((a, b) => a + b, 0);
+    // Calculate dynamic data for Donut Chart
+    <?php
+        $paid = 0; $pend = 0; $over = 0;
+        foreach($real_inv as $inv) {
+            if($inv['status'] == 'Paid' || $inv['status'] == 'Approved') $paid++;
+            elseif($inv['status'] == 'Pending Approval' || $inv['status'] == 'Draft') $pend++;
+            else $over++;
+        }
+    ?>
+    const invData = [<?= $paid ?>, <?= $pend ?>, <?= $over ?>];
+    const sumInv = invData.reduce((a,b)=>a+b, 0);
 
-    const ctxInvoice = document.getElementById('invoiceChart').getContext('2d');
-    new Chart(ctxInvoice, {
+    const invCtx = document.getElementById('invChart').getContext('2d');
+    new Chart(invCtx, {
         type: 'doughnut',
         data: {
-            labels: sumInv === 0 ? ['No Data'] : ['Paid', 'Unpaid', 'Pending'],
-            datasets: [{ 
-                data: sumInv === 0 ? [1] : invData, 
-                backgroundColor: sumInv === 0 ? ['#e5e7eb'] : ['#059669', '#dc2626', '#d97706'], 
-                borderWidth: 0 
+            labels: ['Paid/Appr.', 'Pending', 'Rejected/Overdue'],
+            datasets: [{
+                data: sumInv === 0 ? [1] : invData,
+                backgroundColor: sumInv === 0 ? ['#e2e8f0'] : ['#10b981', '#f59e0b', '#ef4444'],
+                borderWidth: 0
             }]
         },
         options: { 
@@ -523,11 +503,9 @@ $chart_expense = [10000, 29.53, 0, 0, 0, 0];
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableClients')), "Clients");
         XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableEmployees')), "Employees");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableSalary')), "Salary");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableLedger')), "Ledger");
         XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tablePO')), "Purchase Orders");
-        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableInvoices')), "Invoices");
-        XLSX.writeFile(wb, "Executive_Financial_Report.xlsx");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.table_to_sheet(document.getElementById('tableInv')), "Invoices");
+        XLSX.writeFile(wb, "Master_Financial_Report.xlsx");
     }
 </script>
 
