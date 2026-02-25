@@ -4,7 +4,7 @@ header('Content-Type: application/json');
 
 $paths = ['../include/db_connect.php', '../../include/db_connect.php', '../db_connect.php'];
 foreach($paths as $path) { if(file_exists($path)) { require_once $path; break; } }
-if(!isset($conn)) { echo json_encode(['success'=>false, 'message'=>'DB Error']); exit; }
+if(!isset($conn)) { echo json_encode(['success'=>false, 'message'=>'Database Connection Failed']); exit; }
 
 $month_filter = isset($_GET['month']) ? $_GET['month'] : date('Y-m');
 $status_filter = isset($_GET['status']) ? $_GET['status'] : '';
@@ -14,17 +14,16 @@ $params = [$month_filter];
 $types = "s";
 
 if (!empty($status_filter)) {
-    $where_clauses[] = "s.credit_status = ?";
+    $where_clauses[] = "s.approval_status = ?";
     $params[] = $status_filter;
     $types .= "s";
 }
 
 $where_sql = implode(' AND ', $where_clauses);
 
-// Fetch List by matching user_id between salary and profiles
-$query = "SELECT s.id, s.salary_month, s.net_salary, s.credit_status, s.credit_date, 
-                 p.emp_id_code as emp_code, p.full_name as name, p.designation, p.email, 
-                 p.phone, p.joining_date, p.profile_img
+// CRITICAL FIX: 's.*' ensures basic, hra, da, and user_id are fetched so the Edit modal has data!
+$query = "SELECT s.*, 
+                 p.emp_id_code as emp_code, p.full_name as name, p.designation, p.email, p.profile_img
           FROM employee_salary s
           LEFT JOIN employee_profiles p ON s.user_id = p.user_id
           WHERE $where_sql
@@ -40,26 +39,17 @@ if ($stmt) {
     echo json_encode(['success' => false, 'message' => $conn->error]); exit;
 }
 
-// Fetch Summary
+// Safely calculate summaries
 $summary_stmt = $conn->prepare("SELECT 
-    SUM(gross_salary) as total_payroll,
-    SUM(CASE WHEN credit_status = 'Credited' THEN net_salary ELSE 0 END) as total_credited,
-    SUM(CASE WHEN credit_status = 'Pending' THEN net_salary ELSE 0 END) as total_pending,
-    SUM(total_deductions) as total_deductions
+    IFNULL(SUM(gross_salary), 0) as total_payroll,
+    IFNULL(SUM(CASE WHEN credit_status = 'Credited' THEN net_salary ELSE 0 END), 0) as total_credited,
+    IFNULL(SUM(CASE WHEN approval_status = 'Pending' THEN net_salary ELSE 0 END), 0) as total_pending,
+    IFNULL(SUM(total_deductions), 0) as total_deductions
     FROM employee_salary WHERE salary_month = ?");
 $summary_stmt->bind_param("s", $month_filter);
 $summary_stmt->execute();
 $summary = $summary_stmt->get_result()->fetch_assoc();
 $summary_stmt->close();
 
-echo json_encode([
-    'success' => true, 
-    'data' => $salaries,
-    'summary' => [
-        'total_payroll' => $summary['total_payroll'] ?? 0,
-        'total_credited' => $summary['total_credited'] ?? 0,
-        'total_pending' => $summary['total_pending'] ?? 0,
-        'total_deductions' => $summary['total_deductions'] ?? 0
-    ]
-]);
+echo json_encode(['success' => true, 'data' => $salaries, 'summary' => $summary]);
 ?>
