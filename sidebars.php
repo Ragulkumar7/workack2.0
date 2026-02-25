@@ -87,15 +87,15 @@ $sections = [
             ],
             // --- SALES DASHBOARD ---
             [
-                'name' => 'Sales Dashboard', 
+                'name' => 'Dashboard', 
                 'path' => $base . 'sales_manager/sales_dashboard.php', 
-                'icon' => 'bar-chart-3', // Lucide icon for sales/charts
+                'icon' => 'layout-dashboard', // Lucide icon for sales/charts
                 'allowed' => ['Sales Manager']
             ],
              [
-                'name' => 'Sales Dashboard', 
+                'name' => 'Dashboard', 
                 'path' => $base . 'sales_executive/sales_executive_dashboard.php', 
-                'icon' => 'bar-chart-3', // Lucide icon for sales/charts
+                'icon' => 'layout-dashboard', // Lucide icon for sales/charts
                 'allowed' => ['Sales Executive']
             ],
 
@@ -104,7 +104,7 @@ $sections = [
                'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR', 'Sales Manager', 'Sales Executive']
             ],
             
             // --- ATTENDANCE (HR& HR Executive) ---
@@ -170,7 +170,7 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts'],
+                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts', 'Sales Manager', 'Sales Executive'],
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
@@ -184,6 +184,20 @@ $sections = [
                 'path' => $base . 'ITadmin/external_attendance.php', // File ITadmin folder-il aanenkil 'ITadmin/external_attendance.php' ennu maattuka
                 'icon' => 'calendar-clock', 
                 'allowed' => ['IT Admin']
+            ],
+            // --- ASSIGN TASK (SALES MANAGER) ---
+            [
+                'name' => 'Assign Tasks', 
+                'path' => $base . 'sales_manager/sales_assigntask.php', 
+                'icon' => 'clipboard-plus', // Lucide icon for assigning tasks
+                'allowed' => ['Sales Manager']
+            ],
+            // --- INVOICE DISPATCH (SALES MANAGER) ---
+            [
+                'name' => 'Invoice Dispatch', 
+                'path' => $base . 'sales_manager/invoice_dispatch.php', 
+                'icon' => 'truck', // Lucide icon for dispatch/shipping
+                'allowed' => ['Sales Manager']
             ],
              // NEW: STOCK MAINTENANCE BUTTON
             [
@@ -255,7 +269,7 @@ $sections = [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
                 'icon' => 'users', 
-                'allowed' => ['Manager', 'System Admin']
+                'allowed' => ['Manager','System Admin']
             ],
 
             // --- PERFORMANCE & PRODUCTIVITY ---
@@ -316,7 +330,7 @@ $sections = [
             'path' => $base . 'manager/my_team.php', 
             'icon' => 'users', // Uses lucide/font-awesome icon
             'allowed' => ['Manager', 'System Admin'] 
-        ],
+          ],
              // --- ANNOUNCEMENT ---
             [
                 'name' => 'Announcement', 
@@ -328,7 +342,7 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'view_announcements.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO','sales_manager','sales_executive']
+                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO','Sales Manager','Sales Executive']
             ],
 
             // --- TICKETS ---
@@ -378,12 +392,15 @@ $sections = [
                 'IT Admin', 
                 'IT Executive', 
                 'HR Executive',
-                'CFO'
+                'CFO',
+                'Sales Manager',
+                'Sales Executive'
             ]
         ],
         
     ]
 ],
+
     [
         'label' => 'Accounts',
         'items' => [
@@ -498,13 +515,13 @@ $sections = [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive']
             ],
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive']
             ],
         ]
     ]
