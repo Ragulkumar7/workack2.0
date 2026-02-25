@@ -1,5 +1,5 @@
 <?php 
-// assign_tasks.php (Pure Interactive UI version)
+// assign_tasks.php (Pure Interactive UI version with Targets)
 include '../sidebars.php'; 
 include '../header.php';
 ?>
@@ -9,7 +9,7 @@ include '../header.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Assign Sales Tasks | Workack</title>
+    <title>Assign Sales Tasks & Targets | Workack</title>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -29,11 +29,35 @@ include '../header.php';
         .page-header h2 { color: var(--theme-color); margin: 0; font-size: 24px; font-weight: 700; }
         .page-header p { margin: 5px 0 0 0; font-size: 14px; color: var(--text-muted); }
         
+        .header-actions { display: flex; gap: 15px; }
+        
         .btn-primary { background: var(--theme-color); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; font-size: 14px; }
         .btn-primary:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(27, 90, 90, 0.2); }
+        
+        .btn-secondary { background: white; color: var(--theme-color); border: 2px solid var(--theme-color); padding: 12px 20px; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; font-size: 14px; }
+        .btn-secondary:hover { background: #f8fafc; transform: translateY(-2px); box-shadow: 0 4px 10px rgba(27, 90, 90, 0.1); }
+
+        /* Target Dashboard */
+        .target-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .target-card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.02); transition: transform 0.2s;}
+        .target-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+        .tc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .tc-name { font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 6px;}
+        .tc-month { font-size: 11px; font-weight: 700; background: #e0f2fe; color: #0284c7; padding: 4px 10px; border-radius: 20px; }
+        
+        .progress-container { width: 100%; background: #e2e8f0; border-radius: 10px; height: 8px; margin: 10px 0 15px; overflow: hidden; }
+        .progress-bar { height: 100%; border-radius: 10px; transition: width 1s ease-in-out; }
+        .progress-red { background: #ef4444; }
+        .progress-orange { background: #f59e0b; }
+        .progress-green { background: #10b981; }
+        
+        .tc-stats { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); font-weight: 600; }
+        .tc-stats strong { color: var(--text-main); font-size: 14px; }
+        .tc-message { font-size: 12px; margin-top: 15px; padding-top: 15px; border-top: 1px dashed var(--border-color); }
+        .tc-message i { font-size: 14px; vertical-align: text-bottom; margin-right: 4px; }
 
         /* Filter Tabs */
-        .filter-tabs { display: flex; gap: 10px; margin-bottom: 25px; border-bottom: 2px solid var(--border-color); padding-bottom: 15px;}
+        .filter-tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 2px solid var(--border-color); padding-bottom: 15px;}
         .tab { padding: 8px 16px; border-radius: 30px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; background: white; border: 1px solid var(--border-color); color: var(--text-muted);}
         .tab.active { background: var(--theme-color); color: white; border-color: var(--theme-color); }
         .tab:hover:not(.active) { background: #f8fafc; }
@@ -86,6 +110,8 @@ include '../header.php';
         @media (max-width: 1024px) {
             .main-content { margin-left: 0; padding: 15px; width: 100%; }
             .page-header { flex-direction: column; align-items: flex-start; gap: 15px; }
+            .header-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+            .header-actions button { justify-content: center; }
         }
     </style>
 </head>
@@ -95,19 +121,84 @@ include '../header.php';
     
     <div class="page-header">
         <div>
-            <h2>Task Assignment Hub</h2>
-            <p>Assign, filter, and monitor tasks for the Sales Executive team.</p>
+            <h2>Sales Dashboard & Tasks</h2>
+            <p>Monitor executive targets and assign daily tasks.</p>
         </div>
-        <button class="btn-primary" onclick="openModal()">
-            <i class="ph-bold ph-plus-circle"></i> Create New Task
-        </button>
+        <div class="header-actions">
+            <button class="btn-secondary" onclick="openTargetModal()">
+                <i class="ph-bold ph-target"></i> Set Target
+            </button>
+            <button class="btn-primary" onclick="openModal()">
+                <i class="ph-bold ph-plus-circle"></i> Create Task
+            </button>
+        </div>
+    </div>
+
+    <div class="target-grid">
+        
+        <div class="target-card">
+            <div class="tc-header">
+                <h4 class="tc-name"><i class="ph-bold ph-user-circle" style="color: var(--theme-color); font-size: 20px;"></i> Sam Executive</h4>
+                <span class="tc-month">Feb 2026</span>
+            </div>
+            <div class="tc-stats">
+                <span>Target: <strong>₹5,00,000</strong></span>
+                <span>Achieved: <strong>105%</strong></span>
+            </div>
+            <div class="progress-container"><div class="progress-bar progress-green" style="width: 100%;"></div></div>
+            <div class="tc-stats">
+                <span>Revenue: <span style="color: #10b981;">₹5,25,000</span></span>
+                <span>Clients Won: <strong style="color: #ef4444;">6 / 10</strong></span>
+            </div>
+            <div class="tc-message" style="color: #10b981; font-weight: 600;">
+                <i class="ph-fill ph-check-circle"></i> Target Achieved! (Revenue hit)
+            </div>
+        </div>
+
+        <div class="target-card">
+            <div class="tc-header">
+                <h4 class="tc-name"><i class="ph-bold ph-user-circle" style="color: var(--theme-color); font-size: 20px;"></i> Ravi Kumar</h4>
+                <span class="tc-month">Feb 2026</span>
+            </div>
+            <div class="tc-stats">
+                <span>Target: <strong>₹4,00,000</strong></span>
+                <span>Achieved: <strong style="color: #ef4444;">45%</strong></span>
+            </div>
+            <div class="progress-container"><div class="progress-bar progress-red" style="width: 45%;"></div></div>
+            <div class="tc-stats">
+                <span>Revenue: ₹1,80,000</span>
+                <span>Clients Won: <strong>4 / 8</strong></span>
+            </div>
+            <div class="tc-message" style="color: #ef4444; font-weight: 600;">
+                <i class="ph-fill ph-warning-circle"></i> Target missed. Needs improvement.
+            </div>
+        </div>
+
+        <div class="target-card">
+            <div class="tc-header">
+                <h4 class="tc-name"><i class="ph-bold ph-user-circle" style="color: var(--theme-color); font-size: 20px;"></i> Priya Sharma</h4>
+                <span class="tc-month">Feb 2026</span>
+            </div>
+            <div class="tc-stats">
+                <span>Target: <strong>₹3,50,000</strong></span>
+                <span>Achieved: <strong style="color: #f59e0b;">80%</strong></span>
+            </div>
+            <div class="progress-container"><div class="progress-bar progress-orange" style="width: 80%;"></div></div>
+            <div class="tc-stats">
+                <span>Revenue: ₹2,80,000</span>
+                <span>Clients Won: <strong>6 / 8</strong></span>
+            </div>
+            <div class="tc-message" style="color: #f59e0b; font-weight: 600;">
+                <i class="ph-fill ph-trend-up"></i> On track to meet the target.
+            </div>
+        </div>
     </div>
 
     <div class="filter-tabs" id="tabContainer">
-        <div class="tab active" data-filter="All">All Tasks</div>
-        <div class="tab" data-filter="Pending">Pending</div>
-        <div class="tab" data-filter="In Progress">In Progress</div>
-        <div class="tab" data-filter="Completed">Completed</div>
+        <div class="tab active" data-filter="All">All Tasks (5)</div>
+        <div class="tab" data-filter="Pending">Pending (2)</div>
+        <div class="tab" data-filter="In Progress">In Progress (2)</div>
+        <div class="tab" data-filter="Completed">Completed (1)</div>
     </div>
 
     <div class="tasks-container" id="tasksContainer">
@@ -156,6 +247,22 @@ include '../header.php';
                 <div class="meta-item">
                     <div class="meta-icon-group"><i class="ph-bold ph-calendar-blank meta-icon"></i> Due: 01 Mar 2026</div>
                     <span class="badge pri-Medium">Medium</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="task-card" data-status="In Progress">
+            <button class="btn-delete" title="Delete Task" onclick="this.closest('.task-card').remove();"><i class="ph-bold ph-trash"></i></button>
+            <div class="task-header"><h4 class="task-title">Cold Calling Campaign</h4></div>
+            <p class="task-desc">Call the 50 new leads generated from the recent digital marketing campaign on LinkedIn. Log all responses in the CRM.</p>
+            <div class="task-meta">
+                <div class="meta-item">
+                    <div class="meta-icon-group"><i class="ph-bold ph-user-circle meta-icon"></i> Sam Executive</div>
+                    <span class="badge stat-In">In Progress</span>
+                </div>
+                <div class="meta-item">
+                    <div class="meta-icon-group"><i class="ph-bold ph-calendar-blank meta-icon"></i> Due: 26 Feb 2026</div>
+                    <span class="badge pri-Low">Low</span>
                 </div>
             </div>
         </div>
@@ -227,21 +334,69 @@ include '../header.php';
     </div>
 </div>
 
+<div class="modal-overlay" id="targetModal">
+    <div class="modal-content">
+        <i class="ph-bold ph-x close-modal" onclick="closeTargetModal()"></i>
+        <h3 style="margin-top: 0; color: var(--theme-color); font-size: 18px; margin-bottom: 20px;"><i class="ph-bold ph-target"></i> Set Monthly Target</h3>
+        
+        <form id="setTargetForm" onsubmit="event.preventDefault(); submitTarget();">
+            <div class="form-group">
+                <label>Select Executive *</label>
+                <select required>
+                    <option value="">-- Choose Executive --</option>
+                    <option value="Sam Executive">Sam Executive (EMP-SE01)</option>
+                    <option value="Ravi Kumar">Ravi Kumar (EMP-SE02)</option>
+                    <option value="Priya Sharma">Priya Sharma (EMP-SE03)</option>
+                </select>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                    <label>Target Month *</label>
+                    <input type="month" required value="<?= date('Y-m') ?>">
+                </div>
+                <div class="form-group">
+                    <label>Target Customers</label>
+                    <input type="number" placeholder="E.g., 10" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Revenue Target (₹) *</label>
+                <input type="number" placeholder="E.g., 500000" required>
+            </div>
+
+            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px;" id="btnSubmitTarget">
+                Save Target
+            </button>
+        </form>
+    </div>
+</div>
+
 <script>
-    // --- MODAL LOGIC ---
-    function openModal() {
-        document.getElementById('taskModal').classList.add('active');
-    }
+    // --- TASK MODAL LOGIC ---
+    function openModal() { document.getElementById('taskModal').classList.add('active'); }
+    function closeModal() { document.getElementById('taskModal').classList.remove('active'); document.getElementById('createTaskForm').reset(); }
+    document.getElementById('taskModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 
-    function closeModal() {
-        document.getElementById('taskModal').classList.remove('active');
-        document.getElementById('createTaskForm').reset();
-    }
+    // --- TARGET MODAL LOGIC ---
+    function openTargetModal() { document.getElementById('targetModal').classList.add('active'); }
+    function closeTargetModal() { document.getElementById('targetModal').classList.remove('active'); document.getElementById('setTargetForm').reset(); }
+    document.getElementById('targetModal').addEventListener('click', function(e) { if (e.target === this) closeTargetModal(); });
 
-    // Close modal when clicking outside
-    document.getElementById('taskModal').addEventListener('click', function(e) {
-        if (e.target === this) closeModal();
-    });
+    function submitTarget() {
+        const btn = document.getElementById('btnSubmitTarget');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Saving...';
+        btn.disabled = true;
+
+        setTimeout(() => {
+            alert('UI Mode: Monthly Target set successfully!');
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            closeTargetModal();
+        }, 600);
+    }
 
     // --- SUBMIT DUMMY TASK (ADDS CARD TO SCREEN) ---
     function submitDummyTask() {
@@ -251,14 +406,12 @@ include '../header.php';
         btn.disabled = true;
 
         setTimeout(() => {
-            // Get values
             const title = document.getElementById('taskTitle').value;
             const assignee = document.getElementById('taskAssignee').value;
             const date = document.getElementById('taskDate').value;
             const priority = document.getElementById('taskPriority').value;
             const desc = document.getElementById('taskDesc').value;
 
-            // Generate HTML for new card
             const newCard = `
                 <div class="task-card" data-status="Pending">
                     <button class="btn-delete" title="Delete Task" onclick="this.closest('.task-card').remove();"><i class="ph-bold ph-trash"></i></button>
@@ -277,17 +430,11 @@ include '../header.php';
                 </div>
             `;
 
-            // Add to board
             document.getElementById('tasksContainer').insertAdjacentHTML('afterbegin', newCard);
-
-            // Reset and close
             btn.innerHTML = originalText;
             btn.disabled = false;
             closeModal();
-
-            // Auto-switch to "All" tab to ensure the new task is visible
             document.querySelector('.tab[data-filter="All"]').click();
-
         }, 600);
     }
 
@@ -297,14 +444,11 @@ include '../header.php';
 
     tabs.forEach(tab => {
         tab.addEventListener('click', function() {
-            // Remove active class from all tabs
             tabs.forEach(t => t.classList.remove('active'));
-            // Add active class to clicked tab
             this.classList.add('active');
 
             const filterValue = this.getAttribute('data-filter');
 
-            // Loop through cards and hide/show based on status
             Array.from(cards).forEach(card => {
                 if (filterValue === 'All' || card.getAttribute('data-status') === filterValue) {
                     card.style.display = 'flex';
