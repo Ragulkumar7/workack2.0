@@ -1,4 +1,8 @@
 <?php
+ob_start(); // Prevents "Cannot modify header information" errors
+include '../sidebars.php'; 
+include '../header.php';
+
 // Mock Data - In a real app, this would come from your database
 $kpis = [
     ['icon' => 'Δ', 'title' => 'Total No of Leads', 'value' => '6000', 'trend' => '-4.01%', 'trend_up' => false, 'color' => 'bg-orange-500'],
@@ -22,35 +26,41 @@ $company_leads = [
     ['name' => 'Massive Dynamic', 'value' => '$2,546', 'status' => 'Lost', 'color' => 'bg-red-500', 'icon' => 'bg-gray-800'],
 ];
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Leads Dashboard</title>
+    <title>Sales Executive Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f4f7f6; }
         .card { background: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; }
         
-        /* Layout wrapper to prevent overlap with fixed sidebar and header */
-        .dashboard-wrapper { margin-left: 90px; padding-top: 80px; }
-        @media (max-width: 768px) { .dashboard-wrapper { margin-left: 0; } }
+        /* Layout wrapper to prevent overlap with fixed sidebar and header, and span full width */
+        .dashboard-wrapper { 
+            margin-left: 90px; 
+            padding-top: 80px; 
+            width: calc(100% - 90px); /* Fill the remaining width */
+            box-sizing: border-box; /* Ensure padding doesn't cause overflow */
+        }
+        @media (max-width: 768px) { 
+            .dashboard-wrapper { 
+                margin-left: 0; 
+                width: 100%;
+            } 
+        }
     </style>
 </head>
 <body class="text-gray-800">
-
-    <?php include '../header.php'; ?>
-    <?php include '../sidebars.php'; ?>
 
     <div class="dashboard-wrapper p-6">
 
         <div class="flex justify-between items-center mb-6">
             <div>
-                <h1 class="text-2xl font-bold text-gray-900">Leads Dashboard</h1>
-                <p class="text-sm text-gray-500">Dashboard > Leads Dashboard</p>
+                <h1 class="text-2xl font-bold text-gray-900">Sales Executive Dashboard</h1>
+                <p class="text-sm text-gray-500">Dashboard > Sales Executive Dashboard</p>
             </div>
             <div class="flex gap-3">
                 <button class="px-4 py-2 bg-white border rounded shadow-sm text-sm">Export ⌄</button>
@@ -62,7 +72,7 @@ $company_leads = [
             <?php foreach ($kpis as $kpi): ?>
             <div class="card p-5">
                 <div class="flex items-center gap-4 mb-4">
-                    <div class="w-10 h-10 rounded-full text-white flex items-center justify-center <?= $kpi['color'] ?>">
+                    <div class="w-10 h-10 rounded-lg text-white flex items-center justify-center <?= $kpi['color'] ?>">
                         <?= $kpi['icon'] ?>
                     </div>
                     <div>
@@ -73,7 +83,7 @@ $company_leads = [
                 <div class="text-sm border-t pt-2 mt-2">
                     <span class="<?= $kpi['trend_up'] ? 'text-green-500' : 'text-red-500' ?>">
                         <?= $kpi['trend'] ?>
-                    </span> 
+                    </span>
                     <span class="text-gray-400">from last week</span>
                 </div>
             </div>
@@ -82,7 +92,7 @@ $company_leads = [
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             
-            <div class="card overflow-hidden">
+            <div class="card overflow-hidden flex flex-col h-full">
                 <div class="bg-teal-700 text-center p-6 text-white">
                     <div class="w-20 h-20 bg-teal-600 rounded-full mx-auto border-4 border-white flex items-center justify-center text-2xl font-bold relative">
                         SP
@@ -92,7 +102,7 @@ $company_leads = [
                     <p class="text-sm text-teal-200">Senior Software Engineer</p>
                     <button class="mt-3 px-4 py-1 bg-teal-600/50 rounded-full text-xs font-semibold">Verified Account</button>
                 </div>
-                <div class="p-5">
+                <div class="p-5 flex-1">
                     <div class="flex gap-3 mb-4 items-center">
                         <div class="p-2 bg-gray-100 rounded text-teal-700">📞</div>
                         <div><p class="text-xs text-gray-400">PHONE</p><p class="text-sm font-bold">+1 234 567 890</p></div>
@@ -190,7 +200,7 @@ $company_leads = [
             
             <div class="card p-5 lg:col-span-2">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">Pipeline Stages</h3>
+                    <h3 class="font-bold text-lg">Monthly Target</h3>
                     <button class="px-3 py-1 bg-gray-50 border rounded text-sm">2023 - 2024</button>
                 </div>
                 <div class="flex gap-4 mb-4 text-sm font-semibold">
@@ -241,15 +251,87 @@ $company_leads = [
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             
-            <div class="card p-5 lg:col-span-2">
+            <div class="card p-5 lg:col-span-1">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Lost Leads</h3>
                     <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 flex items-center gap-1 shadow-sm">
-                        Sales Pipeline 
+                        Sales Pipeline
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
                     </button>
                 </div>
                 <div id="lostLeadsChart" class="h-64"></div>
+            </div>
+
+            <div class="card p-5">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-bold text-lg">New Leads</h3>
+                    <button class="px-3 py-1 bg-white border rounded text-sm flex items-center gap-1 shadow-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        This Week
+                    </button>
+                </div>
+                
+                <div class="flex h-56 w-full text-[11px] font-semibold text-white text-center pb-6 mt-6">
+                    <div class="flex flex-col justify-between items-end pr-3 text-gray-500 h-full w-8 font-normal relative -top-3">
+                        <span>120</span><span>80</span><span>60</span><span>40</span><span>20</span><span>0</span>
+                    </div>
+                    <div class="flex-1 grid grid-cols-7 gap-[2px] h-full border-b border-gray-200 relative pb-1">
+                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">22</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
+                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Mon</span>
+                        </div>
+                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">20</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
+                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Tue</span>
+                        </div>
+                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="w-full h-8 bg-[#F97316] flex items-center justify-center">75</div>
+                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
+                            <div class="w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
+                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
+                            <div class="w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
+                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
+                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Wed</span>
+                        </div>
+                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Thu</span>
+                        </div>
+                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Fri</span>
+                        </div>
+                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sat</span>
+                        </div>
+                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sun</span>
+                        </div>
+                    </div>
+                </div>
+                
             </div>
 
             <div class="card p-5">
@@ -295,50 +377,6 @@ $company_leads = [
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             
-            <div class="card p-5">
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="font-bold text-lg text-gray-900">Recent Follow Up</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm">View All</button>
-                </div>
-                <div class="flex flex-col gap-6">
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=11" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Alexander Jermai</p><p class="text-xs text-gray-500">UI/UX Designer</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">✉️</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=5" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Doglas Martini</p><p class="text-xs text-gray-500">Product Designer</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">📞</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-red-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=9" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Daniel Esbella</p><p class="text-xs text-gray-500">Project Manager</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">✉️</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=12" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Daniel Esbella</p><p class="text-xs text-gray-500">Team Lead</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">💬</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-yellow-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=1" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Doglas Martini</p><p class="text-xs text-gray-500">Team Lead</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">💬</button>
-                    </div>
-                </div>
-            </div>
-
             <div class="card p-5">
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="font-bold text-lg text-gray-900">Recent Activities</h3>
@@ -417,83 +455,54 @@ $company_leads = [
                 </div>
             </div>
 
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <div class="card p-5">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="font-bold text-lg">New Leads</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm flex items-center gap-1 shadow-sm">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        This Week
-                    </button>
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-bold text-lg text-gray-900">Recent Follow Up</h3>
+                    <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm">View All</button>
                 </div>
-                
-                <div class="flex h-56 w-full text-[11px] font-semibold text-white text-center pb-6 mt-6">
-                    <div class="flex flex-col justify-between items-end pr-3 text-gray-500 h-full w-8 font-normal relative -top-3">
-                        <span>120</span><span>80</span><span>60</span><span>40</span><span>20</span><span>0</span>
+                <div class="flex flex-col gap-6">
+                    <div class="flex justify-between items-center">
+                        <div class="flex gap-3 items-center">
+                            <div class="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=11" alt="avatar" class="w-full h-full object-cover"></div>
+                            <div><p class="text-sm font-bold text-gray-900">Alexander Jermai</p><p class="text-xs text-gray-500">UI/UX Designer</p></div>
+                        </div>
+                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">✉️</button>
                     </div>
-                    <div class="flex-1 grid grid-cols-7 gap-[2px] h-full border-b border-gray-200 relative pb-1">
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">22</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Mon</span>
+                    <div class="flex justify-between items-center">
+                        <div class="flex gap-3 items-center">
+                            <div class="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=5" alt="avatar" class="w-full h-full object-cover"></div>
+                            <div><p class="text-sm font-bold text-gray-900">Doglas Martini</p><p class="text-xs text-gray-500">Product Designer</p></div>
                         </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">20</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Tue</span>
+                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">📞</button>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <div class="flex gap-3 items-center">
+                            <div class="w-10 h-10 rounded-full bg-red-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=9" alt="avatar" class="w-full h-full object-cover"></div>
+                            <div><p class="text-sm font-bold text-gray-900">Daniel Esbella</p><p class="text-xs text-gray-500">Project Manager</p></div>
                         </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#F97316] flex items-center justify-center">75</div>
-                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Wed</span>
+                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">✉️</button>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <div class="flex gap-3 items-center">
+                            <div class="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=12" alt="avatar" class="w-full h-full object-cover"></div>
+                            <div><p class="text-sm font-bold text-gray-900">Daniel Esbella</p><p class="text-xs text-gray-500">Team Lead</p></div>
                         </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Thu</span>
+                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">💬</button>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <div class="flex gap-3 items-center">
+                            <div class="w-10 h-10 rounded-full bg-yellow-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=1" alt="avatar" class="w-full h-full object-cover"></div>
+                            <div><p class="text-sm font-bold text-gray-900">Doglas Martini</p><p class="text-xs text-gray-500">Team Lead</p></div>
                         </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Fri</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sat</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sun</span>
-                        </div>
+                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">💬</button>
                     </div>
                 </div>
-                
             </div>
+
         </div>
 
-    </div> <script>
+    </div>
+    <script>
         // ApexCharts config for Pipeline Stages (Stacked Bar)
         var options = {
             series: [{
@@ -520,10 +529,10 @@ $company_leads = [
                 name: 'Lost Leads',
                 data: [80, 40, 60, 40]
             }],
-            chart: { 
-                type: 'bar', 
-                height: 280, 
-                toolbar: { show: false } 
+            chart: {
+                type: 'bar',
+                height: 280,
+                toolbar: { show: false }
             },
             plotOptions: {
                 bar: {
@@ -538,7 +547,7 @@ $company_leads = [
             },
             colors: ['#F97316'], // Orange
             dataLabels: { enabled: false },
-            xaxis: { 
+            xaxis: {
                 categories: ['Competitor', 'Budget', 'Unresponsive', 'Timing'],
                 axisBorder: { show: false },
                 axisTicks: { show: false },
