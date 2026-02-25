@@ -199,6 +199,20 @@ $sections = [
                 'icon' => 'truck', // Lucide icon for dispatch/shipping
                 'allowed' => ['Sales Manager']
             ],
+            // --- CLIENT MANAGEMENT (SALES MANAGER) ---
+            [
+                'name' => 'Client Management', 
+                'path' => $base . 'sales_manager/client_management.php', 
+                'icon' => 'users-round', // Lucide icon for clients/people
+                'allowed' => ['Sales Manager', 'Sales Executive']
+            ],
+            // --- MY TASKS (SALES EXECUTIVE) ---
+            [
+                'name' => 'My Tasks', 
+                'path' => $base . 'sales_executive/my_tasks.php', 
+                'icon' => 'clipboard-list', // Lucide icon for tasks
+                'allowed' => ['Sales Executive']
+            ],
              // NEW: STOCK MAINTENANCE BUTTON
             [
                 'name' => 'Stock Maintenance', 
@@ -360,22 +374,7 @@ $sections = [
             ],
         ]
     ],
-    // --- PAYROLL & ACCOUNTS SECTION FIXED ---
-    [
-        'label' => 'Finance & Payroll',
-        'items' => [
-            [
-                'name' => 'Payslip <br>Management', 
-                'icon' => 'file-text', 
-                'allowed' => ['Accounts'],
-                'subItems' => [
-                    ['name' => 'Generate Payslip', 'path' => $base . 'Accounts/payslip_management.php?view=generate', 'icon' => 'plus-circle'],
-                    ['name' => 'Pending Approvals', 'path' => $base . 'Accounts/payslip_management.php?view=approvals', 'icon' => 'clock'],
-                    ['name' => 'All Payslips', 'path' => $base . 'Accounts/payslip_management.php?view=history', 'icon' => 'files'],
-                ]
-            ],
-        ]
-    ],
+    
     [
     'label' => 'Payslip Request', // FIX: Added separate section for Employee Payslip Request
     'items' => [
@@ -404,6 +403,19 @@ $sections = [
     [
         'label' => 'Accounts',
         'items' => [
+            // --- EMPLOYEE SALARY (ACCOUNTS ROLE) ---
+            [
+                'name' => 'Employee Salary', 
+                'path' => $base . 'Accounts/employee_salary.php', 
+                'icon' => 'banknote', // Lucide icon for money/salary
+                'allowed' => ['Accounts']
+            ],
+            [
+                'name' => 'Payslip <br>Management', 
+                'path' => $base . 'Accounts/payslip_management.php', 
+                'icon' => 'file-text', 
+                'allowed' => ['Accounts', 'CFO'] 
+            ],
             [
                 'name' => 'Invoices', 
                 'path' => $base . 'Accounts/new_invoice.php', 
