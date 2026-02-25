@@ -61,8 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $round_off = isset($_POST['round_off']) ? floatval($_POST['round_off']) : 0.00;
         $grand_total = isset($_POST['grand_total']) ? floatval($_POST['grand_total']) : 0.00;
 
+        // Automatically sends to cfo_approvals.php by setting status to 'Pending Approval'
         $sql = "INSERT INTO invoices (invoice_no, client_id, bank_name, invoice_date, sub_total, discount, cgst, sgst, round_off, grand_total, status) 
-                VALUES ('$invoice_no', $client_id, '$bank', '$date', $sub_total, $total_discount, $cgst, $sgst, $round_off, $grand_total, 'Approved')";
+                VALUES ('$invoice_no', $client_id, '$bank', '$date', $sub_total, $total_discount, $cgst, $sgst, $round_off, $grand_total, 'Pending Approval')";
         
         if (mysqli_query($conn, $sql)) {
             $last_id = mysqli_insert_id($conn);
@@ -91,10 +92,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // --- Simulate updating invoice status to "Sent to Exec" ---
+    // --- REAL: Update invoice with the assigned Sales Executive ---
     if ($_POST['action'] === 'mark_sent') {
         $inv_id = mysqli_real_escape_string($conn, $_POST['invoice_id']);
         $exec_name = mysqli_real_escape_string($conn, $_POST['exec_name']);
+        
+        mysqli_query($conn, "UPDATE invoices SET assigned_executive = '$exec_name' WHERE invoice_no = '$inv_id'");
         echo json_encode(['status' => 'success']);
         exit;
     }
@@ -124,11 +127,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $clients = mysqli_query($conn, "SELECT * FROM clients ORDER BY client_name ASC");
 $executives_query = mysqli_query($conn, "SELECT id, name, employee_id FROM users WHERE role IN ('Sales Executive', 'Sales Manager', 'Sales') ORDER BY name ASC");
 
+// Fetch Pending Approval & Approved Invoices (That are NOT YET sent to executive)
+// FIXED: Used i.status as inv_status to prevent column overlap with clients table
 $pending_query = mysqli_query($conn, "
-    SELECT i.*, c.*, c.email as client_email, i.id as inv_pk_id, c.client_name as fallback_company 
+    SELECT i.*, c.*, c.email as client_email, i.id as inv_pk_id, c.client_name as fallback_company, i.status as inv_status 
     FROM invoices i 
     JOIN clients c ON i.client_id = c.id 
-    WHERE i.status = 'Approved' 
+    WHERE i.status IN ('Pending Approval', 'Approved') 
+    AND (i.assigned_executive IS NULL OR i.assigned_executive = '')
+    ORDER BY i.created_at DESC
+");
+
+// Fetch Invoices already Sent to Executives
+$sent_query = mysqli_query($conn, "
+    SELECT i.*, c.client_name as fallback_company, c.company_name, c.email as client_email 
+    FROM invoices i 
+    JOIN clients c ON i.client_id = c.id 
+    WHERE i.assigned_executive IS NOT NULL AND i.assigned_executive != ''
     ORDER BY i.created_at DESC
 ");
 
@@ -186,9 +201,10 @@ include '../header.php';
         .dispatch-table td { padding: 15px 20px; border-bottom: 1px solid #f1f5f9; font-size: 13px; vertical-align: top; }
         .dispatch-table tr:hover td { background: #f8fafc; }
 
-        .badge { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-block; }
-        .badge-ready { background: #fef9c3; color: #d97706; border: 1px solid #fde047; }
-        .badge-sent { background: #dcfce7; color: #16a34a; border: 1px solid #bbf7d0; }
+        .badge { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; }
+        .badge-pending { background: #fef9c3; color: #d97706; border: 1px solid #fde047; }
+        .badge-approved { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .badge-sent { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
 
         .action-btns { display: flex; gap: 8px; flex-wrap: wrap; }
         .btn-action { padding: 8px 15px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; border: none; transition: 0.2s; }
@@ -200,6 +216,7 @@ include '../header.php';
 
         .btn-send { background: var(--theme-color); color: white; }
         .btn-send:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(27, 90, 90, 0.2); }
+        .btn-disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
 
         /* Modal Styles */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; backdrop-filter: blur(3px); opacity: 0; transition: opacity 0.3s ease; }
@@ -248,7 +265,7 @@ include '../header.php';
     <div class="page-header">
         <div>
             <h2>Invoice Dispatch Hub</h2>
-            <p>Assign approved invoices to Sales Executives for client delivery.</p>
+            <p>Generate invoices and dispatch them to Sales Executives.</p>
         </div>
         <div class="header-actions">
             <button class="btn-report" onclick="sendDailyUpdate()">
@@ -263,7 +280,7 @@ include '../header.php';
     <div class="card">
         <div class="tabs-header">
             <button class="tab-btn active" onclick="switchTab(event, 'tab-pending')">
-                <i class="ph-bold ph-paper-plane-tilt"></i> Pending Dispatch
+                <i class="ph-bold ph-paper-plane-tilt"></i> Dispatch Queue
             </button>
             <button class="tab-btn" onclick="switchTab(event, 'tab-sent')">
                 <i class="ph-bold ph-check-circle"></i> Sent to Executives
@@ -288,12 +305,15 @@ include '../header.php';
                     if($pending_query) {
                         while($row = mysqli_fetch_assoc($pending_query)) {
                             $has_pending = true;
-                            // Fallbacks for dynamically requested fields in case they are named differently
+                            
                             $display_company = $row['company_name'] ?? $row['fallback_company'] ?? 'N/A';
                             $display_name = $row['name'] ?? $row['contact_person'] ?? 'N/A';
                             $display_desig = $row['designation'] ?? 'N/A';
                             $display_email = $row['client_email'] ?? 'No Mail ID';
                             $display_desc = $row['description'] ?? 'No description provided.';
+                            
+                            // FIXED: Check explicit inv_status
+                            $status = $row['inv_status'];
                     ?>
                     <tr id="row-<?= $row['invoice_no'] ?>">
                         <td><strong><?= htmlspecialchars($row['invoice_no']) ?></strong></td>
@@ -316,7 +336,14 @@ include '../header.php';
 
                         <td><?= date('d M Y', strtotime($row['invoice_date'])) ?></td>
                         <td style="font-weight: 700; color: #1b5a5a; font-size: 15px;">₹<?= number_format($row['grand_total'], 2) ?></td>
-                        <td><span class="badge badge-ready">Accounts Approved</span></td>
+                        
+                        <td>
+                            <?php if($status === 'Approved'): ?>
+                                <span class="badge badge-approved"><i class="ph-bold ph-check"></i> Accounts Approved</span>
+                            <?php else: ?>
+                                <span class="badge badge-pending"><i class="ph-bold ph-clock"></i> Pending Approval</span>
+                            <?php endif; ?>
+                        </td>
                         
                         <td style="text-align: right;">
                             <div class="action-btns" style="justify-content: flex-end;">
@@ -326,9 +353,16 @@ include '../header.php';
                                 <button class="btn-action btn-print-direct" onclick="printInvoiceDirect('<?= $row['inv_pk_id'] ?>')">
                                     <i class="ph-bold ph-printer"></i> Print
                                 </button>
-                                <button class="btn-action btn-send" onclick="openDispatchModal('<?= $row['invoice_no'] ?>', '<?= addslashes($display_company) ?>', '<?= $row['grand_total'] ?>')">
-                                    <i class="ph-bold ph-paper-plane-right"></i> Send
-                                </button>
+                                
+                                <?php if($status === 'Approved'): ?>
+                                    <button class="btn-action btn-send" onclick="openDispatchModal('<?= $row['invoice_no'] ?>', '<?= addslashes($display_company) ?>', '<?= $row['grand_total'] ?>')">
+                                        <i class="ph-bold ph-paper-plane-right"></i> Send
+                                    </button>
+                                <?php else: ?>
+                                    <button class="btn-action btn-disabled" title="Waiting for CFO/Accounts Approval" onclick="Swal.fire('Pending Approval', 'You cannot dispatch this invoice until the CFO or Accounts team approves it.', 'info'); return false;">
+                                        <i class="ph-bold ph-paper-plane-right"></i> Send
+                                    </button>
+                                <?php endif; ?>
                             </div>
                         </td>
                     </tr>
@@ -342,7 +376,7 @@ include '../header.php';
                             <div class="empty-state">
                                 <i class="ph-fill ph-check-circle"></i>
                                 <h3>All Caught Up!</h3>
-                                <p>No approved invoices are waiting to be dispatched.</p>
+                                <p>No invoices are pending dispatch or awaiting approval.</p>
                             </div>
                         </td>
                     </tr>
@@ -356,14 +390,36 @@ include '../header.php';
                 <thead>
                     <tr>
                         <th>Invoice No</th>
-                        <th>Client Details</th>
+                        <th style="width: 300px;">Client Details</th>
                         <th>Sent Date</th>
                         <th>Amount</th>
                         <th>Assigned Executive</th>
                     </tr>
                 </thead>
                 <tbody id="sentTableBody">
-                    </tbody>
+                    <?php 
+                    if($sent_query && mysqli_num_rows($sent_query) > 0): 
+                        while($s_row = mysqli_fetch_assoc($sent_query)): 
+                            $s_company = $s_row['company_name'] ?? $s_row['fallback_company'] ?? 'N/A';
+                    ?>
+                    <tr>
+                        <td><strong><?= htmlspecialchars($s_row['invoice_no']) ?></strong></td>
+                        <td>
+                            <div style="font-weight: 700; color: var(--theme-color); font-size: 14px;">
+                                <?= htmlspecialchars($s_company) ?>
+                            </div>
+                        </td>
+                        <td><?= date('d M Y', strtotime($s_row['created_at'])) ?></td>
+                        <td style="font-weight: 700; color: #1b5a5a; font-size: 15px;">₹<?= number_format($s_row['grand_total'], 2) ?></td>
+                        <td><span class="badge badge-sent"><i class="ph-bold ph-user"></i> <?= htmlspecialchars($s_row['assigned_executive']) ?></span></td>
+                    </tr>
+                    <?php 
+                        endwhile; 
+                    else: 
+                    ?>
+                    <tr id="empty-sent-msg"><td colspan="5" style="text-align:center; padding: 30px; color: #94a3b8;">No invoices dispatched yet.</td></tr>
+                    <?php endif; ?>
+                </tbody>
             </table>
         </div>
     </div>
@@ -455,7 +511,9 @@ include '../header.php';
 
                 <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:25px;">
                     <button type="button" style="padding:12px 20px; border:1px solid #ddd; border-radius:8px; background:white; cursor:pointer; font-weight:600; font-family: inherit;" onclick="document.getElementById('invoiceForm').reset(); calculateGrandTotal();">Reset Form</button>
-                    <button type="button" onclick="submitInvoice()" id="saveBtn" style="background: var(--theme-color); color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 14px;"><i class="ph-bold ph-check-circle"></i> Generate & Approve</button>
+                    <button type="button" onclick="submitInvoice()" id="saveBtn" style="background: var(--theme-color); color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 14px;">
+                        <i class="ph-bold ph-paper-plane-right"></i> Generate & Send to Accounts
+                    </button>
                 </div>
             </form>
         </div>
@@ -597,7 +655,6 @@ include '../header.php';
 
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
         overlay.addEventListener('click', function(e) {
-            // Close modal if user clicks outside of it (the dark background)
             if (e.target === this) this.classList.remove('active');
         });
     });
@@ -678,7 +735,7 @@ include '../header.php';
 
         const btn = document.getElementById('saveBtn'); 
         btn.disabled = true; 
-        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Saving...';
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Sending to Accounts...';
         
         fetch('', { method: 'POST', body: new FormData(document.getElementById('invoiceForm')) })
         .then(async response => {
@@ -687,19 +744,19 @@ include '../header.php';
                 const data = JSON.parse(textResponse);
                 if(data.status === 'success') {
                     Swal.fire({
-                        title: 'Invoice Generated!', 
-                        text: 'It is now approved and ready in the Dispatch Hub.', 
+                        title: 'Invoice Sent!', 
+                        text: 'It is now pending approval from the CFO / Accounts team.', 
                         icon: 'success', 
-                        timer: 2000, 
+                        timer: 3000, 
                         showConfirmButton: false
                     }).then(() => window.location.reload());
                 } else {
                     Swal.fire('Database Error', data.message, 'error');
-                    btn.disabled = false; btn.innerHTML = '<i class="ph-bold ph-check-circle"></i> Generate & Approve';
+                    btn.disabled = false; btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i> Generate & Send to Accounts';
                 }
             } catch (err) {
                 Swal.fire('Error', 'Something went wrong.', 'error');
-                btn.disabled = false; btn.innerHTML = '<i class="ph-bold ph-check-circle"></i> Generate & Approve';
+                btn.disabled = false; btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i> Generate & Send to Accounts';
             }
         });
     }
@@ -737,7 +794,6 @@ include '../header.php';
         });
     }
 
-    // --- DISPATCH TO SALES EXECUTIVE LOGIC ---
     // --- DAILY REPORT UPDATE ---
     function sendDailyUpdate() {
         Swal.fire({
@@ -871,10 +927,14 @@ include '../header.php';
             
             document.getElementById('sentTableBody').insertAdjacentHTML('afterbegin', newRow);
             row.remove();
+            
+            // Remove empty message if it exists
+            const emptyMsg = document.getElementById('empty-sent-msg');
+            if (emptyMsg) emptyMsg.remove();
 
             if (document.querySelectorAll('#tab-pending tbody tr').length === 0) {
                 document.querySelector('#tab-pending tbody').innerHTML = `
-                    <tr><td colspan="6"><div class="empty-state"><i class="ph-fill ph-check-circle"></i><h3>All Caught Up!</h3><p>No approved invoices are waiting to be dispatched.</p></div></td></tr>
+                    <tr><td colspan="6"><div class="empty-state"><i class="ph-fill ph-check-circle"></i><h3>All Caught Up!</h3><p>No invoices are pending dispatch or awaiting approval.</p></div></td></tr>
                 `;
             }
 
