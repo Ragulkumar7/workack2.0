@@ -62,8 +62,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         case 'Employee':
                             header("Location: employee/employee_dashboard.php");
                             break;
-                        case 'Digital Marketing':
-                            header("Location: employee/employee_dashboard.php");
+                        case 'Accounts':
+                            header("Location: Accounts/Accounts_dashboard.php");
                             break;
                         case 'Sales Manager':  
                             header("Location: sales_manager/sales_dashboard.php");
