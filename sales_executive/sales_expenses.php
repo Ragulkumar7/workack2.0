@@ -1,21 +1,43 @@
 <?php
 ob_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+// 1. DATABASE CONNECTION
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+if (file_exists($dbPath)) { require_once $dbPath; } 
+else { require_once $projectRoot . '/include/db_connect.php'; }
+
+// 2. GET LOGGED IN USER
+$my_name = $_SESSION['name'] ?? 'Prem Karthick'; 
+
+// --- HANDLE AJAX SAVING ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_expense') {
+    header('Content-Type: application/json');
+    
+    $name = mysqli_real_escape_string($conn, $_POST['expense_name']);
+    $date = mysqli_real_escape_string($conn, $_POST['expense_date']);
+    $method = mysqli_real_escape_string($conn, $_POST['payment_method']);
+    $amount = floatval($_POST['amount']);
+
+    // Status defaults to Pending as per standard task flow
+    $sql = "INSERT INTO sales_expenses (executive_name, expense_name, expense_date, payment_method, amount, status) 
+            VALUES ('$my_name', '$name', '$date', '$method', $amount, 'Pending')";
+    
+    if(mysqli_query($conn, $sql)) {
+        echo json_encode(['status' => 'success']);
+    } else {
+        echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
+    }
+    exit;
+}
+
+// 3. FETCH REAL DATA FROM TABLE
+$expenses_query = mysqli_query($conn, "SELECT * FROM sales_expenses WHERE executive_name = '$my_name' ORDER BY expense_date DESC");
+
 // Include your existing layout files
 include '../sidebars.php';
 include '../header.php';
-
-// Mock Data for the Expenses Table - Updated to Rupee Symbol 
-$expenses = [
-    ['name' => 'Online Course', 'date' => '14 Jan 2024', 'method' => 'Cash', 'amount' => '₹3000'],
-    ['name' => 'Employee Benefits', 'date' => '21 Jan 2024', 'method' => 'Cash', 'amount' => '₹2500'],
-    ['name' => 'Travel', 'date' => '20 Feb 2024', 'method' => 'Cheque', 'amount' => '₹2800'],
-    ['name' => 'Office Supplies', 'date' => '15 Mar 2024', 'method' => 'Cash', 'amount' => '₹3300'],
-    ['name' => 'Welcome Kit', 'date' => '12 Apr 2024', 'method' => 'Cheque', 'amount' => '₹3600'],
-    ['name' => 'Equipment', 'date' => '20 Apr 2024', 'method' => 'Cheque', 'amount' => '₹2000'],
-    ['name' => 'Miscellaneous', 'date' => '06 Jul 2024', 'method' => 'Cash', 'amount' => '₹3400'],
-    ['name' => 'Payroll', 'date' => '02 Sep 2024', 'method' => 'Cheque', 'amount' => '₹4000'],
-    ['name' => 'Cafeteria', 'date' => '15 Nov 2024', 'method' => 'Cash', 'amount' => '₹4500'],
-];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -27,6 +49,7 @@ $expenses = [
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
@@ -209,27 +232,31 @@ $expenses = [
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($expenses as $expense): ?>
-                        <tr class="border-b border-gray-50 text-sm text-gray-600 table-row-hover transition-colors">
-                            <td class="p-4 text-center">
-                                <input type="checkbox" class="custom-checkbox">
-                            </td>
-                            <td class="p-4 font-medium text-slate-700"><?php echo htmlspecialchars($expense['name']); ?></td>
-                            <td class="p-4"><?php echo htmlspecialchars($expense['date']); ?></td>
-                            <td class="p-4"><?php echo htmlspecialchars($expense['method']); ?></td>
-                            <td class="p-4 font-medium text-slate-800"><?php echo htmlspecialchars($expense['amount']); ?></td>
-                            <td class="p-4">
-                                <div class="flex items-center justify-center gap-3">
-                                    <button class="text-gray-400 hover:text-blue-600 transition-colors" title="Edit">
-                                        <i data-lucide="edit-2" class="w-4 h-4"></i>
-                                    </button>
-                                    <button class="text-gray-400 hover:text-red-600 transition-colors" title="Delete">
-                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
+                        <?php if($expenses_query && mysqli_num_rows($expenses_query) > 0): ?>
+                            <?php while ($expense = mysqli_fetch_assoc($expenses_query)): ?>
+                            <tr class="border-b border-gray-50 text-sm text-gray-600 table-row-hover transition-colors">
+                                <td class="p-4 text-center">
+                                    <input type="checkbox" class="custom-checkbox">
+                                </td>
+                                <td class="p-4 font-medium text-slate-700"><?php echo htmlspecialchars($expense['expense_name']); ?></td>
+                                <td class="p-4"><?php echo date('d M Y', strtotime($expense['expense_date'])); ?></td>
+                                <td class="p-4"><?php echo htmlspecialchars($expense['payment_method']); ?></td>
+                                <td class="p-4 font-medium text-slate-800">₹<?php echo number_format($expense['amount'], 2); ?></td>
+                                <td class="p-4 text-center">
+                                    <div class="flex items-center justify-center gap-3">
+                                        <button class="text-gray-400 hover:text-blue-600 transition-colors" title="Edit">
+                                            <i data-lucide="edit-2" class="w-4 h-4"></i>
+                                        </button>
+                                        <button class="text-gray-400 hover:text-red-600 transition-colors" title="Delete">
+                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr><td colspan="6" class="p-10 text-center text-gray-400">No expenses found for <?php echo htmlspecialchars($my_name); ?>.</td></tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -247,35 +274,36 @@ $expenses = [
             </div>
             
             <div class="p-6 pt-2">
-                <form>
+                <form id="expenseForm">
+                    <input type="hidden" name="action" value="save_expense">
                     <div class="space-y-5">
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-1.5">Expenses</label>
-                            <input type="text" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow" placeholder="">
+                            <input type="text" name="expense_name" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow">
                         </div>
                         
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-semibold text-gray-700 mb-1.5">Date</label>
                                 <div class="relative">
-                                    <input type="text" class="w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow" placeholder="dd/mm/yyyy">
+                                    <input type="text" id="expenseDate" name="expense_date" required class="w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow" placeholder="yyyy-mm-dd">
                                     <i data-lucide="calendar" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
                                 </div>
                             </div>
                             <div>
                                 <label class="block text-sm font-semibold text-gray-700 mb-1.5">Amount</label>
-                                <input type="text" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow" placeholder="">
+                                <input type="number" step="0.01" name="amount" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow">
                             </div>
                         </div>
 
                         <div>
                             <label class="block text-sm font-semibold text-gray-700 mb-1.5">Payment Method</label>
                             <div class="relative">
-                                <select class="w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] appearance-none bg-white transition-shadow cursor-pointer">
-                                    <option value="">Select</option>
+                                <select name="payment_method" required class="w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] appearance-none bg-white transition-shadow cursor-pointer">
                                     <option value="Cash">Cash</option>
                                     <option value="Cheque">Cheque</option>
-                                    <option value="Online">Online Transfer</option>
+                                    <option value="UPI">UPI</option>
+                                    <option value="Card">Card</option>
                                 </select>
                                 <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
                             </div>
@@ -291,7 +319,7 @@ $expenses = [
                         <button type="button" onclick="document.getElementById('addExpenseModal').classList.add('hidden')" class="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm">
                             Cancel
                         </button>
-                        <button type="submit" class="px-5 py-2.5 bg-[#1b5a5a] text-white rounded-lg text-sm font-semibold hover:bg-[#134040] transition-colors shadow-sm">
+                        <button type="submit" id="submitBtn" class="px-5 py-2.5 bg-[#1b5a5a] text-white rounded-lg text-sm font-semibold hover:bg-[#134040] transition-colors shadow-sm">
                             Add Expenses
                         </button>
                     </div>
@@ -303,22 +331,55 @@ $expenses = [
     <script>
         lucide.createIcons();
 
-        // Initialize Flatpickr for Date Range picker logic
+        // Initialize Flatpickr
         flatpickr("#dateRangePicker", {
             mode: "range",
-            dateFormat: "m/d/Y",
-            onChange: function(selectedDates, dateStr, instance) {
-                console.log("Selected Date Range: ", dateStr);
-            }
+            dateFormat: "m/d/Y"
+        });
+        
+        flatpickr("#expenseDate", {
+            dateFormat: "Y-m-d",
+            defaultDate: "today"
         });
 
-        // Toggle Export Menu visibility
+        // AJAX SUBMISSION LOGIC
+        document.getElementById('expenseForm').onsubmit = function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerText = "Saving...";
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: new FormData(this)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Success!',
+                        text: 'Expense record created successfully.',
+                        confirmButtonColor: '#1b5a5a'
+                    }).then(() => location.reload());
+                } else {
+                    Swal.fire('Error', data.message, 'error');
+                    btn.disabled = false;
+                    btn.innerText = "Add Expenses";
+                }
+            })
+            .catch(err => {
+                console.error(err);
+                btn.disabled = false;
+                btn.innerText = "Add Expenses";
+            });
+        };
+
         function toggleExportMenu() {
             const menu = document.getElementById('exportMenu');
             menu.classList.toggle('hidden');
         }
 
-        // Close dropdown when clicking outside of the menu
         document.addEventListener('click', function(event) {
             const menu = document.getElementById('exportMenu');
             const exportBtn = menu.previousElementSibling;
@@ -327,7 +388,6 @@ $expenses = [
             }
         });
 
-        // Placeholder function for Export actions
         function exportData(type) {
             alert('Exporting data as ' + type.toUpperCase() + '...');
             document.getElementById('exportMenu').classList.add('hidden');
