@@ -213,10 +213,17 @@ $sections = [
                 'icon' => 'clipboard-list', // Lucide icon for tasks
                 'allowed' => ['Sales Executive']
             ],
+            // --- SALES EXPENSES (SALES EXECUTIVE) ---
+            [
+                'name' => 'My Expenses', 
+                'path' => $base . 'sales_executive/sales_expenses.php', 
+                'icon' => 'receipt', // Lucide icon for expenses/receipts
+                'allowed' => ['Sales Executive']
+            ],
              // NEW: STOCK MAINTENANCE BUTTON
             [
                 'name' => 'Stock Maintenance', 
-                'path' => $base . 'IT_Executive/stock_maintance.php', // File path-ai check seithu kollungal
+                'path' => $base . 'IT_Executive/stock_maintenance.php', // File path-ai check seithu kollungal
                 'icon' => 'package', // Lucide icon for stock/package
                 'allowed' => ['IT Admin', 'IT Executive']
             ],
@@ -323,7 +330,7 @@ $sections = [
                 'name' => 'Onboarding', 
                 'path' => $base . 'HR_executive/employee_onboarding.php', 
                 'icon' => 'user-plus', 
-                'allowed' => ['HR Executive']
+                'allowed' => ['HR Executive', 'HR']
             ],
         
             [
