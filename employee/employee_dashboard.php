@@ -2,13 +2,12 @@
 // -------------------------------------------------------------------------
 // 1. SESSION & CONFIGURATION
 // -------------------------------------------------------------------------
-$path_to_root = '../'; 
+ob_start(); // CRITICAL: Allows headers to redirect properly inside included files
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+$path_to_root = '../'; 
 
-// 1. FIX TIMEZONE (Crucial for correct punch times)
+// 1. FIX TIMEZONE
 date_default_timezone_set('Asia/Kolkata');
-
-// Database Connection
 require_once '../include/db_connect.php'; 
 
 // Security Check
@@ -21,42 +20,19 @@ $current_user_id = $_SESSION['user_id'];
 $today = date('Y-m-d');
 
 // -------------------------------------------------------------------------
-// 2. INITIALIZE ALL VARIABLES (Prevents "Undefined Variable" Errors)
+// 2. INITIALIZE VARIABLES
 // -------------------------------------------------------------------------
-$employee_name = "Employee";
-$employee_role = "Role";
-$employee_phone = "Not Set";
-$employee_email = "";
-$joining_date = "Not Set";
-$profile_img = "";
-$attendance_record = null;
-$total_hours_today = "00:00:00";
-$display_punch_in = "--:--";
-$total_seconds_worked = 0;
-$is_on_break = false; // New variable for break status
-
-// Stats Counters
-$stats_ontime = 0;
-$stats_late = 0;
-$stats_wfh = 0;
-$stats_absent = 0;
-$stats_sick = 0;
-
-// Leave Balance Defaults
-$leaves_total = 16;
-$leaves_taken = 0;
-$leaves_remaining = 16;
+$employee_name = "Employee"; $employee_role = "Role"; $employee_phone = "Not Set";
+$employee_email = ""; $joining_date = "Not Set"; $profile_img = "";
+$stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
+$leaves_total = 16; $leaves_taken = 0; $leaves_remaining = 16;
 
 // -------------------------------------------------------------------------
-// 3. DATABASE QUERIES
+// 3. DATABASE QUERIES (Attendance Logic moved to attendance_card.php)
 // -------------------------------------------------------------------------
 
 // A. Fetch User Profile
-$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, 
-                p.department, p.experience_label, p.emergency_contacts 
-                FROM users u 
-                LEFT JOIN employee_profiles p ON u.id = p.user_id 
-                WHERE u.id = ?";
+$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, p.department, p.experience_label, p.emergency_contacts FROM users u LEFT JOIN employee_profiles p ON u.id = p.user_id WHERE u.id = ?";
 $stmt = mysqli_prepare($conn, $sql_profile);
 mysqli_stmt_bind_param($stmt, "i", $current_user_id);
 mysqli_stmt_execute($stmt);
@@ -69,132 +45,13 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
     $employee_email = $user_info['email'] ?? $user_info['username'];
     $joining_date = $user_info['joining_date'] ? date("d M Y", strtotime($user_info['joining_date'])) : "Not Set";
     
-    // FIXED: Properly format the profile image path
     $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($employee_name) . "&background=0d9488&color=fff&size=128&bold=true";
     if (!empty($user_info['profile_img']) && $user_info['profile_img'] !== 'default_user.png') {
-        if (str_starts_with($user_info['profile_img'], 'http')) {
-            $profile_img = $user_info['profile_img'];
-        } else {
-            $profile_img = '../assets/profiles/' . $user_info['profile_img'];
-        }
+        $profile_img = str_starts_with($user_info['profile_img'], 'http') ? $user_info['profile_img'] : '../assets/profiles/' . $user_info['profile_img'];
     }
 }
 
-// B. Attendance Logic (Punch In/Out/Break)
-$check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
-$check_stmt = mysqli_prepare($conn, $check_sql);
-mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
-mysqli_stmt_execute($check_stmt);
-$attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
-
-// --- NEW BREAK LOGIC START ---
-$total_break_seconds = 0;
-$break_start_ts = 0;
-
-if ($attendance_record) {
-    // 1. Check if currently on break
-    $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
-    $bk_stmt = mysqli_prepare($conn, $bk_sql);
-    mysqli_stmt_bind_param($bk_stmt, "i", $attendance_record['id']);
-    mysqli_stmt_execute($bk_stmt);
-    if ($bk_row = mysqli_fetch_assoc(mysqli_stmt_get_result($bk_stmt))) {
-        $is_on_break = true;
-        $break_start_ts = strtotime($bk_row['break_start']);
-    }
-
-    // 2. Calculate total duration of completed breaks
-    $sum_sql = "SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as total FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NOT NULL";
-    $sum_stmt = mysqli_prepare($conn, $sum_sql);
-    mysqli_stmt_bind_param($sum_stmt, "i", $attendance_record['id']);
-    mysqli_stmt_execute($sum_stmt);
-    $sum_res = mysqli_fetch_assoc(mysqli_stmt_get_result($sum_stmt));
-    $total_break_seconds = $sum_res['total'] ?? 0;
-}
-// --- NEW BREAK LOGIC END ---
-
-// Handle Form Submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $now_db = date('Y-m-d H:i:s');
-
-    if ($_POST['action'] == 'punch_in' && !$attendance_record) {
-        $ins_sql = "INSERT INTO attendance (user_id, punch_in, date, status) VALUES (?, ?, ?, 'On Time')";
-        $ins_stmt = mysqli_prepare($conn, $ins_sql);
-        mysqli_stmt_bind_param($ins_stmt, "iss", $current_user_id, $now_db, $today);
-        mysqli_stmt_execute($ins_stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); 
-        exit();
-    } 
-    // Start Break Logic
-    elseif ($_POST['action'] == 'break_start' && $attendance_record && !$is_on_break) {
-        $ins_bk = "INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)";
-        $stmt = mysqli_prepare($conn, $ins_bk);
-        mysqli_stmt_bind_param($stmt, "is", $attendance_record['id'], $now_db);
-        mysqli_stmt_execute($stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); exit();
-    }
-    // End Break Logic
-    elseif ($_POST['action'] == 'break_end' && $attendance_record && $is_on_break) {
-        $upd_bk = "UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL";
-        $stmt = mysqli_prepare($conn, $upd_bk);
-        mysqli_stmt_bind_param($stmt, "si", $now_db, $attendance_record['id']);
-        mysqli_stmt_execute($stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); exit();
-    }
-    // Punch Out Logic (Updated to subtract breaks)
-    elseif ($_POST['action'] == 'punch_out' && $attendance_record && !$attendance_record['punch_out']) {
-        // Close break if open
-        if ($is_on_break) {
-            mysqli_query($conn, "UPDATE attendance_breaks SET break_end = '$now_db' WHERE attendance_id = {$attendance_record['id']} AND break_end IS NULL");
-            // Add this last break duration to total
-            $last_break_seconds = strtotime($now_db) - $break_start_ts;
-            $total_break_seconds += $last_break_seconds;
-        }
-
-        // Calculate Production (Total Duration - Total Breaks)
-        $start_ts = strtotime($attendance_record['punch_in']);
-        $end_ts = strtotime($now_db);
-        $total_duration = $end_ts - $start_ts;
-        $production_seconds = $total_duration - $total_break_seconds;
-        if($production_seconds < 0) $production_seconds = 0;
-        
-        $hours = $production_seconds / 3600; // Decimal hours
-
-        $upd_sql = "UPDATE attendance SET punch_out = ?, production_hours = ? WHERE id = ?";
-        $upd_stmt = mysqli_prepare($conn, $upd_sql);
-        mysqli_stmt_bind_param($upd_stmt, "sdi", $now_db, $hours, $attendance_record['id']);
-        mysqli_stmt_execute($upd_stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); 
-        exit();
-    }
-}
-
-// Calculate Display Time (Updated for Breaks)
-if ($attendance_record) {
-    $display_punch_in = date('h:i A', strtotime($attendance_record['punch_in']));
-    
-    $start_ts = strtotime($attendance_record['punch_in']);
-    
-    if ($is_on_break) {
-        // Timer paused at break start
-        $now_ts = $break_start_ts;
-    } elseif ($attendance_record['punch_out']) {
-        // Timer stopped at punch out
-        $now_ts = strtotime($attendance_record['punch_out']);
-    } else {
-        // Timer running
-        $now_ts = time();
-    }
-    
-    $total_seconds_worked = ($now_ts - $start_ts) - $total_break_seconds;
-    if ($total_seconds_worked < 0) $total_seconds_worked = 0;
-
-    $hours = floor($total_seconds_worked / 3600);
-    $mins = floor(($total_seconds_worked % 3600) / 60);
-    $secs = $total_seconds_worked % 60;
-    $total_hours_today = sprintf('%02d:%02d:%02d', $hours, $mins, $secs);
-}
-
-// C. Fetch Statistics
+// B. Fetch Statistics
 $stat_sql = "SELECT status, COUNT(*) as count FROM attendance WHERE user_id = ? GROUP BY status";
 $stat_stmt = mysqli_prepare($conn, $stat_sql);
 mysqli_stmt_bind_param($stat_stmt, "i", $current_user_id);
@@ -208,7 +65,7 @@ while ($row = mysqli_fetch_assoc($stat_res)) {
     if ($row['status'] == 'Sick Leave' || $row['status'] == 'Sick') $stats_sick = $row['count'];
 }
 
-// D. Fetch Leave Balance
+// C. Fetch Leave Balance
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = mysqli_prepare($conn, $leave_sql);
 mysqli_stmt_bind_param($leave_stmt, "i", $current_user_id);
@@ -219,37 +76,33 @@ if($leave_data = mysqli_fetch_assoc($leave_res)) {
     $leaves_remaining = $leaves_total - $leaves_taken;
 }
 
-// E. Projects
-$proj_sql = "SELECT * FROM projects WHERE leader_id = ? OR leader_id IS NOT NULL LIMIT 2";
-$proj_stmt = mysqli_prepare($conn, $proj_sql);
+// D. Projects
+$proj_stmt = mysqli_prepare($conn, "SELECT * FROM projects WHERE leader_id = ? OR leader_id IS NOT NULL LIMIT 2");
 mysqli_stmt_bind_param($proj_stmt, "i", $current_user_id);
 mysqli_stmt_execute($proj_stmt);
 $projects_result = mysqli_stmt_get_result($proj_stmt);
 
-// F. Tasks (Personal Taskboard)
-$task_sql = "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 5";
-$task_stmt = mysqli_prepare($conn, $task_sql);
+// E. Tasks
+$task_stmt = mysqli_prepare($conn, "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 5");
 mysqli_stmt_bind_param($task_stmt, "i", $current_user_id);
 mysqli_stmt_execute($task_stmt);
 $tasks_result = mysqli_stmt_get_result($task_stmt);
 
-// G. Skills
-$skill_sql = "SELECT * FROM employee_skills WHERE user_id = ?";
-$skill_stmt = mysqli_prepare($conn, $skill_sql);
+// F. Skills
+$skill_stmt = mysqli_prepare($conn, "SELECT * FROM employee_skills WHERE user_id = ?");
 mysqli_stmt_bind_param($skill_stmt, "i", $current_user_id);
 mysqli_stmt_execute($skill_stmt);
 $skills_result = mysqli_stmt_get_result($skill_stmt);
 
-// H. Performance
-$perf_sql = "SELECT * FROM employee_performance WHERE user_id = ?";
-$perf_stmt = mysqli_prepare($conn, $perf_sql);
+// G. Performance
+$perf_stmt = mysqli_prepare($conn, "SELECT * FROM employee_performance WHERE user_id = ?");
 mysqli_stmt_bind_param($perf_stmt, "i", $current_user_id);
 mysqli_stmt_execute($perf_stmt);
 $perf_data = mysqli_fetch_assoc(mysqli_stmt_get_result($perf_stmt));
 $perf_score = $perf_data['total_score'] ?? 0;
 $perf_grade = $perf_data['performance_grade'] ?? 'N/A';
 
-// I. Notifications & Meetings
+// H. Notifications & Meetings
 $notif_result = mysqli_query($conn, "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 3");
 $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 3");
 ?>
@@ -266,125 +119,27 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 
     <style>
-        body { 
-            background-color: #f1f5f9; 
-            font-family: 'Inter', sans-serif; 
-            color: #1e293b; 
-        }
-        
-        /* Card Styles */
-        .card {
-            background: white;
-            border-radius: 1rem;
-            border: 1px solid #e2e8f0;
-            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            transition: all 0.3s ease;
-            height: 100%; 
-            display: flex;
-            flex-direction: column;
-        }
-        .card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
-        }
-        .card-body {
-            padding: 1.5rem;
-            flex-grow: 1;
-        }
-
-        /* Progress Ring for Punch In */
-        .progress-ring-circle {
-            transition: stroke-dashoffset 0.35s;
-            transform: rotate(-90deg);
-            transform-origin: 50% 50%;
-        }
-
-        /* Timeline for Meetings - FIXED ALIGNMENT */
-        .meeting-timeline { 
-            position: relative; 
-        }
-
-        /* The vertical line - fixed at exactly 80px from the left */
-        .meeting-timeline::before { 
-            content: ''; 
-            position: absolute; 
-            left: 80px; 
-            top: 0; 
-            bottom: 0; 
-            width: 2px; 
-            background: #e2e8f0; 
-        }
-
-        /* Individual row wrapper */
-        .meeting-row-wrapper {
-            position: relative;
-            margin-bottom: 1.5rem; 
-        }
-
-        /* The dot sits exactly on the line */
-        .meeting-dot { 
-            position: absolute; 
-            left: 76px; 
-            top: 10px; 
-            width: 10px; 
-            height: 10px; 
-            border-radius: 50%; 
-            z-index: 10; 
-            border: 2px solid white; 
-            box-shadow: 0 0 0 1px rgba(0,0,0,0.05);
-        }
-
-        /* Flex container for the content */
-        .meeting-flex-container {
-            display: flex;
-            align-items: flex-start;
-            gap: 24px; 
-        }
-
-        /* Time label - fixed width to stay strictly to the left of the 80px line */
-        .meeting-time-label { 
-            width: 68px; 
-            text-align: right; 
-            flex-shrink: 0; 
-            font-weight: 700; 
-            font-size: 12px;
-            color: #64748b; 
-            padding-top: 4px;
-        }
-
-        /* Content box */
-        .meeting-content-box {
-            background-color: #f8fafc;
-            padding: 12px;
-            border-radius: 0.75rem;
-            border: 1px solid #f1f5f9;
-            flex-grow: 1;
-        }
-
-        /* Scrollbars */
+        body { background-color: #f1f5f9; font-family: 'Inter', sans-serif; color: #1e293b; }
+        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); transition: all 0.3s ease; height: 100%; display: flex; flex-direction: column; }
+        .card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
+        .card-body { padding: 1.5rem; flex-grow: 1; }
+        .meeting-timeline { position: relative; }
+        .meeting-timeline::before { content: ''; position: absolute; left: 80px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
+        .meeting-row-wrapper { position: relative; margin-bottom: 1.5rem; }
+        .meeting-dot { position: absolute; left: 76px; top: 10px; width: 10px; height: 10px; border-radius: 50%; z-index: 10; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.05); }
+        .meeting-flex-container { display: flex; align-items: flex-start; gap: 24px; }
+        .meeting-time-label { width: 68px; text-align: right; flex-shrink: 0; font-weight: 700; font-size: 12px; color: #64748b; padding-top: 4px; }
+        .meeting-content-box { background-color: #f8fafc; padding: 12px; border-radius: 0.75rem; border: 1px solid #f1f5f9; flex-grow: 1; }
         .custom-scroll::-webkit-scrollbar { width: 5px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
-
-        /* Dashboard Grid System */
-        .dashboard-container {
-            display: grid;
-            grid-template-columns: repeat(12, 1fr);
-            gap: 1.5rem;
-            align-items: stretch; 
-        }
-
-        /* Sidebar Adjustment */
-        #mainContent {
-            margin-left: 90px;
-            width: calc(100% - 90px);
-            transition: all 0.3s;
-        }
+        .dashboard-container { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; align-items: stretch; }
         
-        @media (max-width: 1024px) {
+        #mainContent { margin-left: 100px; width: calc(100% - 100px); transition: all 0.3s; padding-top: 10px;}
+        @media (max-width: 991px) {
             .dashboard-container { grid-template-columns: 1fr; }
-            #mainContent { margin-left: 0; width: 100%; }
-            .col-span-3, .col-span-4, .col-span-5, .col-span-6 { grid-column: span 12 !important; }
+            #mainContent { margin-left: 0; width: 100%; padding-top: 70px;}
+            .col-span-3, .col-span-4, .col-span-5, .col-span-6, .col-span-12 { grid-column: span 12 !important; }
         }
     </style>
 </head>
@@ -411,72 +166,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
             <div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
                 
-                <div class="card">
-                    <div class="card-body flex flex-col items-center">
-                        <div class="text-center mb-6">
-                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Today's Attendance</h3>
-                            <p class="text-lg font-bold text-slate-800 mt-1"><?php echo date("h:i A, d M Y"); ?></p>
-                        </div>
-
-                        <div class="relative w-40 h-40 mb-6">
-                            <svg class="w-full h-full transform -rotate-90">
-                                <circle cx="80" cy="80" r="70" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
-                                <?php 
-                                    // 9 hours = 32400 seconds. 
-                                    $pct = min(1, $total_seconds_worked / 32400); 
-                                    $dashoffset = 440 - ($pct * 440);
-                                    
-                                    // Ring color: Orange if on Break, Teal if Working
-                                    $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
-                                ?>
-                                <circle cx="80" cy="80" r="70" stroke="<?php echo $ringColor; ?>" stroke-width="12" fill="transparent" 
-                                    stroke-dasharray="440" stroke-dashoffset="<?php echo ($attendance_record && $attendance_record['punch_out']) ? '0' : max(0, $dashoffset); ?>" 
-                                    stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
-                            </svg>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <p class="text-[10px] text-gray-400 font-bold uppercase"><?php echo $is_on_break ? 'ON BREAK' : 'Total Hours'; ?></p>
-                                <p class="text-2xl font-bold text-slate-800" id="liveTimer" 
-                                   data-running="<?php echo ($attendance_record && !$attendance_record['punch_out'] && !$is_on_break) ? 'true' : 'false'; ?>"
-                                   data-total="<?php echo $total_seconds_worked; ?>">
-                                   <?php echo $total_hours_today; ?>
-                                </p>
-                            </div>
-                        </div>
-
-                        <form method="POST" class="w-full">
-                            <?php if (!$attendance_record): ?>
-                                <button type="submit" name="action" value="punch_in" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
-                                    <i class="fa-solid fa-right-to-bracket"></i> Punch In
-                                </button>
-                            <?php elseif (!$attendance_record['punch_out']): ?>
-                                <div class="grid grid-cols-2 gap-3 w-full">
-                                    <?php if ($is_on_break): ?>
-                                        <button type="submit" name="action" value="break_end" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow transition">
-                                            <i class="fa-solid fa-play"></i> Resume
-                                        </button>
-                                    <?php else: ?>
-                                        <button type="submit" name="action" value="break_start" class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-3 rounded-xl shadow transition">
-                                            <i class="fa-solid fa-mug-hot"></i> Break
-                                        </button>
-                                    <?php endif; ?>
-                                    
-                                    <button type="submit" name="action" value="punch_out" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow transition">
-                                        <i class="fa-solid fa-right-from-bracket"></i> Out
-                                    </button>
-                                </div>
-                            <?php else: ?>
-                                <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-3 rounded-xl cursor-not-allowed">
-                                    <i class="fa-solid fa-check-circle"></i> Shift Completed
-                                </button>
-                            <?php endif; ?>
-                        </form>
-
-                        <p class="text-xs text-gray-400 mt-4 flex items-center gap-1">
-                            <i class="fa-solid fa-fingerprint text-orange-500"></i> 
-                            Punched In at: <span class="font-bold text-slate-600"><?php echo $display_punch_in; ?></span>
-                        </p>
-                    </div>
-                </div>
+                <?php include '../attendance_card.php'; ?>
 
                 <div class="card">
                     <div class="card-body">
@@ -793,7 +483,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
             // Performance Area Chart
             var perfOptions = {
-                series: [{ name: 'Score', data: [65, 72, 78, 85, 92, 98] }],
+                series: [{ name: 'Score', data: [65, 72, 78, 85, 92, <?php echo $perf_score; ?>] }],
                 chart: { type: 'area', height: 130, toolbar: { show: false }, sparkline: { enabled: true } },
                 colors: ['#0d9488'],
                 stroke: { curve: 'smooth', width: 2 },
@@ -801,47 +491,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 tooltip: { fixed: { enabled: false }, x: { show: false }, marker: { show: false } }
             };
             new ApexCharts(document.querySelector("#perfChart"), perfOptions).render();
-
-            // Live Timer Logic
-            const timerElement = document.getElementById('liveTimer');
-            const progressRing = document.getElementById('progressRing');
-            const isRunning = timerElement.getAttribute('data-running') === 'true';
-            
-            // Initial Time from PHP calculation
-            let totalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-            const startTime = new Date().getTime(); // Browser time when page loaded
-
-            function updateTimer() {
-                if (!isRunning) return; // Stop updating if paused/break
-
-                const now = new Date().getTime();
-                const diffSeconds = Math.floor((now - startTime) / 1000);
-                const currentTotal = totalSeconds + diffSeconds;
-                
-                const hours = Math.floor(currentTotal / 3600);
-                const minutes = Math.floor((currentTotal % 3600) / 60);
-                const seconds = currentTotal % 60;
-                
-                const formattedTime = 
-                    String(hours).padStart(2, '0') + ':' + 
-                    String(minutes).padStart(2, '0') + ':' + 
-                    String(seconds).padStart(2, '0');
-                
-                timerElement.innerText = formattedTime;
-
-                // Update Progress Ring
-                const maxSeconds = 32400; // 9 hours
-                const circumference = 440;
-                const progress = Math.min(currentTotal / maxSeconds, 1);
-                const offset = circumference - (progress * circumference);
-                if(progressRing) {
-                    progressRing.style.strokeDashoffset = offset;
-                }
-            }
-
-            if (isRunning) {
-                setInterval(updateTimer, 1000);
-            }
         });
     </script>
 </body>

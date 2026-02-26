@@ -363,6 +363,38 @@ include '../header.php';
         <div class="dashboard-container mb-6">
             
             <div class="col-span-12 lg:col-span-4 card overflow-hidden">
+                <?php include '../attendance_card.php'; ?>
+            </div>
+            
+
+            <div class="col-span-12 lg:col-span-4 card">
+                <div class="card-body flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
+                            <span class="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded">Year 2026</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mb-6">
+                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
+                                <p class="text-xl font-bold text-slate-700 mt-1"><?php echo $leaves_total; ?></p>
+                            </div>
+                            <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 text-center">
+                                <p class="text-[10px] text-blue-600 font-bold uppercase">Taken</p>
+                                <p class="text-xl font-bold text-blue-700 mt-1"><?php echo $leaves_taken; ?></p>
+                            </div>
+                            <div class="bg-teal-50 p-3 rounded-xl border border-teal-100 text-center">
+                                <p class="text-[10px] text-teal-600 font-bold uppercase">Left</p>
+                                <p class="text-xl font-bold text-teal-700 mt-1"><?php echo $leaves_remaining; ?></p>
+                            </div>
+                        </div>
+                    </div>
+                    <a href="../employee/leave_request.php" class="block w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 rounded-xl text-center transition shadow-lg shadow-teal-200/50">
+                        <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
+                    </a>
+                </div>
+            </div>
+             <div class="col-span-12 lg:col-span-4 card overflow-hidden">
                 <div class="bg-[#1b5a5a] p-6 flex flex-col items-center text-center relative">
                     <div class="relative mb-3 mt-2">
                         <img src="<?php echo $profile_img; ?>" alt="Profile" class="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover">
@@ -400,38 +432,15 @@ include '../header.php';
                 </div>
             </div>
 
-            <div class="col-span-12 lg:col-span-4 card">
-                <div class="card-body flex flex-col justify-between">
-                    <div>
-                        <div class="flex justify-between items-center mb-6">
-                            <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <span class="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded">Year 2026</span>
-                        </div>
-                        <div class="grid grid-cols-3 gap-3 mb-6">
-                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
-                                <p class="text-xl font-bold text-slate-700 mt-1"><?php echo $leaves_total; ?></p>
-                            </div>
-                            <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 text-center">
-                                <p class="text-[10px] text-blue-600 font-bold uppercase">Taken</p>
-                                <p class="text-xl font-bold text-blue-700 mt-1"><?php echo $leaves_taken; ?></p>
-                            </div>
-                            <div class="bg-teal-50 p-3 rounded-xl border border-teal-100 text-center">
-                                <p class="text-[10px] text-teal-600 font-bold uppercase">Left</p>
-                                <p class="text-xl font-bold text-teal-700 mt-1"><?php echo $leaves_remaining; ?></p>
-                            </div>
-                        </div>
-                    </div>
-                    <a href="../employee/leave_request.php" class="block w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 rounded-xl text-center transition shadow-lg shadow-teal-200/50">
-                        <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
-                    </a>
-                </div>
-            </div>
+           
 
+        </div>
+
+        <div class="dashboard-container">
             <div class="col-span-12 lg:col-span-4 card">
                 <div class="card-body">
                     <div class="flex justify-between items-center mb-6">
-                        <h3 class="font-bold text-slate-800 text-lg">Leave Stats</h3>
+                        <h3 class="font-bold text-slate-800 text-lg">Leave Status</h3>
                         <span class="text-xs font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded">Overview</span>
                     </div>
                     <div class="flex items-center justify-between">
@@ -444,56 +453,6 @@ include '../header.php';
                         </div>
                         <div class="relative"><div id="attendanceChart" class="w-28 h-28"></div></div>
                     </div>
-                </div>
-            </div>
-
-        </div>
-
-        <div class="dashboard-container">
-            
-            <div class="col-span-12 lg:col-span-3 card">
-                <div class="card-body flex flex-col items-center justify-between">
-                    <div class="text-center w-full">
-                        <h3 class="font-bold text-slate-800 text-base border-b border-slate-100 pb-3 mb-4">Punch Time</h3>
-                    </div>
-                    <div class="relative w-32 h-32 mb-4">
-                        <svg class="w-full h-full transform -rotate-90">
-                            <circle cx="64" cy="64" r="56" stroke="#f1f5f9" stroke-width="10" fill="transparent"></circle>
-                            <?php 
-                                $pct = min(1, $total_seconds_worked / 32400); 
-                                $dashoffset = 352 - ($pct * 352); // r=56 circumference
-                                $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
-                            ?>
-                            <circle cx="64" cy="64" r="56" stroke="<?php echo $ringColor; ?>" stroke-width="10" fill="transparent" 
-                                stroke-dasharray="352" stroke-dashoffset="<?php echo ($attendance_record && $attendance_record['punch_out']) ? '0' : max(0, $dashoffset); ?>" 
-                                stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
-                        </svg>
-                        <div class="absolute inset-0 flex flex-col items-center justify-center">
-                            <p class="text-[9px] text-gray-400 font-bold uppercase"><?php echo $is_on_break ? 'BREAK' : 'HOURS'; ?></p>
-                            <p class="text-lg font-bold text-slate-800" id="liveTimer" 
-                               data-running="<?php echo ($attendance_record && !$attendance_record['punch_out'] && !$is_on_break) ? 'true' : 'false'; ?>"
-                               data-total="<?php echo $total_seconds_worked; ?>"><?php echo $total_hours_today; ?>
-                            </p>
-                        </div>
-                    </div>
-
-                    <form method="POST" class="w-full">
-                        <?php if (!$attendance_record): ?>
-                            <button type="submit" name="action" value="punch_in" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2.5 rounded-lg shadow transition text-sm"><i class="fa-solid fa-right-to-bracket mr-1"></i> Punch In</button>
-                        <?php elseif (!$attendance_record['punch_out']): ?>
-                            <div class="grid grid-cols-2 gap-2 w-full">
-                                <?php if ($is_on_break): ?>
-                                    <button type="submit" name="action" value="break_end" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg shadow transition text-xs"><i class="fa-solid fa-play"></i> Resume</button>
-                                <?php else: ?>
-                                    <button type="submit" name="action" value="break_start" class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-2.5 rounded-lg shadow transition text-xs"><i class="fa-solid fa-mug-hot"></i> Break</button>
-                                <?php endif; ?>
-                                <button type="submit" name="action" value="punch_out" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg shadow transition text-xs"><i class="fa-solid fa-right-from-bracket"></i> Out</button>
-                            </div>
-                        <?php else: ?>
-                            <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-2.5 rounded-lg text-sm cursor-not-allowed">Completed</button>
-                        <?php endif; ?>
-                    </form>
-                    <p class="text-[10px] text-gray-400 mt-3 font-semibold uppercase">In: <?php echo $display_punch_in; ?></p>
                 </div>
             </div>
 
@@ -520,7 +479,7 @@ include '../header.php';
                 </div>
             </div>
 
-            <div class="col-span-12 lg:col-span-5 card">
+            <div class="col-span-12 lg:col-span-4 card">
                 <div class="card-body flex flex-col">
                     <div class="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
                         <h3 class="font-bold text-slate-800 text-base">Scheduled Meetings</h3>
