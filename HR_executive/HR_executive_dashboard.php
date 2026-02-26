@@ -60,7 +60,7 @@ if ($profile = mysqli_fetch_assoc($profile_res)) {
         if (str_starts_with($profile['profile_img'], 'http')) {
             $profile_img = $profile['profile_img'];
         } else {
-            $profile_img = '../assets/profiles/' . $profile['profile_img'];
+            $profile_img = '../uploads/profiles/' . $profile['profile_img'];
         }
     }
 }

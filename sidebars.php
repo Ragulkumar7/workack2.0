@@ -206,6 +206,13 @@ $sections = [
                 'icon' => 'users-round', // Lucide icon for clients/people
                 'allowed' => ['Sales Manager', 'Sales Executive']
             ],
+            // --- EXPENSES APPROVAL (SALES MANAGER) ---
+            [
+                'name' => 'Expense Approvals', 
+                'path' => $base . 'sales_manager/sales_expenses_approval.php', 
+                'icon' => 'check-square', // Lucide icon for approvals
+                'allowed' => ['Sales Manager']
+            ],
             // --- MY TASKS (SALES EXECUTIVE) ---
             [
                 'name' => 'My Tasks', 
