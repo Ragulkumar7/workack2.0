@@ -3,25 +3,43 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require_once '../include/db_connect.php'; 
 
 // ---------------------------------------------------------
-// FETCH MANAGERS BY DEPARTMENT FOR DYNAMIC DROPDOWN
+// FETCH DEPARTMENTS, MANAGERS, AND ONBOARDING HIERARCHY
 // ---------------------------------------------------------
-$dept_managers = [];
-$mgr_sql = "SELECT u.id, COALESCE(p.full_name, u.name, u.username) as manager_name, p.department 
-            FROM users u 
-            JOIN employee_profiles p ON u.id = p.user_id 
-            WHERE u.role IN ('Manager', 'Team Lead', 'System Admin', 'HR') 
-            AND p.department IS NOT NULL";
+$departments = [];
+$all_managers = [];
+$all_onboarding = [];
 
+// Fetch distinct departments from the users table
+$dept_sql = "SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != ''";
+$dept_res = $conn->query($dept_sql);
+if ($dept_res && $dept_res->num_rows > 0) {
+    while($row = $dept_res->fetch_assoc()) {
+        $departments[] = trim($row['department']);
+    }
+}
+
+// Fetch users who hold a supervisory role for the dropdown
+$mgr_sql = "SELECT id, name, department, role FROM users WHERE role IN ('Manager', 'Team Lead', 'System Admin', 'HR', 'HR Executive', 'CFO', 'IT Admin', 'Sales Manager', 'CEO') ORDER BY department, name";
 $mgr_res = $conn->query($mgr_sql);
 if ($mgr_res && $mgr_res->num_rows > 0) {
     while($row = $mgr_res->fetch_assoc()) {
-        $dept = trim($row['department']);
-        $name = htmlspecialchars($row['manager_name']);
-        
-        if (!isset($dept_managers[$dept])) {
-            $dept_managers[$dept] = [];
+        $all_managers[] = [
+            'id' => $row['id'],
+            'name' => trim($row['name']),
+            'dept' => trim($row['department']),
+            'role' => trim($row['role'])
+        ];
+        if (!in_array(trim($row['department']), $departments)) {
+            $departments[] = trim($row['department']);
         }
-        $dept_managers[$dept][] = $name;
+    }
+}
+
+// Fetch all onboarding records to build PERFECT team relationships 
+$res_all = $conn->query("SELECT id, emp_id_code, CONCAT(first_name, ' ', last_name) as full_name, designation, department, manager_name FROM employee_onboarding");
+if ($res_all) {
+    while($r = $res_all->fetch_assoc()) {
+        $all_onboarding[] = $r;
     }
 }
 
@@ -32,9 +50,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
     $action = $_POST['action'];
 
-    // 1. ADD NEW EMPLOYEE (TO ALL 3 TABLES)
-    if ($action === 'add') {
-        // Basic Info
+    // --- FETCH SINGLE EMPLOYEE FOR EDITING ---
+    if ($action === 'get_employee') {
+        $id = intval($_POST['id']);
+        $sql = "SELECT eo.*, u.role, p.manager_id 
+                FROM employee_onboarding eo 
+                LEFT JOIN users u ON eo.emp_id_code = u.employee_id 
+                LEFT JOIN employee_profiles p ON u.id = p.user_id 
+                WHERE eo.id = ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        if ($row = $res->fetch_assoc()) {
+            echo json_encode(['status' => 'success', 'data' => $row]);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Employee not found.']);
+        }
+        exit();
+    }
+
+    // --- ADD OR EDIT EMPLOYEE ---
+    if ($action === 'save') {
+        $edit_id = !empty($_POST['edit_id']) ? intval($_POST['edit_id']) : 0;
+        
         $fname = trim($_POST['fname'] ?? '');
         $lname = trim($_POST['lname'] ?? '');
         $fullName = trim($fname . ' ' . $lname);
@@ -46,11 +85,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $phone = trim($_POST['phone'] ?? '');
         $dept = $_POST['dept'] ?? '';
         $desig = trim($_POST['desig'] ?? '');
-        $manager = $_POST['manager'] ?? '';
-        $salary = $_POST['salary'] ?? '';
-        $emp_type = $_POST['emp_type'] ?? '';
+        $assigned_role = $_POST['role'] ?? 'Employee'; 
+        $manager_id = !empty($_POST['manager_id']) ? $_POST['manager_id'] : NULL;
+        $manager_name = ''; 
+        $salary = $_POST['salary'] ?? '0';
+        $emp_type = $_POST['emp_type'] ?? 'Permanent';
 
-        // Bank Details
+        // Custom Work & Leave fields
+        $shift_type = $_POST['shift_type'] ?? 'Day Shift';
+        $shift_timings = $_POST['shift_timings'] ?? '09:00 AM - 06:00 PM';
+        $casual_leaves = intval($_POST['casual_leaves'] ?? 2);
+
         $pan = strtoupper(trim($_POST['pan'] ?? ''));
         $pf = trim($_POST['pf'] ?? '');
         $esi = trim($_POST['esi'] ?? '');
@@ -58,121 +103,128 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $bank_acc = trim($_POST['bank_acc'] ?? '');
         $ifsc = strtoupper(trim($_POST['ifsc'] ?? ''));
 
-        // Hash Password
-        $pwd_hash = !empty($pwd) ? password_hash($pwd, PASSWORD_DEFAULT) : NULL;
+        // VALIDATIONS
+        if(empty($fname) || empty($emp_id) || empty($uname) || empty($email)) {
+            echo json_encode(['status' => 'error', 'message' => 'Required fields are missing.']);
+            exit;
+        }
 
-        // Handle File Upload if exists
-        $img = "https://ui-avatars.com/api/?name=" . urlencode($fullName) . "&background=random";
+        if($edit_id === 0 && empty($pwd)) {
+            echo json_encode(['status' => 'error', 'message' => 'Password is required for new employees.']);
+            exit;
+        }
+
+        $old_emp_id = '';
+        if ($edit_id > 0) {
+            $stmt_old = $conn->prepare("SELECT emp_id_code, profile_img FROM employee_onboarding WHERE id = ?");
+            $stmt_old->bind_param("i", $edit_id);
+            $stmt_old->execute();
+            $old_data = $stmt_old->get_result()->fetch_assoc();
+            $old_emp_id = $old_data['emp_id_code'];
+            $img = $old_data['profile_img']; 
+            $stmt_old->close();
+        } else {
+            $img = "https://ui-avatars.com/api/?name=" . urlencode($fullName) . "&background=random";
+        }
+
+        $chk_emp = $conn->prepare("SELECT id FROM users WHERE employee_id = ? AND employee_id != ?");
+        $chk_emp->bind_param("ss", $emp_id, $old_emp_id);
+        $chk_emp->execute();
+        if($chk_emp->get_result()->num_rows > 0) { echo json_encode(['status'=>'error', 'message'=>'Employee ID already exists.']); exit; }
+
+        $chk_uname = $conn->prepare("SELECT id FROM users WHERE username = ? AND employee_id != ?");
+        $chk_uname->bind_param("ss", $uname, $old_emp_id);
+        $chk_uname->execute();
+        if($chk_uname->get_result()->num_rows > 0) { echo json_encode(['status'=>'error', 'message'=>'Username is already taken.']); exit; }
+        
+        $chk_email = $conn->prepare("SELECT id FROM users WHERE email = ? AND employee_id != ?");
+        $chk_email->bind_param("ss", $email, $old_emp_id);
+        $chk_email->execute();
+        if($chk_email->get_result()->num_rows > 0) { echo json_encode(['status'=>'error', 'message'=>'Email Address is already registered.']); exit; }
+
+        if($manager_id !== NULL) {
+            $stmt_m = $conn->prepare("SELECT name FROM users WHERE id = ?");
+            $stmt_m->bind_param("i", $manager_id);
+            $stmt_m->execute();
+            if($row_m = $stmt_m->get_result()->fetch_assoc()) { $manager_name = $row_m['name']; }
+            $stmt_m->close();
+        }
+
         if (isset($_FILES['profile_img']) && $_FILES['profile_img']['error'] === UPLOAD_ERR_OK) {
             $uploadDir = '../uploads/profiles/';
             if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
             $fileExt = strtolower(pathinfo($_FILES['profile_img']['name'], PATHINFO_EXTENSION));
             $fileName = 'EMP_' . time() . '_' . rand(1000,9999) . '.' . $fileExt;
-            $targetFilePath = $uploadDir . $fileName;
-            
-            if (move_uploaded_file($_FILES['profile_img']['tmp_name'], $targetFilePath)) {
+            if (move_uploaded_file($_FILES['profile_img']['tmp_name'], $uploadDir . $fileName)) {
                 $img = 'uploads/profiles/' . $fileName; 
             }
         }
 
-        // ========================================================
-        // TRANSACTION TO INSERT INTO 3 TABLES SIMULTANEOUSLY
-        // ========================================================
+        $pass_update_user = ""; $pass_update_onb = "";
+        $pwd_hash = NULL;
+        if (!empty($pwd)) {
+            $pwd_hash = password_hash($pwd, PASSWORD_DEFAULT);
+            $pass_update_user = ", password = '$pwd_hash'";
+            $pass_update_onb = ", password_hash = '$pwd_hash'";
+        }
+
+        $bank_info_arr = ["bank_name" => $bank_name, "acc_no" => $bank_acc, "ifsc" => $ifsc, "pan" => $pan, "pf_no" => $pf, "esi_no" => $esi];
+        $bank_info_json = json_encode($bank_info_arr);
+
+        // TRANSACTION START
         $conn->begin_transaction();
         try {
-            // STEP A: Get Manager's User ID
-            $manager_id = NULL;
-            if (!empty($manager)) {
-                $stmt_mgr = $conn->prepare("SELECT user_id FROM employee_profiles WHERE full_name = ? LIMIT 1");
-                $stmt_mgr->bind_param("s", $manager);
-                $stmt_mgr->execute();
-                $res_mgr = $stmt_mgr->get_result();
-                if ($row_mgr = $res_mgr->fetch_assoc()) {
-                    $manager_id = $row_mgr['user_id'];
-                }
-                $stmt_mgr->close();
+            if ($edit_id > 0) {
+                // EDIT EXISTING
+                $stmt_user = $conn->prepare("UPDATE users SET name=?, employee_id=?, department=?, username=?, email=?, role=? $pass_update_user WHERE employee_id=?");
+                $stmt_user->bind_param("sssssss", $fullName, $emp_id, $dept, $uname, $email, $assigned_role, $old_emp_id);
+                if (!$stmt_user->execute()) throw new Exception("Error updating users table.");
+
+                $stmt_uid = $conn->prepare("SELECT id FROM users WHERE employee_id=?");
+                $stmt_uid->bind_param("s", $emp_id);
+                $stmt_uid->execute();
+                $user_id = $stmt_uid->get_result()->fetch_assoc()['id'];
+
+                $stmt_prof = $conn->prepare("UPDATE employee_profiles SET full_name=?, designation=?, department=?, reporting_to=?, manager_id=?, emp_id_code=?, phone=?, joining_date=?, email=?, profile_img=?, bank_info=?, shift_type=?, shift_timings=?, casual_leaves=? WHERE user_id=?");
+                $stmt_prof->bind_param("sssiissssssssii", $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings, $casual_leaves, $user_id);
+                if (!$stmt_prof->execute()) throw new Exception("Error updating employee profiles.");
+
+                $stmt_onb = $conn->prepare("UPDATE employee_onboarding SET emp_id_code=?, first_name=?, last_name=?, email=?, phone=?, department=?, designation=?, manager_name=?, salary=?, employment_type=?, joining_date=?, username=?, pan_no=?, pf_no=?, esi_no=?, bank_name=?, bank_acc_no=?, ifsc_code=?, shift_type=?, shift_timings=?, casual_leaves=?, profile_img=? $pass_update_onb WHERE id=?");
+                $stmt_onb->bind_param("ssssssssssssssssssssisi", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $casual_leaves, $img, $edit_id);
+                if (!$stmt_onb->execute()) throw new Exception("Error updating onboarding details.");
+
+            } else {
+                // ADD NEW
+                $stmt_user = $conn->prepare("INSERT INTO users (name, employee_id, department, username, email, password, role) VALUES (?, ?, ?, ?, ?, ?, ?)");
+                $stmt_user->bind_param("sssssss", $fullName, $emp_id, $dept, $uname, $email, $pwd_hash, $assigned_role);
+                if (!$stmt_user->execute()) throw new Exception("Error creating user account.");
+                $new_user_id = $stmt_user->insert_id;
+
+                $stmt_prof = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, designation, department, reporting_to, manager_id, emp_id_code, phone, joining_date, email, profile_img, bank_info, shift_type, shift_timings, casual_leaves) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt_prof->bind_param("isssiissssssssi", $new_user_id, $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings, $casual_leaves);
+                if (!$stmt_prof->execute()) throw new Exception("Error creating employee profile.");
+
+                $sql_onb = "INSERT INTO employee_onboarding (
+                            emp_id_code, first_name, last_name, email, phone, department, 
+                            designation, manager_name, salary, employment_type, joining_date, 
+                            username, password_hash, pan_no, pf_no, esi_no, bank_name, bank_acc_no, ifsc_code,
+                            shift_type, shift_timings, casual_leaves, status, profile_img
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Completed', ?)";
+                $stmt_onb = $conn->prepare($sql_onb);
+                $stmt_onb->bind_param("sssssssssssssssssssssis", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pwd_hash, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $casual_leaves, $img);
+                if (!$stmt_onb->execute()) throw new Exception("Error saving onboarding details.");
             }
 
-            // STEP B: Insert into `users` table (Now including Department)
-            $stmt_user = $conn->prepare("INSERT INTO users (name, employee_id, department, username, password, role) VALUES (?, ?, ?, ?, ?, ?)");
-            
-            // Map the selected role from frontend or default to Employee
-            $assigned_role = 'Employee'; // Default
-            
-            $stmt_user->bind_param("ssssss", $fullName, $emp_id, $dept, $email, $pwd_hash, $assigned_role);
-            if (!$stmt_user->execute()) throw new Exception("User Table Error: " . $stmt_user->error);
-            $new_user_id = $stmt_user->insert_id;
-            $stmt_user->close();
-
-            // STEP C: Insert into `employee_profiles` table
-            $bank_info_arr = [
-                "bank_name" => $bank_name,
-                "acc_no" => $bank_acc,
-                "ifsc" => $ifsc,
-                "pan" => $pan,
-                "pf_no" => $pf,
-                "esi_no" => $esi
-            ];
-            $bank_info_json = json_encode($bank_info_arr);
-
-            $stmt_prof = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, designation, department, reporting_to, manager_id, emp_id_code, phone, joining_date, email, profile_img, bank_info) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt_prof->bind_param("isssiissssss", $new_user_id, $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json);
-            if (!$stmt_prof->execute()) throw new Exception("Profile Table Error: " . $stmt_prof->error);
-            $stmt_prof->close();
-
-            // STEP D: Insert into `employee_onboarding` table
-            $sql_onb = "INSERT INTO employee_onboarding (
-                        emp_id_code, first_name, last_name, email, phone, department, 
-                        designation, manager_name, salary, employment_type, joining_date, 
-                        username, password_hash, pan_no, pf_no, esi_no, bank_name, bank_acc_no, ifsc_code,
-                        status, profile_img
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Completed', ?)";
-            
-            $stmt_onb = $conn->prepare($sql_onb);
-            $stmt_onb->bind_param("ssssssssssssssssssss", 
-                $emp_id, $fname, $lname, $email, $phone, $dept, 
-                $desig, $manager, $salary, $emp_type, $join_date, 
-                $uname, $pwd_hash, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc,
-                $img
-            );
-            if (!$stmt_onb->execute()) throw new Exception("Onboarding Table Error: " . $stmt_onb->error);
-            $stmt_onb->close();
-
-            // Commit all queries if successful
             $conn->commit();
             echo json_encode(['status' => 'success']);
-
         } catch (Exception $e) {
-            // Rollback all queries if any single one fails (e.g. Duplicate Email)
             $conn->rollback();
             echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
         }
         exit();
     }
-
-    // 2. UPDATE STATUS
-    if ($action === 'update_status') {
-        $id = $_POST['id'];
-        $status = $_POST['status'];
-        $stmt = $conn->prepare("UPDATE employee_onboarding SET status = ? WHERE id = ?");
-        $stmt->bind_param("si", $status, $id);
-        if ($stmt->execute()) echo json_encode(['status' => 'success']);
-        else echo json_encode(['status' => 'error']);
-        exit();
-    }
-
-    // 3. DELETE RECORD
-    if ($action === 'delete') {
-        $id = $_POST['id'];
-        $stmt = $conn->prepare("DELETE FROM employee_onboarding WHERE id = ?");
-        $stmt->bind_param("i", $id);
-        if ($stmt->execute()) echo json_encode(['status' => 'success']);
-        else echo json_encode(['status' => 'error']);
-        exit();
-    }
 }
 
-// FETCH EXISTING RECORDS FOR DISPLAY
 $sql = "SELECT * FROM employee_onboarding ORDER BY id DESC";
 $result = $conn->query($sql);
 ?>
@@ -181,45 +233,29 @@ $result = $conn->query($sql);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Employee Onboarding | Workack HRMS</title>
+    <title>Employee Directory | Workack HRMS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        :root {
-            --primary: #1b5a5a;
-            --primary-light: #2d7a7a;
-            --primary-bg: #f0fdfa;
-            --border: #e2e8f0;
-            --text-muted: #64748b;
-        }
-
+        :root { --primary: #1b5a5a; --primary-light: #2d7a7a; --primary-bg: #f0fdfa; --border: #e2e8f0; --text-muted: #64748b; }
         body { background-color: #f8fafc; font-family: 'Inter', sans-serif; margin: 0; }
-        
-        main#content-wrapper {
-            margin-left: 95px; padding-top: 80px; padding-bottom: 40px; min-height: 100vh; transition: margin-left 0.3s ease;
-        }
+        main#content-wrapper { margin-left: 95px; padding-top: 80px; padding-bottom: 40px; min-height: 100vh; transition: margin-left 0.3s ease; }
         .sidebar-secondary.open ~ main#content-wrapper { margin-left: calc(95px + 220px); }
-
         .btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; border: 1px solid var(--border); background: white; color: var(--text-muted); font-weight: 500; transition: all 0.2s; }
         .btn:hover { background: #f8fafc; }
-        
         .btn-primary { background-color: var(--primary) !important; color: white !important; border-color: var(--primary) !important; }
         .btn-primary:hover { background-color: var(--primary-light) !important; border-color: var(--primary-light) !important; transform: translateY(-1px); }
-
-        .onboarding-card { transition: all 0.3s ease; border-left: 4px solid transparent; }
-        .onboarding-card:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08); border-left: 4px solid var(--primary); }
-
         .d-none { display: none !important; }
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
+        .form-control { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; transition: all 0.2s; background: #fff; }
         .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.12); outline: none; }
-        .filter-btn.active { background-color: var(--primary); color: white; border-color: var(--primary); }
-
+        
+        /* Modal Styles */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
-        .modal-box { background: white; border-radius: 12px; width: 100%; max-width: 800px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .modal-box { background: white; border-radius: 12px; width: 100%; max-width: 900px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+        .modal-box.small-modal { max-width: 450px; }
         .modal-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
         .modal-header h3 { margin: 0; font-size: 18px; font-weight: 700; color: #0f172a; }
         .modal-tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 20px; gap: 24px; }
@@ -230,15 +266,12 @@ $result = $conn->query($sql);
         
         .img-upload-area { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
         .preview-circle { width: 70px; height: 70px; border-radius: 50%; background: #f1f5f9; border: 1px dashed #cbd5e1; display: flex; align-items: center; justify-content: center; color: #94a3b8; overflow: hidden; }
-        
         .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 20px; }
         .form-group label { display: block; font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 6px; }
         .form-group label span { color: #ef4444; }
-        .form-group .form-control { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; transition: all 0.2s; background: #fff; }
         .password-group { position: relative; }
         .password-toggle { position: absolute; right: 14px; top: 34px; color: #94a3b8; cursor: pointer; }
         .form-section-title { font-size: 16px; font-weight: 700; color: #1e293b; margin: 10px 0 16px; border-bottom: 1px solid var(--border); padding-bottom: 8px;}
-
         @media (max-width: 1024px) { main#content-wrapper { margin-left: 0; padding-top: 70px; } .form-grid { grid-template-columns: 1fr; } }
     </style>
 </head>
@@ -252,133 +285,153 @@ if(file_exists($headerPath)) include $headerPath;
 ?>
 
 <main id="content-wrapper">
-
     <div class="max-w-[96%] mx-auto pt-3 pb-10 px-4 sm:px-6 lg:px-8">
         
         <header class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-5">
             <div>
-                <h2 class="text-3xl font-extrabold text-gray-900 tracking-tight">Employee Onboarding</h2>
-                <p class="text-gray-600 mt-1.5">Manage new hires, assign IDs, managers, and salary packages.</p>
+                <h2 class="text-3xl font-extrabold text-gray-900 tracking-tight">Employee Directory</h2>
+                <p class="text-gray-600 mt-1.5">Manage employees, view teams, and update system access.</p>
             </div>
             <div class="flex items-center gap-4">
-                <div class="text-sm text-gray-600 bg-white px-5 py-2.5 rounded-lg shadow-sm border">
-                    <span id="currentDateDisplay"></span>
+                <div class="text-sm text-gray-600 bg-white px-5 py-2.5 rounded-lg shadow-sm border font-medium">
+                    <i class="far fa-calendar-alt mr-1"></i> <span id="currentDateDisplay"></span>
                 </div>
-                <button onclick="openModal()" class="btn-primary px-5 py-2.5 rounded-lg font-bold shadow-sm border flex items-center gap-2">
-                    <i class="fas fa-plus"></i> Add Employee
+                <button onclick="openAddModal()" class="btn-primary px-5 py-2.5 rounded-lg font-bold shadow-sm border flex items-center gap-2">
+                    <i class="fas fa-user-plus"></i> Add Employee
                 </button>
             </div>
         </header>
 
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-10">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
             <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-                <div>
-                    <p class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Total Onboarding</p>
-                    <h3 class="text-3xl font-bold text-gray-900 mt-2" id="totalCount">0</h3>
-                </div>
-                <div class="h-14 w-14 rounded-full bg-teal-50 flex items-center justify-center text-teal-700">
-                    <i class="fas fa-users text-2xl"></i>
-                </div>
-            </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-                <div>
-                    <p class="text-sm font-semibold text-gray-500 uppercase tracking-wide">In Progress</p>
-                    <h3 class="text-3xl font-bold text-orange-600 mt-2" id="inProgressCount">0</h3>
-                </div>
-                <div class="h-14 w-14 rounded-full bg-orange-50 flex items-center justify-center text-orange-600">
-                    <i class="fas fa-clock text-2xl"></i>
-                </div>
-            </div>
-            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-                <div>
-                    <p class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Completed</p>
-                    <h3 class="text-3xl font-bold text-green-600 mt-2" id="completedCount">0</h3>
-                </div>
-                <div class="h-14 w-14 rounded-full bg-green-50 flex items-center justify-center text-green-600">
-                    <i class="fas fa-check-circle text-2xl"></i>
-                </div>
+                <div><p class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Total Employees</p><h3 class="text-3xl font-bold text-gray-900 mt-2" id="totalCount">0</h3></div>
+                <div class="h-14 w-14 rounded-full bg-teal-50 flex items-center justify-center text-teal-700"><i class="fas fa-users text-2xl"></i></div>
             </div>
         </div>
 
         <div>
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 min-h-[700px]">
-                <div class="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-50 rounded-t-xl">
-                    <h3 class="text-xl font-bold text-gray-900">Onboarding Pipeline</h3>
-                    <div class="flex flex-wrap gap-2">
-                        <button onclick="filterPipeline('All', this)" class="filter-btn active px-4 py-2 text-sm font-semibold rounded-lg border transition-all">All</button>
-                        <button onclick="filterPipeline('Pending', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">Pending</button>
-                        <button onclick="filterPipeline('In Progress', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">In Progress</button>
-                        <button onclick="filterPipeline('Completed', this)" class="filter-btn px-4 py-2 text-sm font-semibold rounded-lg border transition-all">Completed</button>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="p-5 sm:px-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white">
+                    <h3 class="text-lg font-bold text-gray-900">Employee List</h3>
+                    
+                    <div class="flex flex-wrap gap-3 w-full sm:w-auto">
+                        <div class="relative">
+                            <i class="fas fa-search absolute left-3 top-3 text-gray-400"></i>
+                            <input type="text" id="filterSearch" placeholder="Search Name or Emp ID..." class="form-control text-sm w-full sm:w-64 pl-9" onkeyup="applyFilters()">
+                        </div>
+                        <input type="date" id="filterDate" class="form-control text-sm w-full sm:w-48 text-gray-500" onchange="applyFilters()" title="Filter by Joining Date">
+                        <button onclick="clearFilters()" class="btn text-sm hover:bg-gray-100 font-medium"><i class="fas fa-times text-gray-400 mr-1"></i> Clear</button>
                     </div>
                 </div>
 
-                <div class="p-6 custom-scroll overflow-y-auto max-h-[800px]" id="onboardingList">
-                    
+                <div class="hidden sm:flex items-center px-6 py-3 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    <div class="w-1/3">Employee Details</div>
+                    <div class="w-1/6 text-right pr-4">Start Date</div>
+                    <div class="w-1/6 text-right pr-4">Salary</div>
+                    <div class="w-1/6 text-right pr-4">Team</div>
+                    <div class="w-1/6 text-center">Action</div>
+                </div>
+
+                <div class="divide-y divide-gray-100 custom-scroll overflow-y-auto max-h-[800px]" id="onboardingList">
                     <?php if ($result && $result->num_rows > 0): ?>
                         <?php while ($row = $result->fetch_assoc()): 
-                            $statusColor = $row['status'] == 'Completed' ? 'bg-green-100 text-green-700 border-green-200' : 
-                                            ($row['status'] == 'In Progress' ? 'bg-orange-100 text-orange-700 border-orange-200' : 'bg-gray-100 text-gray-600 border-gray-200');
                             $fullName = htmlspecialchars($row['first_name'] . ' ' . $row['last_name']);
                             $salaryDisplay = $row['salary'] ? "₹" . number_format((float)$row['salary']) : "—";
+                            $profileImage = $row['profile_img'] && !filter_var($row['profile_img'], FILTER_VALIDATE_URL) ? '../' . $row['profile_img'] : $row['profile_img'];
                             
-                            $profileImage = $row['profile_img'];
-                            if ($profileImage && !filter_var($profileImage, FILTER_VALIDATE_URL)) {
-                                $profileImage = '../' . $profileImage;
+                            // ==========================================
+                            // ADVANCED TEAM MEMBER LOGIC
+                            // ==========================================
+                            $current_name = trim($row['first_name'] . ' ' . $row['last_name']);
+                            $current_dept = trim($row['department']);
+                            $current_mgr = trim($row['manager_name']);
+
+                            $team_list_detailed = [];
+                            $team_display_names = [];
+                            $added_names = [];
+
+                            foreach ($all_onboarding as $eo) {
+                                $eo_name = trim($eo['full_name']);
+                                if (strtolower($eo_name) === strtolower($current_name)) continue; // Skip Self
+                                
+                                $is_team = false;
+                                
+                                // 1. Same exact department
+                                if (!empty($current_dept) && trim($eo['department']) === $current_dept) { $is_team = true; }
+                                // 2. Current User is the Manager of EO
+                                if (trim($eo['manager_name']) === $current_name) { $is_team = true; }
+                                // 3. EO is the Manager of Current User
+                                if ($current_mgr === $eo_name) { $is_team = true; }
+                                // 4. Both share the same Manager
+                                if (!empty($current_mgr) && trim($eo['manager_name']) === $current_mgr) { $is_team = true; }
+
+                                if ($is_team && !in_array($eo_name, $added_names)) {
+                                    $added_names[] = $eo_name;
+                                    $team_list_detailed[] = [
+                                        'name' => htmlspecialchars($eo_name),
+                                        'role' => htmlspecialchars(trim($eo['designation']))
+                                    ];
+                                    $team_display_names[] = htmlspecialchars($eo_name);
+                                }
                             }
+                            
+                            $team_display = empty($team_display_names) ? "No other members" : implode(", ", array_slice($team_display_names, 0, 2));
+                            if(count($team_display_names) > 2) {
+                                $team_display .= " +" . (count($team_display_names) - 2) . " more";
+                            }
+                            
+                            // SAFELY Encode JSON to pass to JS data-attribute
+                            $team_json = htmlspecialchars(json_encode($team_list_detailed), ENT_QUOTES, 'UTF-8');
                         ?>
-                        <div class="onboarding-card bg-white border border-gray-100 rounded-lg p-5 mb-5 flex flex-col sm:flex-row gap-5 items-start sm:items-center justify-between" data-id="<?= $row['id'] ?>" data-status="<?= $row['status'] ?>">
-                            <div class="flex items-center gap-4 w-full sm:w-auto">
-                                <img src="<?= htmlspecialchars($profileImage) ?>" class="w-14 h-14 rounded-full object-cover border-2 border-gray-200" alt="">
+                        <div class="onboarding-card p-5 sm:px-6 sm:py-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:bg-slate-50 transition-colors" 
+                             data-name="<?= strtolower($fullName) ?>" 
+                             data-empid="<?= strtolower($row['emp_id_code']) ?>" 
+                             data-joindate="<?= $row['joining_date'] ?>">
+                             
+                            <div class="flex items-center gap-4 w-full sm:w-1/3">
+                                <img src="<?= htmlspecialchars($profileImage) ?>" class="w-12 h-12 rounded-full object-cover border border-gray-300">
                                 <div>
-                                    <h4 class="font-bold text-gray-900 text-base flex items-center gap-2">
+                                    <h4 class="font-bold text-gray-900 text-sm flex items-center gap-2">
                                         <?= $fullName ?> 
-                                        <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded border"><?= htmlspecialchars($row['emp_id_code']) ?></span>
+                                        <span class="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded"><?= htmlspecialchars($row['emp_id_code']) ?></span>
                                     </h4>
-                                    <div class="text-sm text-gray-600 mt-1">
-                                        <span class="font-medium text-teal-700"><?= htmlspecialchars($row['designation']) ?></span> • <?= htmlspecialchars($row['department']) ?>
-                                    </div>
-                                    <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                                        <i class="fas fa-user-tie"></i> Mgr: <?= htmlspecialchars($row['manager_name'] ?? 'Pending Assignment') ?>
-                                    </div>
+                                    <div class="text-xs text-gray-600 mt-0.5"><span class="font-semibold text-teal-700"><?= htmlspecialchars($row['designation']) ?></span> • <?= htmlspecialchars($current_dept) ?></div>
+                                    <div class="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><i class="fas fa-user-tie opacity-70"></i> Mgr: <?= htmlspecialchars($row['manager_name'] ?? 'Unassigned') ?></div>
                                 </div>
                             </div>
+                            
+                            <div class="w-full sm:w-1/6 text-left sm:text-right sm:pr-4">
+                                <div class="sm:hidden text-xs uppercase font-semibold text-gray-400 mb-1">Start Date</div>
+                                <div class="text-sm font-medium text-gray-800"><?= date("M d, Y", strtotime($row['joining_date'])) ?></div>
+                            </div>
+                            
+                            <div class="w-full sm:w-1/6 text-left sm:text-right sm:pr-4">
+                                <div class="sm:hidden text-xs uppercase font-semibold text-gray-400 mb-1">Salary</div>
+                                <div class="text-sm font-bold text-gray-900"><?= $salaryDisplay ?></div>
+                            </div>
+                                
+                            <div class="w-full sm:w-1/6 text-left sm:text-right sm:pr-4">
+                                <div class="sm:hidden text-xs uppercase font-semibold text-gray-400 mb-1">Team</div>
+                                <div class="text-xs font-medium text-gray-600 truncate mb-1" title="<?= htmlspecialchars(implode(', ', $team_display_names)) ?>">
+                                    <?= $team_display ?>
+                                </div>
+                                <?php if(!empty($team_list_detailed)): ?>
+                                    <button onclick="viewTeam(this)" data-team="<?= $team_json ?>" data-dept="<?= htmlspecialchars($current_dept, ENT_QUOTES) ?>" class="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-800 bg-teal-50 px-2 py-1 rounded border border-teal-100 transition-colors sm:ml-auto">
+                                        <i class="fas fa-users"></i> View Team
+                                    </button>
+                                <?php endif; ?>
+                            </div>
 
-                            <div class="flex flex-col sm:flex-row items-start sm:items-center gap-6 sm:gap-8 w-full sm:w-auto">
-                                <div class="text-left sm:text-right">
-                                    <div class="text-xs uppercase font-semibold text-gray-500 tracking-wide">Start Date</div>
-                                    <div class="text-sm font-medium text-gray-800"><?= date("M d, Y", strtotime($row['joining_date'])) ?></div>
-                                </div>
-                                <div class="text-left sm:text-right">
-                                    <div class="text-xs uppercase font-semibold text-gray-500 tracking-wide">Salary</div>
-                                    <div class="text-sm font-bold text-gray-900"><?= $salaryDisplay ?></div>
-                                </div>
-                                <span class="px-4 py-1.5 rounded-full text-xs font-bold status-badge <?= $statusColor ?>">
-                                    <?= $row['status'] ?>
-                                </span>
-                                <div class="relative group">
-                                    <button class="text-gray-500 hover:text-teal-700 p-2"><i class="fas fa-ellipsis-v"></i></button>
-                                    <div class="hidden group-hover:block absolute right-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-xl z-20">
-                                        <button onclick="updateStatus(this, 'In Progress', <?= $row['id'] ?>)" class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-orange-50">
-                                            <i class="fas fa-hourglass-half mr-2 text-orange-500"></i> In Progress
-                                        </button>
-                                        <button onclick="updateStatus(this, 'Completed', <?= $row['id'] ?>)" class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-teal-50">
-                                            <i class="fas fa-check mr-2 text-green-600"></i> Complete
-                                        </button>
-                                        <button onclick="deleteCard(this, <?= $row['id'] ?>)" class="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 border-t">
-                                            <i class="fas fa-trash mr-2"></i> Remove
-                                        </button>
-                                    </div>
-                                </div>
+                            <div class="w-full sm:w-1/6 flex sm:justify-center mt-2 sm:mt-0">
+                                <button onclick="editEmployee(<?= $row['id'] ?>)" class="text-teal-700 hover:text-white bg-white hover:bg-teal-700 px-4 py-1.5 rounded-md transition-all duration-200 border border-teal-600 shadow-sm text-xs font-bold flex items-center gap-2 w-full justify-center sm:w-auto">
+                                    <i class="fas fa-user-edit"></i> Edit Profile
+                                </button>
                             </div>
                         </div>
                         <?php endwhile; ?>
                     <?php else: ?>
-                        <div id="emptyState" class="text-center py-16">
-                            <div class="text-gray-300 text-6xl mb-4"><i class="fas fa-clipboard-list"></i></div>
-                            <p class="text-gray-500 text-lg">No onboarding records found.</p>
-                        </div>
+                        <div id="emptyState" class="text-center py-16"><div class="text-gray-300 text-5xl mb-3"><i class="fas fa-folder-open"></i></div><p class="text-gray-500 font-medium">No employees found.</p></div>
                     <?php endif; ?>
-
                 </div>
             </div>
         </div>
@@ -387,82 +440,91 @@ if(file_exists($headerPath)) include $headerPath;
     <div class="modal-overlay" id="employeeModal">
         <div class="modal-box">
             <div class="modal-header">
-                <div style="display:flex; align-items:center;">
-                    <h3 id="modalTitle">Add New Employee</h3>
-                </div>
-                <i class="fas fa-times" style="cursor:pointer; color:#94a3b8; font-size: 18px;" onclick="closeModal()"></i>
+                <h3 id="modalTitle">Add New Employee</h3>
+                <i class="fas fa-times text-gray-400 hover:text-gray-700" style="cursor:pointer; font-size: 18px;" onclick="closeModal()"></i>
             </div>
             
             <div class="modal-tabs">
                 <div class="tab-item active" onclick="switchTab(this, 'tab-basic')">Basic Information</div>
-                <div class="tab-item" onclick="switchTab(this, 'tab-bank')">Bank Details</div>
+                <div class="tab-item" onclick="switchTab(this, 'tab-bank')">Legal & Bank Details</div>
             </div>
             
             <div class="modal-body custom-scroll">
                 <form id="empFormDetailed" enctype="multipart/form-data">
+                    <input type="hidden" id="editId" value="">
                     
                     <div id="tab-basic" class="tab-content">
-                        
                         <div class="img-upload-area">
-                            <div class="preview-circle" id="imgPreview">
-                                <i class="fas fa-image" style="font-size: 24px;"></i>
-                            </div>
+                            <div class="preview-circle" id="imgPreview"><i class="fas fa-camera text-gray-300" style="font-size: 24px;"></i></div>
                             <div>
-                                <h5 style="margin:0 0 5px; font-size:14px; font-weight:600;">Upload Profile Image</h5>
-                                <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Image should be below 4 MB (JPG, PNG)</p>
-                                
-                                <input type="file" id="modProfileImg" name="profile_img" accept="image/*" class="hidden" onchange="previewImage(this)">
-                                <button type="button" class="btn btn-primary" style="padding:6px 12px; font-size:12px;" onclick="document.getElementById('modProfileImg').click()">
-                                    Browse Photo
-                                </button>
+                                <h5 style="margin:0 0 4px; font-size:14px; font-weight:700; color:#1e293b;">Profile Photo</h5>
+                                <p style="margin:0 0 10px; font-size:12px; color:#64748b;">Supported formats: JPG, PNG (Max 4MB)</p>
+                                <input type="file" id="modProfileImg" accept="image/*" class="hidden" onchange="previewImage(this)">
+                                <button type="button" class="btn btn-primary shadow-sm" style="padding:6px 14px; font-size:12px;" onclick="document.getElementById('modProfileImg').click()"><i class="fas fa-upload mr-1"></i> Upload Image</button>
                             </div>
                         </div>
 
                         <div class="form-grid">
                             <div class="form-group"><label>First Name <span>*</span></label><input type="text" class="form-control" id="modFName" required></div>
                             <div class="form-group"><label>Last Name</label><input type="text" class="form-control" id="modLName"></div>
+                            
                             <div class="form-group"><label>Employee ID <span>*</span></label><input type="text" class="form-control" id="modEmpId" required></div>
                             <div class="form-group"><label>Joining Date <span>*</span></label><input type="date" class="form-control" id="modJoinDate" required></div>
+                            
                             <div class="form-group"><label>Username <span>*</span></label><input type="text" class="form-control" id="modUName" required></div>
                             <div class="form-group"><label>Email Address <span>*</span></label><input type="email" class="form-control" id="modEmail" placeholder="name@domain.com" required></div>
                             
                             <div class="form-group password-group">
-                                <label>Password <span>*</span></label>
-                                <input type="password" class="form-control" id="modPwd" placeholder="Min. 6 characters" required>
-                                <i class="fas fa-eye-slash password-toggle" onclick="togglePassword('modPwd', this)"></i>
+                                <label>Password <span id="pwdAsterisk">*</span></label>
+                                <input type="password" class="form-control pr-10" id="modPwd" placeholder="Min. 6 characters">
+                                <i class="fas fa-eye-slash password-toggle hover:text-teal-600" onclick="togglePassword('modPwd', this)"></i>
+                                <small id="pwdHelpText" style="display:none; color:#64748b; font-size:11px; margin-top:4px;">Leave blank to keep current password</small>
                             </div>
                             <div class="form-group password-group">
-                                <label>Confirm Password <span>*</span></label>
-                                <input type="password" class="form-control" id="modPwdConfirm" placeholder="Re-enter password" required>
-                                <i class="fas fa-eye-slash password-toggle" onclick="togglePassword('modPwdConfirm', this)"></i>
+                                <label>Confirm Password <span id="pwdConfAsterisk">*</span></label>
+                                <input type="password" class="form-control pr-10" id="modPwdConfirm" placeholder="Re-enter password">
+                                <i class="fas fa-eye-slash password-toggle hover:text-teal-600" onclick="togglePassword('modPwdConfirm', this)"></i>
                             </div>
                             
-                            <div class="form-group">
-                                <label>Phone Number <span>*</span></label>
-                                <input type="text" class="form-control" id="modPhone" placeholder="10-digit number" maxlength="10" required>
-                            </div>
+                            <div class="form-group"><label>Phone Number <span>*</span></label><input type="text" class="form-control" id="modPhone" placeholder="10-digit number" maxlength="10" required></div>
                             
                             <div class="form-group">
-                                <label>Department <span>*</span></label>
-                                <select class="form-control" id="modDept" onchange="updateModalManager()" required>
-                                    <option value="">Select Department</option>
-                                    <?php 
-                                        $unique_depts = array_keys($dept_managers);
-                                        foreach($unique_depts as $d) { echo "<option value=\"".htmlspecialchars($d)."\">".htmlspecialchars($d)."</option>"; }
-                                        $defaults = ['Engineering Dept', 'Development Team', 'Sales', 'Human Resources', 'Design & Creative'];
-                                        foreach($defaults as $def) { if(!in_array($def, $unique_depts)) { echo "<option value=\"$def\">$def</option>"; } }
-                                    ?>
+                                <label>Role (System Access) <span>*</span></label>
+                                <select class="form-control bg-gray-50" id="modRole" required>
+                                    <option value="Employee">Employee</option>
+                                    <option value="Manager">Manager</option>
+                                    <option value="Team Lead">Team Lead</option>
+                                    <option value="HR">HR</option>
+                                    <option value="HR Executive">HR Executive</option>
+                                    <option value="System Admin">System Admin</option>
+                                    <option value="Sales Manager">Sales Manager</option>
+                                    <option value="Sales Executive">Sales Executive</option>
+                                    <option value="Digital Marketing">Digital Marketing</option>
+                                    <option value="IT Admin">IT Admin</option>
+                                    <option value="IT Executive">IT Executive</option>
+                                    <option value="CFO">CFO</option>
+                                    <option value="Accounts">Accounts</option>
+                                    <option value="CEO">CEO</option>
                                 </select>
                             </div>
 
                             <div class="form-group">
-                                <label>Designation (Job Role) <span>*</span></label>
-                                <input type="text" class="form-control" id="modDesig" placeholder="e.g. Senior Developer" required>
+                                <label>Department <span>*</span></label>
+                                <select class="form-control bg-gray-50" id="modDept" onchange="updateModalManager()" required>
+                                    <option value="">Select Department</option>
+                                    <?php 
+                                        $defaults = ['Engineering Dept', 'Development Team', 'Sales', 'Human Resources', 'Design & Creative', 'Accounts', 'IT Department', 'Management'];
+                                        foreach($defaults as $def) { if(!in_array($def, $departments)) { $departments[] = $def; } }
+                                        foreach($departments as $d) { echo "<option value=\"".htmlspecialchars($d)."\">".htmlspecialchars($d)."</option>"; }
+                                    ?>
+                                </select>
                             </div>
+
+                            <div class="form-group"><label>Designation (Job Title) <span>*</span></label><input type="text" class="form-control" id="modDesig" placeholder="e.g. Senior Developer" required></div>
 
                             <div class="form-group">
                                 <label>Reporting Manager</label>
-                                <select class="form-control" id="modManager" disabled>
+                                <select class="form-control bg-gray-50" id="modManager" disabled>
                                     <option value="">Select Department First</option>
                                 </select>
                             </div>
@@ -470,7 +532,7 @@ if(file_exists($headerPath)) include $headerPath;
                             <div class="form-group"><label>Annual Salary (₹) <span>*</span></label><input type="number" class="form-control" id="modSalary" placeholder="e.g. 1200000" min="0" required></div>
                             <div class="form-group">
                                 <label>Employment Type <span>*</span></label>
-                                <select class="form-control" id="modEmpType">
+                                <select class="form-control bg-gray-50" id="modEmpType">
                                     <option value="Permanent">Permanent</option>
                                     <option value="Contract">Contract</option>
                                     <option value="Intern">Intern</option>
@@ -478,36 +540,69 @@ if(file_exists($headerPath)) include $headerPath;
                                 </select>
                             </div>
                         </div>
+
+                        <div class="form-section-title mt-4 pt-4 border-t border-gray-100"><i class="fas fa-business-time text-teal-600 mr-2"></i>Work & Leave Setup</div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Shift Type <span>*</span></label>
+                                <select class="form-control bg-gray-50" id="modShiftType" required>
+                                    <option value="Day Shift">Day Shift</option>
+                                    <option value="Night Shift">Night Shift</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Shift Timings <span>*</span></label>
+                                <select class="form-control bg-gray-50" id="modShiftTimings" required>
+                                    <option value="09:00 AM - 06:00 PM">09:00 AM - 06:00 PM</option>
+                                    <option value="10:00 AM - 07:00 PM">10:00 AM - 07:00 PM</option>
+                                    <option value="09:00 PM - 06:00 AM">09:00 PM - 06:00 AM</option>
+                                </select>
+                                <span style="font-size:11px; color:#64748b; margin-top:4px; display:block;">Total Hours (9) = Production (8) + Break (1)</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Casual Leaves Allowed (per month) <span>*</span></label>
+                                <input type="number" class="form-control" id="modCasualLeaves" value="2" min="0" required>
+                                <span style="font-size:11px; color:#ef4444; margin-top:4px; display:block;">Exceeding this limits will result in Loss of Pay</span>
+                            </div>
+                        </div>
+
                     </div>
 
                     <div id="tab-bank" class="tab-content" style="display:none;">
-                        <h4 class="form-section-title">Legal Details</h4>
+                        <h4 class="form-section-title"><i class="fas fa-id-card text-teal-600 mr-2"></i>Legal Information</h4>
                         <div class="form-grid">
-                            <div class="form-group">
-                                <label>PAN Card No.</label>
-                                <input type="text" class="form-control" id="modPan" placeholder="ABCDE1234F" style="text-transform: uppercase;" maxlength="10">
-                            </div>
+                            <div class="form-group"><label>PAN Card No.</label><input type="text" class="form-control" id="modPan" placeholder="ABCDE1234F" style="text-transform: uppercase;" maxlength="10"></div>
                             <div class="form-group"><label>PF Account No.</label><input type="text" class="form-control" id="modPf" placeholder="PF12345678"></div>
                             <div class="form-group"><label>ESI Number</label><input type="text" class="form-control" id="modEsi" placeholder="ESI987654"></div>
                         </div>
-
-                        <h4 class="form-section-title">Bank Details</h4>
+                        <h4 class="form-section-title mt-4"><i class="fas fa-university text-teal-600 mr-2"></i>Bank Details</h4>
                         <div class="form-grid">
                             <div class="form-group"><label>Bank Name</label><input type="text" class="form-control" id="modBankName" placeholder="e.g. HDFC Bank"></div>
                             <div class="form-group"><label>Bank Account No.</label><input type="text" class="form-control" id="modBankAcc" placeholder="1234567890"></div>
-                            <div class="form-group">
-                                <label>IFSC Code</label>
-                                <input type="text" class="form-control" id="modIfsc" placeholder="HDFC0001234" style="text-transform: uppercase;" maxlength="11">
-                            </div>
+                            <div class="form-group"><label>IFSC Code</label><input type="text" class="form-control" id="modIfsc" placeholder="HDFC0001234" style="text-transform: uppercase;" maxlength="11"></div>
                         </div>
                     </div>
-
                 </form>
             </div>
-            
             <div class="modal-footer">
                 <button type="button" class="btn" onclick="closeModal()">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveModalBtn">Save Employee</button>
+                <button type="button" class="btn btn-primary px-6" id="saveModalBtn"><i class="fas fa-save mr-1"></i> Save Employee</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="teamModal">
+        <div class="modal-box small-modal">
+            <div class="modal-header bg-gray-50 rounded-t-xl">
+                <h3 id="teamModalTitle" class="text-teal-800"><i class="fas fa-users mr-2"></i>Associated Team</h3>
+                <i class="fas fa-times text-gray-400 hover:text-red-500" style="cursor:pointer; font-size: 18px;" onclick="closeTeamModal()"></i>
+            </div>
+            <div class="modal-body p-0 custom-scroll max-h-[60vh]">
+                <ul id="teamModalList" class="divide-y divide-gray-100">
+                    </ul>
+            </div>
+            <div class="modal-footer py-3 bg-gray-50">
+                <button type="button" class="btn text-sm w-full" onclick="closeTeamModal()">Close</button>
             </div>
         </div>
     </div>
@@ -520,63 +615,197 @@ if(file_exists($headerPath)) include $headerPath;
     <script>
         document.getElementById('currentDateDisplay').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
-        const departmentManagers = <?php echo json_encode($dept_managers); ?>;
+        const allManagers = <?php echo json_encode($all_managers); ?>;
 
-        // Image Preview Logic
         function previewImage(input) {
             if (input.files && input.files[0]) {
                 const reader = new FileReader();
-                reader.onload = function(e) {
-                    const preview = document.getElementById('imgPreview');
-                    preview.innerHTML = `<img src="${e.target.result}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
-                }
+                reader.onload = function(e) { document.getElementById('imgPreview').innerHTML = `<img src="${e.target.result}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`; }
                 reader.readAsDataURL(input.files[0]);
             }
         }
 
-        function updateModalManager() {
+        // Group managers by matching and other departments
+        function updateModalManager(selectedManagerId = null) {
             const dept = document.getElementById('modDept').value;
             const mgrSelect = document.getElementById('modManager');
-            mgrSelect.innerHTML = '<option value="" disabled selected>Select Manager</option>';
-            if (dept && departmentManagers[dept] && departmentManagers[dept].length > 0) {
-                mgrSelect.disabled = false;
-                departmentManagers[dept].forEach(mgr => { mgrSelect.insertAdjacentHTML('beforeend', `<option value="${mgr}">${mgr}</option>`); });
-            } else {
-                mgrSelect.innerHTML = '<option value="" disabled selected>No Managers found in this Dept</option>';
+            mgrSelect.innerHTML = '<option value="">Select Manager</option>';
+            mgrSelect.disabled = false;
+            
+            let deptManagers = [];
+            let otherManagers = [];
+            
+            allManagers.forEach(mgr => {
+                if(mgr.dept === dept) deptManagers.push(mgr);
+                else otherManagers.push(mgr);
+            });
+
+            if (deptManagers.length > 0) {
+                let optGroup = document.createElement('optgroup');
+                optGroup.label = "In this Department";
+                deptManagers.forEach(mgr => {
+                    optGroup.innerHTML += `<option value="${mgr.id}">${mgr.name} (${mgr.role})</option>`;
+                });
+                mgrSelect.appendChild(optGroup);
+            }
+
+            if (otherManagers.length > 0) {
+                let optGroup = document.createElement('optgroup');
+                optGroup.label = "Other Departments";
+                otherManagers.forEach(mgr => {
+                    optGroup.innerHTML += `<option value="${mgr.id}">${mgr.name} - ${mgr.dept} (${mgr.role})</option>`;
+                });
+                mgrSelect.appendChild(optGroup);
+            }
+
+            if (dept === "") {
+                mgrSelect.innerHTML = '<option value="" disabled selected>Select Department First</option>';
                 mgrSelect.disabled = true;
+            }
+
+            if(selectedManagerId) {
+                mgrSelect.value = selectedManagerId;
             }
         }
 
         function togglePassword(inputId, icon) {
             const input = document.getElementById(inputId);
-            if (input.type === "password") { input.type = "text"; icon.classList.remove('fa-eye-slash'); icon.classList.add('fa-eye'); } 
-            else { input.type = "password"; icon.classList.remove('fa-eye'); icon.classList.add('fa-eye-slash'); }
+            if (input.type === "password") { input.type = "text"; icon.classList.replace('fa-eye-slash', 'fa-eye'); } 
+            else { input.type = "password"; icon.classList.replace('fa-eye', 'fa-eye-slash'); }
         }
 
-        function openModal() { document.getElementById('employeeModal').style.display = 'flex'; }
-        
-        function closeModal() { 
-            document.getElementById('employeeModal').style.display = 'none'; 
+        // ADD NEW MODAL
+        function openAddModal() { 
             document.getElementById('empFormDetailed').reset();
-            document.getElementById('imgPreview').innerHTML = '<i class="fas fa-image" style="font-size: 24px;"></i>'; // Reset image
-            const mgrSelect = document.getElementById('modManager');
-            mgrSelect.innerHTML = '<option value="" disabled selected>Select Department First</option>';
-            mgrSelect.disabled = true;
+            document.getElementById('editId').value = '';
+            document.getElementById('modalTitle').innerHTML = '<i class="fas fa-user-plus text-teal-600 mr-2"></i>Add New Employee';
+            document.getElementById('imgPreview').innerHTML = '<i class="fas fa-camera text-gray-300" style="font-size: 24px;"></i>';
+            document.getElementById('modManager').innerHTML = '<option value="" disabled selected>Select Department First</option>';
+            document.getElementById('modManager').disabled = true;
+            
+            document.getElementById('pwdHelpText').style.display = 'none';
+            document.getElementById('pwdAsterisk').style.display = 'inline';
+            document.getElementById('pwdConfAsterisk').style.display = 'inline';
+            
+            // Set defaults for Work Setup
+            document.getElementById('modShiftType').value = 'Day Shift';
+            document.getElementById('modShiftTimings').value = '09:00 AM - 06:00 PM';
+            document.getElementById('modCasualLeaves').value = 2;
+
             switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
+            document.getElementById('employeeModal').style.display = 'flex'; 
         }
 
-        function switchTab(btnElement, tabId) {
+        // EDIT MODAL
+        function editEmployee(id) {
+            fetch('employee_onboarding.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=get_employee&id=' + id
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === 'success') {
+                    const emp = data.data;
+                    document.getElementById('empFormDetailed').reset();
+                    document.getElementById('editId').value = emp.id;
+                    document.getElementById('modalTitle').innerHTML = `<i class="fas fa-user-edit text-teal-600 mr-2"></i>Edit Profile - ${emp.first_name}`;
+                    
+                    document.getElementById('modFName').value = emp.first_name;
+                    document.getElementById('modLName').value = emp.last_name || '';
+                    document.getElementById('modEmpId').value = emp.emp_id_code;
+                    document.getElementById('modJoinDate').value = emp.joining_date;
+                    document.getElementById('modUName').value = emp.username;
+                    document.getElementById('modEmail').value = emp.email;
+                    document.getElementById('modPhone').value = emp.phone;
+                    document.getElementById('modRole').value = emp.role || 'Employee';
+                    document.getElementById('modDept').value = emp.department;
+                    document.getElementById('modDesig').value = emp.designation;
+                    document.getElementById('modSalary').value = emp.salary;
+                    document.getElementById('modEmpType').value = emp.employment_type;
+                    
+                    document.getElementById('modShiftType').value = emp.shift_type || 'Day Shift';
+                    document.getElementById('modShiftTimings').value = emp.shift_timings || '09:00 AM - 06:00 PM';
+                    document.getElementById('modCasualLeaves').value = emp.casual_leaves !== undefined ? emp.casual_leaves : 2;
+
+                    document.getElementById('modPan').value = emp.pan_no || '';
+                    document.getElementById('modPf').value = emp.pf_no || '';
+                    document.getElementById('modEsi').value = emp.esi_no || '';
+                    document.getElementById('modBankName').value = emp.bank_name || '';
+                    document.getElementById('modBankAcc').value = emp.bank_acc_no || '';
+                    document.getElementById('modIfsc').value = emp.ifsc_code || '';
+                    
+                    // Make passwords optional for edit
+                    document.getElementById('pwdHelpText').style.display = 'block';
+                    document.getElementById('pwdAsterisk').style.display = 'none';
+                    document.getElementById('pwdConfAsterisk').style.display = 'none';
+                    
+                    if(emp.profile_img) {
+                        const imgPath = emp.profile_img.startsWith('http') ? emp.profile_img : '../' + emp.profile_img;
+                        document.getElementById('imgPreview').innerHTML = `<img src="${imgPath}" style="width:100%; height:100%; object-fit:cover; border-radius:50%;">`;
+                    } else {
+                        document.getElementById('imgPreview').innerHTML = '<i class="fas fa-user text-gray-300" style="font-size: 24px;"></i>';
+                    }
+                    
+                    updateModalManager(emp.manager_id);
+                    switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
+                    document.getElementById('employeeModal').style.display = 'flex';
+                } else {
+                    showToast(data.message, 'error');
+                }
+            })
+            .catch(err => {
+                showToast("Failed to fetch employee details.", "error");
+            });
+        }
+
+        function closeModal() { document.getElementById('employeeModal').style.display = 'none'; }
+
+        // TEAM VIEW MODAL 
+        function viewTeam(btnEl) {
+            const teamData = JSON.parse(btnEl.getAttribute('data-team'));
+            const deptName = btnEl.getAttribute('data-dept');
+            
+            document.getElementById('teamModalTitle').innerHTML = `<i class="fas fa-sitemap mr-2"></i>${deptName} Team`;
+            const listEl = document.getElementById('teamModalList');
+            
+            if(teamData.length === 0) {
+                listEl.innerHTML = `<li class="p-6 text-center text-gray-500 font-medium"><i class="fas fa-user-slash text-2xl mb-2 block text-gray-300"></i>No team members found</li>`;
+            } else {
+                let html = '';
+                teamData.forEach(member => {
+                    let badgeClass = 'bg-gray-100 text-gray-600 border-gray-200';
+                    const role = member.role.toLowerCase();
+                    if(role.includes('manager') || role.includes('ceo') || role.includes('cfo')) badgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
+                    else if(role.includes('lead')) badgeClass = 'bg-purple-50 text-purple-700 border-purple-200';
+                    else if(role.includes('hr')) badgeClass = 'bg-pink-50 text-pink-700 border-pink-200';
+
+                    html += `<li class="px-6 py-4 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                                <div class="flex items-center gap-3">
+                                    <div class="h-8 w-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-xs">${member.name.charAt(0)}</div>
+                                    <span class="font-bold text-gray-800">${member.name}</span>
+                                </div>
+                                <span class="px-3 py-1 text-xs font-bold rounded border ${badgeClass}">${member.role}</span>
+                             </li>`;
+                });
+                listEl.innerHTML = html;
+            }
+            document.getElementById('teamModal').style.display = 'flex';
+        }
+        
+        function closeTeamModal() { document.getElementById('teamModal').style.display = 'none'; }
+
+        function switchTab(btn, tabId) {
             document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
-            btnElement.classList.add('active');
+            btn.classList.add('active');
             document.getElementById(tabId).style.display = 'block';
         }
 
-        // SAVE LOGIC WITH VALIDATIONS
+        // SAVE LOGIC 
         document.getElementById('saveModalBtn').addEventListener('click', (e) => {
             e.preventDefault();
-            
-            // Collect Values
+            const editId = document.getElementById('editId').value;
             const fName = document.getElementById('modFName').value.trim();
             const lName = document.getElementById('modLName').value.trim();
             const empId = document.getElementById('modEmpId').value.trim();
@@ -586,143 +815,116 @@ if(file_exists($headerPath)) include $headerPath;
             const pwd = document.getElementById('modPwd').value;
             const pwdConf = document.getElementById('modPwdConfirm').value;
             const phone = document.getElementById('modPhone').value.trim();
+            const role = document.getElementById('modRole').value; 
             const dept = document.getElementById('modDept').value;
             const desig = document.getElementById('modDesig').value.trim();
-            const manager = document.getElementById('modManager').value;
+            const manager_id = document.getElementById('modManager').value;
             const salary = document.getElementById('modSalary').value;
             const empType = document.getElementById('modEmpType').value;
-
-            const pan = document.getElementById('modPan').value.trim().toUpperCase();
-            const pf = document.getElementById('modPf').value.trim();
-            const esi = document.getElementById('modEsi').value.trim();
-            const bankName = document.getElementById('modBankName').value.trim();
-            const bankAcc = document.getElementById('modBankAcc').value.trim();
-            const ifsc = document.getElementById('modIfsc').value.trim().toUpperCase();
-
-            const fileInput = document.getElementById('modProfileImg');
-
-            // --- VALIDATIONS ---
             
-            if(!fName || !empId || !joinDate || !desig || !uname || !email || !pwd || !dept || !salary || !phone) {
-                showToast("Please fill all required (*) fields.", "error");
-                switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
-                return;
-            }
+            // New Shift & Leave fetching
+            const shiftType = document.getElementById('modShiftType').value;
+            const shiftTimings = document.getElementById('modShiftTimings').value;
+            const casualLeaves = document.getElementById('modCasualLeaves').value;
 
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if(!emailRegex.test(email)) {
-                showToast("Please enter a valid email address.", "error");
-                switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
-                return;
+            // Validations
+            if(!fName || !empId || !joinDate || !desig || !uname || !email || !dept || !salary || !phone || !role || !shiftType || !shiftTimings || casualLeaves==='') {
+                showToast("Please fill all required (*) fields.", "error"); return;
             }
+            if(editId === '' && !pwd) {
+                showToast("Password is required for new employees.", "error"); return;
+            }
+            if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast("Invalid email address.", "error"); return; }
+            if(!/^[0-9]{10}$/.test(phone)) { showToast("Phone number must be exactly 10 digits.", "error"); return; }
+            if(pwd && pwd.length < 6) { showToast("Password must be at least 6 characters.", "error"); return; }
+            if(pwd !== pwdConf) { showToast("Passwords do not match.", "error"); return; }
 
-            const phoneRegex = /^[0-9]{10}$/;
-            if(!phoneRegex.test(phone)) {
-                showToast("Phone number must be exactly 10 digits.", "error");
-                switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
-                return;
-            }
+            const btn = document.getElementById('saveModalBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+            btn.disabled = true;
 
-            if(pwd.length < 6) {
-                showToast("Password must be at least 6 characters long.", "error");
-                switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
-                return;
-            }
-            if(pwd !== pwdConf) {
-                showToast("Password and Confirm Password do not match.", "error");
-                switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
-                return;
-            }
-
-            const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
-            if(pan !== "" && !panRegex.test(pan)) {
-                showToast("Invalid PAN format (e.g. ABCDE1234F).", "error");
-                switchTab(document.querySelector('.tab-item:nth-child(2)'), 'tab-bank');
-                return;
-            }
-
-            // --- PREPARE FORMDATA ---
             const formData = new FormData();
-            formData.append('action', 'add');
-            formData.append('fname', fName); formData.append('lname', lName);
-            formData.append('emp_id', empId); formData.append('join_date', joinDate);
-            formData.append('uname', uname); formData.append('email', email);
-            formData.append('pwd', pwd); formData.append('phone', phone);
-            formData.append('dept', dept); formData.append('desig', desig);
-            formData.append('manager', manager); formData.append('salary', salary);
-            formData.append('emp_type', empType); formData.append('pan', pan);
-            formData.append('pf', pf); formData.append('esi', esi);
-            formData.append('bank_name', bankName); formData.append('bank_acc', bankAcc);
-            formData.append('ifsc', ifsc);
+            formData.append('action', 'save');
+            formData.append('edit_id', editId);
+            formData.append('fname', fName);
+            formData.append('lname', lName);
+            formData.append('emp_id', empId);
+            formData.append('join_date', joinDate);
+            formData.append('uname', uname);
+            formData.append('email', email);
+            formData.append('pwd', pwd);
+            formData.append('phone', phone);
+            formData.append('role', role); 
+            formData.append('dept', dept);
+            formData.append('desig', desig);
+            formData.append('manager_id', manager_id);
+            formData.append('salary', salary);
+            formData.append('emp_type', empType);
+            formData.append('shift_type', shiftType);
+            formData.append('shift_timings', shiftTimings);
+            formData.append('casual_leaves', casualLeaves);
+            formData.append('pan', document.getElementById('modPan').value.trim());
+            formData.append('pf', document.getElementById('modPf').value.trim());
+            formData.append('esi', document.getElementById('modEsi').value.trim());
+            formData.append('bank_name', document.getElementById('modBankName').value.trim());
+            formData.append('bank_acc', document.getElementById('modBankAcc').value.trim());
+            formData.append('ifsc', document.getElementById('modIfsc').value.trim());
             
-            if (fileInput.files.length > 0) {
-                formData.append('profile_img', fileInput.files[0]);
-            }
+            const fileInput = document.getElementById('modProfileImg');
+            if (fileInput.files.length > 0) formData.append('profile_img', fileInput.files[0]);
 
-            // Send to Backend
             fetch('employee_onboarding.php', { method: 'POST', body: formData })
             .then(res => res.json())
             .then(data => {
+                btn.innerHTML = originalText; btn.disabled = false;
                 if(data.status === 'success') {
-                    showToast(`Employee ${fName} successfully added`);
-                    closeModal();
-                    setTimeout(() => window.location.reload(), 1000); 
-                } else {
-                    showToast(`Error: ${data.message}`, "error");
-                }
-            });
+                    showToast(`Employee data saved successfully`);
+                    closeModal(); 
+                    setTimeout(() => window.location.reload(), 1200); 
+                } else showToast(`Error: ${data.message}`, "error");
+            }).catch(err => { btn.innerHTML = originalText; btn.disabled = false; showToast("Network error.", "error"); });
         });
 
-        // UPDATE STATUS via AJAX
-        function updateStatus(btn, status, id) {
-            const formData = new FormData();
-            formData.append('action', 'update_status'); formData.append('id', id); formData.append('status', status);
+        // FILTERS LOGIC
+        function applyFilters() {
+            const searchVal = document.getElementById('filterSearch').value.toLowerCase();
+            const dateVal = document.getElementById('filterDate').value;
+            let visibleCount = 0;
 
-            fetch('employee_onboarding.php', { method: 'POST', body: formData })
-            .then(res => res.json())
-            .then(data => {
-                if(data.status === 'success') {
-                    const card = btn.closest('.onboarding-card'); card.dataset.status = status;
-                    const badge = card.querySelector('.status-badge'); badge.textContent = status;
-                    badge.className = 'px-4 py-1.5 rounded-full text-xs font-bold border status-badge ';
-                    if (status === 'Completed') { badge.classList.add('bg-green-100', 'text-green-700', 'border-green-200'); showToast('Onboarding marked as completed'); } 
-                    else if (status === 'In Progress') { badge.classList.add('bg-orange-100', 'text-orange-700', 'border-orange-200'); showToast('Status updated to In Progress'); } 
-                    else { badge.classList.add('bg-gray-100', 'text-gray-600', 'border-gray-200'); showToast('Status updated to Pending'); }
-                    updateStats();
-                } else { showToast('Failed to update status', 'error'); }
+            document.querySelectorAll('.onboarding-card').forEach(card => {
+                const name = card.getAttribute('data-name');
+                const empId = card.getAttribute('data-empid');
+                const joinDate = card.getAttribute('data-joindate');
+
+                let matchSearch = (name.includes(searchVal) || empId.includes(searchVal));
+                let matchDate = (dateVal === "" || joinDate === dateVal);
+
+                if (matchSearch && matchDate) {
+                    card.classList.remove('d-none');
+                    visibleCount++;
+                } else {
+                    card.classList.add('d-none');
+                }
             });
+            
+            const emptyState = document.getElementById('emptyState');
+            if(emptyState) {
+                emptyState.classList.toggle('hidden', visibleCount > 0);
+            }
+            document.getElementById('totalCount').textContent = visibleCount;
         }
 
-        // DELETE RECORD via AJAX
-        function deleteCard(btn, id) {
-            if (!confirm('Remove this onboarding record?')) return;
-            const formData = new FormData(); formData.append('action', 'delete'); formData.append('id', id);
-
-            fetch('employee_onboarding.php', { method: 'POST', body: formData })
-            .then(res => res.json())
-            .then(data => {
-                if(data.status === 'success') {
-                    const card = btn.closest('.onboarding-card');
-                    card.style.opacity = '0';
-                    card.style.transform = 'translateX(30px)';
-                    setTimeout(() => { card.remove(); updateStats(); showToast('Record removed'); }, 300);
-                } else { showToast('Failed to remove record', 'error'); }
-            });
-        }
-
-        // UI FILTERS & UTILS
-        function filterPipeline(status, btn) {
-            document.querySelectorAll('.filter-btn').forEach(b => { b.classList.remove('active', 'bg-teal-700', 'text-white', 'border-teal-700'); b.classList.add('text-gray-700', 'bg-white', 'border-gray-300'); });
-            btn.classList.add('active', 'bg-teal-700', 'text-white', 'border-teal-700');
-            document.querySelectorAll('.onboarding-card').forEach(card => { card.classList.toggle('d-none', status !== 'All' && card.dataset.status !== status); });
+        function clearFilters() {
+            document.getElementById('filterSearch').value = '';
+            document.getElementById('filterDate').value = '';
+            applyFilters();
         }
 
         function updateStats() {
             const cards = document.querySelectorAll('.onboarding-card');
-            const total = cards.length; let progress = 0, completed = 0;
-            cards.forEach(c => { const s = c.dataset.status; if (s === 'Completed') completed++; else if (s === 'In Progress') progress++; });
-            document.getElementById('totalCount').textContent = total; document.getElementById('inProgressCount').textContent = progress; document.getElementById('completedCount').textContent = completed;
-            const emptyState = document.getElementById('emptyState'); if(emptyState) emptyState.classList.toggle('hidden', total > 0);
+            document.getElementById('totalCount').textContent = cards.length;
+            if(document.getElementById('emptyState')) document.getElementById('emptyState').classList.toggle('hidden', cards.length > 0);
         }
 
         function showToast(msg, type = 'success') {
@@ -731,8 +933,7 @@ if(file_exists($headerPath)) include $headerPath;
             toast.className = `fixed bottom-6 right-6 px-6 py-3.5 rounded-lg shadow-2xl transform transition-all duration-300 flex items-center gap-3 z-50 ${type === 'error' ? 'bg-red-600' : 'bg-teal-800'} text-white`;
             setTimeout(() => toast.classList.add('translate-y-24', 'opacity-0'), 3000);
         }
-
-        updateStats(); // Initial call
+        updateStats();
     </script>
 </body>
 </html>

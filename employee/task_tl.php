@@ -9,37 +9,33 @@ if (file_exists($dbPath)) {
     die("Error: db_connect.php not found at $dbPath");
 }
 
-// Determine current user FIRST (needed for update logic)
+// Determine current user FIRST
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-$current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1);
+$current_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 1;
 
-// --- HANDLE STATUS UPDATE VIA GET REQUEST (MOVED TO TOP BEFORE ANY HTML OUTPUT) ---
+// --- HANDLE STATUS UPDATE VIA GET REQUEST ---
 if (isset($_GET['update_id']) && isset($_GET['new_status'])) {
     $tid = intval($_GET['update_id']);
     $stat = $_GET['new_status'];
     
-    // Only allow specific status updates
     if (in_array($stat, ['In Progress', 'Completed'])) {
         $stmt = $conn->prepare("UPDATE project_tasks SET status = ? WHERE id = ?");
         $stmt->bind_param("si", $stat, $tid);
         $stmt->execute();
         $stmt->close();
     }
-    
-    // Redirect to clear the URL parameters and refresh the page
     header("Location: " . strtok($_SERVER['REQUEST_URI'], '?'));
     exit;
 }
 
-// 2. INCLUDE SIDEBAR & HEADER (After redirect logic)
+// 2. INCLUDE SIDEBAR & HEADER
 $sidebarPath = $projectRoot . DIRECTORY_SEPARATOR . 'sidebars.php'; 
 $headerPath  = $projectRoot . DIRECTORY_SEPARATOR . 'header.php';
 
 if (file_exists($sidebarPath)) include_once $sidebarPath;
 if (file_exists($headerPath))  include_once $headerPath;
 
-// --- NEW LOGIC: FETCH CURRENT EMPLOYEE'S NAME ---
-// The TL stores assigned names as a comma-separated string, so we need the current user's name to search for it.
+// --- FETCH CURRENT EMPLOYEE'S NAME ---
 $name_stmt = $conn->prepare("SELECT COALESCE(ep.full_name, u.name) as full_name FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?");
 $name_stmt->bind_param("i", $current_user_id);
 $name_stmt->execute();
@@ -60,8 +56,7 @@ $stmt->execute();
 $stats = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-// 4. FETCH TASKS (FOR BOTH LIST & KANBAN)
-// Join with users and employee_profiles to dynamically get the Assigning Team Lead's name and role
+// 4. FETCH TASKS
 $tasks_query = "SELECT pt.*, 
                 COALESCE(ep.full_name, u.name, 'Admin') as assigned_by_name,
                 COALESCE(ep.designation, u.role, 'Team Lead') as assigned_by_role
@@ -81,18 +76,13 @@ $tasks_completed = [];
 $list_view_tasks = [];
 
 while($task = $all_tasks_result->fetch_assoc()) {
-    
-    // Map project_tasks column names to the old variables your HTML uses so the UI doesn't break
     $task['task_description'] = $task['description'];
     $task['deadline'] = $task['due_date'];
-    
-    // Dynamically generate the avatar for the Assigning TL
     $assigner_url_name = urlencode($task['assigned_by_name']);
     $task['assigned_by_img'] = "https://ui-avatars.com/api/?name={$assigner_url_name}&background=random";
 
     $list_view_tasks[] = $task; 
 
-    // Sort into Kanban Columns
     if($task['status'] == 'Pending' || $task['status'] == 'To Do') {
         $tasks_todo[] = $task;
     } elseif($task['status'] == 'In Progress') {
@@ -114,166 +104,44 @@ $stmt->close();
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        :root {
-            --theme-color: #1b5a5a;
-            --bg-body: #f8fafc;
-            --border-color: #e2e8f0;
-            --sidebar-primary-width: 95px;
-            --sidebar-secondary-width: 220px;
-        }
-
+        :root { --theme-color: #1b5a5a; --bg-body: #f8fafc; --border-color: #e2e8f0; --sidebar-primary-width: 95px; }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
-        
-        body { 
-            background-color: var(--bg-body); 
-            display: block; 
-            min-height: 100vh; 
-            color: #334155; 
-            overflow-x: hidden;
-        }
-
-        .main-content { 
-            margin-left: var(--sidebar-primary-width); 
-            padding: 30px; 
-            transition: margin-left 0.3s ease; 
-            width: calc(100% - var(--sidebar-primary-width)); 
-        }
-
+        body { background-color: var(--bg-body); color: #334155; overflow-x: hidden; }
+        .main-content { margin-left: var(--sidebar-primary-width); padding: 30px; width: calc(100% - var(--sidebar-primary-width)); }
         .page-header { margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; }
         .page-header h2 { color: var(--theme-color); font-weight: 700; font-size: 24px; }
-        .breadcrumb { font-size: 0.8rem; color: #94a3b8; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 1px; }
-
-        .stats-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 30px; 
-            width: 100%;
-        }
-        
-        .stat-card { 
-            background: #fff; padding: 25px; border-radius: 12px; border: 1px solid var(--border-color);
-            display: flex; align-items: center; justify-content: space-between; 
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border-left: 4px solid var(--theme-color);
-        }
+        .breadcrumb { font-size: 0.8rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: #fff; padding: 25px; border-radius: 12px; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; border-left: 4px solid var(--theme-color); }
         .stat-info h3 { font-size: 1.8rem; font-weight: 700; color: #1e293b; }
         .stat-info p { color: #64748b; font-size: 0.85rem; font-weight: 600; }
         .stat-icon { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; background: #eefcfd; color: var(--theme-color); }
-
-        .card { background: #fff; border-radius: 12px; padding: 25px; margin-bottom: 25px; border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(0,0,0,0.02); width: 100%; }
+        .card { background: #fff; border-radius: 12px; padding: 25px; margin-bottom: 25px; border: 1px solid var(--border-color); width: 100%; }
         .table-responsive { width: 100%; overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 15px; color: #475569; font-weight: 700; border-bottom: 2px solid #f1f5f9; font-size: 0.8rem; text-transform: uppercase; }
         td { padding: 15px; border-bottom: 1px solid #f8fafc; font-size: 0.85rem; vertical-align: middle; }
-
         .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
         .badge-pending { background: #fff7ed; color: #c2410c; }
         .badge-working { background: #eff6ff; color: #1d4ed8; }
         .badge-completed { background: #f0fdf4; color: #15803d; }
         .badge-priority { border: 1px solid #fee2e2; background: #fef2f2; color: #dc2626; padding: 2px 8px; }
-
-        .kanban-board {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-            margin-top: 20px;
-            align-items: start;
-        }
-
-        .kanban-column {
-            background: #f8fafc; 
-            border-radius: 12px;
-            min-height: 400px;
-        }
-
-        .column-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-            font-size: 0.85rem;
-            font-weight: 700;
-            color: #64748b;
-            text-transform: uppercase;
-            padding: 10px 5px;
-        }
-
-        .task-count {
-            background: #e2e8f0;
-            color: #475569;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-        }
-
-        .kanban-card {
-            background: #fff;
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 16px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .card-tag {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            margin-bottom: 12px;
-            text-transform: uppercase;
-        }
+        .kanban-board { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; margin-top: 20px; }
+        .kanban-column { background: #f8fafc; border-radius: 12px; min-height: 400px; padding: 10px; }
+        .column-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; font-size: 0.85rem; font-weight: 700; color: #64748b; text-transform: uppercase; }
+        .task-count { background: #e2e8f0; color: #475569; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; }
+        .kanban-card { background: #fff; border: 1px solid var(--border-color); border-radius: 10px; padding: 20px; margin-bottom: 16px; transition: transform 0.2s; }
+        .card-tag { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-bottom: 12px; text-transform: uppercase; }
         .tag-high { background: #fef2f2; color: #dc2626; }
         .tag-medium { background: #fff7ed; color: #ea580c; }
         .tag-low { background: #f0fdf4; color: #16a34a; }
-
         .card-title { font-size: 1rem; font-weight: 600; color: #1e293b; margin-bottom: 6px; }
-        .card-desc { font-size: 0.85rem; color: #64748b; margin-bottom: 16px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-
-        .card-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-top: 1px solid #f1f5f9;
-            padding-top: 12px;
-            margin-top: 12px;
-            font-size: 0.8rem;
-            color: #94a3b8;
-        }
-
-        .action-btn {
-            background: transparent;
-            border: none;
-            color: var(--theme-color);
-            font-weight: 700;
-            font-size: 0.85rem;
-            text-decoration: none;
-            cursor: pointer;
-            transition: 0.2s;
-            display: inline-flex;
-            align-items: center;
-        }
-        .action-btn:hover { color: #0d9488; text-decoration: underline; }
-
-        .completed-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 15px;
-            background: #fff;
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            margin-bottom: 12px;
-        }
+        .card-desc { font-size: 0.85rem; color: #64748b; margin-bottom: 16px; }
+        .card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #f1f5f9; padding-top: 12px; margin-top: 12px; font-size: 0.8rem; color: #94a3b8; }
+        .action-btn { background: transparent; border: none; color: var(--theme-color); font-weight: 700; font-size: 0.85rem; text-decoration: none; cursor: pointer; display: inline-flex; align-items: center; }
+        .completed-item { display: flex; align-items: center; gap: 12px; padding: 15px; background: #fff; border: 1px solid var(--border-color); border-radius: 10px; margin-bottom: 12px; }
         .check-icon { color: #10b981; font-size: 1.1rem; }
         .completed-text { font-weight: 600; color: #1e293b; }
-
-        @media (max-width: 768px) {
-            .main-content { margin-left: 0; width: 100%; padding: 15px; }
-            .kanban-board { grid-template-columns: 1fr; }
-        }
     </style>
 </head>
 <body>
@@ -287,7 +155,7 @@ $stmt->close();
     <div class="stats-grid">
         <div class="stat-card">
             <div class="stat-info"><p>TOTAL TASKS</p><h3><?php echo sprintf("%02d", $stats['total'] ?? 0); ?></h3></div>
-            <div class="stat-icon" style="background:#f1f5f9; color:#475569;"><i class="fa-solid fa-list-check"></i></div>
+            <div class="stat-icon"><i class="fa-solid fa-list-check"></i></div>
         </div>
         <div class="stat-card" style="border-left-color: #059669;">
             <div class="stat-info"><p>COMPLETED</p><h3><?php echo sprintf("%02d", $stats['completed'] ?? 0); ?></h3></div>
@@ -356,19 +224,12 @@ $stmt->close();
             <div class="column-header"><span>To Do</span><span class="task-count"><?php echo count($tasks_todo); ?></span></div>
             <?php foreach($tasks_todo as $task): ?>
             <div class="kanban-card">
-                <?php 
-                    $prioClass = 'tag-low';
-                    if($task['priority'] == 'High' || $task['priority'] == 'Critical') $prioClass = 'tag-high';
-                    if($task['priority'] == 'Medium') $prioClass = 'tag-medium';
-                ?>
-                <span class="card-tag <?php echo $prioClass; ?>"><?php echo $task['priority']; ?></span>
+                <span class="card-tag tag-high"><?php echo $task['priority']; ?></span>
                 <div class="card-title"><?php echo htmlspecialchars($task['task_title']); ?></div>
                 <div class="card-desc"><?php echo htmlspecialchars($task['task_description']); ?></div>
                 <div class="card-footer">
-                    <span><i class="fa-regular fa-calendar" style="margin-right:4px;"></i> <?php echo date('d M', strtotime($task['deadline'])); ?></span>
-                    <a href="?update_id=<?php echo $task['id']; ?>&new_status=In Progress" class="action-btn">
-                        Start <i class="fa-solid fa-arrow-right" style="margin-left:4px; font-size:0.75rem;"></i>
-                    </a>
+                    <span><i class="fa-regular fa-calendar"></i> <?php echo date('d M', strtotime($task['deadline'])); ?></span>
+                    <a href="?update_id=<?php echo $task['id']; ?>&new_status=In Progress" class="action-btn">Start <i class="fa-solid fa-arrow-right"></i></a>
                 </div>
             </div>
             <?php endforeach; ?>
@@ -378,19 +239,12 @@ $stmt->close();
             <div class="column-header" style="color: #1d4ed8;"><span>In Progress</span><span class="task-count"><?php echo count($tasks_progress); ?></span></div>
             <?php foreach($tasks_progress as $task): ?>
             <div class="kanban-card">
-                <?php 
-                    $prioClass = 'tag-low';
-                    if($task['priority'] == 'High' || $task['priority'] == 'Critical') $prioClass = 'tag-high';
-                    if($task['priority'] == 'Medium') $prioClass = 'tag-medium';
-                ?>
-                <span class="card-tag <?php echo $prioClass; ?>"><?php echo $task['priority']; ?></span>
+                <span class="card-tag tag-medium"><?php echo $task['priority']; ?></span>
                 <div class="card-title"><?php echo htmlspecialchars($task['task_title']); ?></div>
                 <div class="card-desc"><?php echo htmlspecialchars($task['task_description']); ?></div>
                 <div class="card-footer">
-                    <span><i class="fa-regular fa-calendar" style="margin-right:4px;"></i> <?php echo date('d M', strtotime($task['deadline'])); ?></span>
-                    <a href="?update_id=<?php echo $task['id']; ?>&new_status=Completed" class="action-btn" style="color: #059669;">
-                        <i class="fa-solid fa-check-double" style="margin-right:4px;"></i> Finish
-                    </a>
+                    <span><i class="fa-regular fa-calendar"></i> <?php echo date('d M', strtotime($task['deadline'])); ?></span>
+                    <a href="?update_id=<?php echo $task['id']; ?>&new_status=Completed" class="action-btn" style="color: #059669;">Finish</a>
                 </div>
             </div>
             <?php endforeach; ?>
@@ -407,6 +261,5 @@ $stmt->close();
         </div>
     </div>
 </main>
-
 </body>
 </html>

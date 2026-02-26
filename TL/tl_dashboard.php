@@ -299,6 +299,42 @@ if ($stmt_rt) {
     $stmt_rt->close();
 }
 
+// =========================================================================
+// NEW CORRECTION: CALCULATE EFFICIENCY AND PROJECT PROGRESS
+// =========================================================================
+
+// Calculate Efficiency %
+$efficiency = 0;
+$eff_q = "SELECT COUNT(*) as total, SUM(CASE WHEN pt.status = 'Completed' THEN 1 ELSE 0 END) as done 
+          FROM project_tasks pt JOIN projects p ON pt.project_id = p.id WHERE p.leader_id = ?";
+$stmt_eff = $conn->prepare($eff_q);
+$stmt_eff->bind_param("i", $tl_user_id);
+$stmt_eff->execute();
+$res_eff = $stmt_eff->get_result()->fetch_assoc();
+if ($res_eff['total'] > 0) {
+    $efficiency = round(($res_eff['done'] / $res_eff['total']) * 100);
+}
+$stmt_eff->close();
+
+// Fetch Project Progress for Bar Chart
+$monthly_assigned = array_fill(0, 6, 0); 
+$monthly_done = array_fill(0, 6, 0);
+$chart_q = "SELECT MONTH(pt.created_at) as m, COUNT(*) as assigned, SUM(CASE WHEN pt.status = 'Completed' THEN 1 ELSE 0 END) as done
+            FROM project_tasks pt JOIN projects p ON pt.project_id = p.id
+            WHERE p.leader_id = ? AND pt.created_at >= '2026-01-01' GROUP BY MONTH(pt.created_at)";
+$stmt_chart = $conn->prepare($chart_q);
+$stmt_chart->bind_param("i", $tl_user_id);
+$stmt_chart->execute();
+$res_chart = $stmt_chart->get_result();
+while($row = $res_chart->fetch_assoc()) {
+    $idx = intval($row['m']) - 1;
+    if($idx >= 0 && $idx < 6) {
+        $monthly_assigned[$idx] = (int)$row['assigned'];
+        $monthly_done[$idx] = (int)$row['done'];
+    }
+}
+$stmt_chart->close();
+
 $conn->close();
 
 $sidebarPath = __DIR__ . '/../sidebars.php'; 
@@ -504,14 +540,14 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                         </div>
                         <div>
                             <p class="text-xs text-gray-500 font-semibold uppercase">Efficiency</p>
-                            <h3 class="text-2xl font-bold text-gray-800">92%</h3>
+                            <h3 class="text-2xl font-bold text-gray-800"><?php echo $efficiency; ?>%</h3>
                         </div>
                     </div>
                     <div class="mt-4">
                         <div class="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-purple-500 w-[92%]"></div>
+                            <div class="h-full bg-purple-500" style="width: <?php echo $efficiency; ?>%"></div>
                         </div>
-                        <p class="text-xs text-emerald-500 mt-2 font-semibold">+5% growth</p>
+                        <p class="text-xs text-emerald-500 mt-2 font-semibold">+Live Performance</p>
                     </div>
                 </div>
             
@@ -540,7 +576,6 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                                     elseif($task['status'] == 'In Progress') $status_color = 'bg-blue-100 text-blue-700 border border-blue-200';
                                     elseif($task['status'] == 'Pending') $status_color = 'bg-orange-100 text-orange-700 border border-orange-200';
                                     
-                                    // Extract first assignee name from comma-separated string
                                     $assignees = explode(',', $task['assigned_to']);
                                     $first_assignee = trim($assignees[0]) ? trim($assignees[0]) : 'Unassigned';
                                 ?>
@@ -621,7 +656,6 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                         <?php foreach($pending_approvals as $app): ?>
                             <?php 
                                 $bg_color = $app['req_type'] == 'Leave' ? 'bg-blue-50 border-blue-100' : 'bg-orange-50 border-orange-100';
-                                // MODIFIED LINE: Added ?id= to pass exactly which request was clicked
                                 $link = $app['req_type'] == 'Leave' ? '../leave_approval.php?id=' . $app['id'] : '../wfh_management.php?id=' . $app['id'];
                             ?>
                             <div class="flex gap-3 items-center p-2 rounded-lg border <?php echo $bg_color; ?> hover:shadow-sm transition">
@@ -700,7 +734,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
             const formData = new FormData();
             formData.append('ajax_action', actionType);
 
-            fetch('', { // Posting to self
+            fetch('', { 
                 method: 'POST',
                 body: formData
             })
@@ -724,7 +758,6 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
             const btnContainer = document.getElementById('attendanceButtons');
             const statusTxt = document.getElementById('statusDisplay');
             
-            // Sync seconds from database
             if (dbSeconds !== null) {
                 totalSeconds = parseInt(dbSeconds);
                 document.getElementById('productionTimer').textContent = formatTimerDisplay(totalSeconds);
@@ -772,12 +805,12 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
         }
 
         /* ==============================
-           3. APEXCHARTS CONFIG
+           3. APEXCHARTS CONFIG (DYNAMIZED)
            ============================== */
         new ApexCharts(document.querySelector("#taskPerformanceChart"), {
             series: [
-                { name: 'Assigned', data: [80, 95, 87, 100, 110, 128] },
-                { name: 'Completed', data: [75, 85, 82, 90, 105, 112] }
+                { name: 'Assigned', data: <?php echo json_encode($monthly_assigned); ?> },
+                { name: 'Completed', data: <?php echo json_encode($monthly_done); ?> }
             ],
             chart: { type: 'bar', height: 220, toolbar: { show: false }, stacked: false },
             colors: ['#F97316', '#10B981'],
