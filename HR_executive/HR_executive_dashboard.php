@@ -30,6 +30,7 @@ $joining_date = "Not Set";
 $experience_label = "Fresher";
 $emergency_contacts = "[]";
 $profile_img = "https://ui-avatars.com/api/?name=HR+Executive&background=random";
+$user_system_role = "HR Executive"; // Fallback
 
 $sql_profile = "SELECT ep.full_name, ep.profile_img, ep.designation, ep.emp_id_code, ep.department, 
                 ep.phone, ep.email, ep.joining_date, ep.experience_label, ep.emergency_contacts,
@@ -45,6 +46,7 @@ $profile_res = mysqli_stmt_get_result($stmt_profile);
 if ($profile = mysqli_fetch_assoc($profile_res)) {
     $employee_name = $profile['full_name'] ?? $profile['username'] ?? 'HR Executive';
     $employee_role = $profile['designation'] ?? $profile['role'] ?? 'Human Resources';
+    $user_system_role = $profile['role'] ?? 'HR Executive'; // For permission logic
     $employee_phone = $profile['phone'] ?? 'Not Set';
     $employee_email = $profile['email'] ?? $profile['u_email'] ?? 'Not Set';
     $emp_id_code = $profile['emp_id_code'] ?? 'N/A';
@@ -172,7 +174,6 @@ $total_employees_query = "SELECT COUNT(*) as cnt FROM employee_profiles";
 $res = mysqli_query($conn, $total_employees_query);
 $total_employees = mysqli_fetch_assoc($res)['cnt'] ?? 1;
 
-// Fetch unique departments and count dynamically
 $dept_counts_query = "
     SELECT 
         department, 
@@ -191,7 +192,6 @@ $colors = ['blue', 'green', 'yellow', 'purple', 'indigo', 'orange', 'teal'];
 $idx = 0;
 while ($row = mysqli_fetch_assoc($dept_counts_result)) {
     $dept_name = trim($row['department']);
-    // Filter out old/wrong names if you only want specific ones, but this gets actual db data
     if($dept_name == 'Development Team') $dept_name = 'Development';
     
     $departments_list[] = [
@@ -203,7 +203,6 @@ while ($row = mysqli_fetch_assoc($dept_counts_result)) {
     $idx++;
 }
 
-
 // -------------------------------------------------------------------------
 // 5. OTHER DASHBOARD DATA
 // -------------------------------------------------------------------------
@@ -214,9 +213,19 @@ function safe_count($conn, $query) {
     return (int)($row['cnt'] ?? 0);
 }
 
-$cand_count       = safe_count($conn, "SELECT COUNT(*) as cnt FROM candidates");
+$cand_count = safe_count($conn, "SELECT COUNT(*) as cnt FROM candidates");
 
-$jobs_query = "SELECT * FROM jobs ORDER BY created_at DESC LIMIT 10";
+// DYNAMIC JOB REQUESTS (hiring_requests instead of static jobs table)
+$jobs_cond = "";
+if ($user_system_role === 'HR Executive') {
+    $jobs_cond = "WHERE hr.status IN ('Approved', 'In Progress', 'Fulfilled')";
+}
+
+$jobs_query = "SELECT hr.*, u.name as requested_by 
+               FROM hiring_requests hr 
+               LEFT JOIN users u ON hr.manager_id = u.id 
+               $jobs_cond 
+               ORDER BY hr.created_at DESC LIMIT 5";
 $jobs_res = mysqli_query($conn, $jobs_query);
 
 $schedule_query = "SELECT * FROM meetings WHERE meeting_date >= '$today' ORDER BY meeting_date ASC LIMIT 5";
@@ -257,6 +266,13 @@ include '../header.php';
             transform: rotate(-90deg);
             transform-origin: 50% 50%;
         }
+        
+        /* Custom scrollbar for inner containers */
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f8fafc; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
         @media (min-width: 1024px) {
             main { margin-left: 100px; width: calc(100% - 100px); }
         }
@@ -264,12 +280,12 @@ include '../header.php';
 </head>
 <body class="min-h-screen">
 
-<main id="content-wrapper">
-    <div class="p-6 lg:p-8 min-h-screen max-w-[1600px] mx-auto">
+<main>
+    <div class="p-8 max-w-[1600px] mx-auto">
         
         <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
             <div>
-                <h1 class="text-3xl font-bold text-slate-800 tracking-tight"><?= htmlspecialchars($employee_name) ?> Dashboard</h1>
+                <h1 class="text-3xl font-bold text-slate-800"><?= htmlspecialchars($employee_name) ?> Dashboard</h1>
                 <p class="text-sm text-gray-500 mt-1">
                     <?= htmlspecialchars($emp_id_code) ?> | 
                     <?= htmlspecialchars($employee_role) ?> | 
@@ -283,26 +299,26 @@ include '../header.php';
             </div>
         </div>
 
-        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             
-            <div class="col-span-1 xl:col-span-9 flex flex-col gap-6">
+            <div class="col-span-1 lg:col-span-9 flex flex-col gap-6">
                 
                 <div class="grid grid-cols-1 lg:grid-cols-9 gap-6">
                     
                     <div class="lg:col-span-3">
-                        <div class="card h-full">
-                            <div class="card-body flex flex-col items-center justify-center p-5">
+                        <div class="card h-fit">
+                            <div class="card-body flex flex-col items-center justify-center p-4">
                                 <div class="text-center mb-3">
                                     <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Today's Attendance</h3>
                                     <p class="text-sm font-bold text-slate-800 mt-1"><?= date("h:i A, d M") ?></p>
                                 </div>
 
-                                <div class="relative w-28 h-28 mb-5 mt-2">
+                                <div class="relative w-28 h-28 mb-4">
                                     <svg class="w-full h-full" viewBox="0 0 128 128">
                                         <circle cx="64" cy="64" r="56" stroke="#f1f5f9" stroke-width="10" fill="transparent"></circle>
                                         <?php
                                             $pct = min(1, $total_seconds_worked / 32400);
-                                            $dashoffset = 351.85 - ($pct * 351.85); // 2*pi*56 = 351.85
+                                            $dashoffset = 351.85 - ($pct * 351.85); 
                                             $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
                                         ?>
                                         <circle cx="64" cy="64" r="56"
@@ -315,7 +331,7 @@ include '../header.php';
                                         <p class="text-[9px] text-gray-400 font-bold uppercase">
                                             <?= $is_on_break ? 'ON BREAK' : 'Total Hrs' ?>
                                         </p>
-                                        <p class="text-lg font-bold text-slate-800 leading-tight mt-0.5" id="liveTimer"
+                                        <p class="text-lg font-bold text-slate-800 mt-0.5" id="liveTimer"
                                            data-running="<?= ($attendance_record && !$attendance_record['punch_out'] && !$is_on_break) ? 'true' : 'false' ?>"
                                            data-total="<?= $total_seconds_worked ?>">
                                             <?= $total_hours_today ?>
@@ -326,30 +342,30 @@ include '../header.php';
                                 <form method="POST" class="w-full">
                                     <?php if (!$attendance_record): ?>
                                         <button type="submit" name="action" value="punch_in"
-                                                class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2.5 rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
+                                                class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
                                             <i class="fa-solid fa-right-to-bracket"></i> Punch In
                                         </button>
                                     <?php elseif (!$attendance_record['punch_out']): ?>
                                         <div class="grid grid-cols-2 gap-2 w-full">
                                             <?php if ($is_on_break): ?>
                                                 <button type="submit" name="action" value="break_end"
-                                                        class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg shadow transition text-xs">
+                                                        class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded-lg shadow transition text-xs">
                                                     <i class="fa-solid fa-play"></i> Resume
                                                 </button>
                                             <?php else: ?>
                                                 <button type="submit" name="action" value="break_start"
-                                                        class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-2.5 rounded-lg shadow transition text-xs">
+                                                        class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-2 rounded-lg shadow transition text-xs">
                                                     <i class="fa-solid fa-mug-hot"></i> Break
                                                 </button>
                                             <?php endif; ?>
 
                                             <button type="submit" name="action" value="punch_out"
-                                                    class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2.5 rounded-lg shadow transition text-xs">
+                                                    class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-lg shadow transition text-xs">
                                                 <i class="fa-solid fa-right-from-bracket"></i> Out
                                             </button>
                                         </div>
                                     <?php else: ?>
-                                        <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-2.5 rounded-lg cursor-not-allowed text-sm border border-gray-200">
+                                        <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-2 rounded-lg cursor-not-allowed text-sm border border-gray-200">
                                             <i class="fa-solid fa-check-circle text-gray-400"></i> Shift Done
                                         </button>
                                     <?php endif; ?>
@@ -364,31 +380,28 @@ include '../header.php';
                     </div>
 
                     <div class="lg:col-span-6">
-                        <div class="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm h-full flex flex-col">
+                        <div class="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm h-fit">
                             <div class="flex justify-between items-center mb-4">
                                 <h3 class="font-bold text-lg text-slate-800">Department Overview</h3>
                                 <span class="text-[10px] text-teal-700 bg-teal-50 px-2 py-1 rounded-lg font-bold border border-teal-100">All Active Teams</span>
                             </div>
                             
-                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3 flex-grow">
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
                                 <?php foreach ($departments_list as $dept):
                                     $pct = $total_employees > 0 ? round(($dept['count'] / $total_employees) * 100) : 0;
                                 ?>
-                                <div class="bg-gray-50 p-3 rounded-xl text-center border border-gray-200 hover:border-teal-300 transition-colors flex flex-col justify-center">
+                                <div class="bg-gray-50 p-3 rounded-xl text-center border border-gray-200 hover:border-teal-300 transition-colors">
                                     <div class="bg-<?= $dept['color'] ?>-100 text-<?= $dept['color'] ?>-700 w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2">
                                         <i data-lucide="<?= $dept['icon'] ?>" class="w-4 h-4"></i>
                                     </div>
-                                    <h4 class="text-xl font-bold text-slate-800 leading-tight"><?= $dept['count'] ?></h4>
-                                    <p class="text-xs font-semibold text-gray-600 truncate px-1 mt-1" title="<?= $dept['label'] ?>"><?= $dept['label'] ?></p>
+                                    <h4 class="text-xl font-bold text-slate-800"><?= $dept['count'] ?></h4>
+                                    <p class="text-xs font-medium text-gray-600 truncate px-1 mt-0.5" title="<?= $dept['label'] ?>"><?= $dept['label'] ?></p>
                                     <p class="text-[10px] text-gray-400 mt-0.5"><?= $pct ?>% of total</p>
                                 </div>
                                 <?php endforeach; ?>
                                 
                                 <?php if (empty($departments_list)): ?>
-                                    <div class="col-span-3 text-center text-gray-400 py-4 text-sm flex flex-col items-center justify-center">
-                                        <i data-lucide="folder-search" class="w-8 h-8 mb-2 opacity-50"></i>
-                                        No department data found.
-                                    </div>
+                                    <div class="col-span-3 text-center text-gray-400 py-4 text-sm">No department data found.</div>
                                 <?php endif; ?>
                             </div>
                         </div>
@@ -398,49 +411,79 @@ include '../header.php';
 
                 <div class="grid grid-cols-1 lg:grid-cols-9 gap-6">
                     
-                    <div class="lg:col-span-5 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden flex flex-col h-full">
-                        <div class="p-5 flex justify-between items-center border-b border-gray-50">
-    <h3 class="font-bold text-slate-800">Active Job Openings</h3>
-    <a href="jobs.php" class="text-[10px] font-bold text-teal-700 hover:bg-teal-50 px-2 py-1 rounded border border-gray-200 transition inline-block">View All</a>
-</div>
-                        <div class="overflow-x-auto flex-grow">
-                            <table class="w-full text-left text-sm">
-                                <thead class="bg-gray-50 text-gray-400 text-[10px] uppercase tracking-wider font-bold">
-                                    <tr>
-                                        <th class="px-5 py-3">Job ID</th>
-                                        <th class="px-5 py-3">Job Title</th>
-                                        <th class="px-5 py-3 text-center">Location</th>
-                                        <th class="px-5 py-3 text-center">Applicants</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-50 text-xs">
-                                    <?php if(mysqli_num_rows($jobs_res) > 0): ?>
-                                        <?php while($j = mysqli_fetch_assoc($jobs_res)): ?>
-                                        <tr class="hover:bg-slate-50 transition-colors">
-                                            <td class="px-5 py-3.5 font-medium text-slate-500">JOB-00<?= $j['id'] ?></td>
-                                            <td class="px-5 py-3.5">
-                                                <p class="font-bold text-slate-800 text-sm"><?= htmlspecialchars($j['title']) ?></p>
-                                                <span class="text-[9px] bg-emerald-50 text-emerald-600 border border-emerald-100 px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter mt-1 inline-block">Active</span>
-                                            </td>
-                                            <td class="px-5 py-3.5 text-center text-gray-500 font-medium"><?= htmlspecialchars($j['loc']) ?></td>
-                                            <td class="px-5 py-3.5 text-center font-bold text-slate-800"><?= rand(10, 500) ?></td>
-                                        </tr>
-                                        <?php endwhile; ?>
-                                    <?php else: ?>
-                                        <tr><td colspan="4" class="text-center py-8 text-gray-400">No active jobs found.</td></tr>
-                                    <?php endif; ?>
-                                </tbody>
-                            </table>
+                    <div class="lg:col-span-5 bg-white rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[380px]">
+                        <div class="p-5 flex justify-between items-center border-b border-gray-50 shrink-0">
+                            <h3 class="font-bold text-slate-800">Active Job Openings</h3>
+                            <a href="jobs.php" class="text-[10px] font-bold text-teal-700 hover:bg-teal-50 px-2 py-1 rounded border border-gray-200 transition inline-block">View All</a>
+                        </div>
+                        
+                        <div class="overflow-y-auto flex-grow custom-scroll p-4 space-y-3">
+                            <?php if($jobs_res && mysqli_num_rows($jobs_res) > 0): ?>
+                                <?php while($row = mysqli_fetch_assoc($jobs_res)): 
+                                    // Dynamic Department Icon
+                                    $j_dept = strtolower($row['department']);
+                                    $j_icon = 'fa-briefcase'; $j_icon_bg = 'bg-gray-100 text-gray-600';
+                                    if(strpos($j_dept, 'dev') !== false || strpos($j_dept, 'eng') !== false) { $j_icon = 'fa-code'; $j_icon_bg = 'bg-blue-100 text-blue-600'; }
+                                    elseif(strpos($j_dept, 'sale') !== false || strpos($j_dept, 'market') !== false) { $j_icon = 'fa-chart-line'; $j_icon_bg = 'bg-green-100 text-green-600'; }
+                                    elseif(strpos($j_dept, 'hr') !== false || strpos($j_dept, 'human') !== false) { $j_icon = 'fa-users'; $j_icon_bg = 'bg-purple-100 text-purple-600'; }
+                                    elseif(strpos($j_dept, 'acc') !== false || strpos($j_dept, 'fin') !== false) { $j_icon = 'fa-file-invoice-dollar'; $j_icon_bg = 'bg-yellow-100 text-yellow-600'; }
+
+                                    // Status Badge
+                                    $j_status_bg = 'bg-gray-100 text-gray-600';
+                                    if ($row['status'] == 'Approved') $j_status_bg = 'bg-teal-100 text-teal-700';
+                                    if ($row['status'] == 'In Progress') $j_status_bg = 'bg-blue-100 text-blue-700';
+                                ?>
+                                <div class="border border-gray-100 rounded-xl p-3.5 hover:shadow-md transition bg-white group">
+                                    <div class="flex items-center gap-3 mb-2">
+                                        <div class="w-10 h-10 <?= $j_icon_bg ?> rounded-lg flex items-center justify-center text-lg shadow-sm shrink-0">
+                                            <i class="fa-solid <?= $j_icon ?>"></i>
+                                        </div>
+                                        <div class="flex-grow min-w-0">
+                                            <h3 class="font-bold text-gray-800 text-sm truncate" title="<?= htmlspecialchars($row['job_title']) ?>"><?= htmlspecialchars($row['job_title']) ?></h3>
+                                            <p class="text-[11px] text-gray-500 truncate mt-0.5"><?= htmlspecialchars($row['department']) ?></p>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <span class="px-2 py-0.5 text-[9px] font-bold uppercase rounded <?= $j_status_bg ?> block text-center">
+                                                <?= htmlspecialchars($row['status']) ?>
+                                            </span>
+                                            <?php if($row['priority'] == 'High'): ?>
+                                                <span class="text-[9px] font-bold text-red-500 mt-1 flex items-center justify-end gap-1"><i class="fa-solid fa-bolt"></i> Urgent</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-3 gap-2 text-[10px] text-gray-600 bg-gray-50 p-2 rounded-lg mt-2">
+                                        <div class="flex items-center gap-1.5 truncate" title="Created On">
+                                            <i class="fa-regular fa-calendar text-gray-400"></i>
+                                            <span class="truncate font-medium"><?= !empty($row['created_at']) ? date('d M Y', strtotime($row['created_at'])) : 'N/A' ?></span>
+                                        </div>
+                                        <div class="flex items-center gap-1.5 truncate justify-center" title="Vacancies">
+                                            <i class="fa-solid fa-users text-gray-400"></i>
+                                            <span class="font-medium"><?= $row['vacancy_count'] ?> Pos</span>
+                                        </div>
+                                        <div class="flex items-center gap-1.5 truncate justify-end" title="Experience">
+                                            <i class="fa-solid fa-briefcase text-gray-400"></i>
+                                            <span class="truncate font-medium"><?= htmlspecialchars($row['experience_required']) ?></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <div class="text-center py-10 flex flex-col items-center justify-center h-full">
+                                    <i class="fa-solid fa-folder-open text-gray-200 text-4xl mb-3"></i>
+                                    <p class="text-sm font-bold text-gray-400">No active job requests found.</p>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
 
-                    <div class="lg:col-span-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col h-full">
-                        <div class="flex justify-between items-center mb-4">
+                    <div class="lg:col-span-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex flex-col h-[380px]">
+                        <div class="flex justify-between items-center mb-4 shrink-0">
                             <h3 class="font-bold text-slate-800">Recruitment Metrics</h3>
                             <span class="text-[10px] text-gray-500 bg-gray-100 px-2 py-1 rounded font-bold border border-gray-200">This Month</span>
                         </div>
                         
-                        <div class="flex justify-around bg-slate-50 rounded-xl p-3 mb-6 border border-slate-100">
+                        <div class="flex justify-around bg-slate-50 rounded-xl p-3 mb-4 border border-slate-100 shrink-0">
                             <div class="text-center">
                                 <span class="text-[10px] text-gray-500 font-bold uppercase block mb-1">Offer Acceptance</span>
                                 <span class="text-lg font-black text-slate-800">74.4%</span>
@@ -464,11 +507,12 @@ include '../header.php';
                     </div>
 
                 </div>
+
             </div>
 
             <div class="col-span-1 xl:col-span-3 flex flex-col gap-6">
                 
-                <div class="card overflow-hidden h-fit border-0 shadow-md ring-1 ring-gray-100">
+                <div class="card overflow-hidden h-fit border-0 shadow-sm ring-1 ring-gray-200">
                     <div class="bg-gradient-to-b from-teal-700 to-teal-800 p-6 flex flex-col items-center text-center relative">
                         <div class="absolute top-4 right-4 flex gap-2">
                             <button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
@@ -600,19 +644,20 @@ include '../header.php';
             type: 'doughnut',
             data: {
                 datasets: [{
-                    data: [65, 35],
-                    backgroundColor: ['#134e4a', '#f1f5f9'],
+                    data: [74.4, 25.6],
+                    backgroundColor: ['#0f766e', '#f1f5f9'],
                     borderWidth: 0,
                     circumference: 180,
                     rotation: 270,
-                    borderRadius: 10,
+                    borderRadius: 8,
                     cutout: '80%'
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                layout: { padding: 0 }
             }
         });
     }
@@ -642,7 +687,7 @@ include '../header.php';
             timerEl.innerText = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
 
             // Circumference matches CSS property
-            const max = 32400;
+            const max = 32400; // 9 hours
             const pct = Math.min(current / max, 1);
             const circumference = 351.85; 
             const offset = circumference - (pct * circumference);
@@ -654,6 +699,42 @@ include '../header.php';
             updateTimer();
         }
     });
+
+    // AJAX ACTION HANDLERS
+    function punchAction(action) {
+        let btnId = '';
+        if(action === 'punch_in') btnId = 'btnPunchIn';
+        else if(action === 'punch_out') btnId = 'btnPunchOut';
+        else if(action === 'take_break') btnId = 'btnBreak';
+        else if(action === 'end_break') btnId = 'btnEndBreak';
+        
+        const btn = document.getElementById(btnId);
+        if(btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>';
+        }
+
+        const formData = new FormData();
+        formData.append('action', action);
+
+        fetch(window.location.href, {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.status === 'success') {
+                window.location.reload(); 
+            } else {
+                alert('Error: ' + data.message);
+                if(btn) window.location.reload(); 
+            }
+        })
+        .catch(error => {
+            alert('Network Error occurred.');
+            if(btn) window.location.reload();
+        });
+    }
 </script>
 </body>
 </html>
