@@ -289,9 +289,7 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                     <span>/</span> Leaves <span>/</span> <span style="font-weight:600; color:#0f172a;">WFH Requests</span>
                 </div>
             </div>
-            <div class="header-actions">
-                <button class="btn btn-primary"><i data-lucide="download" style="width:16px;"></i> Export Log</button>
-            </div>
+           
         </div>
 
         <div class="management-card">
