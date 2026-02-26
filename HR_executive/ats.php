@@ -18,7 +18,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         mysqli_stmt_execute($stmt);
         $res = mysqli_stmt_get_result($stmt);
         if ($row = mysqli_fetch_assoc($res)) {
-            if (file_exists($row['resume_path'])) @unlink($row['resume_path']); 
+            // Safely delete if file exists
+            $file_to_delete = $row['resume_path'];
+            if (file_exists($file_to_delete)) @unlink($file_to_delete); 
+            // Fallback check if path is relative
+            else if (file_exists('../' . $file_to_delete)) @unlink('../' . $file_to_delete);
         }
         
         // Delete DB Record
@@ -99,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['resume'])) {
                 exit;
             }
             
-            // Added 's' for skills
+            // Using a relative path starting without '../' to make it easier for DB standardisation if needed, but keeping it as uploaded for now
             mysqli_stmt_bind_param($stmt, "sssssssis", $cand_id, $result['name'], $result['email'], $applied_role, $result['phone'], $target_filepath, $skills, $result['match_score'], $status);
             
             if (mysqli_stmt_execute($stmt)) {
@@ -126,17 +130,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['resume'])) {
 }
 
 // --- FETCH DATA ---
- $candidates_array = [];
- $fetch_query = "SELECT candidate_id as id, name, email, phone, match_score, DATE(created_at) as added, status, resume_path, skills FROM candidates ORDER BY created_at DESC";
- $fetch_result = mysqli_query($conn, $fetch_query);
+$candidates_array = [];
+$fetch_query = "SELECT candidate_id as id, name, email, phone, match_score, DATE(created_at) as added, status, resume_path, skills FROM candidates ORDER BY created_at DESC";
+$fetch_result = mysqli_query($conn, $fetch_query);
 
 if ($fetch_result) {
     while ($row = mysqli_fetch_assoc($fetch_result)) {
         $row['img'] = "https://ui-avatars.com/api/?name=" . urlencode($row['name']) . "&background=random";
+        
+        // Format path reliably for the frontend iframe
+        // Ensure it starts with '../' if the file is in the root uploads folder and ATS is in /HR_executive/
+        $path = $row['resume_path'];
+        if (strpos($path, '../') === false && strpos($path, 'uploads/') !== false) {
+             // If DB saved it as 'uploads/resumes/file.pdf', prepend '../'
+             $path = '../' . $path;
+        }
+        $row['display_path'] = $path;
+
         $candidates_array[] = $row;
     }
 }
- $candidates_json = json_encode($candidates_array);
+$candidates_json = json_encode($candidates_array);
 
 include '../sidebars.php'; 
 include '../header.php';
@@ -221,7 +235,6 @@ include '../header.php';
 <main id="content-wrapper">
     <div class="max-w-[1600px] mx-auto">
         
-        <!-- Header Section -->
         <div class="flex flex-col md:flex-row justify-between items-end mb-6">
             <div>
                 <h1 class="text-3xl font-bold text-gray-800">AI Recruiting <span class="text-teal-600">ATS</span></h1>
@@ -240,7 +253,6 @@ include '../header.php';
             </div>
         </div>
 
-        <!-- Upload Card -->
         <div class="glass-card p-8 mb-8">
             <div class="flex flex-col md:flex-row gap-4 mb-6">
                 <div class="flex-1">
@@ -266,22 +278,23 @@ include '../header.php';
                 </div>
             </div>
 
-            <!-- Processing Queue UI -->
             <div id="processingQueue" class="mt-6 hidden">
                 <h4 class="text-sm font-bold text-gray-600 uppercase tracking-wider mb-3">Processing Queue</h4>
                 <div id="queueList" class="space-y-2"></div>
             </div>
         </div>
 
-        <!-- Candidates Table -->
         <div class="glass-card overflow-hidden">
-            <div class="p-5 border-b border-gray-100 flex flex-col sm:flex-row justify-between gap-4">
+            <div class="p-5 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
                 <h2 class="text-lg font-bold text-gray-800">Candidates</h2>
-                <div class="flex gap-2 items-center">
-                    <input type="text" id="searchInput" placeholder="Search..." class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none w-64">
-                    <i class="fa-solid fa-search absolute left-3 top-3.5 text-gray-400 text-xs" style="margin-left: 8px;"></i> 
+                
+                <div class="flex gap-3 items-center w-full sm:w-auto">
+                    <div class="relative w-full sm:w-64 flex items-center">
+                        <i class="fa-solid fa-search absolute left-3 text-gray-400 text-sm"></i>
+                        <input type="text" id="searchInput" placeholder="Search..." class="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 outline-none">
+                    </div>
                     
-                    <select id="sortBy" class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500">
+                    <select id="sortBy" class="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-teal-500 flex-shrink-0">
                         <option value="newest">Newest First</option>
                         <option value="score-desc">Highest Score</option>
                         <option value="score-asc">Lowest Score</option>
@@ -293,18 +306,17 @@ include '../header.php';
                 <table class="w-full text-left border-collapse">
                     <thead>
                         <tr class="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
-                            <th class="p-4 font-semibold">Candidate</th>
-                            <th class="p-4 font-semibold">Contact</th>
+                            <th class="p-4 font-semibold whitespace-nowrap">Candidate</th>
+                            <th class="p-4 font-semibold whitespace-nowrap">Contact</th>
                             <th class="p-4 font-semibold">Skills (Matched)</th>
-                            <th class="p-4 font-semibold">Applied On</th>
-                            <th class="p-4 font-semibold">AI Score</th>
-                            <th class="p-4 font-semibold">Status</th>
-                            <th class="p-4 font-semibold text-right">Actions</th>
+                            <th class="p-4 font-semibold whitespace-nowrap">Applied On</th>
+                            <th class="p-4 font-semibold whitespace-nowrap">AI Score</th>
+                            <th class="p-4 font-semibold whitespace-nowrap">Status</th>
+                            <th class="p-4 font-semibold text-right whitespace-nowrap">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody" class="text-sm text-gray-700 divide-y divide-gray-100">
-                        <!-- Rows injected via JS -->
-                    </tbody>
+                        </tbody>
                 </table>
             </div>
             
@@ -318,7 +330,6 @@ include '../header.php';
         </div>
     </div>
 
-    <!-- RESUME MODAL (Extracted from your reference code) -->
     <div id="resumeModal" class="fixed inset-0 z-[9999] hidden bg-black bg-opacity-50 flex items-center justify-center transition-opacity">
         <div class="bg-white rounded-lg w-11/12 md:w-3/4 lg:w-2/3 h-[90vh] flex flex-col overflow-hidden shadow-2xl relative">
             
@@ -329,9 +340,8 @@ include '../header.php';
                 </button>
             </div>
             
-            <div class="flex-1 bg-gray-100 p-2">
-                <!-- Using iframe as requested -->
-                <iframe id="resumeIframe" src="" class="w-full h-full border-0 rounded shadow-inner"></iframe>
+            <div class="flex-1 bg-gray-100 p-2 relative">
+                <iframe id="resumeIframe" src="" class="w-full h-full border-0 rounded shadow-inner" style="background: white;"></iframe>
             </div>
             
         </div>
@@ -454,9 +464,8 @@ function renderTable() {
                 </span>
             </td>
             <td class="p-4 text-right">
-                <!-- ACTIONS ALWAYS VISIBLE (class action-btn ensures opacity 1) -->
                 <div class="flex justify-end gap-2">
-                    <button onclick="openResumeModal('${c.resume_path}')" class="action-btn w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center" title="View Resume">
+                    <button onclick="openResumeModal('${c.display_path}')" class="action-btn w-8 h-8 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center justify-center" title="View Resume">
                         <i class="far fa-eye text-lg"></i>
                     </button>
                     <button onclick="deleteCandidate('${c.id}')" class="action-btn w-8 h-8 rounded bg-red-50 text-red-600 hover:bg-red-100 flex items-center justify-center" title="Delete">
@@ -594,6 +603,12 @@ async function uploadSingleFile(file, keywords, uiId) {
             updateQueueItemUI(uiId, `Score: ${result.data.match_score}%`, 'text-green-600', true);
             showToast(`${file.name} processed (${result.data.match_score}%)`);
             
+            // Format path for the frontend automatically
+            let displayPath = result.data.resume_path;
+            if(displayPath.startsWith('../')) {
+                displayPath = displayPath.substring(3);
+            }
+
             candidates.unshift({
                 id: result.data.id,
                 name: result.data.name,
@@ -604,7 +619,8 @@ async function uploadSingleFile(file, keywords, uiId) {
                 match_score: result.data.match_score,
                 status: 'Parsed',
                 img: result.data.img,
-                resume_path: result.data.resume_path
+                resume_path: result.data.resume_path,
+                display_path: displayPath
             });
             updateStats();
             renderTable();
@@ -641,8 +657,12 @@ function showToast(message, type = 'success') {
     }, 3000);
 }
 
-// --- RESUME MODAL LOGIC (Extracted from your reference) ---
+// --- RESUME MODAL LOGIC ---
 function openResumeModal(path) {
+    if (!path) {
+        showToast("Error: Resume path not found.", "error");
+        return;
+    }
     document.getElementById('resumeIframe').src = path;
     document.getElementById('resumeModal').classList.remove('hidden');
     document.body.style.overflow = 'hidden'; 

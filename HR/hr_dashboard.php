@@ -34,6 +34,52 @@ $current_user_id = $_SESSION['user_id'] ?? 0;
 $today = date('Y-m-d');
 
 // -------------------------------------------------------------------------
+// 1.5 FETCH USER PROFILE DATA (Added for Profile Card)
+// -------------------------------------------------------------------------
+$employee_name = "HR Admin";
+$employee_role = "Human Resources";
+$employee_phone = "Not Set";
+$employee_email = "Not Set";
+$emp_id_code = "N/A";
+$department = "Human Resources";
+$joining_date = "Not Set";
+$experience_label = "Senior Level";
+$emergency_contacts = "[]";
+$profile_img = "https://ui-avatars.com/api/?name=HR+Admin&background=random";
+
+$sql_profile = "SELECT ep.full_name, ep.profile_img, ep.designation, ep.emp_id_code, ep.department, 
+                ep.phone, ep.email, ep.joining_date, ep.experience_label, ep.emergency_contacts,
+                u.username, u.email as u_email, u.role
+                FROM users u 
+                LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
+                WHERE u.id = ?";
+$stmt_profile = mysqli_prepare($conn, $sql_profile);
+mysqli_stmt_bind_param($stmt_profile, "i", $current_user_id);
+mysqli_stmt_execute($stmt_profile);
+$profile_res = mysqli_stmt_get_result($stmt_profile);
+
+if ($profile = mysqli_fetch_assoc($profile_res)) {
+    $employee_name = $profile['full_name'] ?? $profile['username'] ?? 'HR Admin';
+    $employee_role = $profile['designation'] ?? $profile['role'] ?? 'Human Resources';
+    $employee_phone = $profile['phone'] ?? 'Not Set';
+    $employee_email = $profile['email'] ?? $profile['u_email'] ?? 'Not Set';
+    $emp_id_code = $profile['emp_id_code'] ?? 'N/A';
+    $department = $profile['department'] ?? 'Human Resources';
+    $joining_date = !empty($profile['joining_date']) ? date("d M Y", strtotime($profile['joining_date'])) : "Not Set";
+    $experience_label = $profile['experience_label'] ?? 'Senior Level';
+    $emergency_contacts = $profile['emergency_contacts'] ?? '[]';
+
+    $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($employee_name) . "&background=0d9488&color=fff&size=128&bold=true";
+    if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user.png') {
+        if (str_starts_with($profile['profile_img'], 'http')) {
+            $profile_img = $profile['profile_img'];
+        } else {
+            $profile_img = (file_exists($dbPath) ? 'assets/profiles/' : '../assets/profiles/') . $profile['profile_img'];
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
 // 2. HANDLE AJAX ACTIONS (Approvals & Punching)
 // -------------------------------------------------------------------------
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -287,6 +333,7 @@ $total_jobs = $job_res ? $job_res->fetch_assoc()['total_jobs'] : 0;
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root { --primary: #0d9488; --primary-dark: #0f766e; --bg-main: #f8fafc; }
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f1f5f9; color: #1e293b; overflow-x: hidden; }
@@ -363,198 +410,291 @@ $total_jobs = $job_res ? $job_res->fetch_assoc()['total_jobs'] : 0;
             </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
             
-            <div class="lg:col-span-4 space-y-6">
-                
-                <div class="glass-card text-center relative overflow-hidden">
-                    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-500 to-emerald-500"></div>
-                    <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">My Attendance</p>
+            <div class="xl:col-span-9">
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     
-                    <div class="attendance-circle mb-4">
-                        <svg class="absolute inset-0 w-full h-full transform -rotate-90">
-                            <circle cx="70" cy="70" r="62" stroke="#f1f5f9" stroke-width="8" fill="transparent"></circle>
-                            <circle id="progressRing" cx="70" cy="70" r="62" stroke="<?= $is_on_break ? '#f59e0b' : '#0d9488' ?>" stroke-width="8" fill="transparent" stroke-dasharray="390" stroke-dashoffset="390" class="transition-all duration-1000"></circle>
-                        </svg>
-                        <div class="relative z-10 text-center">
-                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Total Hours</p>
-                            <p class="text-2xl font-extrabold text-slate-800" id="timerDisplay" data-total="<?= $total_seconds_worked ?>"><?= $total_hours_today ?></p>
+                    <div class="lg:col-span-4 space-y-6">
+                        
+                        <div class="glass-card text-center relative overflow-hidden">
+                            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-500 to-emerald-500"></div>
+                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">My Attendance</p>
+                            
+                            <div class="attendance-circle mb-4">
+                                <svg class="absolute inset-0 w-full h-full transform -rotate-90">
+                                    <circle cx="70" cy="70" r="62" stroke="#f1f5f9" stroke-width="8" fill="transparent"></circle>
+                                    <circle id="progressRing" cx="70" cy="70" r="62" stroke="<?= $is_on_break ? '#f59e0b' : '#0d9488' ?>" stroke-width="8" fill="transparent" stroke-dasharray="390" stroke-dashoffset="390" class="transition-all duration-1000"></circle>
+                                </svg>
+                                <div class="relative z-10 text-center">
+                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Total Hours</p>
+                                    <p class="text-2xl font-extrabold text-slate-800" id="timerDisplay" data-total="<?= $total_seconds_worked ?>"><?= $total_hours_today ?></p>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-center mb-4">
+                                <?php if (!$today_att): ?>
+                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200">
+                                        <i data-lucide="clock" class="w-3.5 h-3.5"></i> Not Punched In
+                                    </div>
+                                <?php elseif ($today_att['punch_out']): ?>
+                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold border border-emerald-100">
+                                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Shift Completed
+                                    </div>
+                                <?php elseif ($is_on_break): ?>
+                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-50 text-orange-600 text-xs font-bold border border-orange-100">
+                                        <i data-lucide="coffee" class="w-3.5 h-3.5"></i> On Break
+                                    </div>
+                                <?php else: ?>
+                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-50 text-teal-700 text-xs font-bold border border-teal-100">
+                                        <i data-lucide="activity" class="w-3.5 h-3.5"></i> Currently Working
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+
+                            <p class="text-[11px] text-slate-400 mb-4 flex items-center justify-center gap-1">
+                                <i data-lucide="fingerprint" class="w-3 h-3 text-teal-600"></i> Punch In at <?= $display_punch_in ?>
+                            </p>
+
+                            <div class="w-full">
+                                <?php if (!$today_att): ?>
+                                    <button onclick="punchAction('punch_in')" id="btnPunchIn" class="w-full py-3.5 bg-[#0d9488] hover:bg-[#0b7a6f] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
+                                        <i data-lucide="log-in" class="w-5 h-5"></i> Punch In
+                                    </button>
+                                <?php elseif (!$today_att['punch_out']): ?>
+                                    <?php if (!$is_on_break): ?>
+                                        <div class="grid grid-cols-2 gap-3">
+                                            <button onclick="punchAction('take_break')" id="btnBreak" class="w-full py-3.5 bg-[#f59e0b] hover:bg-[#d97706] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
+                                                <i data-lucide="coffee" class="w-5 h-5"></i> Break
+                                            </button>
+                                            <button onclick="punchAction('punch_out')" id="btnPunchOut" class="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
+                                                <i data-lucide="log-out" class="w-5 h-5"></i> Punch Out
+                                            </button>
+                                        </div>
+                                    <?php else: ?>
+                                        <button onclick="punchAction('end_break')" id="btnEndBreak" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
+                                            <i data-lucide="play" class="w-5 h-5"></i> End Break
+                                        </button>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <button disabled class="w-full py-3.5 bg-gray-100 text-gray-400 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed">
+                                        <i data-lucide="calendar-check" class="w-5 h-5"></i> Done for Today
+                                    </button>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <div class="glass-card">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="font-bold text-slate-800">Announcements</h3>
+                                <a href="#" class="text-xs font-bold text-teal-600 underline">View All</a>
+                            </div>
+                            <div class="space-y-4">
+                                <?php if(!empty($announcements)): ?>
+                                    <?php foreach($announcements as $ann): ?>
+                                    <div class="bg-slate-50 border border-slate-100 rounded-xl p-4 hover:shadow-sm transition">
+                                        <div class="flex justify-between items-start mb-2">
+                                            <span class="text-[10px] font-bold uppercase text-teal-600 bg-teal-50 px-2 py-0.5 rounded"><?php echo htmlspecialchars($ann['category']); ?></span>
+                                            <span class="text-[10px] text-slate-400"><?php echo date('d M', strtotime($ann['created_at'])); ?></span>
+                                        </div>
+                                        <h4 class="text-sm font-bold text-slate-800 mb-1"><?php echo htmlspecialchars($ann['title']); ?></h4>
+                                        <p class="text-xs text-slate-500 line-clamp-2"><?php echo htmlspecialchars(substr($ann['message'], 0, 80)); ?>...</p>
+                                    </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <p class="text-xs text-slate-400 text-center py-4">No new announcements.</p>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="flex justify-center mb-4">
-                        <?php if (!$today_att): ?>
-                            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200">
-                                <i data-lucide="clock" class="w-3.5 h-3.5"></i> Not Punched In
+                    <div class="lg:col-span-8 space-y-6">
+                        
+                        <div class="glass-card">
+                            <div class="flex justify-between items-start mb-6">
+                                <div>
+                                    <h3 class="font-bold text-slate-800 text-lg">Department Distribution</h3>
+                                    <p class="text-xs text-slate-400">Active employees per department</p>
+                                </div>
+                                <a href="../employee_management.php" class="text-xs font-bold text-teal-600 bg-teal-50 border border-teal-100 px-3 py-1.5 rounded-lg hover:bg-teal-100 transition-colors">Manage Directory</a>
                             </div>
-                        <?php elseif ($today_att['punch_out']): ?>
-                            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold border border-emerald-100">
-                                <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Shift Completed
+                            
+                            <div class="flex items-end justify-around gap-2 h-40 mb-4 px-4 border-b border-slate-100 pb-2">
+                                <?php if(!empty($depts)): foreach($depts as $d): 
+                                    $height = ($d['count'] / $max_count) * 100;
+                                ?>
+                                <div class="flex flex-col items-center w-full group cursor-pointer h-full justify-end">
+                                    <div class="relative w-full max-w-[40px] bg-slate-100 rounded-t-lg overflow-visible h-full flex items-end">
+                                        <div style="height: <?php echo $height; ?>%;" class="w-full bg-teal-700 group-hover:bg-teal-500 rounded-t-lg transition-all duration-300 relative shadow-sm">
+                                            <span class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200 z-10">
+                                                <?php echo $d['count']; ?>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <span class="text-[9px] font-bold text-slate-500 mt-2 truncate w-full text-center" title="<?php echo htmlspecialchars($d['dept_name']); ?>">
+                                        <?php echo htmlspecialchars($d['dept_name']); ?>
+                                    </span>
+                                </div>
+                                <?php endforeach; else: ?>
+                                    <p class="text-xs text-slate-400 text-center w-full pb-4">No department data found.</p>
+                                <?php endif; ?>
                             </div>
-                        <?php elseif ($is_on_break): ?>
-                            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-50 text-orange-600 text-xs font-bold border border-orange-100">
-                                <i data-lucide="coffee" class="w-3.5 h-3.5"></i> On Break
-                            </div>
-                        <?php else: ?>
-                            <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-50 text-teal-700 text-xs font-bold border border-teal-100">
-                                <i data-lucide="activity" class="w-3.5 h-3.5"></i> Currently Working
-                            </div>
-                        <?php endif; ?>
-                    </div>
+                        </div>
 
-                    <p class="text-[11px] text-slate-400 mb-4 flex items-center justify-center gap-1">
-                        <i data-lucide="fingerprint" class="w-3 h-3 text-teal-600"></i> Punch In at <?= $display_punch_in ?>
-                    </p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            
+                            <div class="glass-card">
+                                <div class="flex justify-between items-center mb-4">
+                                    <h3 class="font-bold text-slate-800">Leave Requests</h3>
+                                    <a href="../leave_approval.php" class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded-full border border-teal-100 hover:bg-teal-100 transition">View All</a>
+                                </div>
+                                <div class="space-y-3">
+                                    <?php if(!empty($leaves)): foreach($leaves as $lv): 
+                                        $img = $lv['profile_img'] ? $lv['profile_img'] : "https://ui-avatars.com/api/?name=".urlencode($lv['full_name']);
+                                        if(!str_starts_with($img, 'http') && strpos($img, 'assets') === false) $img = '../assets/profiles/' . $img;
+                                    ?>
+                                    <div class="flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                        <div class="flex items-center gap-3">
+                                            <img src="<?php echo htmlspecialchars($img); ?>" class="w-8 h-8 rounded-full object-cover">
+                                            <div>
+                                                <p class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($lv['full_name']); ?></p>
+                                                <p class="text-[10px] text-slate-400"><?php echo date('d M', strtotime($lv['start_date'])) . ' - ' . date('d M', strtotime($lv['end_date'])); ?></p>
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <span class="text-[9px] font-bold uppercase text-orange-600 bg-orange-50 px-2 py-1 rounded"><?php echo htmlspecialchars($lv['leave_type']); ?></span>
+                                        </div>
+                                    </div>
+                                    <?php endforeach; else: ?>
+                                        <div class="text-center py-6 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                                            <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-emerald-400"></i>
+                                            <p class="text-xs font-medium">All caught up!</p>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
 
-                    <div class="w-full">
-                        <?php if (!$today_att): ?>
-                            <button onclick="punchAction('punch_in')" id="btnPunchIn" class="w-full py-3.5 bg-[#0d9488] hover:bg-[#0b7a6f] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                <i data-lucide="log-in" class="w-5 h-5"></i> Punch In
-                            </button>
-                        <?php elseif (!$today_att['punch_out']): ?>
-                            <?php if (!$is_on_break): ?>
+                            <div class="glass-card">
+                                <div class="flex justify-between items-start mb-6">
+                                    <div>
+                                        <h3 class="font-bold text-slate-800 text-lg">Workforce Info</h3>
+                                        <p class="text-xs text-slate-400">By Employment Type</p>
+                                    </div>
+                                </div>
+                                
+                                <div class="bar-container mb-6 border-b border-slate-100 pb-4">
+                                    <div class="bar" style="height: 40%"></div><div class="bar" style="height: 60%"></div><div class="bar" style="height: 30%"></div><div class="bar" style="height: 70%"></div><div class="bar" style="height: 50%"></div><div class="bar" style="height: 80%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 65%"></div><div class="bar" style="height: 45%"></div><div class="bar" style="height: 90%"></div><div class="bar" style="height: 35%"></div><div class="bar" style="height: 75%"></div><div class="bar" style="height: 55%"></div><div class="bar" style="height: 85%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 60%"></div>
+                                    <div class="bar bar-light" style="height: 40%"></div><div class="bar bar-light" style="height: 60%"></div><div class="bar bar-light" style="height: 30%"></div><div class="bar bar-light" style="height: 70%"></div><div class="bar bar-light" style="height: 50%"></div><div class="bar bar-light" style="height: 80%"></div><div class="bar bar-light" style="height: 40%"></div><div class="bar bar-light" style="height: 65%"></div>
+                                </div>
+
                                 <div class="grid grid-cols-2 gap-3">
-                                    <button onclick="punchAction('take_break')" id="btnBreak" class="w-full py-3.5 bg-[#f59e0b] hover:bg-[#d97706] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                        <i data-lucide="coffee" class="w-5 h-5"></i> Break
-                                    </button>
-                                    <button onclick="punchAction('punch_out')" id="btnPunchOut" class="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                        <i data-lucide="log-out" class="w-5 h-5"></i> Punch Out
-                                    </button>
+                                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 hover:border-teal-200 transition">
+                                        <p class="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1.5 mb-1">
+                                            <span class="w-2 h-2 rounded-full bg-teal-700"></span> Permanent
+                                        </p>
+                                        <p class="text-xl font-extrabold text-slate-800"><?= $full_time ?></p>
+                                    </div>
+                                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 hover:border-blue-200 transition">
+                                        <p class="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1.5 mb-1">
+                                            <span class="w-2 h-2 rounded-full bg-blue-500"></span> Contract
+                                        </p>
+                                        <p class="text-xl font-extrabold text-slate-800"><?= $contract ?></p>
+                                    </div>
                                 </div>
-                            <?php else: ?>
-                                <button onclick="punchAction('end_break')" id="btnEndBreak" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                    <i data-lucide="play" class="w-5 h-5"></i> End Break
-                                </button>
-                            <?php endif; ?>
-                        <?php else: ?>
-                            <button disabled class="w-full py-3.5 bg-gray-100 text-gray-400 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed">
-                                <i data-lucide="calendar-check" class="w-5 h-5"></i> Done for Today
-                            </button>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
-                <div class="glass-card">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="font-bold text-slate-800">Announcements</h3>
-                        <a href="#" class="text-xs font-bold text-teal-600 underline">View All</a>
-                    </div>
-                    <div class="space-y-4">
-                        <?php if(!empty($announcements)): ?>
-                            <?php foreach($announcements as $ann): ?>
-                            <div class="bg-slate-50 border border-slate-100 rounded-xl p-4 hover:shadow-sm transition">
-                                <div class="flex justify-between items-start mb-2">
-                                    <span class="text-[10px] font-bold uppercase text-teal-600 bg-teal-50 px-2 py-0.5 rounded"><?php echo htmlspecialchars($ann['category']); ?></span>
-                                    <span class="text-[10px] text-slate-400"><?php echo date('d M', strtotime($ann['created_at'])); ?></span>
-                                </div>
-                                <h4 class="text-sm font-bold text-slate-800 mb-1"><?php echo htmlspecialchars($ann['title']); ?></h4>
-                                <p class="text-xs text-slate-500 line-clamp-2"><?php echo htmlspecialchars(substr($ann['message'], 0, 80)); ?>...</p>
                             </div>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <p class="text-xs text-slate-400 text-center py-4">No new announcements.</p>
-                        <?php endif; ?>
+
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div class="lg:col-span-8 space-y-6">
-                
-                <div class="glass-card">
-                    <div class="flex justify-between items-start mb-6">
-                        <div>
-                            <h3 class="font-bold text-slate-800 text-lg">Department Distribution</h3>
-                            <p class="text-xs text-slate-400">Active employees per department</p>
+            <div class="xl:col-span-3 space-y-6">
+                <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm ring-1 ring-gray-100">
+                    <div class="bg-gradient-to-b from-teal-700 to-teal-800 p-6 flex flex-col items-center text-center relative">
+                        <div class="absolute top-4 right-4 flex gap-2">
+                            <button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
+                                <i class="fas fa-pencil-alt text-xs"></i>
+                            </button>
                         </div>
-                        <a href="../employee_management.php" class="text-xs font-bold text-teal-600 bg-teal-50 border border-teal-100 px-3 py-1.5 rounded-lg hover:bg-teal-100 transition-colors">Manage Directory</a>
+                        <div class="relative mb-3 mt-2">
+                            <img src="<?php echo $profile_img; ?>" class="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover bg-white">
+                            <div class="absolute bottom-1 right-1 w-5 h-5 bg-emerald-400 border-2 border-white rounded-full"></div>
+                        </div>
+                        <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($employee_name); ?></h2>
+                        <p class="text-teal-100 text-xs font-medium mt-0.5 mb-3"><?php echo htmlspecialchars($employee_role); ?></p>
+                        <span class="bg-white/10 border border-white/20 text-white text-[10px] px-3 py-1 rounded-full font-bold tracking-wider uppercase">Verified User</span>
                     </div>
                     
-                    <div class="flex items-end justify-around gap-2 h-40 mb-4 px-4 border-b border-slate-100 pb-2">
-                        <?php if(!empty($depts)): foreach($depts as $d): 
-                            $height = ($d['count'] / $max_count) * 100;
-                        ?>
-                        <div class="flex flex-col items-center w-full group cursor-pointer h-full justify-end">
-                            <div class="relative w-full max-w-[40px] bg-slate-100 rounded-t-lg overflow-visible h-full flex items-end">
-                                <div style="height: <?php echo $height; ?>%;" class="w-full bg-teal-700 group-hover:bg-teal-500 rounded-t-lg transition-all duration-300 relative shadow-sm">
-                                    <span class="absolute -top-6 left-1/2 transform -translate-x-1/2 text-xs font-bold text-slate-700 opacity-0 group-hover:opacity-100 transition-opacity bg-white px-2 py-0.5 rounded shadow-sm border border-slate-200 z-10">
-                                        <?php echo $d['count']; ?>
-                                    </span>
-                                </div>
+                    <div class="p-5 space-y-4 bg-white">
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                <i class="fa-solid fa-phone text-sm"></i>
                             </div>
-                            <span class="text-[9px] font-bold text-slate-500 mt-2 truncate w-full text-center" title="<?php echo htmlspecialchars($d['dept_name']); ?>">
-                                <?php echo htmlspecialchars($d['dept_name']); ?>
-                            </span>
-                        </div>
-                        <?php endforeach; else: ?>
-                            <p class="text-xs text-slate-400 text-center w-full pb-4">No department data found.</p>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    
-                    <div class="glass-card">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="font-bold text-slate-800">Leave Requests</h3>
-                            <a href="../leave_approval.php" class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded-full border border-teal-100 hover:bg-teal-100 transition">View All</a>
-                        </div>
-                        <div class="space-y-3">
-                            <?php if(!empty($leaves)): foreach($leaves as $lv): 
-                                $img = $lv['profile_img'] ? $lv['profile_img'] : "https://ui-avatars.com/api/?name=".urlencode($lv['full_name']);
-                                if(!str_starts_with($img, 'http') && strpos($img, 'assets') === false) $img = '../assets/profiles/' . $img;
-                            ?>
-                            <div class="flex items-center justify-between p-3 border border-slate-100 rounded-xl hover:bg-slate-50 transition shadow-sm">
-                                <div class="flex items-center gap-3">
-                                    <img src="<?php echo htmlspecialchars($img); ?>" class="w-8 h-8 rounded-full object-cover">
-                                    <div>
-                                        <p class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($lv['full_name']); ?></p>
-                                        <p class="text-[10px] text-slate-400"><?php echo date('d M', strtotime($lv['start_date'])) . ' - ' . date('d M', strtotime($lv['end_date'])); ?></p>
-                                    </div>
-                                </div>
-                                <div>
-                                    <span class="text-[9px] font-bold uppercase text-orange-600 bg-orange-50 px-2 py-1 rounded"><?php echo htmlspecialchars($lv['leave_type']); ?></span>
-                                </div>
-                            </div>
-                            <?php endforeach; else: ?>
-                                <div class="text-center py-6 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                                    <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-emerald-400"></i>
-                                    <p class="text-xs font-medium">All caught up!</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-
-                    <div class="glass-card">
-                        <div class="flex justify-between items-start mb-6">
-                            <div>
-                                <h3 class="font-bold text-slate-800 text-lg">Workforce Info</h3>
-                                <p class="text-xs text-slate-400">By Employment Type</p>
+                            <div class="min-w-0">
+                                <p class="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Phone Number</p>
+                                <p class="text-xs font-bold text-slate-700 truncate"><?php echo htmlspecialchars($employee_phone); ?></p>
                             </div>
                         </div>
                         
-                        <div class="bar-container mb-6 border-b border-slate-100 pb-4">
-                            <div class="bar" style="height: 40%"></div><div class="bar" style="height: 60%"></div><div class="bar" style="height: 30%"></div><div class="bar" style="height: 70%"></div><div class="bar" style="height: 50%"></div><div class="bar" style="height: 80%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 65%"></div><div class="bar" style="height: 45%"></div><div class="bar" style="height: 90%"></div><div class="bar" style="height: 35%"></div><div class="bar" style="height: 75%"></div><div class="bar" style="height: 55%"></div><div class="bar" style="height: 85%"></div><div class="bar" style="height: 40%"></div><div class="bar" style="height: 60%"></div>
-                            <div class="bar bar-light" style="height: 40%"></div><div class="bar bar-light" style="height: 60%"></div><div class="bar bar-light" style="height: 30%"></div><div class="bar bar-light" style="height: 70%"></div><div class="bar bar-light" style="height: 50%"></div><div class="bar bar-light" style="height: 80%"></div><div class="bar bar-light" style="height: 40%"></div><div class="bar bar-light" style="height: 65%"></div>
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                <i class="fa-solid fa-envelope text-sm"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-[9px] text-gray-400 font-bold uppercase tracking-wider">Email Address</p>
+                                <p class="text-xs font-bold text-slate-700 truncate" title="<?php echo htmlspecialchars($employee_email); ?>">
+                                    <?php echo htmlspecialchars($employee_email); ?>
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <hr class="border-gray-100">
+                        
+                        <div class="bg-emerald-50 p-3 rounded-xl flex justify-between items-center border border-emerald-100/50">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-calendar-check text-emerald-600"></i>
+                                <span class="text-xs font-bold text-emerald-900">Date Joined</span>
+                            </div>
+                            <span class="text-xs font-bold text-slate-700"><?php echo $joining_date; ?></span>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-3">
-                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 hover:border-teal-200 transition">
-                                <p class="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1.5 mb-1">
-                                    <span class="w-2 h-2 rounded-full bg-teal-700"></span> Permanent
-                                </p>
-                                <p class="text-xl font-extrabold text-slate-800"><?= $full_time ?></p>
+                        <div class="mt-4 pt-4 border-t border-gray-100">
+                            <h4 class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mb-3">Professional Data</h4>
+                            <div class="grid grid-cols-2 gap-2 mb-4">
+                                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                                    <p class="text-[8px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Experience</p>
+                                    <p class="text-[11px] font-bold text-slate-700"><?php echo htmlspecialchars($experience_label); ?></p>
+                                </div>
+                                <div class="bg-slate-50 p-2.5 rounded-xl border border-slate-100 overflow-hidden">
+                                    <p class="text-[8px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Department</p>
+                                    <p class="text-[11px] font-bold text-slate-700 truncate" title="<?= htmlspecialchars($department); ?>"><?php echo htmlspecialchars($department); ?></p>
+                                </div>
                             </div>
-                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 hover:border-blue-200 transition">
-                                <p class="text-[10px] font-bold text-slate-500 uppercase flex items-center gap-1.5 mb-1">
-                                    <span class="w-2 h-2 rounded-full bg-blue-500"></span> Contract
-                                </p>
-                                <p class="text-xl font-extrabold text-slate-800"><?= $contract ?></p>
-                            </div>
+                            
+                            <?php
+                            $emergency = json_decode($emergency_contacts, true);
+                            if (!empty($emergency) && is_array($emergency)): 
+                                $primary = $emergency[0]; ?>
+                                <div class="p-3 bg-red-50/50 rounded-xl border border-red-100 flex items-center justify-between">
+                                    <div>
+                                        <div class="flex items-center gap-1.5 mb-1">
+                                            <i class="fa-solid fa-heart-pulse text-red-500 text-[10px]"></i>
+                                            <span class="text-[9px] font-bold text-red-700 uppercase tracking-wider">Emergency Contact</span>
+                                        </div>
+                                        <p class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($primary['name'] ?? 'Not Set'); ?></p>
+                                    </div>
+                                    <div class="text-right">
+                                        <a href="tel:<?php echo htmlspecialchars($primary['phone'] ?? ''); ?>" class="w-8 h-8 rounded-full bg-white border border-red-100 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition shadow-sm">
+                                            <i class="fas fa-phone-alt text-[10px]"></i>
+                                        </a>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
-
                 </div>
             </div>
+            
         </div>
     </div>
 
@@ -588,9 +728,8 @@ $total_jobs = $job_res ? $job_res->fetch_assoc()['total_jobs'] : 0;
                     String(minutes).padStart(2, '0') + ':' + 
                     String(seconds).padStart(2, '0');
 
-                // Update Progress Ring (Assume 9 hours shift = 32400 seconds)
-                const maxSeconds = 32400; 
-                const circumference = 390;
+                const maxSeconds = 32400; // 9 hours
+                const circumference = 351.85;
                 const progress = Math.min(currentTotal / maxSeconds, 1);
                 const offset = circumference - (progress * circumference);
                 
@@ -601,7 +740,7 @@ $total_jobs = $job_res ? $job_res->fetch_assoc()['total_jobs'] : 0;
                 setInterval(updateTimer, 1000);
             } else {
                 const maxSeconds = 32400; 
-                const circumference = 390;
+                const circumference = 351.85;
                 const progress = Math.min(totalSeconds / maxSeconds, 1);
                 if(progressRing) progressRing.style.strokeDashoffset = circumference - (progress * circumference);
             }

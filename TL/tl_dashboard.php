@@ -401,7 +401,7 @@ if (!file_exists($sidebarPath)) { $sidebarPath = 'sidebars.php'; }
                 </nav>
             </div>
             <div class="flex gap-2">
-                <button class="btn"><i data-lucide="download" class="w-4 h-4 mr-2"></i> Report</button>
+                
                 <div class="btn bg-white"><i data-lucide="calendar" class="w-4 h-4 mr-2 text-gray-400"></i> <?php echo date('M d, Y'); ?></div>
             </div>
         </div>
