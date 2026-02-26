@@ -105,7 +105,7 @@ $res_requests = mysqli_query($conn, $sql_requests);
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #1e293b; }
         
         /* Correct Professional Sidebar Alignment */
-        #mainContent { margin-left: 95px; width: calc(100% - 95px); transition: 0.3s ease; padding-top: 80px; }
+        #mainContent { margin-left: 95px; width: calc(100% - 95px); transition: 0.3s ease; padding-top: 10px; }
         @media (max-width: 991px) { #mainContent { margin-left: 0; width: 100%; } }
         
         .table-row:hover { background-color: #f1f5f9; }
