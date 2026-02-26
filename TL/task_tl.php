@@ -214,6 +214,7 @@ $tasks_result = $t_stmt->get_result();
 
     <datalist id="empList">
         <?php 
+        // CORRECTED: Fetch only employees assigned to this TL
         $e_stmt = $conn->prepare("SELECT full_name FROM employee_profiles WHERE reporting_to = ?");
         $e_stmt->bind_param("i", $tl_id);
         $e_stmt->execute();
