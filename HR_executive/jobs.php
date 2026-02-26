@@ -139,13 +139,7 @@ include '../header.php';
                     <i class="fa-solid fa-house text-xs"></i>
                     <span>&rsaquo;</span> Recruitment <span>&rsaquo;</span> <span class="text-gray-400">Job Requests</span>
                 </nav>
-            </div>
-            
-            <div class="flex items-center gap-3 mt-4 md:mt-0">
-                <button onclick="window.location.href='?export=csv'" class="bg-white border px-4 py-2 rounded-md text-gray-700 font-medium flex items-center gap-2 hover:bg-gray-50 transition">
-                    <i class="fa-solid fa-file-export text-teal-600"></i> Export CSV
-                </button>
-            </div>
+            </div>  
         </div>
 
         <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-8 flex flex-col lg:flex-row justify-between items-center gap-4">
