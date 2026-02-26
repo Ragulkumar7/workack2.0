@@ -3,11 +3,11 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require_once '../include/db_connect.php'; 
 
 // ---------------------------------------------------------
-// FETCH DEPARTMENTS, MANAGERS, AND TEAM MEMBERS
+// FETCH DEPARTMENTS, MANAGERS, AND ONBOARDING HIERARCHY
 // ---------------------------------------------------------
 $departments = [];
 $all_managers = [];
-$dept_members = [];
+$all_onboarding = [];
 
 // Fetch distinct departments from the users table
 $dept_sql = "SELECT DISTINCT department FROM users WHERE department IS NOT NULL AND department != ''";
@@ -18,7 +18,7 @@ if ($dept_res && $dept_res->num_rows > 0) {
     }
 }
 
-// Fetch users who hold a supervisory role
+// Fetch users who hold a supervisory role for the dropdown
 $mgr_sql = "SELECT id, name, department, role FROM users WHERE role IN ('Manager', 'Team Lead', 'System Admin', 'HR', 'HR Executive', 'CFO', 'IT Admin', 'Sales Manager', 'CEO') ORDER BY department, name";
 $mgr_res = $conn->query($mgr_sql);
 if ($mgr_res && $mgr_res->num_rows > 0) {
@@ -35,19 +35,11 @@ if ($mgr_res && $mgr_res->num_rows > 0) {
     }
 }
 
-// Fetch all users with their roles to group them by department (for Team Members display)
-$members_sql = "SELECT department, name, role FROM users WHERE department IS NOT NULL AND department != ''";
-$members_res = $conn->query($members_sql);
-if ($members_res && $members_res->num_rows > 0) {
-    while($m_row = $members_res->fetch_assoc()) {
-        $d = trim($m_row['department']);
-        if(!isset($dept_members[$d])) $dept_members[$d] = [];
-        if (!empty(trim($m_row['name']))) {
-            $dept_members[$d][] = [
-                'name' => trim($m_row['name']),
-                'role' => trim($m_row['role'])
-            ];
-        }
+// Fetch all onboarding records to build PERFECT team relationships 
+$res_all = $conn->query("SELECT id, emp_id_code, CONCAT(first_name, ' ', last_name) as full_name, designation, department, manager_name FROM employee_onboarding");
+if ($res_all) {
+    while($r = $res_all->fetch_assoc()) {
+        $all_onboarding[] = $r;
     }
 }
 
@@ -98,6 +90,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $manager_name = ''; 
         $salary = $_POST['salary'] ?? '0';
         $emp_type = $_POST['emp_type'] ?? 'Permanent';
+
+        // Custom Work & Leave fields
+        $shift_type = $_POST['shift_type'] ?? 'Day Shift';
+        $shift_timings = $_POST['shift_timings'] ?? '09:00 AM - 06:00 PM';
+        $casual_leaves = intval($_POST['casual_leaves'] ?? 2);
 
         $pan = strtoupper(trim($_POST['pan'] ?? ''));
         $pf = trim($_POST['pf'] ?? '');
@@ -188,12 +185,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmt_uid->execute();
                 $user_id = $stmt_uid->get_result()->fetch_assoc()['id'];
 
-                $stmt_prof = $conn->prepare("UPDATE employee_profiles SET full_name=?, designation=?, department=?, reporting_to=?, manager_id=?, emp_id_code=?, phone=?, joining_date=?, email=?, profile_img=?, bank_info=? WHERE user_id=?");
-                $stmt_prof->bind_param("sssiissssssi", $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $user_id);
+                $stmt_prof = $conn->prepare("UPDATE employee_profiles SET full_name=?, designation=?, department=?, reporting_to=?, manager_id=?, emp_id_code=?, phone=?, joining_date=?, email=?, profile_img=?, bank_info=?, shift_type=?, shift_timings=?, casual_leaves=? WHERE user_id=?");
+                $stmt_prof->bind_param("sssiissssssssii", $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings, $casual_leaves, $user_id);
                 if (!$stmt_prof->execute()) throw new Exception("Error updating employee profiles.");
 
-                $stmt_onb = $conn->prepare("UPDATE employee_onboarding SET emp_id_code=?, first_name=?, last_name=?, email=?, phone=?, department=?, designation=?, manager_name=?, salary=?, employment_type=?, joining_date=?, username=?, pan_no=?, pf_no=?, esi_no=?, bank_name=?, bank_acc_no=?, ifsc_code=?, profile_img=? $pass_update_onb WHERE id=?");
-                $stmt_onb->bind_param("sssssssssssssssssssi", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $img, $edit_id);
+                $stmt_onb = $conn->prepare("UPDATE employee_onboarding SET emp_id_code=?, first_name=?, last_name=?, email=?, phone=?, department=?, designation=?, manager_name=?, salary=?, employment_type=?, joining_date=?, username=?, pan_no=?, pf_no=?, esi_no=?, bank_name=?, bank_acc_no=?, ifsc_code=?, shift_type=?, shift_timings=?, casual_leaves=?, profile_img=? $pass_update_onb WHERE id=?");
+                $stmt_onb->bind_param("ssssssssssssssssssssisi", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $casual_leaves, $img, $edit_id);
                 if (!$stmt_onb->execute()) throw new Exception("Error updating onboarding details.");
 
             } else {
@@ -203,19 +200,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if (!$stmt_user->execute()) throw new Exception("Error creating user account.");
                 $new_user_id = $stmt_user->insert_id;
 
-                $stmt_prof = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, designation, department, reporting_to, manager_id, emp_id_code, phone, joining_date, email, profile_img, bank_info) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt_prof->bind_param("isssiissssss", $new_user_id, $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json);
+                $stmt_prof = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, designation, department, reporting_to, manager_id, emp_id_code, phone, joining_date, email, profile_img, bank_info, shift_type, shift_timings, casual_leaves) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt_prof->bind_param("isssiissssssssi", $new_user_id, $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings, $casual_leaves);
                 if (!$stmt_prof->execute()) throw new Exception("Error creating employee profile.");
 
-                // Status removed conceptually, but keeping 'Completed' as default to satisfy db constraints if any
                 $sql_onb = "INSERT INTO employee_onboarding (
                             emp_id_code, first_name, last_name, email, phone, department, 
                             designation, manager_name, salary, employment_type, joining_date, 
                             username, password_hash, pan_no, pf_no, esi_no, bank_name, bank_acc_no, ifsc_code,
-                            status, profile_img
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Completed', ?)";
+                            shift_type, shift_timings, casual_leaves, status, profile_img
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Completed', ?)";
                 $stmt_onb = $conn->prepare($sql_onb);
-                $stmt_onb->bind_param("ssssssssssssssssssss", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pwd_hash, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $img);
+                $stmt_onb->bind_param("sssssssssssssssssssssis", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pwd_hash, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $casual_leaves, $img);
                 if (!$stmt_onb->execute()) throw new Exception("Error saving onboarding details.");
             }
 
@@ -343,16 +339,39 @@ if(file_exists($headerPath)) include $headerPath;
                             $salaryDisplay = $row['salary'] ? "₹" . number_format((float)$row['salary']) : "—";
                             $profileImage = $row['profile_img'] && !filter_var($row['profile_img'], FILTER_VALIDATE_URL) ? '../' . $row['profile_img'] : $row['profile_img'];
                             
-                            // Process Team Members (Exclude current user)
-                            $dept = trim($row['department']);
+                            // ==========================================
+                            // ADVANCED TEAM MEMBER LOGIC
+                            // ==========================================
+                            $current_name = trim($row['first_name'] . ' ' . $row['last_name']);
+                            $current_dept = trim($row['department']);
+                            $current_mgr = trim($row['manager_name']);
+
                             $team_list_detailed = [];
                             $team_display_names = [];
-                            if(isset($dept_members[$dept])) {
-                                foreach($dept_members[$dept] as $tm) {
-                                    if(strtolower($tm['name']) !== strtolower($fullName)) {
-                                        $team_list_detailed[] = $tm;
-                                        $team_display_names[] = htmlspecialchars($tm['name']);
-                                    }
+                            $added_names = [];
+
+                            foreach ($all_onboarding as $eo) {
+                                $eo_name = trim($eo['full_name']);
+                                if (strtolower($eo_name) === strtolower($current_name)) continue; // Skip Self
+                                
+                                $is_team = false;
+                                
+                                // 1. Same exact department
+                                if (!empty($current_dept) && trim($eo['department']) === $current_dept) { $is_team = true; }
+                                // 2. Current User is the Manager of EO
+                                if (trim($eo['manager_name']) === $current_name) { $is_team = true; }
+                                // 3. EO is the Manager of Current User
+                                if ($current_mgr === $eo_name) { $is_team = true; }
+                                // 4. Both share the same Manager
+                                if (!empty($current_mgr) && trim($eo['manager_name']) === $current_mgr) { $is_team = true; }
+
+                                if ($is_team && !in_array($eo_name, $added_names)) {
+                                    $added_names[] = $eo_name;
+                                    $team_list_detailed[] = [
+                                        'name' => htmlspecialchars($eo_name),
+                                        'role' => htmlspecialchars(trim($eo['designation']))
+                                    ];
+                                    $team_display_names[] = htmlspecialchars($eo_name);
                                 }
                             }
                             
@@ -360,7 +379,8 @@ if(file_exists($headerPath)) include $headerPath;
                             if(count($team_display_names) > 2) {
                                 $team_display .= " +" . (count($team_display_names) - 2) . " more";
                             }
-                            // JSON string for modal
+                            
+                            // SAFELY Encode JSON to pass to JS data-attribute
                             $team_json = htmlspecialchars(json_encode($team_list_detailed), ENT_QUOTES, 'UTF-8');
                         ?>
                         <div class="onboarding-card p-5 sm:px-6 sm:py-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:bg-slate-50 transition-colors" 
@@ -375,7 +395,7 @@ if(file_exists($headerPath)) include $headerPath;
                                         <?= $fullName ?> 
                                         <span class="text-[10px] font-bold text-gray-500 bg-gray-200 px-1.5 py-0.5 rounded"><?= htmlspecialchars($row['emp_id_code']) ?></span>
                                     </h4>
-                                    <div class="text-xs text-gray-600 mt-0.5"><span class="font-semibold text-teal-700"><?= htmlspecialchars($row['designation']) ?></span> • <?= htmlspecialchars($row['department']) ?></div>
+                                    <div class="text-xs text-gray-600 mt-0.5"><span class="font-semibold text-teal-700"><?= htmlspecialchars($row['designation']) ?></span> • <?= htmlspecialchars($current_dept) ?></div>
                                     <div class="text-[11px] text-gray-500 mt-1 flex items-center gap-1"><i class="fas fa-user-tie opacity-70"></i> Mgr: <?= htmlspecialchars($row['manager_name'] ?? 'Unassigned') ?></div>
                                 </div>
                             </div>
@@ -396,7 +416,7 @@ if(file_exists($headerPath)) include $headerPath;
                                     <?= $team_display ?>
                                 </div>
                                 <?php if(!empty($team_list_detailed)): ?>
-                                    <button onclick="viewTeam('<?= $team_json ?>', '<?= htmlspecialchars($dept) ?>')" class="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-800 bg-teal-50 px-2 py-1 rounded border border-teal-100 transition-colors sm:ml-auto">
+                                    <button onclick="viewTeam(this)" data-team="<?= $team_json ?>" data-dept="<?= htmlspecialchars($current_dept, ENT_QUOTES) ?>" class="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-800 bg-teal-50 px-2 py-1 rounded border border-teal-100 transition-colors sm:ml-auto">
                                         <i class="fas fa-users"></i> View Team
                                     </button>
                                 <?php endif; ?>
@@ -520,6 +540,32 @@ if(file_exists($headerPath)) include $headerPath;
                                 </select>
                             </div>
                         </div>
+
+                        <div class="form-section-title mt-4 pt-4 border-t border-gray-100"><i class="fas fa-business-time text-teal-600 mr-2"></i>Work & Leave Setup</div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>Shift Type <span>*</span></label>
+                                <select class="form-control bg-gray-50" id="modShiftType" required>
+                                    <option value="Day Shift">Day Shift</option>
+                                    <option value="Night Shift">Night Shift</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Shift Timings <span>*</span></label>
+                                <select class="form-control bg-gray-50" id="modShiftTimings" required>
+                                    <option value="09:00 AM - 06:00 PM">09:00 AM - 06:00 PM</option>
+                                    <option value="10:00 AM - 07:00 PM">10:00 AM - 07:00 PM</option>
+                                    <option value="09:00 PM - 06:00 AM">09:00 PM - 06:00 AM</option>
+                                </select>
+                                <span style="font-size:11px; color:#64748b; margin-top:4px; display:block;">Total Hours (9) = Production (8) + Break (1)</span>
+                            </div>
+                            <div class="form-group">
+                                <label>Casual Leaves Allowed (per month) <span>*</span></label>
+                                <input type="number" class="form-control" id="modCasualLeaves" value="2" min="0" required>
+                                <span style="font-size:11px; color:#ef4444; margin-top:4px; display:block;">Exceeding this limits will result in Loss of Pay</span>
+                            </div>
+                        </div>
+
                     </div>
 
                     <div id="tab-bank" class="tab-content" style="display:none;">
@@ -548,7 +594,7 @@ if(file_exists($headerPath)) include $headerPath;
     <div class="modal-overlay" id="teamModal">
         <div class="modal-box small-modal">
             <div class="modal-header bg-gray-50 rounded-t-xl">
-                <h3 id="teamModalTitle" class="text-teal-800"><i class="fas fa-users mr-2"></i>Team Members</h3>
+                <h3 id="teamModalTitle" class="text-teal-800"><i class="fas fa-users mr-2"></i>Associated Team</h3>
                 <i class="fas fa-times text-gray-400 hover:text-red-500" style="cursor:pointer; font-size: 18px;" onclick="closeTeamModal()"></i>
             </div>
             <div class="modal-body p-0 custom-scroll max-h-[60vh]">
@@ -579,26 +625,40 @@ if(file_exists($headerPath)) include $headerPath;
             }
         }
 
+        // Group managers by matching and other departments
         function updateModalManager(selectedManagerId = null) {
             const dept = document.getElementById('modDept').value;
             const mgrSelect = document.getElementById('modManager');
             mgrSelect.innerHTML = '<option value="">Select Manager</option>';
             mgrSelect.disabled = false;
             
-            let found = false;
+            let deptManagers = [];
+            let otherManagers = [];
+            
             allManagers.forEach(mgr => {
-                if(mgr.dept === dept) {
-                    mgrSelect.insertAdjacentHTML('beforeend', `<option value="${mgr.id}">${mgr.name} (${mgr.role})</option>`);
-                    found = true;
-                }
+                if(mgr.dept === dept) deptManagers.push(mgr);
+                else otherManagers.push(mgr);
             });
 
-            if(!found && dept !== "") {
-                mgrSelect.innerHTML = '<option value="">No exact match. Select from other Depts:</option>';
-                allManagers.forEach(mgr => {
-                    mgrSelect.insertAdjacentHTML('beforeend', `<option value="${mgr.id}">${mgr.name} - ${mgr.dept} (${mgr.role})</option>`);
+            if (deptManagers.length > 0) {
+                let optGroup = document.createElement('optgroup');
+                optGroup.label = "In this Department";
+                deptManagers.forEach(mgr => {
+                    optGroup.innerHTML += `<option value="${mgr.id}">${mgr.name} (${mgr.role})</option>`;
                 });
-            } else if (dept === "") {
+                mgrSelect.appendChild(optGroup);
+            }
+
+            if (otherManagers.length > 0) {
+                let optGroup = document.createElement('optgroup');
+                optGroup.label = "Other Departments";
+                otherManagers.forEach(mgr => {
+                    optGroup.innerHTML += `<option value="${mgr.id}">${mgr.name} - ${mgr.dept} (${mgr.role})</option>`;
+                });
+                mgrSelect.appendChild(optGroup);
+            }
+
+            if (dept === "") {
                 mgrSelect.innerHTML = '<option value="" disabled selected>Select Department First</option>';
                 mgrSelect.disabled = true;
             }
@@ -627,6 +687,11 @@ if(file_exists($headerPath)) include $headerPath;
             document.getElementById('pwdAsterisk').style.display = 'inline';
             document.getElementById('pwdConfAsterisk').style.display = 'inline';
             
+            // Set defaults for Work Setup
+            document.getElementById('modShiftType').value = 'Day Shift';
+            document.getElementById('modShiftTimings').value = '09:00 AM - 06:00 PM';
+            document.getElementById('modCasualLeaves').value = 2;
+
             switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
             document.getElementById('employeeModal').style.display = 'flex'; 
         }
@@ -659,6 +724,10 @@ if(file_exists($headerPath)) include $headerPath;
                     document.getElementById('modSalary').value = emp.salary;
                     document.getElementById('modEmpType').value = emp.employment_type;
                     
+                    document.getElementById('modShiftType').value = emp.shift_type || 'Day Shift';
+                    document.getElementById('modShiftTimings').value = emp.shift_timings || '09:00 AM - 06:00 PM';
+                    document.getElementById('modCasualLeaves').value = emp.casual_leaves !== undefined ? emp.casual_leaves : 2;
+
                     document.getElementById('modPan').value = emp.pan_no || '';
                     document.getElementById('modPf').value = emp.pf_no || '';
                     document.getElementById('modEsi').value = emp.esi_no || '';
@@ -692,18 +761,19 @@ if(file_exists($headerPath)) include $headerPath;
 
         function closeModal() { document.getElementById('employeeModal').style.display = 'none'; }
 
-        // TEAM VIEW MODAL
-        function viewTeam(teamJson, deptName) {
-            const teamData = JSON.parse(teamJson);
+        // TEAM VIEW MODAL 
+        function viewTeam(btnEl) {
+            const teamData = JSON.parse(btnEl.getAttribute('data-team'));
+            const deptName = btnEl.getAttribute('data-dept');
+            
             document.getElementById('teamModalTitle').innerHTML = `<i class="fas fa-sitemap mr-2"></i>${deptName} Team`;
             const listEl = document.getElementById('teamModalList');
             
             if(teamData.length === 0) {
-                listEl.innerHTML = `<li class="p-6 text-center text-gray-500 font-medium"><i class="fas fa-user-slash text-2xl mb-2 block text-gray-300"></i>No other members found in this department</li>`;
+                listEl.innerHTML = `<li class="p-6 text-center text-gray-500 font-medium"><i class="fas fa-user-slash text-2xl mb-2 block text-gray-300"></i>No team members found</li>`;
             } else {
                 let html = '';
                 teamData.forEach(member => {
-                    // Decide badge color based on role
                     let badgeClass = 'bg-gray-100 text-gray-600 border-gray-200';
                     const role = member.role.toLowerCase();
                     if(role.includes('manager') || role.includes('ceo') || role.includes('cfo')) badgeClass = 'bg-blue-50 text-blue-700 border-blue-200';
@@ -722,8 +792,8 @@ if(file_exists($headerPath)) include $headerPath;
             }
             document.getElementById('teamModal').style.display = 'flex';
         }
+        
         function closeTeamModal() { document.getElementById('teamModal').style.display = 'none'; }
-
 
         function switchTab(btn, tabId) {
             document.querySelectorAll('.tab-item').forEach(el => el.classList.remove('active'));
@@ -732,7 +802,7 @@ if(file_exists($headerPath)) include $headerPath;
             document.getElementById(tabId).style.display = 'block';
         }
 
-        // SAVE LOGIC (Handles both Add and Edit)
+        // SAVE LOGIC 
         document.getElementById('saveModalBtn').addEventListener('click', (e) => {
             e.preventDefault();
             const editId = document.getElementById('editId').value;
@@ -751,9 +821,14 @@ if(file_exists($headerPath)) include $headerPath;
             const manager_id = document.getElementById('modManager').value;
             const salary = document.getElementById('modSalary').value;
             const empType = document.getElementById('modEmpType').value;
+            
+            // New Shift & Leave fetching
+            const shiftType = document.getElementById('modShiftType').value;
+            const shiftTimings = document.getElementById('modShiftTimings').value;
+            const casualLeaves = document.getElementById('modCasualLeaves').value;
 
             // Validations
-            if(!fName || !empId || !joinDate || !desig || !uname || !email || !dept || !salary || !phone || !role) {
+            if(!fName || !empId || !joinDate || !desig || !uname || !email || !dept || !salary || !phone || !role || !shiftType || !shiftTimings || casualLeaves==='') {
                 showToast("Please fill all required (*) fields.", "error"); return;
             }
             if(editId === '' && !pwd) {
@@ -772,14 +847,23 @@ if(file_exists($headerPath)) include $headerPath;
             const formData = new FormData();
             formData.append('action', 'save');
             formData.append('edit_id', editId);
-            formData.append('fname', fName); formData.append('lname', lName);
-            formData.append('emp_id', empId); formData.append('join_date', joinDate);
-            formData.append('uname', uname); formData.append('email', email);
-            formData.append('pwd', pwd); formData.append('phone', phone);
+            formData.append('fname', fName);
+            formData.append('lname', lName);
+            formData.append('emp_id', empId);
+            formData.append('join_date', joinDate);
+            formData.append('uname', uname);
+            formData.append('email', email);
+            formData.append('pwd', pwd);
+            formData.append('phone', phone);
             formData.append('role', role); 
-            formData.append('dept', dept); formData.append('desig', desig);
-            formData.append('manager_id', manager_id); formData.append('salary', salary);
+            formData.append('dept', dept);
+            formData.append('desig', desig);
+            formData.append('manager_id', manager_id);
+            formData.append('salary', salary);
             formData.append('emp_type', empType);
+            formData.append('shift_type', shiftType);
+            formData.append('shift_timings', shiftTimings);
+            formData.append('casual_leaves', casualLeaves);
             formData.append('pan', document.getElementById('modPan').value.trim());
             formData.append('pf', document.getElementById('modPf').value.trim());
             formData.append('esi', document.getElementById('modEsi').value.trim());
@@ -828,6 +912,7 @@ if(file_exists($headerPath)) include $headerPath;
             if(emptyState) {
                 emptyState.classList.toggle('hidden', visibleCount > 0);
             }
+            document.getElementById('totalCount').textContent = visibleCount;
         }
 
         function clearFilters() {
