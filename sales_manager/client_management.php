@@ -18,6 +18,81 @@ if (file_exists('include/db_connect.php')) {
     $sidebarPath = '';
     $headerPath = '';
 }
+
+// Fetch User Role for Access Control
+ $current_user_role = $_SESSION['role'] ?? 'Guest'; 
+
+// Handle API requests (CRUD operations)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    if(ob_get_length()) ob_clean(); 
+    header('Content-Type: application/json');
+    
+    $action = $_POST['action'];
+    $response = ['success' => false, 'message' => 'Invalid action'];
+
+    try {
+        if ($action === 'load') {
+            $res = mysqli_query($conn, "SELECT * FROM crm_clients ORDER BY created_at DESC");
+            $clients = [];
+            if($res) {
+                while($row = mysqli_fetch_assoc($res)) {
+                    $clients[] = $row;
+                }
+            }
+            $response = ['success' => true, 'data' => $clients];
+        } 
+        elseif ($action === 'create') {
+            $id = mysqli_real_escape_string($conn, $_POST['id'] ?? uniqid()); 
+            $name = mysqli_real_escape_string($conn, $_POST['name'] ?? '');
+            $phone = mysqli_real_escape_string($conn, $_POST['phone'] ?? '');
+            $email = mysqli_real_escape_string($conn, $_POST['email'] ?? '');
+            $source = mysqli_real_escape_string($conn, $_POST['source'] ?? '');
+            $status = mysqli_real_escape_string($conn, $_POST['status'] ?? 'New');
+            $executive = mysqli_real_escape_string($conn, $_POST['executive'] ?? '');
+            $deal_value = floatval($_POST['deal_value'] ?? 0.00);
+
+            $sql = "INSERT INTO crm_clients (id, name, phone, email, source, status, executive, deal_value) 
+                    VALUES ('$id', '$name', '$phone', '$email', '$source', '$status', '$executive', $deal_value)";
+            
+            if(mysqli_query($conn, $sql)) {
+                $response = ['success' => true, 'message' => 'Client created'];
+            } else {
+                $response = ['success' => false, 'message' => mysqli_error($conn)];
+            }
+        } 
+        elseif ($action === 'update') {
+            $id = mysqli_real_escape_string($conn, $_POST['id'] ?? '');
+            $name = mysqli_real_escape_string($conn, $_POST['name'] ?? '');
+            $phone = mysqli_real_escape_string($conn, $_POST['phone'] ?? '');
+            $email = mysqli_real_escape_string($conn, $_POST['email'] ?? '');
+            $source = mysqli_real_escape_string($conn, $_POST['source'] ?? '');
+            $status = mysqli_real_escape_string($conn, $_POST['status'] ?? '');
+            $executive = mysqli_real_escape_string($conn, $_POST['executive'] ?? '');
+            $deal_value = floatval($_POST['deal_value'] ?? 0.00);
+
+            $sql = "UPDATE crm_clients SET name='$name', phone='$phone', email='$email', source='$source', status='$status', executive='$executive', deal_value=$deal_value WHERE id='$id'";
+            if(mysqli_query($conn, $sql)) {
+                $response = ['success' => true, 'message' => 'Client updated'];
+            } else {
+                $response = ['success' => false, 'message' => mysqli_error($conn)];
+            }
+        } 
+        elseif ($action === 'delete') {
+            $id = mysqli_real_escape_string($conn, $_POST['id'] ?? '');
+            $sql = "DELETE FROM crm_clients WHERE id='$id'";
+            if(mysqli_query($conn, $sql)) {
+                $response = ['success' => true, 'message' => 'Client deleted'];
+            } else {
+                $response = ['success' => false, 'message' => mysqli_error($conn)];
+            }
+        }
+    } catch (Exception $e) {
+        $response['message'] = 'Server error: ' . $e->getMessage();
+    }
+
+    echo json_encode($response);
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -26,668 +101,306 @@ if (file_exists('include/db_connect.php')) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sales CRM - Client Management</title>
     <style>
-        /* ==========================================================================
-           CSS VARIABLES & THEME
-           ========================================================================== */
         :root {
-            /* Light Theme */
             --bg-body: #f8fafc;
             --bg-surface: #ffffff;
             --bg-hover: #f1f5f9;
             --border-color: #e2e8f0;
-            --text-primary: #0f172a;
+            --text-primary: #1e293b;
             --text-secondary: #64748b;
             --text-muted: #94a3b8;
-            
-            /* Brand Colors */
-            --primary-color: #2563eb;
-            --primary-hover: #1d4ed8;
+            --primary-color: #1b5a5a;
+            --primary-hover: #134d4d;
             --danger-color: #ef4444;
-            --danger-hover: #dc2626;
-            
-            /* Status Colors */
-            --status-new-bg: #dbeafe;
-            --status-new-text: #1e40af;
-            --status-contacted-bg: #f3e8ff;
-            --status-contacted-text: #6b21a8;
-            --status-qualified-bg: #ffedd5;
-            --status-qualified-text: #9a3412;
-            --status-proposal-bg: #fef9c3;
-            --status-proposal-text: #854d0e;
-            --status-won-bg: #dcfce7;
-            --status-won-text: #166534;
-            --status-lost-bg: #fee2e2;
-            --status-lost-text: #991b1b;
-
-            /* Shadows & Geometry */
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --info-color: #3b82f6;
+            --purple-color: #8b5cf6;
+            --border-radius: 12px;
+            --border-radius-sm: 8px;
             --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-            --radius-md: 8px;
-            --radius-lg: 12px;
-            --sidebar-width: 100px;
-            --sidebar-collapsed-width: 80px;
-            --transition-speed: 0.3s;
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            --sidebar-width: 95px;
         }
 
-        [data-theme="dark"] {
+        body.dark-mode {
             --bg-body: #0f172a;
             --bg-surface: #1e293b;
             --bg-hover: #334155;
             --border-color: #334155;
             --text-primary: #f8fafc;
-            --text-secondary: #94a3b8;
+            --text-secondary: #cbd5e1;
             --text-muted: #64748b;
-            
-            --status-new-bg: rgba(59, 130, 246, 0.2);
-            --status-new-text: #93c5fd;
-            --status-contacted-bg: rgba(168, 85, 247, 0.2);
-            --status-contacted-text: #d8b4fe;
-            --status-qualified-bg: rgba(249, 115, 22, 0.2);
-            --status-qualified-text: #fdba74;
-            --status-proposal-bg: rgba(234, 179, 8, 0.2);
-            --status-proposal-text: #fde047;
-            --status-won-bg: rgba(34, 197, 94, 0.2);
-            --status-won-text: #86efac;
-            --status-lost-bg: rgba(239, 68, 68, 0.2);
-            --status-lost-text: #fca5a5;
         }
 
-        /* ==========================================================================
-           RESET & BASE
-           ========================================================================== */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        body { background-color: var(--bg-body); color: var(--text-primary); line-height: 1.5; -webkit-font-smoothing: antialiased; transition: background-color var(--transition); }
+        .main-content { margin-left: var(--sidebar-width); padding: 2rem; min-height: 100vh; }
+        button { cursor: pointer; border: none; background: none; font-family: inherit; }
+        input, select { font-family: inherit; }
 
-        body {
-            background-color: var(--bg-body);
-            color: var(--text-primary);
-            min-height: 100vh;
-            overflow-x: hidden;
-            transition: background-color var(--transition-speed), color var(--transition-speed);
-        }
+        h1 { font-size: 1.875rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.025em; }
+        h2 { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); }
 
-        svg {
-            width: 20px;
-            height: 20px;
-            stroke: currentColor;
-            stroke-width: 2;
-            stroke-linecap: round;
-            stroke-linejoin: round;
-            fill: none;
-        }
+        .header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem; }
+        .header-content p { color: var(--text-secondary); margin-top: 0.5rem; font-size: 0.95rem; }
+        .header-actions { display: flex; gap: 1rem; align-items: center; }
 
-        button {
-            cursor: pointer;
-            border: none;
-            background: none;
-            font-size: 14px;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.625rem 1.25rem; border-radius: var(--border-radius-sm); font-weight: 500; font-size: 0.875rem; transition: var(--transition); }
+        .btn:focus { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-primary { background-color: var(--primary-color); color: white; box-shadow: var(--shadow-sm); }
+        .btn-primary:hover:not(:disabled) { background-color: var(--primary-hover); transform: translateY(-1px); }
+        .btn-secondary { background-color: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover:not(:disabled) { background-color: var(--bg-hover); }
+        .btn-icon { padding: 0.5rem; border-radius: var(--border-radius-sm); color: var(--text-secondary); background-color: transparent; }
+        .btn-icon:hover { background-color: var(--bg-hover); color: var(--primary-color); }
+        .btn-icon.danger:hover { background-color: #fee2e2; color: var(--danger-color); }
+        .btn-icon.success:hover { background-color: #dcfce7; color: var(--success-color); }
+        body.dark-mode .btn-icon.danger:hover { background-color: rgba(239, 68, 68, 0.2); }
+        body.dark-mode .btn-icon.success:hover { background-color: rgba(16, 185, 129, 0.2); }
 
-        input, select {
-            width: 100%;
-            padding: 10px 12px;
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-md);
-            background-color: var(--bg-surface);
-            color: var(--text-primary);
-            font-size: 14px;
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
+        .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
+        .metric-card { background-color: var(--bg-surface); border-radius: var(--border-radius); padding: 1.5rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1.25rem; transition: var(--transition); }
+        .metric-card:hover { box-shadow: var(--shadow-md); transform: translateY(-2px); }
+        .metric-icon { width: 48px; height: 48px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+        .metric-icon.total { background-color: #e0f2fe; color: var(--info-color); }
+        .metric-icon.new { background-color: #fef3c7; color: var(--warning-color); }
+        .metric-icon.won { background-color: #dcfce7; color: var(--success-color); }
+        .metric-icon.value { background-color: #f3e8ff; color: var(--purple-color); }
+        body.dark-mode .metric-icon.total { background-color: rgba(59, 130, 246, 0.2); }
+        body.dark-mode .metric-icon.new { background-color: rgba(245, 158, 11, 0.2); }
+        body.dark-mode .metric-icon.won { background-color: rgba(16, 185, 129, 0.2); }
+        body.dark-mode .metric-icon.value { background-color: rgba(139, 92, 246, 0.2); }
+        .metric-content h3 { font-size: 0.875rem; color: var(--text-secondary); font-weight: 500; margin-bottom: 0.25rem; }
+        .metric-content .value { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
 
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-        }
+        .controls-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
+        .search-wrapper { position: relative; flex-grow: 1; max-width: 400px; }
+        .search-icon { position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); width: 16px; height: 16px; }
+        .search-input { width: 100%; padding: 0.625rem 1rem 0.625rem 2.5rem; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background-color: var(--bg-surface); color: var(--text-primary); font-size: 0.875rem; transition: var(--transition); }
+        .search-input:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); }
+        .filter-group { display: flex; gap: 1rem; align-items: center; }
+        .filter-select { padding: 0.625rem 2rem 0.625rem 1rem; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background-color: var(--bg-surface); color: var(--text-primary); font-size: 0.875rem; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.75rem center; background-size: 1rem; }
+        .filter-select:focus { outline: none; border-color: var(--primary-color); }
 
-        /* ==========================================================================
-           LAYOUT: SIDEBAR & MAIN WRAPPER
-           ========================================================================== */
-        .sidebar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            height: 100vh;
-            width: var(--sidebar-width);
-            background-color: var(--bg-surface);
-            border-right: 1px solid var(--border-color);
-            display: flex;
-            flex-direction: column;
-            transition: width var(--transition-speed) ease, transform var(--transition-speed) ease;
-            z-index: 1000;
-        }
-
-        .sidebar.collapsed {
-            width: var(--sidebar-collapsed-width);
-        }
-
-        .main-wrapper {
-            margin-left: var(--sidebar-width);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            transition: margin-left var(--transition-speed) ease;
-        }
-
-        .sidebar.collapsed ~ .main-wrapper {
-            margin-left: var(--sidebar-collapsed-width);
-        }
-
-        .sidebar-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.5);
-            backdrop-filter: blur(2px);
-            z-index: 999;
-            opacity: 0;
-            visibility: hidden;
-            transition: all var(--transition-speed) ease;
-        }
-
-        .sidebar-overlay.active {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        .sidebar-header {
-            height: 70px;
-            display: flex;
-            align-items: center;
-            padding: 0 20px;
-            border-bottom: 1px solid var(--border-color);
-            overflow: hidden;
-            white-space: nowrap;
-        }
-
-        .sidebar-logo {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--primary-color);
-        }
-
-        .sidebar-nav {
-            padding: 20px 10px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            overflow-y: auto;
-        }
-
-        .nav-item {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            padding: 12px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            border-radius: var(--radius-md);
-            transition: background-color 0.2s ease, color 0.2s ease;
-            overflow: hidden;
-            white-space: nowrap;
-        }
-
-        .nav-item:hover, .nav-item.active {
-            background-color: var(--bg-hover);
-            color: var(--primary-color);
-        }
-
-        .sidebar.collapsed .nav-item span,
-        .sidebar.collapsed .sidebar-logo span {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        /* ==========================================================================
-           TOP NAVBAR
-           ========================================================================== */
-        .navbar {
-            height: 70px;
-            background-color: var(--bg-surface);
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 30px;
-            position: sticky;
-            top: 0;
-            z-index: 90;
-        }
-
-        .nav-left, .nav-right {
-            display: flex;
-            align-items: center;
-            gap: 20px;
-        }
-
-        .toggle-btn {
-            color: var(--text-secondary);
-            padding: 8px;
-            border-radius: var(--radius-md);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .toggle-btn:hover {
-            background-color: var(--bg-hover);
-            color: var(--text-primary);
-        }
-
-        .user-profile {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .avatar {
-            width: 36px;
-            height: 36px;
-            background-color: var(--primary-color);
-            color: white;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .user-info { display: flex; flex-direction: column; }
-        .user-name { font-weight: 600; font-size: 14px; }
-        .user-role { font-size: 12px; color: var(--text-muted); }
-
-        /* ==========================================================================
-           MAIN CONTENT & STATS
-           ========================================================================== */
-        .content {
-            flex: 1;
-            padding: 30px;
-        }
-
-        .page-header { margin-bottom: 24px; }
-        .page-title { font-size: 24px; font-weight: 700; color: var(--text-primary); }
-
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 24px;
-            margin-bottom: 30px;
-        }
-
-        .stat-card {
-            background-color: var(--bg-surface);
-            padding: 24px;
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-sm);
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
-        }
-
-        .stat-icon {
-            width: 54px;
-            height: 54px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background-color: var(--bg-hover);
-            color: var(--primary-color);
-        }
-
-        .stat-details { display: flex; flex-direction: column; }
-        .stat-value { font-size: 24px; font-weight: 700; color: var(--text-primary); line-height: 1.2; }
-        .stat-label { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
-
-        /* ==========================================================================
-           TABLE COMPONENT & CONTROLS
-           ========================================================================== */
-        .card {
-            background-color: var(--bg-surface);
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-sm);
-            display: flex;
-            flex-direction: column;
-        }
-
-        .card-header {
-            padding: 20px 24px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
-
-        .controls {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-            flex-wrap: wrap;
-        }
-
-        .search-box { position: relative; width: 250px; }
-        .search-box svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); width: 16px; height: 16px; }
-        .search-box input { padding-left: 36px; }
-
-        .btn-primary {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 10px 16px;
-            border-radius: var(--radius-md);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .btn-primary:hover { background-color: var(--primary-hover); }
-
-        .btn-secondary {
-            background-color: var(--bg-hover);
-            color: var(--text-primary);
-            padding: 10px 16px;
-            border-radius: var(--radius-md);
-        }
-        .btn-secondary:hover { background-color: var(--border-color); }
-
-        .table-responsive { width: 100%; overflow-x: auto; }
+        .table-container { background-color: var(--bg-surface); border-radius: var(--border-radius); border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); overflow: hidden; position: relative; }
         table { width: 100%; border-collapse: collapse; text-align: left; }
-        th, td { padding: 16px 24px; border-bottom: 1px solid var(--border-color); font-size: 14px; white-space: nowrap; }
-        th { background-color: var(--bg-hover); color: var(--text-secondary); font-weight: 600; text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
-        
-        /* Sorting UI */
-        th.sortable { cursor: pointer; user-select: none; transition: background-color 0.2s; }
-        th.sortable:hover { background-color: var(--border-color); color: var(--text-primary); }
-        th.sortable::after { content: ' \2195'; opacity: 0.3; margin-left: 5px; font-size: 14px; }
-        th.sortable.asc::after { content: ' \2191'; opacity: 1; color: var(--primary-color); }
-        th.sortable.desc::after { content: ' \2193'; opacity: 1; color: var(--primary-color); }
-
-        tbody tr { transition: background-color 0.2s ease; }
+        th { background-color: var(--bg-hover); color: var(--text-secondary); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); }
+        td { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tbody tr { transition: var(--transition); }
         tbody tr:hover { background-color: var(--bg-hover); }
 
-        .client-info { display: flex; flex-direction: column; }
-        .client-name { font-weight: 600; color: var(--text-primary); }
-        .client-id { font-size: 12px; color: var(--text-muted); }
+        .client-info { display: flex; align-items: center; gap: 1rem; }
+        .client-avatar { width: 40px; height: 40px; border-radius: 50%; background-color: var(--theme-light, #e0f2f1); color: var(--primary-color); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 1rem; flex-shrink: 0; }
+        body.dark-mode .client-avatar { background-color: rgba(27, 90, 90, 0.2); }
+        .client-details { display: flex; flex-direction: column; }
+        .client-name { font-weight: 600; color: var(--text-primary); margin-bottom: 0.125rem; }
+        .client-email { color: var(--text-secondary); font-size: 0.8125rem; }
 
-        .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .badge.new { background: var(--status-new-bg); color: var(--status-new-text); }
-        .badge.contacted { background: var(--status-contacted-bg); color: var(--status-contacted-text); }
-        .badge.qualified { background: var(--status-qualified-bg); color: var(--status-qualified-text); }
-        .badge.proposal { background: var(--status-proposal-bg); color: var(--status-proposal-text); }
-        .badge.won { background: var(--status-won-bg); color: var(--status-won-text); }
-        .badge.lost { background: var(--status-lost-bg); color: var(--status-lost-text); }
+        .status-badge { display: inline-flex; align-items: center; padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+        .status-new { background-color: #dbeafe; color: #1e40af; }
+        .status-contacted { background-color: #fef3c7; color: #b45309; }
+        .status-qualified { background-color: #e0e7ff; color: #4338ca; }
+        .status-proposal { background-color: #fae8ff; color: #7e22ce; }
+        .status-won { background-color: #dcfce7; color: #15803d; }
+        .status-lost { background-color: #fee2e2; color: #b91c1c; }
+        body.dark-mode .status-new { background-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        body.dark-mode .status-contacted { background-color: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+        body.dark-mode .status-qualified { background-color: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
+        body.dark-mode .status-proposal { background-color: rgba(168, 85, 247, 0.2); color: #d8b4fe; }
+        body.dark-mode .status-won { background-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+        body.dark-mode .status-lost { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
 
-        .action-btns { display: flex; gap: 10px; }
-        .action-btn { width: 32px; height: 32px; border-radius: var(--radius-md); display: flex; align-items: center; justify-content: center; color: var(--text-secondary); }
-        .action-btn:hover { background-color: var(--border-color); color: var(--text-primary); }
-        .action-btn.delete:hover { background-color: rgba(239, 68, 68, 0.1); color: var(--danger-color); }
+        .deal-value { font-weight: 600; color: var(--text-primary); }
+        .table-actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
 
-        /* Pagination */
-        .pagination-container {
-            padding: 16px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-top: 1px solid var(--border-color);
-            background-color: var(--bg-surface);
-            border-radius: 0 0 var(--radius-lg) var(--radius-lg);
-        }
-        .pagination-info { font-size: 13px; color: var(--text-secondary); }
-        .pagination-controls { display: flex; gap: 8px; }
-        .page-btn { padding: 6px 12px; font-size: 13px; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-surface); color: var(--text-primary); }
-        .page-btn:hover:not(:disabled) { background: var(--bg-hover); color: var(--primary-color); border-color: var(--primary-color); }
-        .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .empty-state { padding: 4rem 2rem; text-align: center; color: var(--text-secondary); }
+        .empty-state svg { width: 48px; height: 48px; margin-bottom: 1rem; color: var(--text-muted); opacity: 0.5; }
 
-        /* Empty State */
-        .empty-state {
-            display: none; padding: 60px 20px; text-align: center; flex-direction: column; align-items: center; justify-content: center;
-        }
-        .empty-state svg { width: 64px; height: 64px; color: var(--text-muted); margin-bottom: 16px; }
-        .empty-state h3 { font-size: 18px; color: var(--text-primary); margin-bottom: 8px; }
-        .empty-state p { color: var(--text-secondary); font-size: 14px; max-width: 300px; }
+        .pagination { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; background-color: var(--bg-surface); border-top: 1px solid var(--border-color); }
+        .page-info { font-size: 0.875rem; color: var(--text-secondary); }
+        .page-controls { display: flex; gap: 0.5rem; }
 
-        /* ==========================================================================
-           MODALS
-           ========================================================================== */
-        .modal-overlay {
-            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px);
-            display: flex; align-items: center; justify-content: center;
-            z-index: 2000; opacity: 0; visibility: hidden;
-            transition: opacity 0.3s ease, visibility 0.3s ease; padding: 20px;
-        }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.3s ease; backdrop-filter: blur(2px); }
         .modal-overlay.active { opacity: 1; visibility: visible; }
-        
-        .modal-content {
-            background-color: var(--bg-surface); width: 100%; max-width: 500px;
-            border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
-            transform: translateY(20px); transition: transform 0.3s ease;
-            display: flex; flex-direction: column; max-height: 90vh;
-        }
+        .modal-content { background-color: var(--bg-surface); border-radius: var(--border-radius); width: 100%; max-width: 600px; box-shadow: var(--shadow-lg); transform: translateY(20px); transition: transform 0.3s ease; display: flex; flex-direction: column; max-height: 90vh; }
         .modal-overlay.active .modal-content { transform: translateY(0); }
-
-        .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; justify-content: space-between; }
-        .modal-title { font-size: 18px; font-weight: 600; color: var(--text-primary); }
-        .close-btn { color: var(--text-muted); padding: 4px; border-radius: 4px; }
+        .modal-header { padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h2 { margin: 0; font-size: 1.25rem; }
+        .close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.5rem; border-radius: var(--border-radius-sm); transition: var(--transition); }
         .close-btn:hover { background-color: var(--bg-hover); color: var(--text-primary); }
+        .modal-body { padding: 1.5rem; overflow-y: auto; }
+        .modal-footer { padding: 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 1rem; }
+        #confirmModal .modal-content { max-width: 400px; }
 
-        .modal-body { padding: 24px; overflow-y: auto; }
-        .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 12px; }
-
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; color: var(--text-secondary); }
-        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-
-        /* Confirmation Modal specific */
-        #confirmModal .modal-content { max-width: 400px; text-align: center; }
-        #confirmModal .modal-body { padding: 30px 24px; }
-        .warning-icon { width: 48px; height: 48px; background-color: rgba(239, 68, 68, 0.1); color: var(--danger-color); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; }
+        .form-row { display: flex; gap: 1rem; margin-bottom: 1rem; }
+        .form-row .form-group { flex: 1; margin-bottom: 0; }
+        .form-group { margin-bottom: 1.5rem; }
+        .form-group label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-primary); margin-bottom: 0.5rem; }
+        .form-group input, .form-group select { width: 100%; padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background-color: var(--bg-body); color: var(--text-primary); font-size: 0.875rem; transition: var(--transition); }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); background-color: var(--bg-surface); }
         
-        /* ==========================================================================
-           RESPONSIVE DESIGN
-           ========================================================================== */
-        @media (max-width: 992px) {
-            .sidebar { transform: translateX(-100%); width: var(--sidebar-width) !important; }
-            .sidebar.mobile-open { transform: translateX(0); }
-            .main-wrapper, .sidebar.collapsed ~ .main-wrapper { margin-left: 0; }
-            .form-row { grid-template-columns: 1fr; }
-        }
+        /* Readonly styling for View Mode */
+        .form-group input:read-only { background-color: var(--bg-hover); cursor: default; }
+        .form-group select:disabled { background-color: var(--bg-hover); cursor: default; opacity: 1; color: var(--text-primary); }
 
-        @media (max-width: 640px) {
-            .controls { flex-direction: column; align-items: stretch; }
-            .search-box { width: 100%; }
-            .card-header { flex-direction: column; align-items: flex-start; }
-            .stats-grid { grid-template-columns: 1fr; }
-            .user-info { display: none; }
-            .pagination-container { flex-direction: column; gap: 12px; }
-        }
+        .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.7); display: none; align-items: center; justify-content: center; z-index: 10; }
+        body.dark-mode .loading-overlay { background-color: rgba(30, 41, 59, 0.7); }
+        .loading-overlay.active { display: flex; }
+        .spinner { width: 40px; height: 40px; border: 3px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @media (max-width: 1024px) { .main-content { margin-left: 0; padding: 1.5rem; } }
+        @media (max-width: 768px) { .header { flex-direction: column; align-items: flex-start; gap: 1rem; } .controls-bar { flex-direction: column; align-items: stretch; } .search-wrapper { max-width: 100%; } .filter-group { flex-wrap: wrap; } .form-row { flex-direction: column; gap: 0; } .form-row .form-group { margin-bottom: 1.5rem; } }
     </style>
 </head>
 <body>
+    <?php if ($sidebarPath) include $sidebarPath; ?>
+    <?php if ($headerPath) include $headerPath; ?>
 
-    <?php if(file_exists($sidebarPath)) require_once $sidebarPath; ?>
-
-    <?php if(!file_exists($sidebarPath)): ?>
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-    <aside class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <div class="sidebar-logo">
-                <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                <span>Sales CRM</span>
+    <main class="main-content">
+        <header class="header">
+            <div class="header-content">
+                <h1>Client Management</h1>
+                <p>Track leads, manage deals, and build customer relationships.</p>
             </div>
-        </div>
-        <div class="sidebar-nav">
-            <a href="#" class="nav-item">
-                <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
-                <span>Dashboard</span>
-            </a>
-            <a href="#" class="nav-item active">
-                <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                <span>Clients</span>
-            </a>
-            <a href="#" class="nav-item">
-                <svg viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>
-                <span>Reports</span>
-            </a>
-        </div>
-    </aside>
-    <?php endif; ?>
-
-    <div class="main-wrapper">
-        <?php if(file_exists($headerPath)) require_once $headerPath; ?>
-        
-        <?php if(!file_exists($headerPath)): ?>
-        <nav class="navbar">
-            <div class="nav-left">
-                <button class="toggle-btn" id="sidebarToggle" aria-label="Toggle Sidebar">
-                    <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+            <div class="header-actions">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </button>
+                <button class="btn btn-primary" id="addClientBtn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    New Client
                 </button>
             </div>
-            <div class="nav-right">
-                <button class="toggle-btn" id="themeToggle" aria-label="Toggle Theme">
-                    <svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
-                </button>
-                <div class="user-profile">
-                    <div class="avatar">SM</div>
-                    <div class="user-info">
-                        <span class="user-name">Sarah Manager</span>
-                        <span class="user-role">Sales Director</span>
-                    </div>
+        </header>
+
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-icon total">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                </div>
+                <div class="metric-content">
+                    <h3>Total Clients</h3>
+                    <div class="value" id="metricTotal">0</div>
                 </div>
             </div>
-        </nav>
-        <?php endif; ?>
-
-        <main class="content">
-            <div class="page-header">
-                <h1 class="page-title">Client Management</h1>
-            </div>
-
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-icon">
-                        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                    </div>
-                    <div class="stat-details">
-                        <span class="stat-value" id="stat-total-clients">0</span>
-                        <span class="stat-label">Total Clients</span>
-                    </div>
+            <div class="metric-card">
+                <div class="metric-icon new">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+                    </svg>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-icon" style="color: var(--status-qualified-text); background: var(--status-qualified-bg);">
-                        <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-                    </div>
-                    <div class="stat-details">
-                        <span class="stat-value" id="stat-active-leads">0</span>
-                        <span class="stat-label">Active Leads</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon" style="color: var(--status-won-text); background: var(--status-won-bg);">
-                        <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-                    </div>
-                    <div class="stat-details">
-                        <span class="stat-value" id="stat-closed-deals">0</span>
-                        <span class="stat-label">Closed Deals</span>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon" style="color: var(--status-new-text); background: var(--status-new-bg);">
-                        <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
-                    </div>
-                    <div class="stat-details">
-                        <span class="stat-value" id="stat-total-revenue">₹0</span>
-                        <span class="stat-label">Total Revenue (Won)</span>
-                    </div>
+                <div class="metric-content">
+                    <h3>New Leads</h3>
+                    <div class="value" id="metricNew">0</div>
                 </div>
             </div>
-
-            <div class="card">
-                <div class="card-header">
-                    <div class="controls">
-                        <div class="search-box">
-                            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-                            <input type="text" id="searchInput" placeholder="Search clients...">
-                        </div>
-                        <select id="filterStatus">
-                            <option value="All">All Statuses</option>
-                            <option value="New">New</option>
-                            <option value="Contacted">Contacted</option>
-                            <option value="Qualified">Qualified</option>
-                            <option value="Proposal">Proposal</option>
-                            <option value="Won">Won</option>
-                            <option value="Lost">Lost</option>
-                        </select>
-                    </div>
-                    <button class="btn-primary" id="addClientBtn">
-                        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                        Add Client
-                    </button>
+            <div class="metric-card">
+                <div class="metric-icon won">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                 </div>
-                
-                <div class="table-responsive">
-                    <table id="clientTable">
-                        <thead>
-                            <tr>
-                                <th class="sortable" data-sort="name">Client Details</th>
-                                <th class="sortable" data-sort="email">Contact Info</th>
-                                <th class="sortable" data-sort="source">Source</th>
-                                <th class="sortable" data-sort="status">Status</th>
-                                <th class="sortable" data-sort="executive">Executive</th>
-                                <th class="sortable" data-sort="value">Deal Value</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tableBody">
-                            </tbody>
-                    </table>
-                    
-                    <div class="empty-state" id="emptyState">
-                        <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
-                        <h3>No Clients Found</h3>
-                        <p>Get started by adding a new client to your pipeline or adjust your search filters.</p>
-                    </div>
-                </div>
-
-                <div class="pagination-container" id="paginationContainer">
-                    <div class="pagination-info" id="paginationInfo">Showing 1 to 5 of 10 entries</div>
-                    <div class="pagination-controls">
-                        <button class="page-btn" id="prevPageBtn" disabled>Previous</button>
-                        <button class="page-btn" id="nextPageBtn">Next</button>
-                    </div>
+                <div class="metric-content">
+                    <h3>Deals Won</h3>
+                    <div class="value" id="metricWon">0</div>
                 </div>
             </div>
-        </main>
-    </div>
+            <div class="metric-card">
+                <div class="metric-icon value">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div class="metric-content">
+                    <h3>Pipeline Value</h3>
+                    <div class="value" id="metricValue">₹0</div>
+                </div>
+            </div>
+        </div>
 
-    <div id="clientModal" class="modal-overlay">
+        <div class="controls-bar">
+            <div class="search-wrapper">
+                <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input type="text" class="search-input" id="searchInput" placeholder="Search clients, emails, or phone...">
+            </div>
+            <div class="filter-group">
+                <select class="filter-select" id="statusFilter">
+                    <option value="all">All Statuses</option>
+                    <option value="New">New</option>
+                    <option value="Contacted">Contacted</option>
+                    <option value="Qualified">Qualified</option>
+                    <option value="Proposal">Proposal</option>
+                    <option value="Won">Won</option>
+                    <option value="Lost">Lost</option>
+                </select>
+                <select class="filter-select" id="sourceFilter">
+                    <option value="all">All Sources</option>
+                    <option value="Website">Website</option>
+                    <option value="Referral">Referral</option>
+                    <option value="Cold Call">Cold Call</option>
+                    <option value="Social Media">Social Media</option>
+                    <option value="Trade Show">Trade Show</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="table-container">
+            <div class="loading-overlay" id="tableLoading">
+                <div class="spinner"></div>
+            </div>
+            <table id="clientsTable">
+                <thead>
+                    <tr>
+                        <th>Client Details</th>
+                        <th>Contact Info</th>
+                        <th>Source</th>
+                        <th>Status</th>
+                        <th>Executive</th>
+                        <th>Deal Value</th>
+                        <th style="text-align: right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"> </tbody>
+            </table>
+            
+            <div class="empty-state" id="emptyState" style="display: none;">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                </svg>
+                <h3>No clients found</h3>
+                <p>We couldn't find any clients matching your current filters.</p>
+            </div>
+
+            <div class="pagination">
+                <div class="page-info" id="pageInfo">Showing 0 to 0 of 0 entries</div>
+                <div class="page-controls">
+                    <button class="btn btn-secondary" id="prevPageBtn" disabled>Previous</button>
+                    <button class="btn btn-secondary" id="nextPageBtn" disabled>Next</button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div class="modal-overlay" id="formModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 class="modal-title" id="modalTitle">Add New Client</h3>
-                <button class="close-btn" id="closeModalBtn" aria-label="Close">
-                    <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <h2 id="modalTitle">Add New Client</h2>
+                <button class="close-btn" id="closeFormBtn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                 </button>
             </div>
             <form id="clientForm">
@@ -746,424 +459,414 @@ if (file_exists('include/db_connect.php')) {
                         </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn-secondary" id="cancelModalBtn">Cancel</button>
-                    <button type="submit" class="btn-primary">Save Client</button>
+                <div class="modal-footer" id="modalFooter">
+                    <button type="button" class="btn btn-secondary" id="cancelFormBtn">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="saveClientBtn">Save Client</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <div id="confirmModal" class="modal-overlay">
+    <div class="modal-overlay" id="confirmModal">
         <div class="modal-content">
+            <div class="modal-header">
+                <h2>Delete Client</h2>
+                <button class="close-btn" id="closeConfirmBtn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
             <div class="modal-body">
-                <div class="warning-icon">
-                    <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                </div>
-                <h3 class="modal-title" style="margin-bottom: 8px;">Delete Client?</h3>
-                <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 24px;">This action cannot be undone. All data related to this client will be permanently removed.</p>
-                <div style="display: flex; gap: 12px; justify-content: center;">
-                    <button class="btn-secondary" id="cancelDeleteBtn">Cancel</button>
-                    <button class="btn-danger" id="confirmDeleteBtn">Yes, Delete</button>
-                </div>
+                <p>Are you sure you want to delete this client? This action cannot be undone.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelConfirmBtn">Cancel</button>
+                <button type="button" class="btn btn-primary" style="background-color: var(--danger-color);" id="executeDeleteBtn">Delete</button>
             </div>
         </div>
     </div>
 
     <script>
-        /**
-         * Professional Sales CRM - Client Management Architecture
-         */
         class ClientManager {
             constructor() {
-                // Application State
+                // State
                 this.clients = [];
-                this.editingId = null;
+                this.filteredClients = [];
+                this.currentPage = 1;
+                this.itemsPerPage = 10;
                 this.clientToDelete = null;
                 
-                // Pagination & Sorting State
-                this.currentPage = 1;
-                this.itemsPerPage = 5;
-                this.sortCol = 'created_at'; // Default sort key (pseudo)
-                this.sortAsc = false;
+                // Role Based Access (Passed from PHP)
+                this.userRole = "<?php echo $current_user_role; ?>";
 
-                // DOM Elements - Layout
-                this.sidebar = document.getElementById('sidebar');
-                this.sidebarOverlay = document.getElementById('sidebarOverlay');
-                this.sidebarToggle = document.getElementById('sidebarToggle');
-                this.themeToggle = document.getElementById('themeToggle');
+                // DOM Elements
+                this.cacheDOM();
+                this.bindEvents();
                 
-                // DOM Elements - Table & Controls
+                // Initialize
+                this.initTheme();
+                this.loadData();
+            }
+
+            cacheDOM() {
+                // Table & UI
                 this.tableBody = document.getElementById('tableBody');
                 this.emptyState = document.getElementById('emptyState');
+                this.loadingOverlay = document.getElementById('tableLoading');
+                
+                // Metrics
+                this.metricTotal = document.getElementById('metricTotal');
+                this.metricNew = document.getElementById('metricNew');
+                this.metricWon = document.getElementById('metricWon');
+                this.metricValue = document.getElementById('metricValue');
+                
+                // Controls
                 this.searchInput = document.getElementById('searchInput');
-                this.filterStatus = document.getElementById('filterStatus');
-                this.clientTable = document.getElementById('clientTable');
-                this.tableHeaders = document.querySelectorAll('th.sortable');
+                this.statusFilter = document.getElementById('statusFilter');
+                this.sourceFilter = document.getElementById('sourceFilter');
                 
-                // DOM Elements - Pagination
-                this.paginationContainer = document.getElementById('paginationContainer');
-                this.paginationInfo = document.getElementById('paginationInfo');
-                this.prevPageBtn = document.getElementById('prevPageBtn');
-                this.nextPageBtn = document.getElementById('nextPageBtn');
-
-                // DOM Elements - Stats
-                this.statTotal = document.getElementById('stat-total-clients');
-                this.statActive = document.getElementById('stat-active-leads');
-                this.statClosed = document.getElementById('stat-closed-deals');
-                this.statRevenue = document.getElementById('stat-total-revenue');
-
-                // DOM Elements - Modals
-                this.addClientBtn = document.getElementById('addClientBtn');
-                this.clientModal = document.getElementById('clientModal');
+                // Pagination
+                this.pageInfo = document.getElementById('pageInfo');
+                this.prevBtn = document.getElementById('prevPageBtn');
+                this.nextBtn = document.getElementById('nextPageBtn');
+                
+                // Modals & Buttons
+                this.themeBtn = document.getElementById('themeToggleBtn');
+                this.addBtn = document.getElementById('addClientBtn');
+                
+                this.formModal = document.getElementById('formModal');
                 this.clientForm = document.getElementById('clientForm');
-                this.closeModalBtn = document.getElementById('closeModalBtn');
-                this.cancelModalBtn = document.getElementById('cancelModalBtn');
                 this.modalTitle = document.getElementById('modalTitle');
+                this.modalFooter = document.getElementById('modalFooter');
+                this.saveClientBtn = document.getElementById('saveClientBtn');
+                this.closeFormBtn = document.getElementById('closeFormBtn');
+                this.cancelFormBtn = document.getElementById('cancelFormBtn');
                 
-                // DOM Elements - Confirm Modal
                 this.confirmModal = document.getElementById('confirmModal');
-                this.cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
-                this.confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+                this.closeConfirmBtn = document.getElementById('closeConfirmBtn');
+                this.cancelConfirmBtn = document.getElementById('cancelConfirmBtn');
+                this.executeDeleteBtn = document.getElementById('executeDeleteBtn');
 
-                // Boot initialization
-                this.init();
+                // Form Inputs
+                this.inputs = {
+                    id: document.getElementById('clientId'),
+                    name: document.getElementById('clientName'),
+                    phone: document.getElementById('clientPhone'),
+                    email: document.getElementById('clientEmail'),
+                    source: document.getElementById('clientSource'),
+                    status: document.getElementById('clientStatus'),
+                    executive: document.getElementById('clientExecutive'),
+                    value: document.getElementById('clientValue')
+                };
             }
 
-            init() {
-                this.loadTheme();
-                this.loadData();
-                this.bindEvents();
-                this.render();
-            }
-
-            // --- DATA MANAGEMENT ---
-            loadData() {
-                const storedClients = localStorage.getItem('crm_clients_v2');
-                if (storedClients) {
-                    this.clients = JSON.parse(storedClients);
-                } else {
-                    // Seed robust dummy data
-                    this.clients = [
-                        { id: this.generateId(), name: 'Global Tech Industries', phone: '+91 98765 12345', email: 'purchasing@globaltech.inc', source: 'Website', status: 'Proposal', executive: 'Sarah Manager', value: 1250000.00, created_at: Date.now() - 100000 },
-                        { id: this.generateId(), name: 'Stark Logistics', phone: '+91 98765 23456', email: 'hello@stark.com', source: 'Referral', status: 'Won', executive: 'John Doe', value: 4500000.00, created_at: Date.now() - 200000 },
-                        { id: this.generateId(), name: 'Wayne Enterprises', phone: '+91 98765 34567', email: 'b.wayne@wayne.ent', source: 'Trade Show', status: 'New', executive: 'Bruce W.', value: 850000.00, created_at: Date.now() - 300000 },
-                        { id: this.generateId(), name: 'Acme Corp', phone: '+91 98765 45678', email: 'contact@acmecorp.in', source: 'Cold Call', status: 'Contacted', executive: 'Sarah Manager', value: 500000.00, created_at: Date.now() - 400000 },
-                        { id: this.generateId(), name: 'CyberDyne Systems', phone: '+91 98765 56789', email: 'miles@cyberdyne.io', source: 'Website', status: 'Qualified', executive: 'John Doe', value: 2000000.00, created_at: Date.now() - 500000 },
-                        { id: this.generateId(), name: 'Initech', phone: '+91 98765 67890', email: 'sales@initech.com', source: 'Social Media', status: 'Lost', executive: 'Peter G.', value: 100000.00, created_at: Date.now() - 600000 }
-                    ];
-                    this.saveData();
-                }
-            }
-
-            saveData() {
-                localStorage.setItem('crm_clients_v2', JSON.stringify(this.clients));
-            }
-
-            // Secure collision-resistant ID generation
-            generateId() {
-                const timestamp = Date.now().toString().slice(-6);
-                const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-                return `CLI-${timestamp}-${random}`;
-            }
-
-            // --- EVENT LISTENERS ---
             bindEvents() {
-                // Layout & Mobile Toggles
-                if(this.sidebarToggle) {
-                    this.sidebarToggle.addEventListener('click', () => {
-                        if (window.innerWidth <= 992) {
-                            this.sidebar.classList.add('mobile-open');
-                            this.sidebarOverlay.classList.add('active');
-                            document.body.style.overflow = 'hidden'; // Lock scroll
-                        } else {
-                            this.sidebar.classList.toggle('collapsed');
-                        }
-                    });
+                // Theme
+                if(this.themeBtn) {
+                    this.themeBtn.addEventListener('click', () => this.toggleTheme());
                 }
-
-                if(this.sidebarOverlay) {
-                    this.sidebarOverlay.addEventListener('click', () => {
-                        this.sidebar.classList.remove('mobile-open');
-                        this.sidebarOverlay.classList.remove('active');
-                        document.body.style.overflow = '';
-                    });
+                
+                // Controls
+                this.searchInput.addEventListener('input', () => this.handleFilter());
+                this.statusFilter.addEventListener('change', () => this.handleFilter());
+                this.sourceFilter.addEventListener('change', () => this.handleFilter());
+                
+                // Pagination
+                this.prevBtn.addEventListener('click', () => this.changePage(-1));
+                this.nextBtn.addEventListener('click', () => this.changePage(1));
+                
+                // Modals
+                if(this.addBtn) {
+                    this.addBtn.addEventListener('click', () => this.openFormModal());
                 }
+                this.closeFormBtn.addEventListener('click', () => this.closeFormModal());
+                this.cancelFormBtn.addEventListener('click', () => this.closeFormModal());
+                this.clientForm.addEventListener('submit', (e) => this.handleSubmit(e));
+                
+                this.closeConfirmBtn.addEventListener('click', () => this.closeConfirmModal());
+                this.cancelConfirmBtn.addEventListener('click', () => this.closeConfirmModal());
+                this.executeDeleteBtn.addEventListener('click', () => this.executeDelete());
 
-                if(this.themeToggle) {
-                    this.themeToggle.addEventListener('click', () => {
-                        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-                        document.documentElement.setAttribute('data-theme', isDark ? 'light' : 'dark');
-                        localStorage.setItem('crm_theme', isDark ? 'light' : 'dark');
-                    });
-                }
-
-                // Search & Filter (Reset pagination to page 1 on filter)
-                this.searchInput.addEventListener('input', () => { this.currentPage = 1; this.render(); });
-                this.filterStatus.addEventListener('change', () => { this.currentPage = 1; this.render(); });
-
-                // Sorting
-                this.tableHeaders.forEach(th => {
-                    th.addEventListener('click', () => {
-                        const col = th.getAttribute('data-sort');
-                        if(this.sortCol === col) {
-                            this.sortAsc = !this.sortAsc;
-                        } else {
-                            this.sortCol = col;
-                            this.sortAsc = true;
-                        }
-                        this.render();
-                    });
-                });
-
-                // Pagination Buttons
-                this.prevPageBtn.addEventListener('click', () => {
-                    if (this.currentPage > 1) { this.currentPage--; this.render(); }
-                });
-                this.nextPageBtn.addEventListener('click', () => {
-                    this.currentPage++; this.render(); 
-                });
-
-                // Modal Triggers
-                this.addClientBtn.addEventListener('click', () => this.openFormModal());
-                this.closeModalBtn.addEventListener('click', () => this.closeFormModal());
-                this.cancelModalBtn.addEventListener('click', () => this.closeFormModal());
-                this.clientForm.addEventListener('submit', (e) => this.handleFormSubmit(e));
-
-                // Confirm Delete Triggers
-                this.cancelDeleteBtn.addEventListener('click', () => this.closeConfirmModal());
-                this.confirmDeleteBtn.addEventListener('click', () => this.executeDelete());
-
-                // Table Actions via Event Delegation
-                this.tableBody.addEventListener('click', (e) => {
-                    const btn = e.target.closest('.action-btn');
-                    if (!btn) return;
-                    const id = btn.getAttribute('data-id');
-                    if (btn.classList.contains('edit')) this.openFormModal(id);
-                    else if (btn.classList.contains('delete')) this.requestDelete(id);
-                });
-
-                // Overlay clicks to close modals
+                // Click outside modal to close
                 window.addEventListener('click', (e) => {
-                    if (e.target === this.clientModal) this.closeFormModal();
+                    if (e.target === this.formModal) this.closeFormModal();
                     if (e.target === this.confirmModal) this.closeConfirmModal();
                 });
             }
 
-            loadTheme() {
-                const theme = localStorage.getItem('crm_theme') || 'light';
-                document.documentElement.setAttribute('data-theme', theme);
+            // --- THEME LOGIC ---
+            initTheme() {
+                if (localStorage.getItem('crm_theme') === 'dark') {
+                    document.body.classList.add('dark-mode');
+                }
             }
 
-            // --- DATA PROCESSING & RENDER PIPELINE ---
-            render() {
-                const searchTerm = this.searchInput.value.toLowerCase();
-                const statusFilter = this.filterStatus.value;
+            toggleTheme() {
+                document.body.classList.toggle('dark-mode');
+                localStorage.setItem('crm_theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
+            }
 
-                // 1. Filter Data
-                let filtered = this.clients.filter(client => {
-                    const matchesSearch = client.name.toLowerCase().includes(searchTerm) || 
-                                          client.id.toLowerCase().includes(searchTerm) ||
-                                          client.email.toLowerCase().includes(searchTerm);
-                    const matchesStatus = statusFilter === 'All' || client.status === statusFilter;
-                    return matchesSearch && matchesStatus;
-                });
-
-                // 2. Sort Data
-                filtered.sort((a, b) => {
-                    let valA = a[this.sortCol] || '';
-                    let valB = b[this.sortCol] || '';
+            // --- DATA LOGIC (AJAX) ---
+            async loadData() {
+                this.showLoading(true);
+                try {
+                    const fd = new FormData();
+                    fd.append('action', 'load');
+                    const response = await fetch('', { method: 'POST', body: fd });
+                    const result = await response.json();
                     
-                    if (this.sortCol === 'name' || this.sortCol === 'email' || this.sortCol === 'executive' || this.sortCol === 'source') {
-                        valA = valA.toString().toLowerCase();
-                        valB = valB.toString().toLowerCase();
+                    if(result.success) {
+                        this.clients = result.data;
+                        this.handleFilter();
+                        this.updateMetrics();
+                    } else {
+                        console.error('Failed to load data:', result.message);
                     }
-
-                    if (valA < valB) return this.sortAsc ? -1 : 1;
-                    if (valA > valB) return this.sortAsc ? 1 : -1;
-                    return 0;
-                });
-
-                this.updateSortUI();
-
-                // 3. Paginate Data
-                const totalItems = filtered.length;
-                const totalPages = Math.ceil(totalItems / this.itemsPerPage) || 1;
-                if (this.currentPage > totalPages) this.currentPage = totalPages;
-
-                const startIndex = (this.currentPage - 1) * this.itemsPerPage;
-                const endIndex = startIndex + this.itemsPerPage;
-                const paginatedData = filtered.slice(startIndex, endIndex);
-
-                // 4. Render Views
-                this.renderTable(paginatedData);
-                this.renderPagination(totalItems, startIndex, endIndex);
-                this.renderStats();
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                } finally {
+                    this.showLoading(false);
+                }
             }
 
-            updateSortUI() {
-                this.tableHeaders.forEach(th => {
-                    th.classList.remove('asc', 'desc');
-                    if (th.getAttribute('data-sort') === this.sortCol) {
-                        th.classList.add(this.sortAsc ? 'asc' : 'desc');
+            async saveData(action, data) {
+                this.showLoading(true);
+                try {
+                    const fd = new FormData();
+                    fd.append('action', action);
+                    for (const key in data) {
+                        fd.append(key, data[key]);
                     }
-                });
+                    
+                    const response = await fetch('', { method: 'POST', body: fd });
+                    const result = await response.json();
+                    return result;
+                } catch (error) {
+                    console.error('Error saving data:', error);
+                    return { success: false, message: error.message };
+                } finally {
+                    this.showLoading(false);
+                }
             }
 
-            renderTable(data) {
+            // --- RENDER LOGIC ---
+            render() {
                 this.tableBody.innerHTML = '';
-
-                if (data.length === 0) {
-                    this.emptyState.style.display = 'flex';
-                    this.clientTable.style.display = 'none';
-                    this.paginationContainer.style.display = 'none';
+                
+                if (this.filteredClients.length === 0) {
+                    this.emptyState.style.display = 'block';
+                    this.updatePagination(0);
                     return;
                 }
-
+                
                 this.emptyState.style.display = 'none';
-                this.clientTable.style.display = 'table';
-                this.paginationContainer.style.display = 'flex';
+                
+                const start = (this.currentPage - 1) * this.itemsPerPage;
+                const end = start + this.itemsPerPage;
+                const pageData = this.filteredClients.slice(start, end);
 
-                data.forEach(client => {
+                // Role Checks
+                const canEdit = true; // Both can edit
+                const canDelete = (this.userRole === 'Sales Manager' || this.userRole === 'Admin' || this.userRole === 'Manager'); // Only Manager/Admin
+
+                pageData.forEach(client => {
                     const tr = document.createElement('tr');
                     
-                    // INR Currency Formatting
-                    const valueFormatted = new Intl.NumberFormat('en-IN', {
-                        style: 'currency',
-                        currency: 'INR',
-                        maximumFractionDigits: 0
-                    }).format(client.value);
+                    const initials = this.escapeHTML(client.name).split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+                    const formattedValue = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(client.deal_value);
 
-                    const badgeClass = client.status.toLowerCase().replace(' ', '-');
+                    // Generate Buttons HTML
+                    let actionsHtml = `
+                        <div class="table-actions">
+                            <!-- VIEW BUTTON -->
+                            <button class="btn-icon success" title="View Details" onclick="app.viewClient('${client.id}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                </svg>
+                            </button>
+
+                            <!-- EDIT BUTTON -->
+                            <button class="btn-icon" title="Edit" onclick="app.editClient('${client.id}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                </svg>
+                            </button>
+                    `;
+
+                    // DELETE BUTTON (Only for Manager)
+                    if (canDelete) {
+                        actionsHtml += `
+                            <button class="btn-icon danger" title="Delete" onclick="app.requestDelete('${client.id}')">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        `;
+                    }
+
+                    actionsHtml += `</div>`;
 
                     tr.innerHTML = `
                         <td>
                             <div class="client-info">
-                                <span class="client-name">${this.escapeHTML(client.name)}</span>
-                                <span class="client-id">${client.id}</span>
+                                <div class="client-avatar">${initials}</div>
+                                <div class="client-details">
+                                    <span class="client-name">${this.escapeHTML(client.name)}</span>
+                                </div>
                             </div>
                         </td>
                         <td>
-                            <div class="client-info">
-                                <span style="font-size: 13px; color: var(--text-primary);">${this.escapeHTML(client.phone)}</span>
-                                <span style="font-size: 12px; color: var(--text-muted);">${this.escapeHTML(client.email)}</span>
+                            <div class="client-details">
+                                <span class="client-name" style="font-weight: 500; font-size: 0.8125rem;">${this.escapeHTML(client.phone)}</span>
+                                <span class="client-email">${this.escapeHTML(client.email)}</span>
                             </div>
                         </td>
                         <td>${this.escapeHTML(client.source)}</td>
-                        <td><span class="badge ${badgeClass}">${client.status}</span></td>
+                        <td><span class="status-badge status-${client.status.toLowerCase()}">${this.escapeHTML(client.status)}</span></td>
                         <td>${this.escapeHTML(client.executive)}</td>
-                        <td style="font-weight: 600;">${valueFormatted}</td>
-                        <td>
-                            <div class="action-btns">
-                                <button class="action-btn edit" data-id="${client.id}" title="Edit">
-                                    <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                </button>
-                                <button class="action-btn delete" data-id="${client.id}" title="Delete">
-                                    <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
-                                </button>
-                            </div>
-                        </td>
+                        <td class="deal-value">${formattedValue}</td>
+                        <td>${actionsHtml}</td>
                     `;
                     this.tableBody.appendChild(tr);
                 });
+
+                this.updatePagination(this.filteredClients.length);
             }
 
-            renderPagination(totalItems, startIndex, endIndex) {
-                const actualEnd = Math.min(endIndex, totalItems);
-                const actualStart = totalItems === 0 ? 0 : startIndex + 1;
-                
-                this.paginationInfo.textContent = `Showing ${actualStart} to ${actualEnd} of ${totalItems} entries`;
-                
-                this.prevPageBtn.disabled = this.currentPage === 1;
-                this.nextPageBtn.disabled = endIndex >= totalItems;
-            }
-
-            renderStats() {
+            updateMetrics() {
                 const total = this.clients.length;
-                let active = 0;
-                let closed = 0;
-                let revenue = 0;
+                const newLeads = this.clients.filter(c => c.status === 'New').length;
+                const won = this.clients.filter(c => c.status === 'Won').length;
+                const pipelineValue = this.clients.reduce((sum, c) => sum + parseFloat(c.deal_value || 0), 0);
 
-                this.clients.forEach(client => {
-                    if (['New', 'Contacted', 'Qualified', 'Proposal'].includes(client.status)) {
-                        active++;
-                    }
-                    if (client.status === 'Won') {
-                        closed++;
-                        revenue += parseFloat(client.value);
-                    }
-                });
-
-                this.statTotal.textContent = total;
-                this.statActive.textContent = active;
-                this.statClosed.textContent = closed;
-                this.statRevenue.textContent = new Intl.NumberFormat('en-IN', {
-                    style: 'currency',
-                    currency: 'INR',
-                    maximumFractionDigits: 0
-                }).format(revenue);
+                this.metricTotal.textContent = total;
+                this.metricNew.textContent = newLeads;
+                this.metricWon.textContent = won;
+                this.metricValue.textContent = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(pipelineValue);
             }
 
-            // --- FORM & MODAL LOGIC ---
-            openFormModal(id = null) {
-                this.clientForm.reset();
-                this.editingId = id;
+            updatePagination(totalItems) {
+                const maxPage = Math.ceil(totalItems / this.itemsPerPage) || 1;
+                if (this.currentPage > maxPage) this.currentPage = maxPage;
+                if (this.currentPage < 1) this.currentPage = 1;
+                const start = totalItems === 0 ? 0 : ((this.currentPage - 1) * this.itemsPerPage) + 1;
+                const end = Math.min(this.currentPage * this.itemsPerPage, totalItems);
+                this.pageInfo.textContent = `Showing ${start} to ${end} of ${totalItems} entries`;
+                this.prevBtn.disabled = this.currentPage === 1;
+                this.nextBtn.disabled = this.currentPage === maxPage || totalItems === 0;
+            }
 
-                if (id) {
-                    this.modalTitle.textContent = 'Edit Client';
-                    const client = this.clients.find(c => c.id === id);
-                    if (client) {
-                        document.getElementById('clientId').value = client.id;
-                        document.getElementById('clientName').value = client.name;
-                        document.getElementById('clientPhone').value = client.phone;
-                        document.getElementById('clientEmail').value = client.email;
-                        document.getElementById('clientSource').value = client.source;
-                        document.getElementById('clientStatus').value = client.status;
-                        document.getElementById('clientExecutive').value = client.executive;
-                        document.getElementById('clientValue').value = client.value;
+            changePage(direction) {
+                this.currentPage += direction;
+                this.render();
+            }
+
+            handleFilter() {
+                const term = this.searchInput.value.toLowerCase();
+                const status = this.statusFilter.value;
+                const source = this.sourceFilter.value;
+                this.filteredClients = this.clients.filter(client => {
+                    const matchTerm = client.name.toLowerCase().includes(term) || client.email.toLowerCase().includes(term) || client.phone.includes(term);
+                    const matchStatus = status === 'all' || client.status === status;
+                    const matchSource = source === 'all' || client.source === source;
+                    return matchTerm && matchStatus && matchSource;
+                });
+                this.currentPage = 1; 
+                this.render();
+            }
+
+            showLoading(show) {
+                if (show) this.loadingOverlay.classList.add('active');
+                else this.loadingOverlay.classList.remove('active');
+            }
+
+            // --- MODAL & FORM LOGIC ---
+            openFormModal(client = null, isReadOnly = false) {
+                this.clientForm.reset();
+                this.inputs.id.value = '';
+                
+                // Reset form state
+                this.setFormReadOnly(false); 
+                this.saveClientBtn.style.display = 'inline-flex';
+                this.cancelFormBtn.textContent = "Cancel";
+
+                if (client) {
+                    this.inputs.id.value = client.id;
+                    this.inputs.name.value = client.name;
+                    this.inputs.phone.value = client.phone;
+                    this.inputs.email.value = client.email;
+                    this.inputs.source.value = client.source;
+                    this.inputs.status.value = client.status;
+                    this.inputs.executive.value = client.executive;
+                    this.inputs.value.value = client.deal_value;
+
+                    if (isReadOnly) {
+                        this.modalTitle.textContent = 'View Client Details';
+                        this.setFormReadOnly(true);
+                        this.saveClientBtn.style.display = 'none';
+                        this.cancelFormBtn.textContent = "Close";
+                    } else {
+                        this.modalTitle.textContent = 'Edit Client';
                     }
                 } else {
                     this.modalTitle.textContent = 'Add New Client';
-                    document.getElementById('clientId').value = '';
+                    this.inputs.status.value = 'New';
                 }
+                
+                this.formModal.classList.add('active');
+            }
 
-                this.clientModal.classList.add('active');
+            setFormReadOnly(isReadOnly) {
+                const inputs = this.clientForm.querySelectorAll('input, select');
+                inputs.forEach(input => {
+                    if (input.type === 'hidden') return;
+                    if (input.tagName === 'SELECT') {
+                        input.disabled = isReadOnly;
+                    } else {
+                        input.readOnly = isReadOnly;
+                    }
+                });
             }
 
             closeFormModal() {
-                this.clientModal.classList.remove('active');
-                this.editingId = null;
+                this.formModal.classList.remove('active');
             }
 
-            handleFormSubmit(e) {
-                e.preventDefault();
+            viewClient(id) {
+                const client = this.clients.find(c => c.id === id);
+                if (client) this.openFormModal(client, true); // true = Read Only Mode
+            }
 
+            editClient(id) {
+                const client = this.clients.find(c => c.id === id);
+                if (client) this.openFormModal(client, false); // false = Edit Mode
+            }
+
+            async handleSubmit(e) {
+                e.preventDefault();
+                
                 const clientData = {
-                    id: document.getElementById('clientId').value || this.generateId(),
-                    name: document.getElementById('clientName').value,
-                    phone: document.getElementById('clientPhone').value,
-                    email: document.getElementById('clientEmail').value,
-                    source: document.getElementById('clientSource').value,
-                    status: document.getElementById('clientStatus').value,
-                    executive: document.getElementById('clientExecutive').value,
-                    value: parseFloat(document.getElementById('clientValue').value),
-                    created_at: Date.now() // Track creation time for sorting
+                    id: this.inputs.id.value || '_' + Math.random().toString(36).substr(2, 9),
+                    name: this.inputs.name.value,
+                    phone: this.inputs.phone.value,
+                    email: this.inputs.email.value,
+                    source: this.inputs.source.value,
+                    status: this.inputs.status.value,
+                    executive: this.inputs.executive.value,
+                    deal_value: parseFloat(this.inputs.value.value)
                 };
 
-                if (this.editingId) {
-                    const index = this.clients.findIndex(c => c.id === this.editingId);
-                    if (index > -1) {
-                        // preserve original creation time
-                        clientData.created_at = this.clients[index].created_at || Date.now();
-                        this.clients[index] = clientData;
-                    }
+                const action = this.inputs.id.value ? 'update' : 'create';
+                const result = await this.saveData(action, clientData);
+                
+                if (result.success) {
+                    await this.loadData();
+                    this.closeFormModal();
                 } else {
-                    this.clients.unshift(clientData); 
+                    alert('Failed to save client: ' + result.message);
                 }
-
-                this.saveData();
-                this.render();
-                this.closeFormModal();
             }
 
             // --- DELETE LOGIC ---
@@ -1177,20 +880,24 @@ if (file_exists('include/db_connect.php')) {
                 this.clientToDelete = null;
             }
 
-            executeDelete() {
+            async executeDelete() {
                 if (this.clientToDelete) {
-                    this.clients = this.clients.filter(c => c.id !== this.clientToDelete);
-                    this.saveData();
-                    // Auto-adjust pagination if last item on page is deleted
-                    const maxPage = Math.ceil(this.clients.length / this.itemsPerPage) || 1;
-                    if (this.currentPage > maxPage) this.currentPage = maxPage;
-                    this.render();
+                    const result = await this.saveData('delete', { id: this.clientToDelete });
+                    if (result.success) {
+                        await this.loadData();
+                        const maxPage = Math.ceil(this.clients.length / this.itemsPerPage) || 1;
+                        if (this.currentPage > maxPage) this.currentPage = maxPage;
+                        this.render();
+                    } else {
+                        alert('Failed to delete client: ' + result.message);
+                    }
                 }
                 this.closeConfirmModal();
             }
 
             // --- UTILITIES ---
             escapeHTML(str) {
+                if (str === null || str === undefined) return '';
                 const div = document.createElement('div');
                 div.textContent = str;
                 return div.innerHTML;
@@ -1198,8 +905,9 @@ if (file_exists('include/db_connect.php')) {
         }
 
         // Boot the Application
+        let app;
         document.addEventListener('DOMContentLoaded', () => {
-            new ClientManager();
+            app = new ClientManager();
         });
     </script>
 </body>

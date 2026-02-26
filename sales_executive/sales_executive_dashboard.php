@@ -51,9 +51,22 @@ $company_leads = [
                 width: 100%;
             } 
         }
+        .lead-box { cursor: pointer; transition: transform 0.1s; }
+        .lead-box:hover { transform: scale(1.02); filter: brightness(0.95); }
     </style>
 </head>
 <body class="text-gray-800">
+
+    <div id="leadModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-[9999] p-4">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                <h3 class="font-bold text-lg" id="modalTitle">Leads</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+            </div>
+            <div class="p-4 max-h-[400px] overflow-y-auto" id="modalContent">
+                </div>
+        </div>
+    </div>
 
     <div class="dashboard-wrapper p-6">
 
@@ -64,7 +77,7 @@ $company_leads = [
             </div>
             <div class="flex gap-3">
                 <button class="px-4 py-2 bg-white border rounded shadow-sm text-sm">Export ⌄</button>
-                <button class="px-4 py-2 bg-white border rounded shadow-sm text-sm">02/19/2026 - 02/25/2026</button>
+                <button class="px-4 py-2 bg-white border rounded shadow-sm text-sm" id="dashboard-date"><?= date('m/d/Y') ?></button>
             </div>
         </div>
 
@@ -96,8 +109,8 @@ $company_leads = [
                 
                 <div id="stateInitial" class="flex flex-col items-center w-full h-full justify-center transition-all duration-300">
                     <p class="text-sm text-gray-500 mb-1">Good Morning, admin</p>
-                    <h2 class="text-4xl font-extrabold text-[#1c2c42] mb-1 tracking-tight">04:16 PM</h2>
-                    <p class="text-sm text-gray-400 mb-6">23 Feb 2026</p>
+                    <h2 id="live-clock" class="text-4xl font-extrabold text-[#1c2c42] mb-1 tracking-tight">--:-- --</h2>
+                    <p id="live-date" class="text-sm text-gray-400 mb-6">-- --- ----</p>
 
                     <div class="w-24 h-24 rounded-full bg-gradient-to-r from-blue-500 to-green-500 p-[3px] mb-8">
                         <div class="w-full h-full rounded-full border-2 border-white bg-[#225a58] flex items-center justify-center text-3xl font-normal text-white">
@@ -106,7 +119,7 @@ $company_leads = [
                     </div>
 
                     <div class="w-full bg-[#225a58] text-white py-2.5 rounded-md font-semibold text-sm mb-4 text-center">
-                        Production : 0.00 hrs
+                        Production : <span id="prod-display">0.00</span> hrs
                     </div>
 
                     <div class="text-[#0ea5e9] text-emerald-500 text-sm font-medium mb-4 flex items-center justify-center gap-1.5">
@@ -123,16 +136,16 @@ $company_leads = [
 
                 <div id="statePunchedIn" class="hidden flex-col items-center w-full h-full justify-center transition-all duration-300">
                     <p class="text-xs font-bold text-gray-400 tracking-wider mb-1 uppercase">Today's Attendance</p>
-                    <h2 class="text-lg font-bold text-[#1c2c42] mb-6">10:45 AM, 26 Feb 2026</h2>
+                    <h2 id="punch-in-display-time" class="text-lg font-bold text-[#1c2c42] mb-6">--:-- --, -- --- ----</h2>
 
                     <div class="relative w-40 h-40 mb-8 flex items-center justify-center">
                         <svg class="absolute inset-0 w-full h-full transform -rotate-90">
                             <circle cx="80" cy="80" r="68" stroke="#f1f5f9" stroke-width="12" fill="none"></circle>
-                            <circle id="progressCircle" cx="80" cy="80" r="68" stroke="#0d9488" stroke-width="12" fill="none" stroke-dasharray="427" stroke-dashoffset="405" stroke-linecap="round" class="transition-all duration-500"></circle>
+                            <circle id="progressCircle" cx="80" cy="80" r="68" stroke="#0d9488" stroke-width="12" fill="none" stroke-dasharray="427" stroke-dashoffset="427" stroke-linecap="round" class="transition-all duration-500"></circle>
                         </svg>
                         <div class="text-center z-10 flex flex-col items-center mt-1">
                             <span id="timerLabel" class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Total Hours</span>
-                            <span id="timerValue" class="text-[28px] font-bold text-[#1c2c42] leading-tight">00:13:26</span>
+                            <span id="timerValue" class="text-[28px] font-bold text-[#1c2c42] leading-tight">00:00:00</span>
                         </div>
                     </div>
 
@@ -149,7 +162,7 @@ $company_leads = [
 
                     <p class="text-[13px] text-gray-500 font-medium flex items-center gap-1.5">
                          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-[#f97316]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" /></svg>
-                         Punched In at: <span class="font-bold text-gray-800">10:31 AM</span>
+                         Punched In at: <span id="actual-punch-time" class="font-bold text-gray-800">--:-- --</span>
                     </p>
                 </div>
             </div>
@@ -300,9 +313,9 @@ $company_leads = [
             <div class="card p-5">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">New Leads</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm flex items-center gap-1 shadow-sm">
+                    <button onclick="toggleWeekSelection()" class="px-3 py-1 bg-white border rounded text-sm flex items-center gap-1 shadow-sm hover:bg-gray-50 transition cursor-pointer" id="weekSelectorBtn">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        This Week
+                        <span id="weekSelectorText">This Week</span>
                     </button>
                 </div>
                 
@@ -312,56 +325,56 @@ $company_leads = [
                     </div>
                     <div class="flex-1 grid grid-cols-7 gap-[2px] h-full border-b border-gray-200 relative pb-1">
                         <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">22</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
+                            <div onclick="showLeads('Monday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
+                            <div onclick="showLeads('Monday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">22</div>
+                            <div onclick="showLeads('Monday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
                             <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Mon</span>
                         </div>
                         <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">20</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
+                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">20</div>
+                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
+                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
+                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
+                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
                             <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Tue</span>
                         </div>
                         <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#F97316] flex items-center justify-center">75</div>
-                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
-                            <div class="w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
+                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#F97316] flex items-center justify-center">75</div>
+                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
+                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
+                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
+                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
+                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
                             <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Wed</span>
                         </div>
                         <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
                             <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Thu</span>
                         </div>
                         <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Friday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Friday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Friday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
                             <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Fri</span>
                         </div>
                         <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
                             <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sat</span>
                         </div>
                         <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div class="w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
+                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
                             <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sun</span>
                         </div>
                     </div>
@@ -604,64 +617,176 @@ $company_leads = [
         var lostLeadsChart = new ApexCharts(document.querySelector("#lostLeadsChart"), lostLeadsOptions);
         lostLeadsChart.render();
 
-        // ---- PUNCH IN / OUT AND BREAK LOGIC ----
+        // ---- DYNAMIC LOGIC: REAL TIME CLOCK ----
+        function updateLiveTime() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+            const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            
+            if(document.getElementById('live-clock')) document.getElementById('live-clock').innerText = timeStr;
+            if(document.getElementById('live-date')) document.getElementById('live-date').innerText = dateStr;
+            if(document.getElementById('punch-in-display-time')) {
+                document.getElementById('punch-in-display-time').innerText = timeStr + ", " + dateStr;
+            }
+        }
+        setInterval(updateLiveTime, 1000);
+        updateLiveTime();
+
+        // ---- DYNAMIC LOGIC: STOPWATCH & PUNCHING ----
         let isOnBreak = false;
+        let totalSeconds = 0;
+        let timerInterval = null;
 
         function punchIn() {
-            // Hide Initial State, Show Punched In State
+            // UI Switch
             document.getElementById('stateInitial').classList.add('hidden');
             document.getElementById('statePunchedIn').classList.remove('hidden');
             document.getElementById('statePunchedIn').classList.add('flex');
             
-            // Reset Break logic just in case
-            isOnBreak = false;
-            updateBreakUI();
+            // Set static punch time
+            const now = new Date();
+            document.getElementById('actual-punch-time').innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+            
+            // Start Timer
+            startStopwatch();
         }
 
         function punchOut() {
-            // Revert back to Initial State
+            // UI Switch back
             document.getElementById('statePunchedIn').classList.add('hidden');
             document.getElementById('statePunchedIn').classList.remove('flex');
             document.getElementById('stateInitial').classList.remove('hidden');
+            
+            // Stop and reset
+            clearInterval(timerInterval);
+            document.getElementById('prod-display').innerText = (totalSeconds / 3600).toFixed(2);
+            totalSeconds = 0;
+            updateTimerUI();
+        }
+
+        function startStopwatch() {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
+                if (!isOnBreak) {
+                    totalSeconds++;
+                    updateTimerUI();
+                }
+            }, 1000);
+        }
+
+        function updateTimerUI() {
+            const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+            const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+            const s = (totalSeconds % 60).toString().padStart(2, '0');
+            document.getElementById('timerValue').innerText = `${h}:${m}:${s}`;
+            
+            // Circular Progress Animation (based on 8h shift)
+            const maxSecs = 28800; 
+            const progress = Math.min(totalSeconds, maxSecs) / maxSecs;
+            const dashoffset = 427 - (progress * 427);
+            document.getElementById('progressCircle').setAttribute('stroke-dashoffset', dashoffset);
         }
 
         function toggleBreak() {
             isOnBreak = !isOnBreak;
-            updateBreakUI();
-        }
-
-        function updateBreakUI() {
             const breakBtn = document.getElementById('breakBtn');
             const timerLabel = document.getElementById('timerLabel');
-            const timerValue = document.getElementById('timerValue');
             const progressCircle = document.getElementById('progressCircle');
 
             if (isOnBreak) {
-                // Break State (Image 2)
-                breakBtn.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                    Resume
-                `;
+                breakBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Resume`;
                 breakBtn.className = 'flex-1 bg-white hover:bg-gray-50 text-[#3b82f6] border border-[#3b82f6] py-3 rounded-xl font-bold text-[15px] flex items-center justify-center gap-1.5 transition-colors shadow-sm';
-                
                 timerLabel.innerText = 'ON BREAK';
-                timerValue.innerText = '00:13:47'; // Updating to static screenshot value for effect
-                
-                progressCircle.setAttribute('stroke', '#f97316'); // Switch circle to Orange
-                progressCircle.setAttribute('stroke-dashoffset', '410'); // Slight shape difference for "break"
+                progressCircle.setAttribute('stroke', '#f97316'); // Orange
             } else {
-                // Normal Punched In State (Image 1)
-                breakBtn.innerHTML = `
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4z"/></svg>
-                    Break
-                `;
+                breakBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4z"/></svg> Break`;
                 breakBtn.className = 'flex-1 bg-white hover:bg-gray-50 text-[#f59e0b] border border-[#f59e0b] py-3 rounded-xl font-bold text-[15px] flex items-center justify-center gap-1.5 transition-colors shadow-sm';
-                
                 timerLabel.innerText = 'TOTAL HOURS';
-                timerValue.innerText = '00:13:26'; // Revert static value
-                
-                progressCircle.setAttribute('stroke', '#0d9488'); // Switch circle back to Teal
-                progressCircle.setAttribute('stroke-dashoffset', '405'); 
+                progressCircle.setAttribute('stroke', '#0d9488'); // Teal
+            }
+        }
+
+        // ---- LEAD LIST LOGIC ----
+        const mockLeadsByDay = {
+            'Monday': ['Acme Corp', 'Globex', 'Soylent Corp'],
+            'Tuesday': ['Initech', 'Umbrella Corp', 'Hooli'],
+            'Wednesday': ['Stark Ind', 'Wayne Ent', 'Oscorp'],
+            'Thursday': ['Cyberdyne', 'Tyrell Corp', 'Weyland-Yutani'],
+            'Friday': ['Wonka Ind', 'Duff Beer', 'Bubba Gump'],
+            'Saturday': ['Pied Piper', 'Bluth Company'],
+            'Sunday': ['Vandelay Ind', 'Kramerica']
+        };
+
+        function showLeads(day) {
+            const modal = document.getElementById('leadModal');
+            const title = document.getElementById('modalTitle');
+            const content = document.getElementById('modalContent');
+            
+            // Calculate date for the clicked day
+            const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const today = new Date();
+            const todayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1; // Adjust index so Mon=0, Sun=6
+            const targetIndex = dayNames.indexOf(day) === 0 ? 6 : dayNames.indexOf(day) - 1;
+            
+            const specificDate = new Date(today);
+            specificDate.setDate(today.getDate() + (targetIndex - todayIndex));
+            
+            // Adjust if 'Last Week' is active in the toggle
+            const weekSelector = document.getElementById('weekSelectorText');
+            if (weekSelector && weekSelector.innerText === 'Last Week') {
+                specificDate.setDate(specificDate.getDate() - 7);
+            }
+
+            // Format date to string (e.g., "25 Feb 2026")
+            const dateString = specificDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+            
+            title.innerText = `New Leads for ${day} (${dateString})`;
+            content.innerHTML = '';
+            
+            const leads = mockLeadsByDay[day] || [];
+            if(leads.length === 0) {
+                content.innerHTML = '<p class="text-gray-500 text-center italic">No leads recorded for this day.</p>';
+            } else {
+                leads.forEach(lead => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center gap-3 p-3 border-b last:border-0 hover:bg-gray-50 transition cursor-pointer';
+                    div.innerHTML = `
+                        <div class="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-xs">
+                            ${lead.charAt(0)}
+                        </div>
+                        <span class="font-medium text-gray-700">${lead}</span>
+                    `;
+                    content.appendChild(div);
+                });
+            }
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('leadModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // Close modal on click outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('leadModal');
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+
+        // --- NEW LEADS WEEK SELECTOR LOGIC ---
+        function toggleWeekSelection() {
+            const btnText = document.getElementById('weekSelectorText');
+            if (btnText.innerText === 'This Week') {
+                btnText.innerText = 'Last Week';
+                // You could also trigger an update to the New Leads chart data here
+            } else {
+                btnText.innerText = 'This Week';
+                // Revert chart data here
             }
         }
     </script>

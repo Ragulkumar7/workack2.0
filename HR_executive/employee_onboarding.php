@@ -151,12 +151,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         if (isset($_FILES['profile_img']) && $_FILES['profile_img']['error'] === UPLOAD_ERR_OK) {
-            $uploadDir = '../uploads/profiles/';
+            $uploadDir = '../assets/profiles/';
             if (!is_dir($uploadDir)) { mkdir($uploadDir, 0777, true); }
             $fileExt = strtolower(pathinfo($_FILES['profile_img']['name'], PATHINFO_EXTENSION));
             $fileName = 'EMP_' . time() . '_' . rand(1000,9999) . '.' . $fileExt;
             if (move_uploaded_file($_FILES['profile_img']['tmp_name'], $uploadDir . $fileName)) {
-                $img = 'uploads/profiles/' . $fileName; 
+                $img = 'assets/profiles/' . $fileName; 
             }
         }
 
