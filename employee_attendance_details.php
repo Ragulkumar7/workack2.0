@@ -21,7 +21,7 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) {
 // 2. DATA CONTEXT
 $view_user_id = isset($_GET['id']) ? intval($_GET['id']) : (isset($_SESSION['user_id']) ? $_SESSION['user_id'] : $_SESSION['id']);
 
-// A. Fetch Employee Profile Data (Added joining_date for Leave Logic)
+// A. Fetch Employee Profile Data
 $sql_profile = "SELECT full_name, emp_id_code, designation, joining_date FROM employee_profiles WHERE user_id = ?";
 $stmt = $conn->prepare($sql_profile);
 $stmt->bind_param("i", $view_user_id);
@@ -32,15 +32,46 @@ $profile_data = $profile_result->fetch_assoc();
 $employeeName = $profile_data['full_name'] ?? "Unknown Employee";
 $employeeID   = $profile_data['emp_id_code'] ?? "EMP-0000";
 $designation  = $profile_data['designation'] ?? "Staff";
-$joining_date = $profile_data['joining_date'] ?? date('Y-m-01'); // Fallback to current month if empty
+$joining_date = $profile_data['joining_date'] ?? date('Y-m-01');
 
-// --- MONTH FILTER LOGIC ---
-$filter_month = isset($_GET['month']) ? $_GET['month'] : date('Y-m'); // Default: Current Month
-$currentMonthDisplay = date('F Y', strtotime($filter_month . '-01'));
+// =========================================================================================
+// FILTER LOGIC (Daily, Monthly, Range)
+// =========================================================================================
+$filter_type = isset($_GET['filter_type']) ? $_GET['filter_type'] : 'daily';
 
-$sql_att = "SELECT * FROM attendance WHERE user_id = ? AND DATE_FORMAT(date, '%Y-%m') = ? ORDER BY date DESC";
+// Default Values
+$filter_date  = isset($_GET['filter_date']) && !empty($_GET['filter_date']) ? $_GET['filter_date'] : date('Y-m-d'); // Default: Today
+$filter_month = isset($_GET['filter_month']) && !empty($_GET['filter_month']) ? $_GET['filter_month'] : date('Y-m');
+$from_date    = isset($_GET['from_date']) && !empty($_GET['from_date']) ? $_GET['from_date'] : date('Y-m-01');
+$to_date      = isset($_GET['to_date']) && !empty($_GET['to_date']) ? $_GET['to_date'] : date('Y-m-d');
 
-// B. Fetch Attendance Records for the Selected Month
+// Determine Query Based on Filter Type
+if ($filter_type === 'daily') {
+    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY date DESC";
+    $currentDisplay = date('d M Y', strtotime($filter_date));
+} elseif ($filter_type === 'monthly') {
+    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND DATE_FORMAT(date, '%Y-%m') = ? ORDER BY date DESC";
+    $currentDisplay = date('F Y', strtotime($filter_month . '-01'));
+} elseif ($filter_type === 'range') {
+    // Swap dates if from_date is greater than to_date
+    if (strtotime($to_date) < strtotime($from_date)) {
+        $temp = $from_date; $from_date = $to_date; $to_date = $temp;
+    }
+    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date DESC";
+    $currentDisplay = date('d M Y', strtotime($from_date)) . " to " . date('d M Y', strtotime($to_date));
+}
+
+// Prepare Statement
+$stmt = $conn->prepare($sql_att);
+if ($filter_type === 'daily') {
+    $stmt->bind_param("is", $view_user_id, $filter_date);
+} elseif ($filter_type === 'monthly') {
+    $stmt->bind_param("is", $view_user_id, $filter_month);
+} elseif ($filter_type === 'range') {
+    $stmt->bind_param("iss", $view_user_id, $from_date, $to_date);
+}
+
+// B. Fetch Attendance Records based on Date Range
 $attendanceRecords = [];
 $total_production = 0;
 $late_days = 0;
@@ -51,8 +82,6 @@ $sum_work = 0;
 $sum_break = 0;
 $sum_overtime = 0;
 
-$stmt = $conn->prepare($sql_att);
-$stmt->bind_param("is", $view_user_id, $filter_month);
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -111,14 +140,15 @@ while ($row = $result->fetch_assoc()) {
 $avg_production = ($days_count > 0) ? number_format($total_production / $days_count, 1) : 0;
 
 // =========================================================================================
-// D. LEAVE CARRY-FORWARD LOGIC (2 Leaves / Month)
+// D. LEAVE CARRY-FORWARD LOGIC (Overall Calculation)
 // =========================================================================================
 $base_leaves_per_month = 2;
 
-// Calculate Total Months Worked from Joining Date to Selected Filter Month
+// Calculate Total Months Worked from Joining Date to Current Date
 $d1 = new DateTime($joining_date);
-$d1->modify('first day of this month'); // Normalize to start of month
-$d2 = new DateTime($filter_month . '-01');
+$d1->modify('first day of this month'); 
+$d2 = new DateTime('now');
+$d2->modify('first day of this month');
 
 $months_worked = 0;
 if ($d2 >= $d1) {
@@ -126,15 +156,13 @@ if ($d2 >= $d1) {
     $months_worked = ($interval->y * 12) + $interval->m + 1; // +1 to include the current month
 }
 
-// Total Earned Leaves
+// Total Earned Leaves Since Joining
 $total_earned_leaves = $months_worked * $base_leaves_per_month;
 
-// Fetch Total Leaves Taken UP TO the Selected Month
-$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests 
-              WHERE user_id = ? AND status = 'Approved' 
-              AND DATE_FORMAT(start_date, '%Y-%m') <= ?";
+// Fetch Total Leaves Taken by Employee EVER (Approved Only)
+$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
-$leave_stmt->bind_param("is", $view_user_id, $filter_month);
+$leave_stmt->bind_param("i", $view_user_id);
 $leave_stmt->execute();
 $leave_res = $leave_stmt->get_result();
 $leave_data = $leave_res->fetch_assoc();
@@ -168,6 +196,8 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
         .bg-absent { background: #fee2e2; color: #991b1b; }
         .bg-late { background: #fee2e2; color: #b91c1c; }
         .modal-backdrop-custom { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        input[type="date"]::-webkit-calendar-picker-indicator, input[type="month"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; transition: 0.2s; }
+        input[type="date"]::-webkit-calendar-picker-indicator:hover, input[type="month"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -211,16 +241,17 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                         <span class="text-3xl font-black text-teal-800"><?php echo $leave_balance; ?></span>
                         <span class="text-xs text-teal-600 font-medium mb-1">Available</span>
                     </div>
-                    <p class="text-[9px] text-teal-600 mt-2 opacity-80">(Includes previous months carry-forward)</p>
+                    <p class="text-[9px] text-teal-600 mt-2 opacity-80">(Includes carry-forward since joining)</p>
                 </div>
 
                 <div class="bg-slate-50 rounded-xl p-3 mt-4 border border-slate-100">
-                    <p class="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Total Production (This Month)</p>
+                    <p class="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Total Production (Shown)</p>
                     <p class="text-xl font-bold text-slate-800"><?php echo number_format($total_production, 2); ?> Hrs</p>
                 </div>
             </div>
 
             <div class="col-span-12 lg:col-span-9">
+                
                 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
                     <div class="card p-4 border-l-4 border-orange-500">
                         <p class="text-slate-400 text-xs font-bold uppercase">Avg. Production</p>
@@ -241,20 +272,41 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                 </div>
 
                 <div class="card shadow-sm">
-                    <div class="p-4 border-b flex flex-col md:flex-row justify-between items-center gap-4 bg-white rounded-t-xl">
-                        <h3 class="text-lg font-bold text-slate-800">Attendance History Log</h3>
+                    <div class="p-4 border-b flex flex-col xl:flex-row justify-between items-center gap-4 bg-white rounded-t-xl">
                         <div class="flex items-center gap-3">
-                            <form action="" method="GET" class="flex items-center shadow-sm rounded-lg overflow-hidden border border-slate-200">
-                                <input type="hidden" name="id" value="<?php echo $view_user_id; ?>">
-                                <div class="bg-slate-50 px-3 py-2 text-slate-500 border-r border-slate-200">
-                                    <i class="fa-regular fa-calendar-days"></i>
-                                </div>
-                                <input type="month" name="month" class="pl-3 pr-2 py-2 text-sm font-semibold bg-white cursor-pointer outline-none text-slate-700" 
-                                       value="<?php echo htmlspecialchars($filter_month); ?>" 
-                                       onchange="this.form.submit()">
-                            </form>
+                            <h3 class="text-lg font-bold text-slate-800 whitespace-nowrap">Attendance History</h3>
+                            <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-semibold border border-slate-200"><?php echo $currentDisplay; ?></span>
                         </div>
+                        
+                        <form action="" method="GET" class="flex flex-col sm:flex-row items-center gap-2 w-full xl:w-auto" id="filterForm">
+                            <input type="hidden" name="id" value="<?php echo $view_user_id; ?>">
+                            
+                            <select name="filter_type" id="filterType" class="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-700 outline-none w-full sm:w-auto font-medium" onchange="toggleFilterInputs()">
+                                <option value="daily" <?php echo $filter_type == 'daily' ? 'selected' : ''; ?>>Single Date</option>
+                                <option value="monthly" <?php echo $filter_type == 'monthly' ? 'selected' : ''; ?>>Month Wise</option>
+                                <option value="range" <?php echo $filter_type == 'range' ? 'selected' : ''; ?>>Custom Range</option>
+                            </select>
+
+                            <div id="inputDaily" class="<?php echo $filter_type == 'daily' ? 'block' : 'hidden'; ?> w-full sm:w-auto">
+                                <input type="date" name="filter_date" value="<?php echo $filter_date; ?>" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 font-medium">
+                            </div>
+
+                            <div id="inputMonthly" class="<?php echo $filter_type == 'monthly' ? 'block' : 'hidden'; ?> w-full sm:w-auto">
+                                <input type="month" name="filter_month" value="<?php echo $filter_month; ?>" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 font-medium">
+                            </div>
+
+                            <div id="inputRange" class="<?php echo $filter_type == 'range' ? 'flex' : 'hidden'; ?> items-center gap-2 w-full sm:w-auto">
+                                <input type="date" name="from_date" value="<?php echo $from_date; ?>" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm outline-none text-slate-700 font-medium" title="From Date">
+                                <span class="text-slate-400 text-xs font-bold">TO</span>
+                                <input type="date" name="to_date" value="<?php echo $to_date; ?>" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm outline-none text-slate-700 font-medium" title="To Date">
+                            </div>
+
+                            <button type="submit" class="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-orange-600 transition w-full sm:w-auto whitespace-nowrap">
+                                <i class="fa-solid fa-filter mr-1"></i> Apply
+                            </button>
+                        </form>
                     </div>
+                    
                     <div class="table-responsive">
                         <table class="table table-hover mb-0">
                             <thead class="bg-slate-50">
@@ -298,10 +350,10 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="9" class="text-center py-10">
+                                        <td colspan="9" class="text-center py-12">
                                             <div class="flex flex-col items-center justify-center text-slate-400">
                                                 <i class="fa-regular fa-folder-open text-4xl mb-3 opacity-50"></i>
-                                                <p class="font-medium">No attendance records found for <?php echo $currentMonthDisplay; ?>.</p>
+                                                <p class="font-medium text-sm">No attendance records found for the selected filter.</p>
                                             </div>
                                         </td>
                                     </tr>
@@ -335,6 +387,19 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
     </div>
 
     <script>
+        // Toggle Filter Inputs Script
+        function toggleFilterInputs() {
+            const type = document.getElementById('filterType').value;
+            
+            document.getElementById('inputDaily').className = (type === 'daily') ? 'block w-full sm:w-auto' : 'hidden';
+            document.getElementById('inputMonthly').className = (type === 'monthly') ? 'block w-full sm:w-auto' : 'hidden';
+            document.getElementById('inputRange').className = (type === 'range') ? 'flex items-center gap-2 w-full sm:w-auto' : 'hidden';
+        }
+        
+        // Initialize state on page load
+        document.addEventListener('DOMContentLoaded', toggleFilterInputs);
+
+        // Modal Logic
         const reportModal = document.getElementById('reportDetailModal');
         function openReportModal(data) {
             document.getElementById('detDate').innerText = data.date;
