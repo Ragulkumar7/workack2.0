@@ -276,6 +276,9 @@ include '../header.php';
         @media (min-width: 1024px) {
             main { margin-left: 100px; width: calc(100% - 100px); }
         }
+        @media (min-width: 720px) {
+            main { margin-left: 100px; width: calc(100% - 100px); }
+        }
     </style>
 </head>
 <body class="min-h-screen">
@@ -306,76 +309,8 @@ include '../header.php';
                 <div class="grid grid-cols-1 lg:grid-cols-9 gap-6">
                     
                     <div class="lg:col-span-3">
-                        <div class="card h-fit">
-                            <div class="card-body flex flex-col items-center justify-center p-4">
-                                <div class="text-center mb-3">
-                                    <h3 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Today's Attendance</h3>
-                                    <p class="text-sm font-bold text-slate-800 mt-1"><?= date("h:i A, d M") ?></p>
-                                </div>
-
-                                <div class="relative w-28 h-28 mb-4">
-                                    <svg class="w-full h-full" viewBox="0 0 128 128">
-                                        <circle cx="64" cy="64" r="56" stroke="#f1f5f9" stroke-width="10" fill="transparent"></circle>
-                                        <?php
-                                            $pct = min(1, $total_seconds_worked / 32400);
-                                            $dashoffset = 351.85 - ($pct * 351.85); 
-                                            $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
-                                        ?>
-                                        <circle cx="64" cy="64" r="56"
-                                                stroke="<?= $ringColor ?>" stroke-width="10" fill="transparent"
-                                                stroke-dasharray="351.85" stroke-dashoffset="<?= ($attendance_record && $attendance_record['punch_out']) ? '0' : max(0, $dashoffset) ?>"
-                                                stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
-                                    </svg>
-
-                                    <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                        <p class="text-[9px] text-gray-400 font-bold uppercase">
-                                            <?= $is_on_break ? 'ON BREAK' : 'Total Hrs' ?>
-                                        </p>
-                                        <p class="text-lg font-bold text-slate-800 mt-0.5" id="liveTimer"
-                                           data-running="<?= ($attendance_record && !$attendance_record['punch_out'] && !$is_on_break) ? 'true' : 'false' ?>"
-                                           data-total="<?= $total_seconds_worked ?>">
-                                            <?= $total_hours_today ?>
-                                        </p>
-                                    </div>
-                                </div>
-
-                                <form method="POST" class="w-full">
-                                    <?php if (!$attendance_record): ?>
-                                        <button type="submit" name="action" value="punch_in"
-                                                class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 rounded-lg shadow transition flex items-center justify-center gap-2 text-sm">
-                                            <i class="fa-solid fa-right-to-bracket"></i> Punch In
-                                        </button>
-                                    <?php elseif (!$attendance_record['punch_out']): ?>
-                                        <div class="grid grid-cols-2 gap-2 w-full">
-                                            <?php if ($is_on_break): ?>
-                                                <button type="submit" name="action" value="break_end"
-                                                        class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 rounded-lg shadow transition text-xs">
-                                                    <i class="fa-solid fa-play"></i> Resume
-                                                </button>
-                                            <?php else: ?>
-                                                <button type="submit" name="action" value="break_start"
-                                                        class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-2 rounded-lg shadow transition text-xs">
-                                                    <i class="fa-solid fa-mug-hot"></i> Break
-                                                </button>
-                                            <?php endif; ?>
-
-                                            <button type="submit" name="action" value="punch_out"
-                                                    class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 rounded-lg shadow transition text-xs">
-                                                <i class="fa-solid fa-right-from-bracket"></i> Out
-                                            </button>
-                                        </div>
-                                    <?php else: ?>
-                                        <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-2 rounded-lg cursor-not-allowed text-sm border border-gray-200">
-                                            <i class="fa-solid fa-check-circle text-gray-400"></i> Shift Done
-                                        </button>
-                                    <?php endif; ?>
-                                </form>
-
-                                <p class="text-[10px] text-gray-400 mt-3 flex items-center gap-1">
-                                    <i class="fa-solid fa-fingerprint text-orange-500"></i>
-                                    In: <span class="font-bold text-slate-600"><?= $display_punch_in ?></span>
-                                </p>
-                            </div>
+                       <div class="glass-card flex flex-col justify-center">
+                            <?php include '../attendance_card.php'; ?>
                         </div>
                     </div>
 
@@ -510,7 +445,7 @@ include '../header.php';
 
             </div>
 
-            <div class="col-span-1 xl:col-span-3 flex flex-col gap-6">
+            <div class="col-span-1 lg:col-span-3 flex flex-col gap-6">
                 
                 <div class="card overflow-hidden h-fit border-0 shadow-sm ring-1 ring-gray-200">
                     <div class="bg-gradient-to-b from-teal-700 to-teal-800 p-6 flex flex-col items-center text-center relative">

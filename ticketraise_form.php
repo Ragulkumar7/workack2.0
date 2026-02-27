@@ -11,12 +11,12 @@ $dbPath = $projectRoot . '/../include/db_connect.php';
 // Check if the script is running from a subfolder (like /employee/) or the root folder
 if (file_exists($dbPath)) {
     require_once $dbPath;
-    $upload_base_dir = $projectRoot . '/../uploads/tickets/'; // Resolves to workack2.0/uploads/tickets/
+    $upload_base_dir = $projectRoot . '/../uploads/tickets/'; 
 } else {
     $dbPath = $projectRoot . '/include/db_connect.php';
     if(file_exists($dbPath)) {
         require_once $dbPath;
-        $upload_base_dir = $projectRoot . '/uploads/tickets/'; // Resolves to workack2.0/uploads/tickets/
+        $upload_base_dir = $projectRoot . '/uploads/tickets/'; 
     } else {
         die("Database connection file not found at: " . $dbPath);
     }
@@ -29,72 +29,123 @@ if (!isset($conn) || $conn === null) {
 // Flags to trigger SweetAlert after page load
 $show_success_alert = false;
 $show_error_alert = false;
+$error_message = "";
+
+// Get Current User ID
+$user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1); 
+
+// --- FETCH LOGGED IN USER DETAILS (Name & Department) ---
+$logged_in_name = 'Unknown User';
+$logged_in_dept = 'General';
+
+$user_query = "SELECT u.name, COALESCE(ep.department, u.department) as department 
+               FROM users u 
+               LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
+               WHERE u.id = ?";
+$stmt_user = $conn->prepare($user_query);
+$stmt_user->bind_param("i", $user_id);
+$stmt_user->execute();
+$user_result = $stmt_user->get_result();
+if($user_row = $user_result->fetch_assoc()) {
+    $logged_in_name = $user_row['name'];
+    $logged_in_dept = !empty($user_row['department']) ? $user_row['department'] : 'General';
+}
+$stmt_user->close();
+
+// --- GENERATE ORDERLY TICKET ID (e.g., TKT-0001, TKT-0002) ---
+$tkt_query = "SELECT id FROM tickets ORDER BY id DESC LIMIT 1";
+$tkt_res = $conn->query($tkt_query);
+$next_id_num = 1;
+if ($tkt_res && $tkt_res->num_rows > 0) {
+    $last_id = $tkt_res->fetch_assoc()['id'];
+    $next_id_num = $last_id + 1;
+}
+// Pad the number with zeros (4 digits)
+$ticket_id = "TKT-" . str_pad($next_id_num, 4, '0', STR_PAD_LEFT);
+
 
 // --- HANDLE FORM SUBMISSION LOGIC ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket'])) {
-    $user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : 1); 
+    
     $ticket_code = $_POST['ticket_code'];
     $subject = mysqli_real_escape_string($conn, $_POST['subject']);
     $priority = mysqli_real_escape_string($conn, $_POST['priority']);
     $department = mysqli_real_escape_string($conn, $_POST['department']);
-    $cc_email = mysqli_real_escape_string($conn, $_POST['cc_email']);
     $description = mysqli_real_escape_string($conn, $_POST['description']);
+    $cc_email = ''; // Removed from UI, setting as empty
     
     $attachment = NULL;
 
-    // Handle File Upload Exceptionally
-    if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
-        
-        // Ensure directory exists absolutely
+    // Check if attachment is uploaded (Now Compulsory)
+    if (!isset($_FILES['attachment']) || $_FILES['attachment']['error'] !== UPLOAD_ERR_OK) {
+        $show_error_alert = true;
+        $error_message = "Attachment file is compulsory to raise a ticket.";
+    } else {
         if (!is_dir($upload_base_dir)) {
             mkdir($upload_base_dir, 0777, true);
         }
         
-        // Make extension lowercase to prevent .PDF vs .pdf issues
         $file_extension = strtolower(pathinfo($_FILES["attachment"]["name"], PATHINFO_EXTENSION));
         $new_filename = time() . '_' . uniqid() . '.' . $file_extension;
-        
-        // Exact physical path on your XAMPP server
         $target_file = $upload_base_dir . $new_filename;
         
-        // Move file and save DB path
         if (move_uploaded_file($_FILES["attachment"]["tmp_name"], $target_file)) {
-            // Save standardized relative path for DB
             $attachment = 'uploads/tickets/' . $new_filename;
+            
+            // Insert into tickets table
+            $query = "INSERT INTO tickets (user_id, ticket_code, subject, priority, department, cc_email, description, attachment, status) 
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Open')";
+            $stmt = $conn->prepare($query);
+            $stmt->bind_param("isssssss", $user_id, $ticket_code, $subject, $priority, $department, $cc_email, $description, $attachment);
+
+            if ($stmt->execute()) {
+                $show_success_alert = true;
+
+                // Automatically Send Notification to IT Team
+                $notif_title = "New Ticket: " . $ticket_code;
+                $notif_msg = "Dept: " . $department . " | Priority: " . $priority;
+                
+                $notif_query = "INSERT INTO notifications (user_id, title, message, type) 
+                                SELECT id, ?, ?, 'alert' FROM users WHERE role IN ('IT Admin', 'System Admin')";
+                $notif_stmt = $conn->prepare($notif_query);
+                $notif_stmt->bind_param("ss", $notif_title, $notif_msg);
+                $notif_stmt->execute();
+                $notif_stmt->close();
+
+            } else {
+                $show_error_alert = true;
+                $error_message = "Database Error: " . mysqli_error($conn);
+            }
+            $stmt->close();
+        } else {
+            $show_error_alert = true;
+            $error_message = "Failed to move uploaded file.";
         }
     }
-
-    // Insert into tickets table
-    $query = "INSERT INTO tickets (user_id, ticket_code, subject, priority, department, cc_email, description, attachment, status) 
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Open')";
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("isssssss", $user_id, $ticket_code, $subject, $priority, $department, $cc_email, $description, $attachment);
-
-    if ($stmt->execute()) {
-        $show_success_alert = true;
-
-        // --- AUTOMATICALLY SEND NOTIFICATION TO IT TEAM ---
-        $notif_title = "New Ticket: " . $ticket_code;
-        $notif_msg = "Dept: " . $department . " | Priority: " . $priority;
-        
-        $notif_query = "INSERT INTO notifications (user_id, title, message, type) 
-                        SELECT id, ?, ?, 'alert' FROM users WHERE role IN ('IT Admin', 'System Admin')";
-        $notif_stmt = $conn->prepare($notif_query);
-        $notif_stmt->bind_param("ss", $notif_title, $notif_msg);
-        $notif_stmt->execute();
-        $notif_stmt->close();
-
-    } else {
-        $show_error_alert = true;
-    }
-    $stmt->close();
 }
+
+// --- FETCH TICKET HISTORY FOR LOGGED-IN USER ---
+$history_query = "SELECT * FROM tickets WHERE user_id = ? ORDER BY created_at DESC";
+$stmt_hist = $conn->prepare($history_query);
+$stmt_hist->bind_param("i", $user_id);
+$stmt_hist->execute();
+$history_result = $stmt_hist->get_result();
+$tickets_history = [];
+while($row = $history_result->fetch_assoc()) {
+    $tickets_history[] = $row;
+}
+$stmt_hist->close();
 
 include 'sidebars.php';
 
-// 2. Mock Data
-$ticket_id = "TKT-" . rand(10000, 99999);
-$user_name = $_SESSION['username'] ?? 'User';
+// Generate a fresh ticket ID for UI after submission so the user sees the next available ID
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_ticket']) && $show_success_alert) {
+    $tkt_query = "SELECT id FROM tickets ORDER BY id DESC LIMIT 1";
+    $tkt_res = $conn->query($tkt_query);
+    $next_id_num = ($tkt_res->fetch_assoc()['id'] ?? 0) + 1;
+    $ticket_id = "TKT-" . str_pad($next_id_num, 4, '0', STR_PAD_LEFT);
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -102,7 +153,7 @@ $user_name = $_SESSION['username'] ?? 'User';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Raise New Ticket - SmartHR</title>
+    <title>Raise & Track Tickets - SmartHR</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -125,45 +176,40 @@ $user_name = $_SESSION['username'] ?? 'User';
             color: var(--text);
         }
 
-        /* --- Layout Fix for Sidebar --- */
         #mainContent {
-            margin-left: 95px; /* Matches Sidebar Width */
+            margin-left: 95px; 
             transition: margin-left 0.3s ease;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
         }
-        /* Logic handled by sidebars.php JS */
         #mainContent.main-shifted { margin-left: 315px; }
 
-        /* Form Styling */
-        .form-card {
+        /* Full Width Card Styling */
+        .unified-card {
             background: white;
             border-radius: 12px;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
             border: 1px solid var(--border);
-            width: 100%;      /* Full Width */
-            max-width: 100%;  /* Removed 800px limit */
-            margin: 0 auto;
+            width: 100%;      
+            overflow: hidden;
         }
 
         .form-header {
             background: var(--primary);
             color: white;
-            padding: 1.5rem 2rem;
-            border-radius: 12px 12px 0 0;
+            padding: 1.25rem 2rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
 
-        .form-body { padding: 2.5rem; }
-
-        .form-group { margin-bottom: 1.5rem; }
+        .form-body { padding: 2rem; }
+        .form-group { margin-bottom: 0; } /* Margin handled by grid gap now */
         
         .form-label {
             display: block;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 600;
             margin-bottom: 0.5rem;
             color: #475569;
@@ -171,62 +217,45 @@ $user_name = $_SESSION['username'] ?? 'User';
 
         .form-control {
             width: 100%;
-            padding: 0.875rem 1rem;
+            padding: 0.65rem 1rem;
             border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 0.95rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
             transition: border-color 0.2s, box-shadow 0.2s;
             background-color: #fff;
         }
-        .form-control:focus {
-            outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1);
-        }
+        .form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); }
+        .form-control.readonly { background-color: #f1f5f9; color: #64748b; cursor: not-allowed; }
 
-        .btn-submit {
-            background: var(--primary);
-            color: white;
-            padding: 0.875rem 2.5rem;
-            border-radius: 8px;
-            font-weight: 600;
-            transition: background 0.2s;
-            border: none;
-            cursor: pointer;
-            font-size: 1rem;
-        }
+        .btn-submit { background: var(--primary); color: white; padding: 0.75rem 2.5rem; border-radius: 6px; font-weight: 600; font-size: 0.95rem; transition: background 0.2s; border: none; cursor: pointer; }
         .btn-submit:hover { background: var(--primary-hover); }
 
-        .btn-cancel {
-            background: white;
-            border: 1px solid var(--border);
-            color: #64748b;
-            padding: 0.875rem 2.5rem;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-right: 1rem;
-            font-size: 1rem;
-        }
-        .btn-cancel:hover { background: #f1f5f9; }
-
-        /* File Upload */
         .file-upload-wrapper {
             border: 2px dashed var(--border);
-            border-radius: 8px;
-            padding: 2.5rem;
+            border-radius: 6px;
+            padding: 1rem;
             text-align: center;
             background: #f8fafc;
             cursor: pointer;
             transition: all 0.2s;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
         }
         .file-upload-wrapper:hover { border-color: var(--primary); background: #f0fdfa; }
-        
-        /* Select Styling */
-        select option[value="High"] { color: #ef4444; font-weight: bold; }
-        select option[value="Medium"] { color: #f59e0b; font-weight: bold; }
-        select option[value="Low"] { color: #10b981; font-weight: bold; }
 
+        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; display: inline-block;}
+        .stat-Open { background: #e0f2fe; color: #0284c7; }
+        .stat-In-Progress { background: #fef9c3; color: #d97706; }
+        .stat-Resolved, .stat-Closed { background: #dcfce7; color: #16a34a; }
+        .stat-Waiting { background: #f3e8ff; color: #7e22ce; }
+
+        /* Modal specific */
+        .view-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 5000; backdrop-filter: blur(2px);}
+        .view-modal-overlay.active { display: flex; }
+        .view-modal-content { background: white; width: 100%; max-width: 600px; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body>
@@ -234,119 +263,197 @@ $user_name = $_SESSION['username'] ?? 'User';
 <div id="mainContent">
     <?php include 'header.php'; ?>
     
-    <div class="flex justify-between items-center px-8 py-6 bg-white border-b border-gray-200">
+    <div class="flex justify-between items-center px-8 py-5 bg-white border-b border-gray-200">
         <div>
-            <h1 class="text-2xl font-bold text-slate-800">Raise a Ticket</h1>
+            <h1 class="text-xl font-bold text-slate-800">Support Tickets</h1>
             <nav class="flex text-sm text-gray-500 mt-1">
                 <ol class="inline-flex items-center space-x-1">
                     <li><a href="dashboard.php" class="hover:text-teal-700">Dashboard</a></li>
                     <li><span class="mx-2">/</span></li>
-                    <li><a href="ticketraise.php" class="hover:text-teal-700">Tickets</a></li>
-                    <li><span class="mx-2">/</span></li>
-                    <li class="font-medium text-teal-900">New Ticket</li>
+                    <li class="font-medium text-teal-900">Raise & Track Tickets</li>
                 </ol>
             </nav>
         </div>
-        <div class="text-right">
-            <p class="text-sm text-gray-500">Ticket ID (Auto)</p>
-            <p class="font-mono font-bold text-lg text-slate-700">#<?php echo $ticket_id; ?></p>
-        </div>
     </div>
 
-    <div class="p-6 md:p-10 w-full">
+    <div class="p-6 md:p-8 w-full max-w-[1600px] mx-auto flex flex-col gap-8">
+        
         <form id="ticketForm" action="" method="POST" enctype="multipart/form-data">
-            
             <input type="hidden" name="ticket_code" value="<?php echo $ticket_id; ?>">
-
-            <div class="form-card">
-                
+            <div class="unified-card">
                 <div class="form-header">
                     <div>
-                        <h2 class="text-xl font-bold">New Support Request</h2>
-                        <p class="text-teal-100 text-sm opacity-90 mt-1">Please provide detailed information to help us resolve your issue faster.</p>
+                        <h2 class="text-lg font-bold">Raise New Request</h2>
+                        <p class="text-teal-100 text-xs mt-1">Submit your queries to the IT/HR support team</p>
                     </div>
-                    <div class="h-12 w-12 bg-white/20 rounded-full flex items-center justify-center">
-                        <i class="fa-solid fa-pen-to-square text-white text-xl"></i>
+                    <div class="text-right">
+                        <span class="text-xs text-teal-200">Ticket ID</span>
+                        <div class="font-mono font-bold text-base text-white">#<?php echo $ticket_id; ?></div>
                     </div>
                 </div>
 
                 <div class="form-body">
-                    
-                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-8 mb-4">
-                        <div class="form-group lg:col-span-3">
-                            <label class="form-label">Ticket Subject <span class="text-red-500">*</span></label>
-                            <input type="text" name="subject" id="subject" class="form-control" placeholder="e.g., Laptop Screen Flickering or Salary Discrepancy" required minlength="5">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <div class="form-group">
+                            <label class="form-label">Employee Name</label>
+                            <input type="text" class="form-control readonly" value="<?php echo htmlspecialchars($logged_in_name); ?>" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Department <span class="text-red-500">*</span></label>
+                            <input type="text" name="department" id="department" class="form-control readonly" value="<?php echo htmlspecialchars($logged_in_dept); ?>" readonly>
                         </div>
                         <div class="form-group">
                             <label class="form-label">Priority <span class="text-red-500">*</span></label>
                             <select name="priority" id="priority" class="form-control" required>
                                 <option value="" disabled selected>Select Priority</option>
-                                <option value="High">🚨 High - Urgent</option>
-                                <option value="Medium">⚡ Medium</option>
-                                <option value="Low">🟢 Low - Routine</option>
+                                <option value="High" class="text-red-500 font-bold">High - Urgent</option>
+                                <option value="Medium" class="text-amber-500 font-bold">Medium</option>
+                                <option value="Low" class="text-emerald-500 font-bold">Low - Routine</option>
                             </select>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-4">
-                        <div class="form-group">
-                            <label class="form-label">Category / Department <span class="text-red-500">*</span></label>
-                            <select name="department" id="department" class="form-control" required>
-                                <option value="" disabled selected>Select Department</option>
-                                <option value="IT Support">IT Support (Hardware/Software)</option>
-                                <option value="HR">Human Resources (Leave/Policy)</option>
-                                <option value="Accounts">Accounts & Payroll</option>
-                                <option value="Facilities">Admin & Facilities</option>
-                                <option value="Project">Project Related</option>
-                            </select>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                        <div class="form-group md:col-span-2 flex flex-col">
+                            <label class="form-label">Subject <span class="text-red-500">*</span></label>
+                            <input type="text" name="subject" id="subject" class="form-control mb-6" placeholder="e.g., Laptop Screen Flickering" required minlength="5">
+                            
+                            <label class="form-label">Detailed Description <span class="text-red-500">*</span></label>
+                            <textarea name="description" id="description" class="form-control flex-1" rows="5" placeholder="Describe the issue in detail..." required minlength="10"></textarea>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label">CC To (Optional)</label>
-                            <input type="email" name="cc_email" class="form-control" placeholder="manager@example.com">
-                            <p class="text-xs text-gray-400 mt-1">Notify your reporting manager or team lead.</p>
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Detailed Description <span class="text-red-500">*</span></label>
-                        <textarea name="description" id="description" class="form-control" rows="8" placeholder="Please describe the issue in detail. Include error messages if applicable..." required minlength="10"></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">Attachments (Screenshots/Docs)</label>
-                        <div class="file-upload-wrapper" onclick="document.getElementById('fileInput').click()">
-                            <input type="file" id="fileInput" name="attachment" class="hidden" onchange="showFileName(this)">
-                            <i class="fa-solid fa-cloud-arrow-up text-4xl text-gray-300 mb-3"></i>
-                            <p class="text-base font-medium text-gray-600">Click to upload or drag and drop</p>
-                            <p class="text-xs text-gray-400 mt-1">Supported: JPG, PNG, PDF, SVG (Max size: 5MB)</p>
-                            <p id="fileNameDisplay" class="text-sm text-teal-700 font-bold mt-3 hidden"></p>
+                        
+                        <div class="form-group md:col-span-1 flex flex-col">
+                            <label class="form-label">Attachment <span class="text-red-500">*</span></label>
+                            <div class="file-upload-wrapper" onclick="document.getElementById('fileInput').click()">
+                                <input type="file" id="fileInput" name="attachment" class="hidden" onchange="showFileName(this)" required>
+                                <i class="fa-solid fa-cloud-arrow-up text-3xl text-teal-600 mb-3"></i>
+                                <p class="text-sm font-bold text-gray-700">Upload Screenshot or File</p>
+                                <p class="text-xs font-medium text-gray-500 mt-1">(Compulsory)</p>
+                                <p id="fileNameDisplay" class="text-xs text-teal-700 font-bold mt-3 hidden bg-teal-50 px-3 py-1 rounded border border-teal-100 break-all"></p>
+                            </div>
                         </div>
                     </div>
 
-                    <div class="border-t border-gray-100 pt-8 mt-6 flex justify-end gap-3">
-                        <button type="button" class="btn-cancel" onclick="window.history.back()">Cancel</button>
-                        <button type="submit" name="submit_ticket" class="btn-submit shadow-lg shadow-teal-900/20">
+                    <div class="flex justify-end mt-2 pt-6 border-t border-gray-100">
+                        <button type="submit" name="submit_ticket" class="btn-submit shadow-md">
                             <i class="fa-regular fa-paper-plane mr-2"></i> Submit Ticket
                         </button>
                     </div>
-
                 </div>
             </div>
         </form>
-    </div>
 
+        <div class="unified-card">
+            <div class="bg-gray-50 border-b border-gray-200 px-6 py-5 flex justify-between items-center">
+                <h3 class="text-base font-bold text-slate-800"><i class="fa-solid fa-clock-rotate-left mr-2 text-teal-700"></i> My Ticket History</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse whitespace-nowrap">
+                    <thead>
+                        <tr class="bg-white border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wider">
+                            <th class="p-5 font-semibold pl-6">Ticket ID</th>
+                            <th class="p-5 font-semibold">Date</th>
+                            <th class="p-5 font-semibold">Subject</th>
+                            <th class="p-5 font-semibold">Dept</th>
+                            <th class="p-5 font-semibold text-center">Status</th>
+                            <th class="p-5 font-semibold text-center pr-6">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 bg-white">
+                        <?php if (empty($tickets_history)): ?>
+                            <tr><td colspan="6" class="p-10 text-center text-gray-400 text-sm">No tickets raised yet.</td></tr>
+                        <?php else: foreach ($tickets_history as $ticket): 
+                            $status_class = str_replace(' ', '-', $ticket['status']);
+                        ?>
+                            <tr class="hover:bg-gray-50 transition-colors">
+                                <td class="p-5 pl-6 font-mono text-sm font-bold text-slate-700"><?php echo htmlspecialchars($ticket['ticket_code']); ?></td>
+                                <td class="p-5 text-sm text-gray-500"><?php echo date('d M Y, h:i A', strtotime($ticket['created_at'])); ?></td>
+                                <td class="p-5 text-sm text-slate-800 font-medium truncate max-w-[250px]"><?php echo htmlspecialchars($ticket['subject']); ?></td>
+                                <td class="p-5 text-sm text-gray-600"><?php echo htmlspecialchars($ticket['department']); ?></td>
+                                <td class="p-5 text-center">
+                                    <span class="status-badge stat-<?php echo $status_class; ?>">
+                                        <?php echo htmlspecialchars($ticket['status']); ?>
+                                    </span>
+                                </td>
+                                <td class="p-5 pr-6 text-center">
+                                    <button type="button" class="text-teal-600 bg-teal-50 hover:bg-teal-100 border border-teal-100 px-4 py-1.5 rounded-md text-xs font-bold transition shadow-sm" 
+                                            onclick='openViewModal(<?php echo json_encode($ticket, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE); ?>)'>
+                                        View Details
+                                    </button>
+                                </td>
+                            </tr>
+                        <?php endforeach; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<div class="view-modal-overlay" id="viewTicketModal">
+    <div class="view-modal-content flex flex-col max-h-[90vh]">
+        <div class="bg-[#1b5a5a] text-white px-6 py-4 flex justify-between items-center shrink-0">
+            <h3 class="font-bold text-lg" id="modalTicketCode">Ticket Details</h3>
+            <button onclick="document.getElementById('viewTicketModal').classList.remove('active')" class="text-white hover:text-gray-200 transition">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+        <div class="p-6 overflow-y-auto flex-1 bg-gray-50">
+            
+            <div class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm mb-4">
+                <p class="text-xs text-gray-400 font-bold uppercase mb-1">Issue Description (You)</p>
+                <h4 class="text-base font-bold text-slate-800 mb-2" id="modalSubject"></h4>
+                <p class="text-sm text-slate-600 leading-relaxed" id="modalDescription"></p>
+            </div>
+
+            <div class="bg-teal-50/50 p-5 rounded-lg border border-teal-100 shadow-sm">
+                <p class="text-xs text-teal-700 font-bold uppercase mb-4 border-b border-teal-100 pb-2"><i class="fa-solid fa-user-shield mr-1"></i> IT Support / Admin Response</p>
+                
+                <div class="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <span class="block text-xs text-gray-500 font-semibold mb-1">Current Status</span>
+                        <span id="modalStatusBadge" class="status-badge"></span>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-gray-500 font-semibold mb-1">Assigned To</span>
+                        <span id="modalAssignedTo" class="text-sm font-bold text-slate-700"></span>
+                    </div>
+                </div>
+
+                <div id="resolutionBlock" class="mt-4 pt-4 border-t border-teal-100/60 hidden">
+                    <div class="mb-4">
+                        <span class="block text-xs text-gray-500 font-semibold mb-1">Diagnosis / Findings</span>
+                        <p id="modalDiagnosis" class="text-sm text-slate-700 bg-white p-3 rounded border border-teal-50"></p>
+                    </div>
+                    <div class="mb-4">
+                        <span class="block text-xs text-gray-500 font-semibold mb-1">Action Taken / Solution</span>
+                        <p id="modalSolution" class="text-sm text-slate-700 font-medium bg-white p-3 rounded border border-teal-50"></p>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-gray-500 font-semibold mb-1">Admin Notes</span>
+                        <p id="modalAdminNote" class="text-sm text-gray-600 italic bg-white p-3 rounded border border-teal-50"></p>
+                    </div>
+                </div>
+
+                <div id="pendingBlock" class="mt-2 text-sm text-teal-700 font-medium italic bg-white p-4 rounded border border-teal-50">
+                    <i class="fa-solid fa-hourglass-half mr-1"></i> The support team is reviewing your ticket. Updates will appear here.
+                </div>
+
+            </div>
+        </div>
+    </div>
 </div>
 
 <?php if ($show_success_alert): ?>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         Swal.fire({
-            title: 'Ticket Raised Successfully!',
-            text: 'Your ticket has been sent to the IT team.',
+            title: 'Ticket Raised!',
+            text: 'Your request has been sent to the respective department.',
             icon: 'success',
             confirmButtonColor: '#1b5a5a'
         }).then(() => {
-            // RELOAD THE PAGE to generate a brand new Ticket ID
             window.location.href = window.location.href; 
         });
     });
@@ -356,77 +463,73 @@ $user_name = $_SESSION['username'] ?? 'User';
 <?php if ($show_error_alert): ?>
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        Swal.fire({
-            title: 'Error!',
-            text: 'Failed to raise the ticket. Please try again.',
-            icon: 'error',
-            confirmButtonColor: '#1b5a5a'
-        });
+        Swal.fire('Error!', '<?php echo addslashes($error_message); ?>', 'error');
     });
 </script>
 <?php endif; ?>
 
 <script>
-    // 1. File Upload Logic
+    // File Upload Name Display
     function showFileName(input) {
         const display = document.getElementById('fileNameDisplay');
         if (input.files && input.files[0]) {
-            display.textContent = "Selected File: " + input.files[0].name;
+            display.textContent = input.files[0].name;
             display.classList.remove('hidden');
-            
-            // File Validation Trigger
-            validateFile(input.files[0]);
         } else {
             display.classList.add('hidden');
         }
     }
 
-    // 2. Validation Logic
-    function validateFile(file) {
-        const maxSize = 5 * 1024 * 1024; // 5MB
-        const allowedTypes = ['image/jpeg', 'image/png', 'image/svg+xml', 'application/pdf'];
-
-        if (file.size > maxSize) {
-            Swal.fire('File Too Large', 'Maximum allowed size is 5MB.', 'error');
-            document.getElementById('fileInput').value = ""; // Clear input
-            document.getElementById('fileNameDisplay').classList.add('hidden');
-            return false;
-        }
-
-        if (!allowedTypes.includes(file.type)) {
-            Swal.fire('Invalid File', 'Only JPG, PNG, SVG, and PDF are allowed.', 'error');
-            document.getElementById('fileInput').value = ""; // Clear input
-            document.getElementById('fileNameDisplay').classList.add('hidden');
-            return false;
-        }
-        return true;
-    }
-
-    // 3. Form Submission Validation
+    // Form Validation logic with attachment requirement check
     document.getElementById('ticketForm').addEventListener('submit', function(e) {
         const subject = document.getElementById('subject').value.trim();
         const description = document.getElementById('description').value.trim();
-        const department = document.getElementById('department').value;
-        const priority = document.getElementById('priority').value;
-
-        if (subject.length < 5) {
+        const fileInput = document.getElementById('fileInput');
+        
+        if (subject.length < 5 || description.length < 10) {
             e.preventDefault();
-            Swal.fire('Validation Error', 'Subject must be at least 5 characters long.', 'warning');
+            Swal.fire('Validation Error', 'Please provide a valid subject and detailed description.', 'warning');
             return;
         }
 
-        if (description.length < 10) {
+        if (!fileInput.files || fileInput.files.length === 0) {
             e.preventDefault();
-            Swal.fire('Validation Error', 'Description must be at least 10 characters long.', 'warning');
-            return;
-        }
-
-        if (department === "" || priority === "") {
-            e.preventDefault();
-            Swal.fire('Validation Error', 'Please select both Department and Priority.', 'warning');
+            Swal.fire('Validation Error', 'Please upload an attachment/screenshot as it is compulsory.', 'warning');
             return;
         }
     });
+
+    // View Modal Logic
+    function openViewModal(ticket) {
+        document.getElementById('modalTicketCode').innerText = "Ticket " + ticket.ticket_code;
+        document.getElementById('modalSubject').innerText = ticket.subject;
+        document.getElementById('modalDescription').innerText = ticket.description;
+        
+        const badge = document.getElementById('modalStatusBadge');
+        badge.innerText = ticket.status;
+        badge.className = "status-badge stat-" + ticket.status.replace(/ /g, '-');
+
+        // Note: Assumes `assigned_to` stores the Name of the executive in the `tickets` table, if it's an ID we might need a join. 
+        document.getElementById('modalAssignedTo').innerText = ticket.assigned_to ? ticket.assigned_to : "Pending Assignment";
+
+        const resBlock = document.getElementById('resolutionBlock');
+        const penBlock = document.getElementById('pendingBlock');
+
+        // Check if IT has provided any updates
+        if (ticket.solution || ticket.diagnosis || ticket.admin_note) {
+            resBlock.classList.remove('hidden');
+            penBlock.classList.add('hidden');
+            
+            document.getElementById('modalDiagnosis').innerText = ticket.diagnosis || "No diagnosis provided.";
+            document.getElementById('modalSolution').innerText = ticket.solution || "No solution logged.";
+            document.getElementById('modalAdminNote').innerText = ticket.admin_note || "-";
+        } else {
+            resBlock.classList.add('hidden');
+            penBlock.classList.remove('hidden');
+        }
+
+        document.getElementById('viewTicketModal').classList.add('active');
+    }
 </script>
 
 </body>

@@ -29,12 +29,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $due_date = mysqli_real_escape_string($conn, $_POST['due_date'] ?? '');
         $priority = mysqli_real_escape_string($conn, $_POST['priority'] ?? 'Medium');
         $desc = mysqli_real_escape_string($conn, $_POST['desc'] ?? '');
+        
+        // Fetch newly added client parameter
+        $client_id = mysqli_real_escape_string($conn, $_POST['client_id'] ?? '');
 
-        // FIXED: Using 'title' instead of 'task_title'
         $sql = "INSERT INTO sales_tasks (assigned_by, assigned_to, title, description, due_date, priority, status) 
                 VALUES ('$manager_name', '$assignee', '$title', '$desc', '$due_date', '$priority', 'Pending')";
         
         if (mysqli_query($conn, $sql)) {
+            
+            // If a client was selected, update the crm_clients table to assign/reassign them to this executive
+            if(!empty($client_id) && !empty($assignee)) {
+                mysqli_query($conn, "UPDATE crm_clients SET executive = '$assignee' WHERE id = '$client_id'");
+            }
+            
             echo json_encode(['status' => 'success']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'SQL Error: ' . mysqli_error($conn) . ' | Stray Output: ' . $stray_output]);
@@ -46,11 +54,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'save_target') {
         $exec = mysqli_real_escape_string($conn, $_POST['executive'] ?? '');
         $month = mysqli_real_escape_string($conn, $_POST['month'] ?? '');
-        $customers = intval($_POST['customers'] ?? 0);
         $revenue = floatval($_POST['revenue'] ?? 0);
 
-        $sql = "INSERT INTO sales_targets (executive_name, target_month, target_customers, revenue_target) 
-                VALUES ('$exec', '$month', $customers, $revenue)";
+        $sql = "INSERT INTO sales_targets (executive_name, target_month, revenue_target) 
+                VALUES ('$exec', '$month', $revenue)";
         
         if (mysqli_query($conn, $sql)) {
             echo json_encode(['status' => 'success']);
@@ -76,15 +83,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 if(ob_get_length()) ob_clean();
 
 // --- FETCH DATA FOR UI ---
-$executives = mysqli_query($conn, "SELECT name, employee_id FROM users WHERE role IN ('Sales Executive', 'Sales') ORDER BY name ASC");
+// Only fetch Sales Executives for assigning tasks
+$executives = mysqli_query($conn, "SELECT name, employee_id FROM users WHERE role = 'Sales Executive' ORDER BY name ASC");
 
-// Fetch targets for current month
+// Fetch ALL CLIENTS for the task dropdown to allow updates
+$all_clients_query = mysqli_query($conn, "SELECT id, name, company_name, executive FROM crm_clients ORDER BY created_at DESC");
+$all_clients = [];
+if($all_clients_query) {
+    while($c = mysqli_fetch_assoc($all_clients_query)) {
+        $all_clients[] = $c;
+    }
+}
+
+// --- TARGETS & PROGRESS CALCULATION ---
 $current_month = date('Y-m');
 $targets_query = mysqli_query($conn, "SELECT * FROM sales_targets WHERE target_month = '$current_month'");
 $targets_data = [];
 if($targets_query) { while($r = mysqli_fetch_assoc($targets_query)) { $targets_data[] = $r; } }
 
-// Fetch All Tasks and Calculate Summary
+// Fetch achieved revenue (sum of deal_value where status is 'Won' for the current month)
+$achieved_query = mysqli_query($conn, "SELECT executive, SUM(deal_value) as total_achieved FROM crm_clients WHERE status = 'Won' AND DATE_FORMAT(created_at, '%Y-%m') = '$current_month' GROUP BY executive");
+$achieved_data = [];
+if ($achieved_query) {
+    while($row = mysqli_fetch_assoc($achieved_query)) {
+        $achieved_data[$row['executive']] = (float)$row['total_achieved'];
+    }
+}
+
+// Map the achieved progress into the targets data array
+foreach ($targets_data as &$tar) {
+    $exec = $tar['executive_name'];
+    $tar['achieved_revenue'] = $achieved_data[$exec] ?? 0;
+    $tar['progress_percentage'] = ($tar['revenue_target'] > 0) ? min(100, round(($tar['achieved_revenue'] / $tar['revenue_target']) * 100)) : 0;
+}
+unset($tar);
+
+
+// --- Fetch All Tasks and Calculate Summary ---
 $tasks_query = mysqli_query($conn, "SELECT * FROM sales_tasks ORDER BY created_at DESC");
 $counts = ['Pending' => 0, 'In Progress' => 0, 'Completed' => 0];
 $total_assigned = 0;
@@ -163,14 +198,18 @@ include '../header.php';
         .tab-btn { padding: 8px 16px; border-radius: 30px; font-size: 13px; font-weight: 600; cursor: pointer; transition: 0.2s; background: white; border: 1px solid var(--border-color); color: var(--text-muted); display: inline-block; text-align: center;}
         .tab-btn.active { background: var(--theme-color); color: white; border-color: var(--theme-color); }
 
+        /* UPGRADED TARGET CARD UI */
         .target-grid { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 30px; align-items: flex-start; }
-        .target-card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.02); transition: transform 0.2s; width: 300px; flex-shrink: 0; }
+        .target-card { background: white; border: 1px solid var(--border-color); border-radius: 12px; padding: 22px; box-shadow: 0 4px 20px rgba(0,0,0,0.02); transition: transform 0.2s; width: 340px; flex-shrink: 0; }
         .target-card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
-        .tc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .tc-name { font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 6px;}
-        .tc-month { font-size: 11px; font-weight: 700; background: #e0f2fe; color: #0284c7; padding: 4px 10px; border-radius: 20px; }
-        .tc-stats { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); font-weight: 600; margin-bottom: 8px; }
-        .tc-stats strong { color: var(--text-main); font-size: 14px; }
+        .tc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+        .tc-name { font-size: 16px; font-weight: 800; color: var(--text-main); margin: 0; display: flex; align-items: center; gap: 8px;}
+        .tc-month { font-size: 11px; font-weight: 700; background: #f1f5f9; color: var(--text-muted); padding: 5px 12px; border-radius: 20px; }
+        .tc-progress-section { display: flex; flex-direction: column; gap: 8px; }
+        .tc-stats-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; color: var(--text-muted); }
+        .tc-progress-bar-container { width: 100%; height: 8px; background: #e2e8f0; border-radius: 10px; overflow: hidden; position: relative; }
+        .tc-progress-fill { height: 100%; border-radius: 10px; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1); }
+        .tc-footer-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 700; margin-top: 4px;}
 
         /* CONTROLS (FILTER + VIEW TOGGLE) STYLES */
         .filter-dropdown { position: relative; display: inline-block; }
@@ -229,11 +268,12 @@ include '../header.php';
         /* MODAL */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 20px;}
         .modal-overlay.active { display: flex; }
-        .modal-content { background: white; padding: 30px; border-radius: 12px; width: 100%; max-width: 450px; position: relative; }
+        .modal-content { background: white; padding: 30px; border-radius: 12px; width: 100%; max-width: 450px; position: relative; max-height: 90vh; overflow-y: auto; }
         .close-modal { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #94a3b8; cursor: pointer; }
         .form-group { margin-bottom: 18px; }
         .form-group label { display: block; font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; }
         .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 13px; box-sizing: border-box; }
+        .form-group select option { padding: 5px; }
     </style>
 </head>
 <body>
@@ -301,15 +341,37 @@ include '../header.php';
             <div class="target-grid" id="targetsContainer" style="display: none;">
                 <?php if(empty($targets_data)): ?>
                     <div style="padding: 20px; background: white; border-radius: 12px; color: var(--text-muted); width: 100%;">No targets set for <?php echo date('F Y'); ?>. Click 'Set Target' to begin.</div>
-                <?php else: foreach($targets_data as $tar): ?>
+                <?php else: foreach($targets_data as $tar): 
+                    // Dynamic Progress logic
+                    $prog = $tar['progress_percentage'];
+                    $prog_color = '#ef4444'; // Red for low progress
+                    if ($prog >= 40) $prog_color = '#f59e0b'; // Orange for medium
+                    if ($prog >= 80) $prog_color = '#10b981'; // Green for good/hit
+                ?>
                     <div class="target-card">
                         <div class="tc-header">
                             <h4 class="tc-name"><i class="ph-bold ph-user-circle" style="color: var(--theme-color); font-size: 20px;"></i> <?= htmlspecialchars($tar['executive_name']) ?></h4>
-                            <span class="tc-month"><?= date('M Y', strtotime($tar['target_month']."-01")) ?></span>
+                            <span class="tc-month"><i class="ph-bold ph-calendar"></i> <?= date('M Y', strtotime($tar['target_month']."-01")) ?></span>
                         </div>
-                        <div class="tc-stats">
-                            <span>Target: <strong>₹<?= number_format($tar['revenue_target']) ?></strong></span>
-                            <span>Clients: <strong><?= $tar['target_customers'] ?></strong></span>
+                        
+                        <div class="tc-progress-section">
+                            <div class="tc-stats-row">
+                                <span>Achieved: <span style="color: var(--theme-color);">₹<?= number_format($tar['achieved_revenue']) ?></span></span>
+                                <span>Target: ₹<?= number_format($tar['revenue_target']) ?></span>
+                            </div>
+                            
+                            <div class="tc-progress-bar-container">
+                                <div class="tc-progress-fill" style="width: <?= $prog ?>%; background: <?= $prog_color ?>;"></div>
+                            </div>
+                            
+                            <div class="tc-footer-row">
+                                <span style="color: <?= $prog_color ?>;"><?= $prog ?>% Completed</span>
+                                <?php if($prog >= 100): ?>
+                                    <span style="color: #10b981; display:flex; align-items:center; gap:3px;"><i class="ph-fill ph-check-circle"></i> Target Hit!</span>
+                                <?php else: ?>
+                                    <span>Remaining: ₹<?= number_format(max(0, $tar['revenue_target'] - $tar['achieved_revenue'])) ?></span>
+                                <?php endif; ?>
+                            </div>
                         </div>
                     </div>
                 <?php endforeach; endif; ?>
@@ -376,13 +438,28 @@ include '../header.php';
         <form id="createTaskForm" onsubmit="event.preventDefault(); submitTask();">
             <input type="hidden" name="action" value="save_task">
             <div class="form-group"><label>Task Title *</label><input type="text" name="title" required></div>
+            
+            <div class="form-group">
+                <label>Link Client (Optional)</label>
+                <select name="client_id" id="taskClientSelect" onchange="autoSelectExecutive()">
+                    <option value="" data-executive="">-- No Client (General Task) --</option>
+                    <?php foreach($all_clients as $client): ?>
+                        <option value="<?= $client['id'] ?>" data-executive="<?= htmlspecialchars($client['executive'] ?? '') ?>">
+                            <?= htmlspecialchars($client['name']) ?> 
+                            <?= !empty($client['company_name']) ? ' - ' . htmlspecialchars($client['company_name']) : '' ?>
+                        </option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+
             <div class="form-group">
                 <label>Assign To (Executive) *</label>
-                <select name="assignee" required>
+                <select name="assignee" id="taskExecutiveSelect" required>
                     <option value="">-- Select Executive --</option>
                     <?php if($executives){ mysqli_data_seek($executives, 0); while($ex = mysqli_fetch_assoc($executives)) echo "<option value='".htmlspecialchars($ex['name'])."'>".htmlspecialchars($ex['name'])."</option>"; } ?>
                 </select>
             </div>
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                 <div class="form-group"><label>Due Date *</label><input type="date" name="due_date" required></div>
                 <div class="form-group"><label>Priority</label><select name="priority" required><option value="High">High</option><option value="Medium" selected>Medium</option><option value="Low">Low</option></select></div>
@@ -408,9 +485,8 @@ include '../header.php';
             </div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
                 <div class="form-group"><label>Target Month *</label><input type="month" name="month" required value="<?= date('Y-m') ?>"></div>
-                <div class="form-group"><label>Target Customers</label><input type="number" name="customers" required></div>
+                <div class="form-group"><label>Revenue Target (₹) *</label><input type="number" name="revenue" required></div>
             </div>
-            <div class="form-group"><label>Revenue Target (₹) *</label><input type="number" name="revenue" required></div>
             <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px;" id="btnSubmitTarget">Save Target</button>
         </form>
     </div>
@@ -419,6 +495,24 @@ include '../header.php';
 <script>
     function openModal(id) { document.getElementById(id).classList.add('active'); }
     function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+    
+    // Auto-select Executive when a Client is selected
+    function autoSelectExecutive() {
+        const clientSelect = document.getElementById('taskClientSelect');
+        const execSelect = document.getElementById('taskExecutiveSelect');
+        
+        const selectedOption = clientSelect.options[clientSelect.selectedIndex];
+        const linkedExecutive = selectedOption.getAttribute('data-executive');
+        
+        if (linkedExecutive && linkedExecutive.trim() !== '' && linkedExecutive !== 'None' && linkedExecutive !== 'Unassigned') {
+            for (let i = 0; i < execSelect.options.length; i++) {
+                if (execSelect.options[i].value === linkedExecutive) {
+                    execSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
     
     function submitTask() {
         const btn = document.getElementById('btnSubmitTask');
@@ -557,8 +651,8 @@ include '../header.php';
             targetsContainer.style.display = 'flex';
             tasksContainer.style.display = 'none';
             if(controlsWrapper) controlsWrapper.style.visibility = 'hidden';
-            btnTargets.classList.add('active');
-            btnTasks.classList.remove('active');
+            btnTasks.classList.add('active');
+            btnTargets.classList.remove('active');
         } else {
             targetsContainer.style.display = 'none';
             tasksContainer.style.display = 'flex';

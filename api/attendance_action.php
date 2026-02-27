@@ -1,83 +1,114 @@
 <?php
 // api/attendance_action.php
-session_start();
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+header('Content-Type: application/json');
 date_default_timezone_set('Asia/Kolkata');
 
-// Smart DB Connector
-$paths = ['../include/db_connect.php', '../../include/db_connect.php'];
-$db_found = false;
-foreach($paths as $path) { 
-    if(file_exists($path)) { 
-        require_once $path; 
-        $db_found = true; break; 
-    } 
-}
-
-header('Content-Type: application/json');
-
-if (!$db_found || !isset($conn) || !isset($_SESSION['user_id'])) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized or DB Error.']);
+// 1. Security Check
+if (!isset($_SESSION['user_id'])) {
+    echo json_encode(['success' => false, 'message' => 'User not logged in.']);
     exit();
 }
 
-$current_user_id = $_SESSION['user_id'];
+// 2. Database Connection
+$dbPath = '../include/db_connect.php';
+if (file_exists($dbPath)) { 
+    require_once $dbPath; 
+} else { 
+    echo json_encode(['success' => false, 'message' => 'Database connection missing.']); 
+    exit(); 
+}
+
+$user_id = $_SESSION['user_id'];
 $today = date('Y-m-d');
 $now_db = date('Y-m-d H:i:s');
-$action = $_POST['action'] ?? '';
+$action = $_POST['action'] ?? ''; // Catches the action sent by your JS
 
-// Fetch current state
-$check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
-$check_stmt = mysqli_prepare($conn, $check_sql);
-mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
-mysqli_stmt_execute($check_stmt);
-$attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
-
-$is_on_break = false;
-if ($attendance_record) {
-    $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
-    $bk_stmt = mysqli_prepare($conn, $bk_sql);
-    mysqli_stmt_bind_param($bk_stmt, "i", $attendance_record['id']);
-    mysqli_stmt_execute($bk_stmt);
-    if (mysqli_fetch_assoc(mysqli_stmt_get_result($bk_stmt))) {
-        $is_on_break = true;
-    }
+if (empty($action)) {
+    echo json_encode(['success' => false, 'message' => 'No action received.']);
+    exit();
 }
 
-// Execute Actions
-if ($action == 'punch_in' && !$attendance_record) {
-    $ins_sql = "INSERT INTO attendance (user_id, punch_in, date, status) VALUES (?, ?, ?, 'On Time')";
-    $ins_stmt = mysqli_prepare($conn, $ins_sql);
-    mysqli_stmt_bind_param($ins_stmt, "iss", $current_user_id, $now_db, $today);
-    if(mysqli_stmt_execute($ins_stmt)) { echo json_encode(['success' => true]); exit; }
-} 
-elseif ($action == 'break_start' && $attendance_record && !$is_on_break) {
-    $ins_bk = "INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)";
-    $stmt = mysqli_prepare($conn, $ins_bk);
-    mysqli_stmt_bind_param($stmt, "is", $attendance_record['id'], $now_db);
-    if(mysqli_stmt_execute($stmt)) { echo json_encode(['success' => true]); exit; }
-} 
-elseif ($action == 'break_end' && $attendance_record && $is_on_break) {
-    $upd_bk = "UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL";
-    $stmt = mysqli_prepare($conn, $upd_bk);
-    mysqli_stmt_bind_param($stmt, "si", $now_db, $attendance_record['id']);
-    if(mysqli_stmt_execute($stmt)) { echo json_encode(['success' => true]); exit; }
-} 
-elseif ($action == 'punch_out' && $attendance_record && !$attendance_record['punch_out']) {
-    if ($is_on_break) {
-        mysqli_query($conn, "UPDATE attendance_breaks SET break_end = '$now_db' WHERE attendance_id = {$attendance_record['id']} AND break_end IS NULL");
+// ==========================================
+// 3. PROCESS ATTENDANCE LOGIC
+// ==========================================
+
+// PUNCH IN
+if ($action === 'punch_in') {
+    $check = $conn->query("SELECT id FROM attendance WHERE user_id=$user_id AND date='$today'");
+    if ($check->num_rows == 0) {
+        $stmt = $conn->prepare("INSERT INTO attendance (user_id, punch_in, date, status) VALUES (?, ?, ?, 'On Time')");
+        $stmt->bind_param("iss", $user_id, $now_db, $today);
+        if ($stmt->execute()) {
+            echo json_encode(['success' => true, 'time' => date("h:i A")]);
+            exit();
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Database insert failed.']);
+            exit();
+        }
     }
-    $sum_res = mysqli_fetch_assoc(mysqli_query($conn, "SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as total FROM attendance_breaks WHERE attendance_id = {$attendance_record['id']} AND break_end IS NOT NULL"));
+    echo json_encode(['success' => true, 'message' => 'Already punched in.']);
+    exit();
+}
+
+// Fetch existing attendance ID for Breaks and Punch Out
+$att_result = $conn->query("SELECT id, punch_in FROM attendance WHERE user_id=$user_id AND date='$today'");
+if ($att_result->num_rows > 0) {
+    $att_row = $att_result->fetch_assoc();
+    $att_id = $att_row['id'];
+    $punch_in_time = $att_row['punch_in'];
     
-    $start_ts = strtotime($attendance_record['punch_in']);
-    $end_ts = strtotime($now_db);
-    $production_seconds = max(0, ($end_ts - $start_ts) - ($sum_res['total'] ?? 0));
-    $hours = $production_seconds / 3600;
-
-    $upd_sql = "UPDATE attendance SET punch_out = ?, production_hours = ? WHERE id = ?";
-    $upd_stmt = mysqli_prepare($conn, $upd_sql);
-    mysqli_stmt_bind_param($upd_stmt, "sdi", $now_db, $hours, $attendance_record['id']);
-    if(mysqli_stmt_execute($upd_stmt)) { echo json_encode(['success' => true]); exit; }
+    // START BREAK
+    if ($action === 'break_start') {
+        $stmt = $conn->prepare("INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)");
+        $stmt->bind_param("is", $att_id, $now_db);
+        if($stmt->execute()) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Failed to start break.']);
+        }
+        exit();
+    }
+    
+    // END BREAK
+    if ($action === 'break_end') {
+        $stmt = $conn->prepare("UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL");
+        $stmt->bind_param("si", $now_db, $att_id);
+        if($stmt->execute()) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Failed to end break.']);
+        }
+        exit();
+    }
+    
+    // PUNCH OUT
+    if ($action === 'punch_out') {
+        // Force end any active break first
+        $conn->query("UPDATE attendance_breaks SET break_end = '$now_db' WHERE attendance_id = $att_id AND break_end IS NULL");
+        
+        // Calculate break time
+        $brk_res = $conn->query("SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, IFNULL(break_end, '$now_db'))) as total_brk FROM attendance_breaks WHERE attendance_id = $att_id");
+        $brk_row = $brk_res->fetch_assoc();
+        $total_brk_sec = $brk_row['total_brk'] ?? 0;
+        
+        // Calculate production
+        $total_work_sec = strtotime($now_db) - strtotime($punch_in_time);
+        $prod_sec = max(0, $total_work_sec - $total_brk_sec);
+        $prod_hours = $prod_sec / 3600;
+        
+        $stmt = $conn->prepare("UPDATE attendance SET punch_out = ?, production_hours = ? WHERE id = ?");
+        $stmt->bind_param("sdi", $now_db, $prod_hours, $att_id);
+        if($stmt->execute()) {
+            echo json_encode(['success' => true, 'time' => date("h:i A"), 'prod' => number_format($prod_hours, 2).'h']);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Failed to punch out.']);
+        }
+        exit();
+    }
 }
 
-echo json_encode(['success' => false, 'message' => 'Action failed.']);
+// Fallback if no active attendance record is found
+echo json_encode(['success' => false, 'message' => 'Action failed. Record not found.']);
+exit();
 ?>

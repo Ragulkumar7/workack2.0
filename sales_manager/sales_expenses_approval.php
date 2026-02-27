@@ -1,351 +1,363 @@
 <?php
 ob_start();
-// Include your existing layout files
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+if (file_exists($dbPath)) { require_once $dbPath; } 
+else { require_once $projectRoot . '/include/db_connect.php'; }
+
+// --- AJAX ACTION HANDLERS ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    ob_clean();
+    header('Content-Type: application/json');
+    
+    // APPROVE
+    if ($_POST['action'] === 'approve') {
+        $id = intval($_POST['id']);
+        if(mysqli_query($conn, "UPDATE sales_expenses SET status = 'Approved' WHERE id = $id")) {
+            echo json_encode(['status' => 'success']);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
+        }
+        exit;
+    }
+    
+    // REJECT
+    if ($_POST['action'] === 'reject') {
+        $id = intval($_POST['id']);
+        $reason = mysqli_real_escape_string($conn, $_POST['reason']);
+        if(mysqli_query($conn, "UPDATE sales_expenses SET status = 'Rejected', rejection_reason = '$reason' WHERE id = $id")) {
+            echo json_encode(['status' => 'success']);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
+        }
+        exit;
+    }
+
+    // FORWARD TO ACCOUNTS (BULK)
+    if ($_POST['action'] === 'forward') {
+        $ids_str = $_POST['ids']; // format: "1,2,3"
+        // Sanitize
+        $id_array = array_map('intval', explode(',', $ids_str));
+        $clean_ids = implode(',', $id_array);
+
+        if(!empty($clean_ids)) {
+            if(mysqli_query($conn, "UPDATE sales_expenses SET status = 'Forwarded' WHERE id IN ($clean_ids)")) {
+                echo json_encode(['status' => 'success']);
+            } else {
+                echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
+            }
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'No valid IDs selected']);
+        }
+        exit;
+    }
+}
+
+// --- FETCH ALL TEAM EXPENSES ---
+$all_expenses = [];
+$metrics = ['total_req' => 0, 'pending' => 0, 'approved' => 0, 'forwarded' => 0];
+
+$query = mysqli_query($conn, "SELECT * FROM sales_expenses ORDER BY created_at DESC");
+if ($query) {
+    while($row = mysqli_fetch_assoc($query)) {
+        $all_expenses[] = $row;
+        $metrics['total_req']++;
+        
+        if($row['status'] == 'Pending') $metrics['pending']++;
+        if($row['status'] == 'Approved') $metrics['approved']++;
+        if($row['status'] == 'Forwarded') $metrics['forwarded']++;
+    }
+}
+
+if(ob_get_length()) ob_clean();
 if (file_exists('../sidebars.php')) include '../sidebars.php';
 if (file_exists('../header.php')) include '../header.php';
-
-// Mock Data for the Manager's Expenses View
-// In real-time, fetch where department = 'Sales' and status is Pending/Approved
-$team_expenses = [
-    ['id' => 'EXP-101', 'exec_name' => 'Prem Karthick', 'name' => 'Client Meeting Lunch', 'date' => '24 Feb 2026', 'amount' => '₹3000', 'status' => 'Pending', 'receipt' => true],
-    ['id' => 'EXP-102', 'exec_name' => 'Kavya Aruldas', 'name' => 'Travel to Chennai', 'date' => '23 Feb 2026', 'amount' => '₹4500', 'status' => 'Pending', 'receipt' => true],
-    ['id' => 'EXP-103', 'exec_name' => 'Prem Karthick', 'name' => 'Office Supplies', 'date' => '20 Feb 2026', 'amount' => '₹1200', 'status' => 'Approved', 'receipt' => false],
-    ['id' => 'EXP-104', 'exec_name' => 'Varshini M', 'name' => 'Hotel Accommodation', 'date' => '18 Feb 2026', 'amount' => '₹6000', 'status' => 'Forwarded', 'receipt' => true],
-    ['id' => 'EXP-105', 'exec_name' => 'Kavya Aruldas', 'name' => 'Team Snacks', 'date' => '15 Feb 2026', 'amount' => '₹800', 'status' => 'Rejected', 'receipt' => false],
-    ['id' => 'EXP-106', 'exec_name' => 'Prem Karthick', 'name' => 'Cab Fare', 'date' => '12 Feb 2026', 'amount' => '₹2500', 'status' => 'Approved', 'receipt' => true],
-];
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Expense Approvals | Sales Manager</title>
-    
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-
+    <title>Expense Approvals | Workack</title>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: #f8fafc; 
-        }
+        :root { --theme-color: #1b5a5a; --bg-body: #f8fafc; --text-main: #0f172a; --text-muted: #64748b; --border-color: #e2e8f0; --primary-sidebar-width: 95px; }
+        body { background-color: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; color: var(--text-main); }
+        .main-content { margin-left: var(--primary-sidebar-width); padding: 40px; width: calc(100% - var(--primary-sidebar-width)); min-height: 100vh; box-sizing: border-box;}
         
-        .main-content { 
-            margin-left: 95px; 
-            padding: 30px; 
-            width: calc(100% - 95px); 
-            box-sizing: border-box; 
-        }
-        @media (max-width: 992px) { 
-            .main-content { margin-left: 0; width: 100%; padding-top: 80px; } 
-        }
+        .page-header { margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
+        .page-header h2 { color: var(--theme-color); margin: 0 0 5px 0; font-size: 24px; font-weight: 800; }
+        .page-header p { margin: 0; font-size: 14px; color: var(--text-muted); }
 
-        .custom-checkbox {
-            appearance: none;
-            background-color: #f1f5f9;
-            margin: 0;
-            font: inherit;
-            color: currentColor;
-            width: 1.15em;
-            height: 1.15em;
-            border: 1px solid #cbd5e1;
-            border-radius: 0.25em;
-            display: grid;
-            place-content: center;
-            cursor: pointer;
-        }
-        .custom-checkbox::before {
-            content: "";
-            width: 0.65em;
-            height: 0.65em;
-            transform: scale(0);
-            transition: 120ms transform ease-in-out;
-            box-shadow: inset 1em 1em white;
-            background-color: transform;
-            transform-origin: center;
-            clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
-        }
-        .custom-checkbox:checked {
-            background-color: #1b5a5a;
-            border-color: #1b5a5a;
-        }
-        .custom-checkbox:checked::before {
-            transform: scale(1);
-        }
+        .btn-primary { background: #0284c7; color: white; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; font-size: 13px; box-shadow: 0 4px 6px -1px rgba(2, 132, 199, 0.2);}
+        .btn-primary:hover:not(:disabled) { transform: translateY(-2px); background: #0369a1;}
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none;}
 
-        .table-row-hover:hover { background-color: #f8fafc; }
-        
-        select:focus, input:focus, textarea:focus { outline: none; border-color: #1b5a5a; box-shadow: 0 0 0 1px #1b5a5a20; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 35px; }
+        .stat-card { background: white; border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; display: flex; align-items: center; gap: 15px; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); }
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .stat-info h4 { margin: 0; font-size: 22px; color: var(--text-main); font-weight: 800;}
+        .stat-info p { margin: 0; font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
+
+        /* Custom Checkbox */
+        .custom-checkbox { width: 18px; height: 18px; border-radius: 4px; border: 2px solid #cbd5e1; appearance: none; cursor: pointer; display: grid; place-content: center; transition: 0.2s;}
+        .custom-checkbox::before { content: ""; width: 10px; height: 10px; transform: scale(0); box-shadow: inset 1em 1em white; background-color: white; transform-origin: center; clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%); transition: 120ms transform ease-in-out; }
+        .custom-checkbox:checked { background-color: #0284c7; border-color: #0284c7; }
+        .custom-checkbox:checked::before { transform: scale(1); }
+        .custom-checkbox:disabled { cursor: not-allowed; opacity: 0.4; }
+
+        .table-container { background: white; border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: #f8fafc; padding: 16px 20px; font-size: 12px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border-color); }
+        td { padding: 16px 20px; font-size: 14px; font-weight: 600; color: var(--text-main); border-bottom: 1px solid var(--border-color); vertical-align: middle;}
+        tbody tr { transition: background 0.2s;}
+        tbody tr:hover { background: #f1f5f9; }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 4px;}
+        .stat-Pending { background: #fef9c3; color: #d97706; }
+        .stat-Approved { background: #dcfce7; color: #16a34a; }
+        .stat-Forwarded { background: #e0f2fe; color: #0284c7; }
+        .stat-Rejected { background: #fee2e2; color: #dc2626; }
+
+        .action-btns { display: flex; gap: 8px; }
+        .act-btn { width: 32px; height: 32px; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: 0.2s; }
+        .act-approve { background: #dcfce7; color: #16a34a; }
+        .act-approve:hover { background: #16a34a; color: white; }
+        .act-reject { background: #fee2e2; color: #dc2626; }
+        .act-reject:hover { background: #dc2626; color: white; }
+
+        /* Modal */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 20px; backdrop-filter: blur(2px);}
+        .modal-overlay.active { display: flex; }
+        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; position: relative; }
+        .close-modal { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #94a3b8; cursor: pointer; transition: 0.2s;}
+        .close-modal:hover { color: var(--theme-color); }
+        .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; }
+        .form-group textarea { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; box-sizing: border-box; outline: none; transition: 0.2s;}
+        .form-group textarea:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1); }
     </style>
 </head>
-<body class="text-slate-800">
+<body>
 
-    <div class="main-content">
-        
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-            <div>
-                <h1 class="text-2xl font-bold text-slate-900">Team Expenses Approval</h1>
-                <nav class="flex text-sm text-gray-500 mt-1 gap-2 items-center">
-                    <i data-lucide="home" class="w-3 h-3"></i>
-                    <span>></span>
-                    <span>Sales</span>
-                    <span>></span>
-                    <span class="text-slate-800 font-medium">Expense Approvals</span>
-                </nav>
-            </div>
-            
-            <div class="flex gap-3 relative">
-                <button onclick="openForwardModal()" class="px-5 py-2 bg-[#1b5a5a] text-white rounded-lg text-sm font-semibold shadow-sm flex items-center gap-2 hover:bg-[#134040] transition-colors disabled:opacity-50 disabled:cursor-not-allowed" id="forwardBtn" disabled>
-                    <i data-lucide="send" class="w-4 h-4"></i> Forward to Accounts
-                </button>
-            </div>
+<main class="main-content">
+    <div class="page-header">
+        <div>
+            <h2>Team Expense Approvals</h2>
+            <p>Review, approve, and forward sales team expenses to accounts.</p>
         </div>
+        <button class="btn-primary" id="forwardBtn" onclick="forwardSelected()" disabled>
+            <i class="ph-bold ph-paper-plane-tilt" style="font-size: 16px;"></i> Forward Selected to Accounts
+        </button>
+    </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            
-            <div class="p-5 border-b border-gray-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                <h2 class="font-bold text-lg text-slate-800">Pending & Approved Expenses</h2>
-                
-                <div class="flex flex-wrap gap-3">
-                    <div class="relative">
-                        <select class="pl-4 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 font-medium bg-white appearance-none cursor-pointer w-[160px] shadow-sm">
-                            <option value="all">All Executives</option>
-                            <option value="prem">Prem Karthick</option>
-                            <option value="kavya">Kavya Aruldas</option>
-                        </select>
-                        <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1b5a5a] pointer-events-none font-bold"></i>
-                    </div>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #f1f5f9; color: #475569;"><i class="ph-fill ph-files"></i></div>
+            <div class="stat-info"><h4><?= $metrics['total_req'] ?></h4><p>Total Requests</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #fef9c3; color: #d97706;"><i class="ph-fill ph-clock-countdown"></i></div>
+            <div class="stat-info"><h4><?= $metrics['pending'] ?></h4><p>Pending Action</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #dcfce7; color: #16a34a;"><i class="ph-fill ph-check-circle"></i></div>
+            <div class="stat-info"><h4><?= $metrics['approved'] ?></h4><p>Approved (Ready)</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #e0f2fe; color: #0284c7;"><i class="ph-fill ph-paper-plane-tilt"></i></div>
+            <div class="stat-info"><h4><?= $metrics['forwarded'] ?></h4><p>Forwarded</p></div>
+        </div>
+    </div>
 
-                    <div class="relative">
-                        <select class="pl-4 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 font-medium bg-white appearance-none cursor-pointer w-[140px] shadow-sm">
-                            <option value="all">All Status</option>
-                            <option value="Pending">Pending</option>
-                            <option value="Approved">Approved</option>
-                            <option value="Forwarded">Forwarded</option>
-                        </select>
-                        <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1b5a5a] pointer-events-none font-bold"></i>
-                    </div>
-                </div>
-            </div>
-
-            <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/30">
-                <div class="flex items-center gap-2 text-sm text-gray-600">
-                    <span>Row Per Page</span>
-                    <select class="border border-gray-200 rounded px-2 py-1 bg-white">
-                        <option>10</option>
-                    </select>
-                    <span>Entries</span>
-                </div>
-                <div class="relative w-64">
-                    <input type="text" placeholder="Search by ID or Name" class="w-full pl-10 pr-4 py-1.5 border border-gray-200 rounded-lg text-sm placeholder-gray-400 focus:outline-none focus:border-[#1b5a5a]">
-                    <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"></i>
-                </div>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse whitespace-nowrap">
-                    <thead>
-                        <tr class="bg-gray-50 border-b border-gray-100 text-sm text-gray-600 font-semibold">
-                            <th class="p-4 w-12 text-center">
-                                <input type="checkbox" class="custom-checkbox" id="selectAll" onchange="toggleAllCheckboxes(this)">
-                            </th>
-                            <th class="p-4">EXP ID</th>
-                            <th class="p-4">Executive Name</th>
-                            <th class="p-4">Expense Details</th>
-                            <th class="p-4">Date</th>
-                            <th class="p-4">Amount</th>
-                            <th class="p-4 text-center">Status</th>
-                            <th class="p-4 text-center">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($team_expenses as $expense): ?>
-                        <tr class="border-b border-gray-50 text-sm text-gray-600 table-row-hover transition-colors">
-                            <td class="p-4 text-center">
-                                <?php if($expense['status'] === 'Approved'): ?>
-                                    <input type="checkbox" class="custom-checkbox row-checkbox" value="<?php echo $expense['id']; ?>" onchange="checkSelections()">
-                                <?php else: ?>
-                                    <input type="checkbox" class="custom-checkbox" disabled style="opacity: 0.4; cursor: not-allowed;">
-                                <?php endif; ?>
-                            </td>
-                            <td class="p-4 font-semibold text-slate-800"><?php echo htmlspecialchars($expense['id']); ?></td>
-                            <td class="p-4 font-medium text-slate-700">
-                                <div class="flex items-center gap-2">
-                                    <div class="w-7 h-7 rounded-full bg-teal-100 text-[#1b5a5a] flex items-center justify-center font-bold text-xs">
-                                        <?php echo strtoupper(substr($expense['exec_name'], 0, 1)); ?>
-                                    </div>
-                                    <?php echo htmlspecialchars($expense['exec_name']); ?>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 40px; text-align: center;">
+                        <input type="checkbox" class="custom-checkbox" id="selectAll" onchange="toggleAllCheckboxes(this)">
+                    </th>
+                    <th>Executive</th>
+                    <th>Expense Info</th>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                    <th style="text-align: right;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if(empty($all_expenses)): ?>
+                    <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">No expenses submitted by the team yet.</td></tr>
+                <?php else: foreach($all_expenses as $exp): ?>
+                    <tr>
+                        <td style="text-align: center;">
+                            <?php if($exp['status'] === 'Approved'): ?>
+                                <input type="checkbox" class="custom-checkbox row-checkbox" value="<?= $exp['id'] ?>" onchange="checkSelections()">
+                            <?php else: ?>
+                                <input type="checkbox" class="custom-checkbox" disabled>
+                            <?php endif; ?>
+                        </td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: #e2e8f0; color: #475569; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800;">
+                                    <?= strtoupper(substr($exp['executive_name'], 0, 2)) ?>
                                 </div>
-                            </td>
-                            <td class="p-4">
-                                <span class="block text-slate-800"><?php echo htmlspecialchars($expense['name']); ?></span>
-                                <?php if($expense['receipt']): ?>
-                                    <span class="text-xs text-blue-500 flex items-center gap-1 mt-1 cursor-pointer hover:underline"><i data-lucide="paperclip" class="w-3 h-3"></i> View Receipt</span>
-                                <?php else: ?>
-                                    <span class="text-xs text-gray-400 mt-1 block">No receipt</span>
-                                <?php endif; ?>
-                            </td>
-                            <td class="p-4"><?php echo htmlspecialchars($expense['date']); ?></td>
-                            <td class="p-4 font-bold text-slate-900"><?php echo htmlspecialchars($expense['amount']); ?></td>
-                            <td class="p-4 text-center">
-                                <?php
-                                    $bg = 'bg-yellow-50 text-yellow-600';
-                                    if($expense['status'] == 'Approved') $bg = 'bg-green-50 text-green-600';
-                                    if($expense['status'] == 'Forwarded') $bg = 'bg-blue-50 text-blue-600';
-                                    if($expense['status'] == 'Rejected') $bg = 'bg-red-50 text-red-600';
+                                <?= htmlspecialchars($exp['executive_name']) ?>
+                            </div>
+                        </td>
+                        <td>
+                            <?= htmlspecialchars($exp['expense_name']) ?>
+                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Via <?= htmlspecialchars($exp['payment_method']) ?></div>
+                        </td>
+                        <td style="color: var(--text-muted); font-size: 13px;"><?= date('d M Y', strtotime($exp['expense_date'])) ?></td>
+                        <td style="font-size: 16px; font-weight: 800;">₹<?= number_format($exp['amount']) ?></td>
+                        <td>
+                            <span class="status-badge stat-<?= $exp['status'] ?>">
+                                <?php 
+                                    if($exp['status'] == 'Pending') echo '<i class="ph-bold ph-clock"></i> Pending';
+                                    elseif($exp['status'] == 'Approved') echo '<i class="ph-bold ph-check"></i> Approved';
+                                    elseif($exp['status'] == 'Forwarded') echo '<i class="ph-bold ph-paper-plane-tilt"></i> Forwarded';
+                                    else echo '<i class="ph-bold ph-x"></i> Rejected';
                                 ?>
-                                <span class="px-2.5 py-1 rounded-full text-xs font-bold <?php echo $bg; ?>">
-                                    <?php echo htmlspecialchars($expense['status']); ?>
-                                </span>
-                            </td>
-                            <td class="p-4">
-                                <div class="flex items-center justify-center gap-2">
-                                    <?php if($expense['status'] === 'Pending'): ?>
-                                        <button onclick="approveExpense('<?php echo $expense['id']; ?>')" class="p-1.5 bg-green-50 text-green-600 rounded-md hover:bg-green-500 hover:text-white transition-colors shadow-sm" title="Approve">
-                                            <i data-lucide="check" class="w-4 h-4"></i>
-                                        </button>
-                                        <button onclick="openRejectModal('<?php echo $expense['id']; ?>')" class="p-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-500 hover:text-white transition-colors shadow-sm" title="Reject">
-                                            <i data-lucide="x" class="w-4 h-4"></i>
-                                        </button>
-                                    <?php elseif($expense['status'] === 'Approved'): ?>
-                                        <span class="text-xs text-green-600 font-medium flex items-center gap-1"><i data-lucide="check-circle" class="w-3 h-3"></i> Approved</span>
-                                    <?php elseif($expense['status'] === 'Forwarded'): ?>
-                                        <span class="text-xs text-blue-600 font-medium flex items-center gap-1"><i data-lucide="send" class="w-3 h-3"></i> Accounts</span>
-                                    <?php else: ?>
-                                        <span class="text-xs text-red-600 font-medium flex items-center gap-1"><i data-lucide="x-circle" class="w-3 h-3"></i> Rejected</span>
-                                    <?php endif; ?>
+                            </span>
+                        </td>
+                        <td>
+                            <?php if($exp['status'] === 'Pending'): ?>
+                                <div class="action-btns" style="justify-content: flex-end;">
+                                    <button class="act-btn act-approve" title="Approve" onclick="actApprove(<?= $exp['id'] ?>)"><i class="ph-bold ph-check"></i></button>
+                                    <button class="act-btn act-reject" title="Reject" onclick="openRejectModal(<?= $exp['id'] ?>)"><i class="ph-bold ph-x"></i></button>
                                 </div>
-                            </td>
-                        </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-
-        </div>
+                            <?php elseif($exp['status'] === 'Rejected'): ?>
+                                <div style="text-align: right; font-size: 11px; color: #dc2626; font-weight: 700; cursor: help;" title="<?= htmlspecialchars($exp['rejection_reason']) ?>">
+                                    REASON GIVEN
+                                </div>
+                            <?php else: ?>
+                                <div style="text-align: right; font-size: 12px; color: var(--text-muted);">No action needed</div>
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; endif; ?>
+            </tbody>
+        </table>
     </div>
+</main>
 
-    <div id="forwardModal" class="fixed inset-0 bg-slate-900/40 z-50 hidden flex items-center justify-center backdrop-blur-sm transition-opacity">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 overflow-hidden">
-            <div class="p-6 text-center">
-                <div class="w-14 h-14 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i data-lucide="send" class="w-7 h-7"></i>
-                </div>
-                <h3 class="text-lg font-bold text-slate-800 mb-2">Forward to Accounts?</h3>
-                <p class="text-sm text-gray-500 mb-6" id="forwardText">Are you sure you want to forward 0 selected approved expenses to the accounts team?</p>
+<div class="modal-overlay" id="rejectModal">
+    <div class="modal-content">
+        <i class="ph-bold ph-x close-modal" onclick="document.getElementById('rejectModal').classList.remove('active')"></i>
+        <h3 style="margin-top: 0; color: #dc2626; font-size: 20px; font-weight: 800; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;"><i class="ph-fill ph-warning-circle"></i> Reject Expense</h3>
+        
+        <form id="rejectForm" onsubmit="event.preventDefault(); submitReject();">
+            <input type="hidden" name="action" value="reject">
+            <input type="hidden" name="id" id="rejectExpId">
+            <div class="form-group">
+                <label>Reason for Rejection *</label>
+                <textarea name="reason" rows="3" required placeholder="Tell the executive why this is rejected..."></textarea>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="button" class="btn-primary" style="flex: 1; background: white; color: #64748b; border: 1px solid #cbd5e1; box-shadow: none;" onclick="document.getElementById('rejectModal').classList.remove('active')">Cancel</button>
+                <button type="submit" class="btn-primary" style="flex: 1; background: #dc2626; justify-content: center; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);">Reject Request</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    // --- CHECKBOX LOGIC ---
+    function toggleAllCheckboxes(source) {
+        const checkboxes = document.querySelectorAll('.row-checkbox');
+        checkboxes.forEach(cb => {
+            if(!cb.disabled) cb.checked = source.checked;
+        });
+        checkSelections();
+    }
+
+    function checkSelections() {
+        const checkedCount = document.querySelectorAll('.row-checkbox:checked').length;
+        const btn = document.getElementById('forwardBtn');
+        btn.disabled = checkedCount === 0;
+        btn.innerHTML = `<i class="ph-bold ph-paper-plane-tilt" style="font-size: 16px;"></i> Forward Selected (${checkedCount}) to Accounts`;
+    }
+
+    // --- ACTIONS LOGIC ---
+    function actApprove(id) {
+        Swal.fire({
+            title: 'Approve Expense?',
+            text: "This will mark the expense as approved and ready for accounts.",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#16a34a',
+            confirmButtonText: 'Yes, Approve'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const fd = new FormData();
+                fd.append('action', 'approve');
+                fd.append('id', id);
                 
-                <div class="flex justify-center gap-3">
-                    <button type="button" onclick="closeModals()" class="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm">
-                        Cancel
-                    </button>
-                    <button type="button" onclick="submitForward()" class="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors shadow-sm">
-                        Yes, Forward
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="rejectModal" class="fixed inset-0 bg-slate-900/40 z-50 hidden flex items-center justify-center backdrop-blur-sm transition-opacity">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            <div class="flex justify-between items-center p-6 pb-4">
-                <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2"><i data-lucide="alert-triangle" class="text-red-500 w-5 h-5"></i> Reject Expense</h3>
-                <button type="button" onclick="closeModals()" class="text-gray-400 hover:bg-gray-100 p-1.5 rounded-full transition-colors">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            
-            <div class="p-6 pt-2">
-                <form id="rejectForm">
-                    <input type="hidden" id="rejectExpId">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Reason for Rejection *</label>
-                            <textarea rows="3" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 transition-shadow resize-none" placeholder="Provide a reason to the executive..."></textarea>
-                        </div>
-                    </div>
-                    
-                    <div class="flex justify-end gap-3 mt-6">
-                        <button type="button" onclick="closeModals()" class="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm">
-                            Cancel
-                        </button>
-                        <button type="button" onclick="submitReject()" class="px-5 py-2.5 bg-red-600 text-white rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors shadow-sm">
-                            Reject
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        lucide.createIcons();
-
-        // Checkbox Logic for Forwarding
-        function toggleAllCheckboxes(source) {
-            const checkboxes = document.querySelectorAll('.row-checkbox');
-            checkboxes.forEach(cb => {
-                if(!cb.disabled) {
-                    cb.checked = source.checked;
-                }
-            });
-            checkSelections();
-        }
-
-        function checkSelections() {
-            const checkboxes = document.querySelectorAll('.row-checkbox:checked');
-            const btn = document.getElementById('forwardBtn');
-            if(checkboxes.length > 0) {
-                btn.removeAttribute('disabled');
-            } else {
-                btn.setAttribute('disabled', 'true');
+                fetch(window.location.href, { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    if(data.status === 'success') location.reload();
+                    else Swal.fire('Error', data.message, 'error');
+                });
             }
-        }
+        });
+    }
 
-        // Modals Logic
-        function openForwardModal() {
-            const selectedCount = document.querySelectorAll('.row-checkbox:checked').length;
-            document.getElementById('forwardText').innerText = `Are you sure you want to forward ${selectedCount} selected approved expenses to the accounts team?`;
-            document.getElementById('forwardModal').classList.remove('hidden');
-        }
+    function openRejectModal(id) {
+        document.getElementById('rejectExpId').value = id;
+        document.getElementById('rejectForm').reset();
+        document.getElementById('rejectModal').classList.add('active');
+    }
 
-        function openRejectModal(id) {
-            document.getElementById('rejectExpId').value = id;
-            document.getElementById('rejectModal').classList.remove('hidden');
-        }
+    function submitReject() {
+        fetch(window.location.href, { method: 'POST', body: new FormData(document.getElementById('rejectForm')) })
+        .then(r => r.json())
+        .then(data => {
+            if(data.status === 'success') location.reload();
+            else Swal.fire('Error', data.message, 'error');
+        });
+    }
 
-        function closeModals() {
-            document.getElementById('forwardModal').classList.add('hidden');
-            document.getElementById('rejectModal').classList.add('hidden');
-        }
+    function forwardSelected() {
+        const checkboxes = document.querySelectorAll('.row-checkbox:checked');
+        if(checkboxes.length === 0) return;
 
-        // Action Logic (Mock functions - connect to backend later)
-        function approveExpense(id) {
-            if(confirm(`Are you sure you want to approve expense ${id}?`)) {
-                alert(`${id} has been Approved.`);
-                // In a real app, make an AJAX call to update DB, then reload page
-                location.reload();
+        let ids = [];
+        checkboxes.forEach(cb => ids.push(cb.value));
+
+        Swal.fire({
+            title: 'Forward to Accounts?',
+            text: `You are about to forward ${ids.length} approved expenses.`,
+            icon: 'info',
+            showCancelButton: true,
+            confirmButtonColor: '#0284c7',
+            confirmButtonText: 'Yes, Forward'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const fd = new FormData();
+                fd.append('action', 'forward');
+                fd.append('ids', ids.join(','));
+                
+                fetch(window.location.href, { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        Swal.fire({icon: 'success', title: 'Forwarded!', showConfirmButton: false, timer: 1500})
+                        .then(() => location.reload());
+                    } else {
+                        Swal.fire('Error', data.message, 'error');
+                    }
+                });
             }
-        }
+        });
+    }
+</script>
 
-        function submitReject() {
-            const id = document.getElementById('rejectExpId').value;
-            alert(`${id} has been Rejected and executive will be notified.`);
-            closeModals();
-            // Reload page or update DOM
-        }
-
-        function submitForward() {
-            const selectedCount = document.querySelectorAll('.row-checkbox:checked').length;
-            alert(`${selectedCount} expenses forwarded to Accounts Team successfully!`);
-            closeModals();
-            // Reload page to reflect Forwarded status
-        }
-    </script>
 </body>
 </html>

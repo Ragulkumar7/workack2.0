@@ -20,7 +20,19 @@ if (file_exists('include/db_connect.php')) {
 }
 
 // Fetch User Role for Access Control
- $current_user_role = $_SESSION['role'] ?? 'Guest'; 
+$current_user_role = $_SESSION['role'] ?? 'Guest'; 
+
+// Fetch strictly ONLY 'Sales Executives' for the Dropdown
+$executives = [];
+if(isset($conn)) {
+    // UPDATED QUERY: Only fetches users whose role is strictly 'Sales Executive'
+    $exec_query = mysqli_query($conn, "SELECT name, role FROM users WHERE role = 'Sales Executive' ORDER BY name ASC");
+    if($exec_query) {
+        while($row = mysqli_fetch_assoc($exec_query)) {
+            $executives[] = $row['name'];
+        }
+    }
+}
 
 // Handle API requests (CRUD operations)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -44,18 +56,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         elseif ($action === 'create') {
             $id = mysqli_real_escape_string($conn, $_POST['id'] ?? uniqid()); 
             $name = mysqli_real_escape_string($conn, $_POST['name'] ?? '');
+            $company_name = mysqli_real_escape_string($conn, $_POST['company_name'] ?? '');
+            $designation = mysqli_real_escape_string($conn, $_POST['designation'] ?? '');
             $phone = mysqli_real_escape_string($conn, $_POST['phone'] ?? '');
             $email = mysqli_real_escape_string($conn, $_POST['email'] ?? '');
+            
+            // Getting official mail id correctly from AJAX POST
+            $official_mail_id = mysqli_real_escape_string($conn, $_POST['official_mail_id'] ?? '');
+            
+            $gst_number = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
+            $location = mysqli_real_escape_string($conn, $_POST['location'] ?? '');
+            $description = mysqli_real_escape_string($conn, $_POST['description'] ?? '');
+            
             $source = mysqli_real_escape_string($conn, $_POST['source'] ?? '');
             $status = mysqli_real_escape_string($conn, $_POST['status'] ?? 'New');
             $executive = mysqli_real_escape_string($conn, $_POST['executive'] ?? '');
             $deal_value = floatval($_POST['deal_value'] ?? 0.00);
 
-            $sql = "INSERT INTO crm_clients (id, name, phone, email, source, status, executive, deal_value) 
-                    VALUES ('$id', '$name', '$phone', '$email', '$source', '$status', '$executive', $deal_value)";
-            
+           $sql = "INSERT INTO crm_clients 
+                    (id, name, company_name, designation, phone, email, official_mail, gst_number, location, description, source, status, executive, deal_value) 
+                    VALUES 
+                    ('$id', '$name', '$company_name', '$designation', '$phone', '$email', '$official_mail_id', '$gst_number', '$location', '$description', '$source', '$status', '$executive', $deal_value)";
             if(mysqli_query($conn, $sql)) {
-                $response = ['success' => true, 'message' => 'Client created'];
+                $response = ['success' => true, 'message' => 'Client created successfully'];
             } else {
                 $response = ['success' => false, 'message' => mysqli_error($conn)];
             }
@@ -63,16 +86,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         elseif ($action === 'update') {
             $id = mysqli_real_escape_string($conn, $_POST['id'] ?? '');
             $name = mysqli_real_escape_string($conn, $_POST['name'] ?? '');
+            $company_name = mysqli_real_escape_string($conn, $_POST['company_name'] ?? '');
+            $designation = mysqli_real_escape_string($conn, $_POST['designation'] ?? '');
             $phone = mysqli_real_escape_string($conn, $_POST['phone'] ?? '');
             $email = mysqli_real_escape_string($conn, $_POST['email'] ?? '');
+            $official_mail_id = mysqli_real_escape_string($conn, $_POST['official_mail_id'] ?? '');
+            $gst_number = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
+            $location = mysqli_real_escape_string($conn, $_POST['location'] ?? '');
+            $description = mysqli_real_escape_string($conn, $_POST['description'] ?? '');
+
             $source = mysqli_real_escape_string($conn, $_POST['source'] ?? '');
             $status = mysqli_real_escape_string($conn, $_POST['status'] ?? '');
             $executive = mysqli_real_escape_string($conn, $_POST['executive'] ?? '');
             $deal_value = floatval($_POST['deal_value'] ?? 0.00);
 
-            $sql = "UPDATE crm_clients SET name='$name', phone='$phone', email='$email', source='$source', status='$status', executive='$executive', deal_value=$deal_value WHERE id='$id'";
+            $sql = "UPDATE crm_clients SET 
+                    name='$name', 
+                    company_name='$company_name', 
+                    designation='$designation', 
+                    phone='$phone', 
+                    email='$email', 
+                    official_mail='$official_mail_id', 
+                    gst_number='$gst_number', 
+                    location='$location', 
+                    description='$description', 
+                    source='$source', 
+                    status='$status', 
+                    executive='$executive', 
+                    deal_value=$deal_value 
+                    WHERE id='$id'";
+                    
             if(mysqli_query($conn, $sql)) {
-                $response = ['success' => true, 'message' => 'Client updated'];
+                $response = ['success' => true, 'message' => 'Client updated successfully'];
             } else {
                 $response = ['success' => false, 'message' => mysqli_error($conn)];
             }
@@ -81,7 +126,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $id = mysqli_real_escape_string($conn, $_POST['id'] ?? '');
             $sql = "DELETE FROM crm_clients WHERE id='$id'";
             if(mysqli_query($conn, $sql)) {
-                $response = ['success' => true, 'message' => 'Client deleted'];
+                $response = ['success' => true, 'message' => 'Client deleted successfully'];
             } else {
                 $response = ['success' => false, 'message' => mysqli_error($conn)];
             }
@@ -100,6 +145,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sales CRM - Client Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
             --bg-body: #f8fafc;
@@ -125,21 +172,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             --sidebar-width: 95px;
         }
 
-        body.dark-mode {
-            --bg-body: #0f172a;
-            --bg-surface: #1e293b;
-            --bg-hover: #334155;
-            --border-color: #334155;
-            --text-primary: #f8fafc;
-            --text-secondary: #cbd5e1;
-            --text-muted: #64748b;
-        }
-
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         body { background-color: var(--bg-body); color: var(--text-primary); line-height: 1.5; -webkit-font-smoothing: antialiased; transition: background-color var(--transition); }
         .main-content { margin-left: var(--sidebar-width); padding: 2rem; min-height: 100vh; }
         button { cursor: pointer; border: none; background: none; font-family: inherit; }
-        input, select { font-family: inherit; }
+        input, select, textarea { font-family: inherit; }
 
         h1 { font-size: 1.875rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.025em; }
         h2 { font-size: 1.25rem; font-weight: 600; color: var(--text-primary); }
@@ -159,8 +196,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .btn-icon:hover { background-color: var(--bg-hover); color: var(--primary-color); }
         .btn-icon.danger:hover { background-color: #fee2e2; color: var(--danger-color); }
         .btn-icon.success:hover { background-color: #dcfce7; color: var(--success-color); }
-        body.dark-mode .btn-icon.danger:hover { background-color: rgba(239, 68, 68, 0.2); }
-        body.dark-mode .btn-icon.success:hover { background-color: rgba(16, 185, 129, 0.2); }
 
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
         .metric-card { background-color: var(--bg-surface); border-radius: var(--border-radius); padding: 1.5rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1.25rem; transition: var(--transition); }
@@ -170,10 +205,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .metric-icon.new { background-color: #fef3c7; color: var(--warning-color); }
         .metric-icon.won { background-color: #dcfce7; color: var(--success-color); }
         .metric-icon.value { background-color: #f3e8ff; color: var(--purple-color); }
-        body.dark-mode .metric-icon.total { background-color: rgba(59, 130, 246, 0.2); }
-        body.dark-mode .metric-icon.new { background-color: rgba(245, 158, 11, 0.2); }
-        body.dark-mode .metric-icon.won { background-color: rgba(16, 185, 129, 0.2); }
-        body.dark-mode .metric-icon.value { background-color: rgba(139, 92, 246, 0.2); }
+        
         .metric-content h3 { font-size: 0.875rem; color: var(--text-secondary); font-weight: 500; margin-bottom: 0.25rem; }
         .metric-content .value { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
 
@@ -196,7 +228,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         .client-info { display: flex; align-items: center; gap: 1rem; }
         .client-avatar { width: 40px; height: 40px; border-radius: 50%; background-color: var(--theme-light, #e0f2f1); color: var(--primary-color); display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 1rem; flex-shrink: 0; }
-        body.dark-mode .client-avatar { background-color: rgba(27, 90, 90, 0.2); }
         .client-details { display: flex; flex-direction: column; }
         .client-name { font-weight: 600; color: var(--text-primary); margin-bottom: 0.125rem; }
         .client-email { color: var(--text-secondary); font-size: 0.8125rem; }
@@ -208,12 +239,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .status-proposal { background-color: #fae8ff; color: #7e22ce; }
         .status-won { background-color: #dcfce7; color: #15803d; }
         .status-lost { background-color: #fee2e2; color: #b91c1c; }
-        body.dark-mode .status-new { background-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
-        body.dark-mode .status-contacted { background-color: rgba(245, 158, 11, 0.2); color: #fcd34d; }
-        body.dark-mode .status-qualified { background-color: rgba(99, 102, 241, 0.2); color: #a5b4fc; }
-        body.dark-mode .status-proposal { background-color: rgba(168, 85, 247, 0.2); color: #d8b4fe; }
-        body.dark-mode .status-won { background-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
-        body.dark-mode .status-lost { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
 
         .deal-value { font-weight: 600; color: var(--text-primary); }
         .table-actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
@@ -225,31 +250,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .page-info { font-size: 0.875rem; color: var(--text-secondary); }
         .page-controls { display: flex; gap: 0.5rem; }
 
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.3s ease; backdrop-filter: blur(2px); }
+        /* Modal Base - Magic Flexbox Fix Applied Here for Scroll & Save Button Visibility */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.3s ease; backdrop-filter: blur(2px); padding: 1rem; }
         .modal-overlay.active { opacity: 1; visibility: visible; }
-        .modal-content { background-color: var(--bg-surface); border-radius: var(--border-radius); width: 100%; max-width: 600px; box-shadow: var(--shadow-lg); transform: translateY(20px); transition: transform 0.3s ease; display: flex; flex-direction: column; max-height: 90vh; }
+        
+        .modal-content { 
+            background-color: var(--bg-surface); 
+            border-radius: var(--border-radius); 
+            width: 100%; 
+            max-width: 700px; 
+            box-shadow: var(--shadow-lg); 
+            transform: translateY(20px); 
+            transition: transform 0.3s ease; 
+            display: flex; 
+            flex-direction: column; 
+            max-height: 90vh; /* Limits maximum height to viewport */
+        }
         .modal-overlay.active .modal-content { transform: translateY(0); }
-        .modal-header { padding: 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        
+        .modal-header { 
+            padding: 1.5rem; 
+            border-bottom: 1px solid var(--border-color); 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            flex: 0 0 auto; /* Prevents header from shrinking or growing */
+        }
         .modal-header h2 { margin: 0; font-size: 1.25rem; }
         .close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.5rem; border-radius: var(--border-radius-sm); transition: var(--transition); }
         .close-btn:hover { background-color: var(--bg-hover); color: var(--text-primary); }
-        .modal-body { padding: 1.5rem; overflow-y: auto; }
-        .modal-footer { padding: 1.5rem; border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end; gap: 1rem; }
+        
+        .modal-body { 
+            padding: 1.5rem; 
+            overflow-y: auto; 
+            flex: 1 1 auto; /* Pushes footer down and allows scrolling inside */
+            min-height: 0; /* Important: Allows the body to scroll and not stretch parent flex container */
+        }
+        
+        .modal-footer { 
+            padding: 1.5rem; 
+            border-top: 1px solid var(--border-color); 
+            display: flex; 
+            justify-content: flex-end; 
+            gap: 1rem; 
+            background-color: #f8fafc;
+            flex: 0 0 auto; /* Prevents footer from shrinking and hiding below screen */
+        }
+        
         #confirmModal .modal-content { max-width: 400px; }
 
         .form-row { display: flex; gap: 1rem; margin-bottom: 1rem; }
         .form-row .form-group { flex: 1; margin-bottom: 0; }
         .form-group { margin-bottom: 1.5rem; }
         .form-group label { display: block; font-size: 0.875rem; font-weight: 500; color: var(--text-primary); margin-bottom: 0.5rem; }
-        .form-group input, .form-group select { width: 100%; padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background-color: var(--bg-body); color: var(--text-primary); font-size: 0.875rem; transition: var(--transition); }
-        .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); background-color: var(--bg-surface); }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 0.75rem 1rem; border-radius: var(--border-radius-sm); border: 1px solid var(--border-color); background-color: var(--bg-body); color: var(--text-primary); font-size: 0.875rem; transition: var(--transition); }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); background-color: var(--bg-surface); }
+        .form-group textarea { resize: vertical; }
         
         /* Readonly styling for View Mode */
-        .form-group input:read-only { background-color: var(--bg-hover); cursor: default; }
+        .form-group input:read-only, .form-group textarea:read-only { background-color: var(--bg-hover); cursor: default; }
         .form-group select:disabled { background-color: var(--bg-hover); cursor: default; opacity: 1; color: var(--text-primary); }
 
         .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.7); display: none; align-items: center; justify-content: center; z-index: 10; }
-        body.dark-mode .loading-overlay { background-color: rgba(30, 41, 59, 0.7); }
         .loading-overlay.active { display: flex; }
         .spinner { width: 40px; height: 40px; border: 3px solid var(--border-color); border-top-color: var(--primary-color); border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -269,9 +331,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <p>Track leads, manage deals, and build customer relationships.</p>
             </div>
             <div class="header-actions">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-                    </svg>
-                </button>
                 <button class="btn btn-primary" id="addClientBtn">
                     <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -352,6 +411,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     <option value="Cold Call">Cold Call</option>
                     <option value="Social Media">Social Media</option>
                     <option value="Trade Show">Trade Show</option>
+                    <option value="Email Campaign">Email Campaign</option>
                 </select>
             </div>
         </div>
@@ -394,76 +454,176 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     </main>
 
     <div class="modal-overlay" id="formModal">
-        <div class="modal-content">
+        <form id="clientForm" class="modal-content">
             <div class="modal-header">
                 <h2 id="modalTitle">Add New Client</h2>
-                <button class="close-btn" id="closeFormBtn">
+                <button type="button" class="close-btn" id="closeFormBtn">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-            <form id="clientForm">
-                <div class="modal-body">
-                    <input type="hidden" id="clientId">
-                    
+            <div class="modal-body">
+                <input type="hidden" id="clientId">
+                
+                <h4 style="font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; margin-bottom: 1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Basic Details</h4>
+                <div class="form-row">
                     <div class="form-group">
                         <label for="clientName">Full Name / Company *</label>
-                        <input type="text" id="clientName" required placeholder="e.g. Acme Corp">
+                        <input type="text" id="clientName" required placeholder="e.g. John Doe">
                     </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="clientPhone">Phone Number *</label>
-                            <input type="tel" id="clientPhone" required placeholder="+91 98765 43210">
-                        </div>
-                        <div class="form-group">
-                            <label for="clientEmail">Email Address *</label>
-                            <input type="email" id="clientEmail" required placeholder="contact@acme.com">
-                        </div>
+                    <div class="form-group">
+                        <label for="clientCompany">Company Name</label>
+                        <input type="text" id="clientCompany" placeholder="e.g. Neoera Infotech">
                     </div>
-                    
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="clientSource">Lead Source *</label>
-                            <select id="clientSource" required>
-                                <option value="" disabled selected>Select Source</option>
-                                <option value="Website">Website</option>
-                                <option value="Referral">Referral</option>
-                                <option value="Cold Call">Cold Call</option>
-                                <option value="Social Media">Social Media</option>
-                                <option value="Trade Show">Trade Show</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="clientStatus">Status *</label>
-                            <select id="clientStatus" required>
-                                <option value="New">New</option>
-                                <option value="Contacted">Contacted</option>
-                                <option value="Qualified">Qualified</option>
-                                <option value="Proposal">Proposal</option>
-                                <option value="Won">Won</option>
-                                <option value="Lost">Lost</option>
-                            </select>
-                        </div>
-                    </div>
+                </div>
 
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="clientExecutive">Assigned Executive *</label>
-                            <input type="text" id="clientExecutive" required placeholder="e.g. John Doe">
-                        </div>
-                        <div class="form-group">
-                            <label for="clientValue">Deal Value (₹) *</label>
-                            <input type="number" id="clientValue" required min="0" step="0.01" placeholder="50000">
-                        </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clientDesignation">Designation</label>
+                        <input type="text" id="clientDesignation" placeholder="e.g. Managing Director">
+                    </div>
+                    <div class="form-group">
+                        <label for="clientGst">GSTN Number</label>
+                        <input type="text" id="clientGst" placeholder="e.g. 22AAAAA0000A1Z5">
                     </div>
                 </div>
-                <div class="modal-footer" id="modalFooter">
-                    <button type="button" class="btn btn-secondary" id="cancelFormBtn">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="saveClientBtn">Save Client</button>
+                
+                <h4 style="font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; margin-bottom: 1rem; margin-top: 0.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Contact Details</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clientPhone">Phone Number *</label>
+                        <input type="tel" id="clientPhone" required placeholder="+91 98765 43210">
+                    </div>
+                    <div class="form-group">
+                        <label for="clientLocation">Location / City</label>
+                        <input type="text" id="clientLocation" placeholder="e.g. Coimbatore, Tamil Nadu">
+                    </div>
                 </div>
-            </form>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clientEmail">Personal Mail ID *</label>
+                        <input type="email" id="clientEmail" required placeholder="contact@acme.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="clientOfficialEmail">Official Mail ID</label>
+                        <input type="email" id="clientOfficialEmail" placeholder="work@acme.com">
+                    </div>
+                </div>
+                
+                <h4 style="font-size: 0.75rem; font-weight: 700; color: var(--primary-color); text-transform: uppercase; margin-bottom: 1rem; margin-top: 0.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.5rem;">Deal Specifications</h4>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clientSource">Lead Source *</label>
+                        <select id="clientSource" required>
+                            <option value="" disabled selected>Select Source</option>
+                            <option value="Website">Website</option>
+                            <option value="Referral">Referral</option>
+                            <option value="Cold Call">Cold Call</option>
+                            <option value="Social Media">Social Media</option>
+                            <option value="Trade Show">Trade Show</option>
+                            <option value="Email Campaign">Email Campaign</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="clientStatus">Status *</label>
+                        <select id="clientStatus" required>
+                            <option value="New">New</option>
+                            <option value="Contacted">Contacted</option>
+                            <option value="Qualified">Qualified</option>
+                            <option value="Proposal">Proposal</option>
+                            <option value="Won">Won</option>
+                            <option value="Lost">Lost</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="clientExecutive">Assigned Executive *</label>
+                        <select id="clientExecutive" required>
+                            <option value="" disabled selected>Select Executive</option>
+                            <?php foreach($executives as $exec): ?>
+                                <option value="<?php echo htmlspecialchars($exec); ?>"><?php echo htmlspecialchars($exec); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="clientValue">Deal Value (₹) *</label>
+                        <input type="number" id="clientValue" required min="0" step="0.01" placeholder="50000">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="clientDescription">Description / Notes</label>
+                    <textarea id="clientDescription" rows="3" placeholder="Add any background details or notes about the client here..."></textarea>
+                </div>
+
+            </div>
+            <div class="modal-footer" id="modalFooter">
+                <button type="button" class="btn btn-secondary" id="cancelFormBtn">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="saveClientBtn">Save Client</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="modal-overlay" id="viewModal">
+        <div class="modal-content !max-w-2xl">
+            <div class="modal-header bg-[#1b5a5a] text-white">
+                <h2 class="text-lg font-bold flex items-center gap-2"><i class="fa-regular fa-address-card"></i> Client Overview</h2>
+                <button type="button" class="text-white hover:bg-white/20 p-2 rounded-full transition" onclick="app.closeViewModal()"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <div class="modal-body bg-slate-50/50 custom-scrollbar">
+                
+                <div class="flex items-center justify-between mb-6 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 rounded-full bg-teal-100 text-[#1b5a5a] border-2 border-white shadow flex items-center justify-center text-2xl font-black uppercase" id="viewInitials">--</div>
+                        <div>
+                            <h3 class="text-xl font-bold text-slate-800 leading-tight" id="viewName">-</h3>
+                            <p class="text-sm font-medium text-slate-500" id="viewDesignationCompany">-</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="status-badge" id="viewStatusBadge">Status</span>
+                        <p class="text-xs text-slate-400 font-bold mt-2">Created: <span id="viewDate">--</span></p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Deal Value</p>
+                        <p class="font-black text-slate-800 text-lg" id="viewValue">₹0.00</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                        <p class="text-[10px] uppercase font-bold text-slate-400 mb-1">Assigned Executive</p>
+                        <p class="font-bold text-slate-800 text-sm flex items-center gap-2 mt-1"><i class="fa-solid fa-user-tie text-[#1b5a5a]"></i> <span id="viewExecutive">-</span></p>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-4">
+                    <div class="px-4 py-3 border-b border-slate-100 bg-slate-50"><h4 class="text-xs font-bold text-[#1b5a5a] uppercase"><i class="fa-solid fa-address-book mr-1"></i> Contact Info</h4></div>
+                    <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                        <div><p class="text-xs text-slate-500 font-medium mb-0.5">Personal Mail ID</p><p class="font-semibold text-slate-800 break-all" id="viewEmail">-</p></div>
+                        <div><p class="text-xs text-slate-500 font-medium mb-0.5">Official Mail ID</p><p class="font-semibold text-slate-800 break-all" id="viewOfficialEmail">-</p></div>
+                        <div><p class="text-xs text-slate-500 font-medium mb-0.5">Phone Number</p><p class="font-semibold text-slate-800" id="viewPhone">-</p></div>
+                        <div><p class="text-xs text-slate-500 font-medium mb-0.5">Location</p><p class="font-semibold text-slate-800" id="viewLocation">-</p></div>
+                        <div><p class="text-xs text-slate-500 font-medium mb-0.5">GSTN Number</p><p class="font-semibold text-slate-800" id="viewGst">-</p></div>
+                        <div><p class="text-xs text-slate-500 font-medium mb-0.5">Lead Source</p><p class="font-semibold text-slate-800" id="viewSource">-</p></div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div class="px-4 py-3 border-b border-slate-100 bg-slate-50"><h4 class="text-xs font-bold text-[#1b5a5a] uppercase"><i class="fa-solid fa-align-left mr-1"></i> Description</h4></div>
+                    <div class="p-4">
+                        <p class="text-sm text-slate-600 leading-relaxed" id="viewDescription">No description available.</p>
+                    </div>
+                </div>
+
+            </div>
+            <div class="modal-footer justify-end">
+                <button type="button" class="btn btn-secondary" onclick="app.closeViewModal()">Close Overview</button>
+            </div>
         </div>
     </div>
 
@@ -505,7 +665,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 this.bindEvents();
                 
                 // Initialize
-                this.initTheme();
                 this.loadData();
             }
 
@@ -532,10 +691,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 this.nextBtn = document.getElementById('nextPageBtn');
                 
                 // Modals & Buttons
-                this.themeBtn = document.getElementById('themeToggleBtn');
                 this.addBtn = document.getElementById('addClientBtn');
                 
                 this.formModal = document.getElementById('formModal');
+                this.viewModal = document.getElementById('viewModal');
                 this.clientForm = document.getElementById('clientForm');
                 this.modalTitle = document.getElementById('modalTitle');
                 this.modalFooter = document.getElementById('modalFooter');
@@ -548,25 +707,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 this.cancelConfirmBtn = document.getElementById('cancelConfirmBtn');
                 this.executeDeleteBtn = document.getElementById('executeDeleteBtn');
 
-                // Form Inputs
+                // Form Inputs mapping
                 this.inputs = {
                     id: document.getElementById('clientId'),
                     name: document.getElementById('clientName'),
+                    company_name: document.getElementById('clientCompany'),
+                    designation: document.getElementById('clientDesignation'),
                     phone: document.getElementById('clientPhone'),
                     email: document.getElementById('clientEmail'),
+                    official_mail_id: document.getElementById('clientOfficialEmail'),
+                    gst_number: document.getElementById('clientGst'),
+                    location: document.getElementById('clientLocation'),
                     source: document.getElementById('clientSource'),
                     status: document.getElementById('clientStatus'),
                     executive: document.getElementById('clientExecutive'),
-                    value: document.getElementById('clientValue')
+                    value: document.getElementById('clientValue'),
+                    description: document.getElementById('clientDescription')
                 };
             }
 
             bindEvents() {
-                // Theme
-                if(this.themeBtn) {
-                    this.themeBtn.addEventListener('click', () => this.toggleTheme());
-                }
-                
                 // Controls
                 this.searchInput.addEventListener('input', () => this.handleFilter());
                 this.statusFilter.addEventListener('change', () => this.handleFilter());
@@ -592,19 +752,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 window.addEventListener('click', (e) => {
                     if (e.target === this.formModal) this.closeFormModal();
                     if (e.target === this.confirmModal) this.closeConfirmModal();
+                    if (e.target === this.viewModal) this.closeViewModal();
                 });
-            }
-
-            // --- THEME LOGIC ---
-            initTheme() {
-                if (localStorage.getItem('crm_theme') === 'dark') {
-                    document.body.classList.add('dark-mode');
-                }
-            }
-
-            toggleTheme() {
-                document.body.classList.toggle('dark-mode');
-                localStorage.setItem('crm_theme', document.body.classList.contains('dark-mode') ? 'dark' : 'light');
             }
 
             // --- DATA LOGIC (AJAX) ---
@@ -667,19 +816,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 const pageData = this.filteredClients.slice(start, end);
 
                 // Role Checks
-                const canEdit = true; // Both can edit
-                const canDelete = (this.userRole === 'Sales Manager' || this.userRole === 'Admin' || this.userRole === 'Manager'); // Only Manager/Admin
+                const canDelete = (this.userRole === 'Sales Manager' || this.userRole === 'Admin' || this.userRole === 'Manager');
 
                 pageData.forEach(client => {
                     const tr = document.createElement('tr');
                     
                     const initials = this.escapeHTML(client.name).split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                     const formattedValue = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(client.deal_value);
+                    const subtext = client.company_name || client.designation || 'Individual';
 
                     // Generate Buttons HTML
                     let actionsHtml = `
                         <div class="table-actions">
-                            <!-- VIEW BUTTON -->
                             <button class="btn-icon success" title="View Details" onclick="app.viewClient('${client.id}')">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -687,7 +835,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 </svg>
                             </button>
 
-                            <!-- EDIT BUTTON -->
                             <button class="btn-icon" title="Edit" onclick="app.editClient('${client.id}')">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -695,7 +842,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             </button>
                     `;
 
-                    // DELETE BUTTON (Only for Manager)
+                    // DELETE BUTTON
                     if (canDelete) {
                         actionsHtml += `
                             <button class="btn-icon danger" title="Delete" onclick="app.requestDelete('${client.id}')">
@@ -714,6 +861,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 <div class="client-avatar">${initials}</div>
                                 <div class="client-details">
                                     <span class="client-name">${this.escapeHTML(client.name)}</span>
+                                    <div style="font-size: 0.75rem; color: var(--text-muted);">${this.escapeHTML(subtext)}</div>
                                 </div>
                             </div>
                         </td>
@@ -768,7 +916,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 const status = this.statusFilter.value;
                 const source = this.sourceFilter.value;
                 this.filteredClients = this.clients.filter(client => {
-                    const matchTerm = client.name.toLowerCase().includes(term) || client.email.toLowerCase().includes(term) || client.phone.includes(term);
+                    const matchTerm = client.name.toLowerCase().includes(term) || client.email.toLowerCase().includes(term) || client.phone.includes(term) || (client.company_name || '').toLowerCase().includes(term);
                     const matchStatus = status === 'all' || client.status === status;
                     const matchSource = source === 'all' || client.source === source;
                     return matchTerm && matchStatus && matchSource;
@@ -783,33 +931,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             // --- MODAL & FORM LOGIC ---
-            openFormModal(client = null, isReadOnly = false) {
+            openFormModal(client = null) {
                 this.clientForm.reset();
                 this.inputs.id.value = '';
                 
-                // Reset form state
                 this.setFormReadOnly(false); 
                 this.saveClientBtn.style.display = 'inline-flex';
                 this.cancelFormBtn.textContent = "Cancel";
 
                 if (client) {
                     this.inputs.id.value = client.id;
-                    this.inputs.name.value = client.name;
-                    this.inputs.phone.value = client.phone;
-                    this.inputs.email.value = client.email;
-                    this.inputs.source.value = client.source;
-                    this.inputs.status.value = client.status;
-                    this.inputs.executive.value = client.executive;
-                    this.inputs.value.value = client.deal_value;
+                    this.inputs.name.value = client.name || '';
+                    this.inputs.company_name.value = client.company_name || '';
+                    this.inputs.designation.value = client.designation || '';
+                    this.inputs.phone.value = client.phone || '';
+                    this.inputs.email.value = client.email || '';
+                    this.inputs.official_mail_id.value = client.official_mail_id || '';
+                    this.inputs.gst_number.value = client.gst_number || '';
+                    this.inputs.location.value = client.location || '';
+                    this.inputs.source.value = client.source || 'Website';
+                    this.inputs.status.value = client.status || 'New';
+                    this.inputs.executive.value = client.executive || '';
+                    this.inputs.value.value = client.deal_value || 0;
+                    this.inputs.description.value = client.description || '';
 
-                    if (isReadOnly) {
-                        this.modalTitle.textContent = 'View Client Details';
-                        this.setFormReadOnly(true);
-                        this.saveClientBtn.style.display = 'none';
-                        this.cancelFormBtn.textContent = "Close";
-                    } else {
-                        this.modalTitle.textContent = 'Edit Client';
-                    }
+                    this.modalTitle.textContent = 'Edit Client';
                 } else {
                     this.modalTitle.textContent = 'Add New Client';
                     this.inputs.status.value = 'New';
@@ -819,8 +965,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
 
             setFormReadOnly(isReadOnly) {
-                const inputs = this.clientForm.querySelectorAll('input, select');
-                inputs.forEach(input => {
+                const formInputs = this.clientForm.querySelectorAll('input, select, textarea');
+                formInputs.forEach(input => {
                     if (input.type === 'hidden') return;
                     if (input.tagName === 'SELECT') {
                         input.disabled = isReadOnly;
@@ -836,12 +982,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             viewClient(id) {
                 const client = this.clients.find(c => c.id === id);
-                if (client) this.openFormModal(client, true); // true = Read Only Mode
+                if(!client) return;
+
+                // Bind Data to View Modal
+                document.getElementById('viewInitials').innerText = client.name ? client.name.substring(0,2) : 'CL';
+                document.getElementById('viewName').innerText = client.name || '-';
+                
+                let desComp = [];
+                if(client.designation) desComp.push(client.designation);
+                if(client.company_name) desComp.push(client.company_name);
+                document.getElementById('viewDesignationCompany').innerText = desComp.length > 0 ? desComp.join(' at ') : 'No Organization Info';
+
+                const statusMap = { 'New': 'status-new', 'Contacted': 'status-contacted', 'Qualified': 'status-qualified', 'Proposal': 'status-proposal', 'Won': 'status-won', 'Lost': 'status-lost' };
+                const badge = document.getElementById('viewStatusBadge');
+                badge.className = `status-badge ${statusMap[client.status] || 'status-new'}`;
+                badge.innerText = client.status || 'New';
+
+                document.getElementById('viewDate').innerText = client.created_at ? new Date(client.created_at).toLocaleDateString('en-GB') : '-';
+                
+                document.getElementById('viewValue').innerText = '₹' + parseFloat(client.deal_value || 0).toLocaleString('en-IN');
+                document.getElementById('viewExecutive').innerText = client.executive || 'Unassigned';
+                
+                document.getElementById('viewEmail').innerText = client.email || '-';
+                document.getElementById('viewOfficialEmail').innerText = client.official_mail_id || '-';
+                document.getElementById('viewPhone').innerText = client.phone || '-';
+                document.getElementById('viewLocation').innerText = client.location || '-';
+                document.getElementById('viewGst').innerText = client.gst_number || '-';
+                document.getElementById('viewSource').innerText = client.source || '-';
+                document.getElementById('viewDescription').innerText = client.description || 'No description provided for this client.';
+
+                this.viewModal.classList.add('active');
+            }
+
+            closeViewModal() {
+                this.viewModal.classList.remove('active');
             }
 
             editClient(id) {
                 const client = this.clients.find(c => c.id === id);
-                if (client) this.openFormModal(client, false); // false = Edit Mode
+                if (client) this.openFormModal(client);
             }
 
             async handleSubmit(e) {
@@ -850,12 +1029,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 const clientData = {
                     id: this.inputs.id.value || '_' + Math.random().toString(36).substr(2, 9),
                     name: this.inputs.name.value,
+                    company_name: this.inputs.company_name.value,
+                    designation: this.inputs.designation.value,
                     phone: this.inputs.phone.value,
                     email: this.inputs.email.value,
+                    official_mail_id: this.inputs.official_mail_id.value,
+                    gst_number: this.inputs.gst_number.value,
+                    location: this.inputs.location.value,
                     source: this.inputs.source.value,
                     status: this.inputs.status.value,
                     executive: this.inputs.executive.value,
-                    deal_value: parseFloat(this.inputs.value.value)
+                    deal_value: parseFloat(this.inputs.value.value) || 0,
+                    description: this.inputs.description.value
                 };
 
                 const action = this.inputs.id.value ? 'update' : 'create';
