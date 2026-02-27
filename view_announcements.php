@@ -6,17 +6,37 @@ require_once 'include/db_connect.php';
 if (!isset($_SESSION['user_id'])) { header("Location: index.php"); exit(); }
 
 $user_role = $_SESSION['role'] ?? 'Employee'; 
+$user_id = $_SESSION['user_id'];
+
+// Login aagiruka employee oda department-a edukkurom
+$user_dept = $_SESSION['department']; 
+
+// HR potta 'All Employees' post-um, Employee-oda department post-um mattum filter panrom
+$sql = "SELECT * FROM announcements 
+        WHERE target_audience = 'All Employees' 
+        OR target_audience = 'All'
+        OR target_audience = '$user_dept' 
+        ORDER BY id DESC";
 
 // Fetch Active Announcements with Creator Details
-// Filter: 'All' OR Specific Role
-$sql = "SELECT a.*, u.username as creator_name, u.role as creator_role
-        FROM announcements a
-        LEFT JOIN users u ON a.created_by = u.id
-        WHERE (a.target_audience = 'All' OR a.target_audience = ?) 
-        ORDER BY a.is_pinned DESC, a.publish_date DESC";
+if (in_array($user_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
+    // Admins and HR see all announcements
+    $sql = "SELECT a.*, u.username as creator_name, u.role as creator_role
+            FROM announcements a
+            LEFT JOIN users u ON a.created_by = u.id
+            ORDER BY a.is_pinned DESC, a.publish_date DESC";
+    $stmt = $conn->prepare($sql);
+} else {
+    // Others see 'All', 'All Employees', their specific role, or announcements they created
+    $sql = "SELECT a.*, u.username as creator_name, u.role as creator_role
+            FROM announcements a
+            LEFT JOIN users u ON a.created_by = u.id
+            WHERE (a.target_audience = 'All' OR a.target_audience = 'All Employees' OR a.target_audience = ? OR a.created_by = ?) 
+            ORDER BY a.is_pinned DESC, a.publish_date DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("si", $user_role, $user_id);
+}
 
-$stmt = $conn->prepare($sql);
-$stmt->bind_param("s", $user_role);
 $stmt->execute();
 $result = $stmt->get_result();
 
@@ -24,12 +44,9 @@ $announcements = [];
 if ($result->num_rows > 0) {
     while($row = $result->fetch_assoc()) {
         $img = $row['image_path'];
-        // Fallback images
+        // Remove random fallback images; leave empty if no image exists
         if (empty($img) || !file_exists($img)) {
-            if ($row['category'] == 'Holiday') $img = 'https://images.unsplash.com/photo-1583417319070-4a69db38a482?auto=format&fit=crop&w=1200&q=80';
-            elseif ($row['category'] == 'Event') $img = 'https://images.unsplash.com/photo-1517048676732-d65bc937f952?auto=format&fit=crop&w=1200&q=80';
-            elseif ($row['category'] == 'Policy') $img = 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?auto=format&fit=crop&w=1200&q=80';
-            else $img = 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80';
+            $img = '';
         }
 
         $badgeClass = 'bg-event';
@@ -48,7 +65,7 @@ $latest = !empty($announcements) ? $announcements[0] : [
     'message' => 'Check back later for updates.', 
     'publish_date' => date('Y-m-d'), 
     'category' => 'General', 
-    'img' => 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=1200&q=80',
+    'img' => '',
     'badgeClass' => 'bg-event',
     'is_pinned' => 0,
     'attachment_path' => null,
@@ -126,7 +143,7 @@ $latest = !empty($announcements) ? $announcements[0] : [
         <div class="announcement-layout">
             
             <article class="featured-card">
-                <div class="featured-img-wrapper">
+                <div class="featured-img-wrapper" id="mainImgWrapper" <?php echo empty($latest['img']) ? 'style="display: none;"' : ''; ?>>
                     <img id="mainImg" src="<?php echo $latest['img']; ?>" alt="Banner">
                 </div>
                 <div class="featured-content">
@@ -210,6 +227,7 @@ $latest = !empty($announcements) ? $announcements[0] : [
 
     <script>
         function updateView(element, data) {
+            const imgWrapper = document.getElementById('mainImgWrapper');
             const imgEl = document.getElementById('mainImg');
             const titleEl = document.getElementById('mainTitle');
             const badgeEl = document.getElementById('mainBadge');
@@ -230,9 +248,16 @@ $latest = !empty($announcements) ? $announcements[0] : [
                 badgeEl.className = `badge ${data.badgeClass}`;
                 dateEl.innerText = data.date;
                 descEl.innerText = data.desc;
-                imgEl.src = data.img;
                 targetEl.innerText = data.target;
                 creatorEl.innerHTML = `${data.creator} <span class="text-slate-400 font-normal">(${data.role})</span>`;
+
+                if (data.img && data.img !== '') {
+                    imgEl.src = data.img;
+                    imgWrapper.style.display = 'block';
+                } else {
+                    imgEl.src = '';
+                    imgWrapper.style.display = 'none';
+                }
 
                 if(data.is_pinned == 1) pinEl.classList.remove('hidden');
                 else pinEl.classList.add('hidden');
