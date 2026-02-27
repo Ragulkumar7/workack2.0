@@ -269,49 +269,7 @@ $sidebarPath = __DIR__ . '/../sidebars.php';
             <div class="lg:col-span-8 space-y-8">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div class="card-modern p-6 text-center">
-                        <h3 class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Today's Attendance</h3>
-                        <p class="text-lg font-bold text-slate-800 mb-6" id="liveClock">00:00:00 AM</p>
-
-                        <div class="relative w-40 h-40 mb-6 mx-auto">
-                            <svg class="w-full h-full" viewBox="0 0 160 160">
-                                <circle cx="80" cy="80" r="70" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
-                                <?php 
-                                    $pct = min(1, $tl_total_seconds_worked / 32400); 
-                                    $dasharray = 440; $dashoffset = $dasharray - ($pct * $dasharray);
-                                ?>
-                                <circle id="progressRingCircle" cx="80" cy="80" r="70" stroke="<?php echo $tl_is_on_break ? '#f59e0b' : '#0d9488'; ?>" stroke-width="12" fill="transparent" 
-                                    stroke-dasharray="440" stroke-dashoffset="<?php echo $tl_attendance_record ? $dashoffset : 440; ?>" stroke-linecap="round" class="progress-ring-circle"></circle>
-                            </svg>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <p class="text-[10px] text-slate-400 font-bold uppercase"><?php echo $tl_is_on_break ? 'ON BREAK' : 'Total Hours'; ?></p>
-                                <h3 class="text-2xl font-black text-slate-800" id="productionTimer" data-running="<?php echo ($tl_attendance_record && !$tl_attendance_record['punch_out'] && !$tl_is_on_break) ? 'true' : 'false'; ?>" data-total="<?php echo $tl_total_seconds_worked; ?>">
-                                    <?php echo sprintf('%02d:%02d:%02d', floor($tl_total_seconds_worked/3600), floor(($tl_total_seconds_worked%3600)/60), $tl_total_seconds_worked%60); ?>
-                                </h3>
-                            </div>
-                        </div>
-
-                        <div id="attendanceButtons" class="w-full">
-                            <?php if (!$tl_attendance_record): ?>
-                                <select id="shift_select" class="w-full mb-4 bg-slate-50 border border-slate-200 text-slate-700 py-3 px-4 rounded-xl font-semibold text-sm outline-none cursor-pointer">
-                                    <option value="regular">Regular Shift (09:00 AM - 05:00 PM)</option>
-                                    <option value="afternoon">Afternoon Shift (12:00 PM - 09:00 PM)</option>
-                                    <option value="night">Night Shift (07:00 PM - 06:00 AM)</option>
-                                </select>
-                                <button onclick="handleAjaxAction('punch_in')" class="btn-teal shadow-lg"><i data-lucide="log-in" class="w-5 h-5"></i> Punch In</button>
-                            <?php elseif (!$tl_attendance_record['punch_out']): ?>
-                                <div class="grid grid-cols-2 gap-3">
-                                    <button onclick="handleAjaxAction('<?php echo $tl_is_on_break ? 'break_end' : 'break_start'; ?>')" class="<?php echo $tl_is_on_break ? 'bg-blue-500' : 'bg-amber-400'; ?> text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2">
-                                        <i data-lucide="<?php echo $tl_is_on_break ? 'play' : 'coffee'; ?>" class="w-4 h-4"></i> <?php echo $tl_is_on_break ? 'Resume' : 'Break'; ?>
-                                    </button>
-                                    <button onclick="handleAjaxAction('punch_out')" class="bg-orange-500 text-white font-bold py-3 rounded-xl shadow transition flex items-center justify-center gap-2">
-                                        <i data-lucide="log-out" class="w-4 h-4"></i> Out
-                                    </button>
-                                </div>
-                            <?php else: ?>
-                                <button disabled class="w-full bg-slate-100 text-slate-400 font-bold py-3 rounded-xl flex items-center justify-center gap-2"><i data-lucide="check-circle" class="w-5 h-5"></i> Shift Completed</button>
-                            <?php endif; ?>
-                        </div>
-                        <p class="text-[10px] text-slate-400 font-bold mt-4">Punched in at: <?php echo $tl_display_punch_in; ?></p>
+                       <?php include '../attendance_card.php'; ?>
                     </div>
 
                     <div class="card-modern p-6 flex flex-col justify-between">

@@ -417,71 +417,8 @@ $total_jobs = $job_res ? $job_res->fetch_assoc()['total_jobs'] : 0;
                     
                     <div class="lg:col-span-4 space-y-6">
                         
-                        <div class="glass-card text-center relative overflow-hidden">
-                            <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-teal-500 to-emerald-500"></div>
-                            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">My Attendance</p>
-                            
-                            <div class="attendance-circle mb-4">
-                                <svg class="absolute inset-0 w-full h-full transform -rotate-90">
-                                    <circle cx="70" cy="70" r="62" stroke="#f1f5f9" stroke-width="8" fill="transparent"></circle>
-                                    <circle id="progressRing" cx="70" cy="70" r="62" stroke="<?= $is_on_break ? '#f59e0b' : '#0d9488' ?>" stroke-width="8" fill="transparent" stroke-dasharray="390" stroke-dashoffset="390" class="transition-all duration-1000"></circle>
-                                </svg>
-                                <div class="relative z-10 text-center">
-                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Total Hours</p>
-                                    <p class="text-2xl font-extrabold text-slate-800" id="timerDisplay" data-total="<?= $total_seconds_worked ?>"><?= $total_hours_today ?></p>
-                                </div>
-                            </div>
-
-                            <div class="flex justify-center mb-4">
-                                <?php if (!$today_att): ?>
-                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200">
-                                        <i data-lucide="clock" class="w-3.5 h-3.5"></i> Not Punched In
-                                    </div>
-                                <?php elseif ($today_att['punch_out']): ?>
-                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold border border-emerald-100">
-                                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Shift Completed
-                                    </div>
-                                <?php elseif ($is_on_break): ?>
-                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-orange-50 text-orange-600 text-xs font-bold border border-orange-100">
-                                        <i data-lucide="coffee" class="w-3.5 h-3.5"></i> On Break
-                                    </div>
-                                <?php else: ?>
-                                    <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-teal-50 text-teal-700 text-xs font-bold border border-teal-100">
-                                        <i data-lucide="activity" class="w-3.5 h-3.5"></i> Currently Working
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-
-                            <p class="text-[11px] text-slate-400 mb-4 flex items-center justify-center gap-1">
-                                <i data-lucide="fingerprint" class="w-3 h-3 text-teal-600"></i> Punch In at <?= $display_punch_in ?>
-                            </p>
-
-                            <div class="w-full">
-                                <?php if (!$today_att): ?>
-                                    <button onclick="punchAction('punch_in')" id="btnPunchIn" class="w-full py-3.5 bg-[#0d9488] hover:bg-[#0b7a6f] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                        <i data-lucide="log-in" class="w-5 h-5"></i> Punch In
-                                    </button>
-                                <?php elseif (!$today_att['punch_out']): ?>
-                                    <?php if (!$is_on_break): ?>
-                                        <div class="grid grid-cols-2 gap-3">
-                                            <button onclick="punchAction('take_break')" id="btnBreak" class="w-full py-3.5 bg-[#f59e0b] hover:bg-[#d97706] text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                                <i data-lucide="coffee" class="w-5 h-5"></i> Break
-                                            </button>
-                                            <button onclick="punchAction('punch_out')" id="btnPunchOut" class="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                                <i data-lucide="log-out" class="w-5 h-5"></i> Punch Out
-                                            </button>
-                                        </div>
-                                    <?php else: ?>
-                                        <button onclick="punchAction('end_break')" id="btnEndBreak" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md">
-                                            <i data-lucide="play" class="w-5 h-5"></i> End Break
-                                        </button>
-                                    <?php endif; ?>
-                                <?php else: ?>
-                                    <button disabled class="w-full py-3.5 bg-gray-100 text-gray-400 rounded-xl font-bold flex items-center justify-center gap-2 cursor-not-allowed">
-                                        <i data-lucide="calendar-check" class="w-5 h-5"></i> Done for Today
-                                    </button>
-                                <?php endif; ?>
-                            </div>
+                        <div class="glass-card flex flex-col justify-center">
+                            <?php include '../attendance_card.php'; ?>
                         </div>
 
                         <div class="glass-card">
