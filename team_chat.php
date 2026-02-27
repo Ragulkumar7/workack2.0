@@ -415,7 +415,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .app-container { flex: 1; display:flex; height: 0; min-height: 0; background: var(--bg-light); position: relative;}
         
         /* SECONDARY SIDEBAR */
-        .sidebar-secondary-teams { width: 68px; background: #ebebeb; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 15; }
+        .sidebar-secondary-teams { width: 80px; background: #ffffff; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 15; }
         .nav-icon { width: 50px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 0.75rem; border-radius: 6px; margin-bottom: 5px; transition: 0.2s; }
         .nav-icon i { font-size: 1.4rem; margin-bottom: 2px; }
         .nav-icon:hover { color: var(--primary); }
@@ -596,10 +596,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <i class="ri-calendar-line"></i>
                 <span>Calendar</span>
             </div>
-            <div class="nav-icon">
-                <i class="ri-notification-3-line"></i>
-                <span>Activity</span>
-            </div>
+            
             <div style="flex: 1;"></div>
             <div class="nav-icon">
                 <i class="ri-gem-line"></i>
