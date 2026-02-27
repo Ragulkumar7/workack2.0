@@ -369,6 +369,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         echo json_encode(['status' => 'ok']); exit;
     }
 
+    // TYPING INDICATORS
     if ($action === 'start_typing') {
         $conv_id = (int)$_POST['conversation_id'];
         $stmt = $conn->prepare("INSERT INTO typing_status (conversation_id, user_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP");
@@ -517,17 +518,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .meet-hero-btn.primary:hover { background: var(--primary-hover); }
         .meet-hero-btn i { font-size: 1.2rem; }
 
-        /* PEOPLE & COMMUNITIES STYLES */
+        /* PEOPLE STYLES */
         .people-card { display: flex; align-items: center; justify-content: space-between; padding: 15px 30px; border-bottom: 1px solid var(--border); transition: background 0.2s; }
         .people-card:hover { background: var(--hover-bg); }
         .people-info { display: flex; align-items: center; gap: 15px; }
-        .people-btn { background: var(--bg-light); color: var(--text-dark); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--border); transition: 0.2s; }
+        .people-btn { background: var(--bg-light); color: var(--text-dark); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--border); transition: 0.2s; font-size: 1.2rem;}
         .people-btn:hover { background: var(--primary); color: white; border-color: var(--primary); transform: scale(1.05); }
 
-        .community-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; padding: 50px; text-align: center; }
-        .btn-teams { background: var(--primary); color: white; padding: 10px 25px; border-radius: 4px; border: none; cursor: pointer; font-weight: 600; margin-top: 20px; }
-        .template-btn { border: 1px solid var(--border); background: white; padding: 10px 20px; border-radius: 20px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 0.9rem; transition: 0.2s; }
-        .template-btn:hover { background: var(--hover-bg); }
+        /* CALENDAR STYLES (MATCHING SCREENSHOT) */
+        .calendar-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--border); }
+        .calendar-title { font-size: 1.4rem; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 10px;}
+        .calendar-title i { color: var(--primary); }
+        .cal-nav-btn { background: white; border: 1px solid var(--border); padding: 8px 15px; border-radius: 4px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+        .cal-nav-btn:hover { background: var(--bg-light); }
+        .cal-primary-btn { background: var(--primary); color: white; border: none; padding: 8px 15px; border-radius: 4px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        .cal-primary-btn:hover { background: var(--primary-hover); }
+        
+        .calendar-grid { display: flex; flex: 1; overflow: hidden; background: white;}
+        .time-col { width: 60px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .time-slot { height: 60px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: flex-end; padding: 5px 8px 0 0; font-size: 0.75rem; color: var(--text-muted); }
+        
+        .day-cols { display: flex; flex: 1; overflow-x: auto; }
+        .day-col { flex: 1; min-width: 150px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .day-header { padding: 15px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+        .day-num { font-size: 1.5rem; font-weight: 400; color: var(--text-dark); }
+        .day-name { font-size: 0.8rem; color: var(--text-muted); text-transform: capitalize; }
+        .day-header.active .day-num, .day-header.active .day-name { color: var(--primary); font-weight: 700; }
+        .grid-cell { height: 60px; border-bottom: 1px solid var(--border); transition: background 0.2s; cursor: pointer; }
+        .grid-cell:hover { background: var(--bg-light); }
 
         /* OVERLAYS */
         #videoOverlay { display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:2000; flex-direction:column; }
@@ -539,7 +557,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .incoming-call-box { background: white; border-radius: 8px; padding: 30px; text-align: center; min-width: 320px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2); border: 1px solid var(--border); animation: pulse 2s infinite;}
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(91, 95, 199, 0); } 100% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0); } }
         
-        /* Edit Mode Bar */
         #editModeBar { display: none; background: var(--bg-light); padding: 8px 20px; align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
 
         /* Mobile Adjustments */
@@ -575,11 +592,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <i class="ri-contacts-line"></i>
                 <span>People</span>
             </div>
-            <div class="nav-icon" onclick="switchMainTab('comm_view', this)">
-                <i class="ri-team-line"></i>
-                <span>Communities</span>
-            </div>
-            <div class="nav-icon">
+            <div class="nav-icon" onclick="switchMainTab('calendar_view', this)">
                 <i class="ri-calendar-line"></i>
                 <span>Calendar</span>
             </div>
@@ -653,67 +666,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <div id="chatAreaActive" style="display: none; flex-direction: column; height: 100%;"></div>
             </div>
 
-            <div id="people_view" style="display: none; flex-direction: column; height: 100%; width: 100%;">
-                <div style="padding: 25px 30px; border-bottom: 1px solid var(--border);">
-                    <h2 style="font-size: 1.8rem; font-weight:700; color: var(--text-dark);">People Directory</h2>
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;">Connect with everyone in the organization.</p>
-                </div>
-                <div style="overflow-y: auto; flex: 1; background: #fafafa;">
-                    <?php foreach($all_users as $u): if($u['id'] != $my_id): ?>
-                        <div class="people-card">
-                            <div class="people-info">
-                                <img src="<?= $u['profile_img'] ?>" class="avatar" style="width: 50px; height: 50px;">
-                                <div>
-                                    <div style="font-weight:600; font-size: 1.05rem; color: var(--text-dark);"><?= htmlspecialchars($u['name']) ?></div>
-                                    <div style="font-size:0.85rem; color:var(--text-muted);"><?= $u['role'] ?></div>
-                                </div>
-                            </div>
-                            <button class="people-btn" onclick="startChat(<?= $u['id'] ?>)" title="Message">
-                                <i class="ri-message-3-line"></i>
-                            </button>
-                        </div>
-                    <?php endif; endforeach; ?>
-                </div>
-            </div>
-
-            <div id="comm_view" style="display: none; height: 100%; width: 100%;">
-                <div id="comm_step1" class="community-hero">
-                    <h1 style="font-size: 2.2rem; font-weight: 800; color: var(--text-dark);">Build your community</h1>
-                    <p style="color: var(--text-muted); font-size: 1.05rem; max-width: 500px; margin: 20px 0;">Bring your group together. Plan events, share ideas, and keep everyone organized in one powerful hub.</p>
-                    <button class="btn-teams" onclick="switchCommStep(2)" style="font-size: 1.1rem; padding: 12px 30px;">Create from scratch</button>
-                    <div style="margin-top: 50px; width: 100%; max-width: 400px; text-align: left; margin-left: auto; margin-right: auto;">
-                        <p style="font-weight: 700; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">Create with a template</p>
-                        <div style="display: flex; flex-wrap: wrap; gap: 12px;">
-                            <button class="template-btn"><i class="ri-team-fill text-blue-500"></i> Project Team</button>
-                            <button class="template-btn"><i class="ri-graduation-cap-fill text-green-500"></i> Study Group</button>
-                            <button class="template-btn"><i class="ri-briefcase-fill text-purple-500"></i> Office Hub</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="comm_step2" style="display:none; padding: 50px; width: 100%; max-width: 650px; margin: 0 auto;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 40px;">
-                        <h2 style="font-size: 1.8rem; font-weight: 800;">Create your community</h2>
-                        <button class="btn-icon" onclick="switchCommStep(1)"><i class="ri-close-line" style="font-size: 1.5rem;"></i></button>
-                    </div>
-                    <div style="display: flex; gap: 30px; align-items: center; margin-bottom: 40px;">
-                        <div style="width: 120px; height: 120px; border: 2px dashed var(--border); border-radius: 12px; display: flex; align-items: center; justify-content: center; cursor: pointer; background: #fafafa;">
-                            <i class="ri-camera-lens-line" style="font-size: 2.5rem; color: var(--primary);"></i>
-                        </div>
-                        <div style="flex: 1;">
-                            <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted);">Community name</label>
-                            <input type="text" placeholder="e.g., Marketing Squad" style="width: 100%; padding: 12px 0; border: none; border-bottom: 2px solid var(--primary); font-size: 1.3rem; outline: none; background: transparent;">
-                        </div>
-                    </div>
-                    <label style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 10px;">What's this community about?</label>
-                    <textarea placeholder="Description..." style="width: 100%; height: 120px; padding: 15px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-light); resize: none; outline: none; font-size: 1rem;"></textarea>
-                    <div style="margin-top: 50px; display: flex; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 25px;">
-                        <button style="border: none; background: none; font-weight: 600; cursor: pointer; color: var(--text-muted);" onclick="switchCommStep(1)">Cancel</button>
-                        <button class="btn-teams" style="margin:0; opacity: 0.5; cursor: not-allowed;">Create hub</button>
-                    </div>
-                </div>
-            </div>
-
             <div id="meet_view" style="display: none; flex-direction: column; padding: 40px; max-width: 900px; margin: 0 auto; width: 100%;">
                 <h2 style="font-size: 1.8rem; font-weight: 600; color: var(--text-dark); margin-bottom: 25px;">Meet</h2>
                 
@@ -742,7 +694,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-dark);">Scheduled meetings</h3>
-                    <a href="#" style="color: var(--text-dark); text-decoration: none; font-size: 0.9rem; display: flex; align-items: center; gap: 5px;"><i class="ri-calendar-line"></i> View in calendar</a>
+                    <a href="#" onclick="switchMainTab('calendar_view', document.querySelectorAll('.nav-icon')[3])" style="color: var(--text-dark); text-decoration: none; font-size: 0.9rem; display: flex; align-items: center; gap: 5px;"><i class="ri-calendar-line"></i> View in calendar</a>
                 </div>
                 
                 <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; justify-content: space-between; align-items: center;">
@@ -765,7 +717,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <i class="ri-calendar-event-fill" style="font-size: 3rem; color: var(--primary); opacity: 0.5;"></i>
                     </div>
                 </div>
+            </div>
 
+            <div id="people_view" style="display: none; flex-direction: column; height: 100%; width: 100%;">
+                <div style="padding: 25px 30px; border-bottom: 1px solid var(--border);">
+                    <h2 style="font-size: 1.8rem; font-weight:700; color: var(--text-dark);">People Directory</h2>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;">Connect with everyone in the organization.</p>
+                </div>
+                <div style="overflow-y: auto; flex: 1; background: #fafafa;">
+                    <?php foreach($all_users as $u): if($u['id'] != $my_id): ?>
+                        <div class="people-card">
+                            <div class="people-info">
+                                <img src="<?= $u['profile_img'] ?>" class="avatar" style="width: 50px; height: 50px;">
+                                <div>
+                                    <div style="font-weight:600; font-size: 1.05rem; color: var(--text-dark);"><?= htmlspecialchars($u['name']) ?></div>
+                                    <div style="font-size:0.85rem; color:var(--text-muted);"><?= $u['role'] ?></div>
+                                </div>
+                            </div>
+                            <button class="people-btn" onclick="startChat(<?= $u['id'] ?>)" title="Message">
+                                <i class="ri-message-3-line"></i>
+                            </button>
+                        </div>
+                    <?php endif; endforeach; ?>
+                </div>
+            </div>
+
+            <div id="calendar_view" style="display: none; flex-direction: column; height: 100%; width: 100%; background: white;">
+                <div class="calendar-header">
+                    <div class="calendar-title">
+                        <i class="ri-calendar-line"></i> Calendar
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <button class="cal-nav-btn"><i class="ri-calendar-event-line"></i> Today</button>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <button class="btn-icon-small"><i class="ri-arrow-left-s-line"></i></button>
+                            <button class="btn-icon-small"><i class="ri-arrow-right-s-line"></i></button>
+                        </div>
+                        <span style="font-weight: 600; font-size: 1.1rem; margin-right: 20px;"><?php echo date('F Y'); ?> <i class="ri-arrow-down-s-line" style="font-size: 0.9rem; color: var(--text-muted);"></i></span>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button class="cal-nav-btn" onclick="document.getElementById('joinMeetingModal').style.display='flex'"><i class="ri-hashtag"></i> Join with an ID</button>
+                        <button class="cal-nav-btn" onclick="startCall('video')"><i class="ri-vidicon-line"></i> Meet now</button>
+                        <button class="cal-primary-btn" onclick="document.getElementById('scheduleMeetingModal').style.display='flex'"><i class="ri-add-line"></i> New meeting</button>
+                        <button class="cal-nav-btn" style="margin-left: 10px; border:none; background:transparent;">Work week <i class="ri-arrow-down-s-line"></i></button>
+                    </div>
+                </div>
+
+                <div class="calendar-grid">
+                    <div class="time-col">
+                        <div class="day-header" style="height: 73px; border-bottom: none;"></div>
+                        <?php 
+                        $times = ['12 AM','1 AM','2 AM','3 AM','4 AM','5 AM','6 AM','7 AM','8 AM','9 AM','10 AM','11 AM','12 PM','1 PM','2 PM','3 PM','4 PM','5 PM','6 PM','7 PM','8 PM','9 PM','10 PM','11 PM'];
+                        foreach($times as $t): ?>
+                            <div class="time-slot"><?php echo $t; ?></div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div class="day-cols">
+                        <?php 
+                        // Get current week dates (Mon-Fri)
+                        $ts = strtotime('last monday');
+                        for($i=0; $i<5; $i++): 
+                            $date = date('d', $ts);
+                            $day = date('l', $ts);
+                            $isActive = (date('Y-m-d') == date('Y-m-d', $ts)) ? 'active' : '';
+                        ?>
+                        <div class="day-col">
+                            <div class="day-header <?php echo $isActive; ?>">
+                                <div class="day-num"><?php echo $date; ?></div>
+                                <div class="day-name"><?php echo $day; ?></div>
+                            </div>
+                            <?php for($j=0; $j<24; $j++): ?>
+                                <div class="grid-cell" onclick="document.getElementById('scheduleMeetingModal').style.display='flex'"></div>
+                            <?php endfor; ?>
+                        </div>
+                        <?php 
+                        $ts = strtotime('+1 day', $ts);
+                        endfor; 
+                        ?>
+                    </div>
+                </div>
             </div>
 
         </section>
@@ -890,14 +923,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     let searchDebounce = null;
     let typingTimer = null;
 
-    // --- Tab Switching (Secondary Sidebar) ---
+    // --- Tab Switching Logic (Secondary Sidebar) ---
     function switchMainTab(tabId, el) {
         document.querySelectorAll('.sidebar-secondary-teams .nav-icon').forEach(n => n.classList.remove('active'));
         el.classList.add('active');
 
-        ['chat_view', 'people_view', 'comm_view', 'meet_view'].forEach(id => document.getElementById(id).style.display = 'none');
+        ['chat_view', 'people_view', 'calendar_view', 'meet_view'].forEach(id => {
+            const domEl = document.getElementById(id);
+            if(domEl) domEl.style.display = 'none';
+        });
         
-        document.getElementById(tabId).style.display = (tabId === 'comm_view') ? 'block' : 'flex';
+        document.getElementById(tabId).style.display = 'flex';
         
         const chatSidebar = document.getElementById('chatSidebar');
         if(tabId !== 'chat_view') {
@@ -906,11 +942,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             chatSidebar.style.display = 'flex';
             if(activeConvId) fetchMessages(false);
         }
-    }
-
-    function switchCommStep(step) {
-        document.getElementById('comm_step1').style.display = step === 1 ? 'flex' : 'none';
-        document.getElementById('comm_step2').style.display = step === 2 ? 'block' : 'none';
     }
 
     // --- Meet Handlers ---
@@ -1183,6 +1214,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fetchMessages(true); 
     }
 
+    // Inner Tab Switching (Chat/Files/Photos)
     function switchInnerTab(tabName) {
         const navItems = document.querySelectorAll('.header-nav-item');
         navItems.forEach(item => item.classList.remove('active'));
@@ -1267,7 +1299,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             let meetId = raw.replace(/^(audio|video):/i, '');
             let label = callType === 'audio' ? 'Voice Call' : 'Video Meeting';
             
-            // Allow joining scheduled meetings rendered as text messages
             innerMsg = `<div class="msg ${cls}" id="msg-content-${m.id}" style="text-align:center;">
                             <div style="background:rgba(0,0,0,0.05); padding:10px; border-radius:4px; margin-bottom:8px;">
                                 <i class="${callType==='audio'?'ri-phone-fill':'ri-vidicon-fill'}" style="font-size:1.5rem; color:var(--primary);"></i>
