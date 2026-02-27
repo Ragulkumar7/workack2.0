@@ -1,18 +1,18 @@
-<?php
+<?php 
 ob_start();
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 1. DATABASE CONNECTION
 $projectRoot = __DIR__; 
 $dbPath = $projectRoot . '/../include/db_connect.php';
 if (file_exists($dbPath)) { require_once $dbPath; } 
 else { require_once $projectRoot . '/include/db_connect.php'; }
 
-// 2. GET LOGGED IN USER
-$my_name = $_SESSION['name'] ?? 'Prem Karthick'; 
+// Get logged in executive's name
+$my_name = !empty($_SESSION['name']) ? $_SESSION['name'] : 'Prem Karthick'; 
 
 // --- HANDLE AJAX SAVING ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_expense') {
+    ob_clean();
     header('Content-Type: application/json');
     
     $name = mysqli_real_escape_string($conn, $_POST['expense_name']);
@@ -20,7 +20,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $method = mysqli_real_escape_string($conn, $_POST['payment_method']);
     $amount = floatval($_POST['amount']);
 
-    // Status defaults to Pending as per standard task flow
     $sql = "INSERT INTO sales_expenses (executive_name, expense_name, expense_date, payment_method, amount, status) 
             VALUES ('$my_name', '$name', '$date', '$method', $amount, 'Pending')";
     
@@ -32,366 +31,216 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
-// 3. FETCH REAL DATA FROM TABLE
-$expenses_query = mysqli_query($conn, "SELECT * FROM sales_expenses WHERE executive_name = '$my_name' ORDER BY expense_date DESC");
+// --- FETCH MY EXPENSES ---
+$expenses_query = mysqli_query($conn, "SELECT * FROM sales_expenses WHERE executive_name = '$my_name' ORDER BY created_at DESC");
+$my_expenses = [];
+$metrics = ['total_amt' => 0, 'pending_amt' => 0, 'approved_amt' => 0, 'rejected_amt' => 0];
 
-// Include your existing layout files
-include '../sidebars.php';
+if ($expenses_query) {
+    while($row = mysqli_fetch_assoc($expenses_query)) {
+        $my_expenses[] = $row;
+        $amt = (float)$row['amount'];
+        $metrics['total_amt'] += $amt;
+        
+        if($row['status'] == 'Pending') $metrics['pending_amt'] += $amt;
+        if($row['status'] == 'Approved' || $row['status'] == 'Forwarded') $metrics['approved_amt'] += $amt;
+        if($row['status'] == 'Rejected') $metrics['rejected_amt'] += $amt;
+    }
+}
+
+if(ob_get_length()) ob_clean();
+include '../sidebars.php'; 
 include '../header.php';
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Expenses | Workack</title>
-    
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>My Expenses | Workack</title>
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: #f8fafc; 
-        }
+        :root { --theme-color: #1b5a5a; --bg-body: #f8fafc; --text-main: #0f172a; --text-muted: #64748b; --border-color: #e2e8f0; --primary-sidebar-width: 95px; }
+        body { background-color: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; color: var(--text-main); }
+        .main-content { margin-left: var(--primary-sidebar-width); padding: 40px; width: calc(100% - var(--primary-sidebar-width)); min-height: 100vh; box-sizing: border-box;}
         
-        /* Layout wrapper to prevent overlap with fixed sidebar */
-        .main-content { 
-            margin-left: 95px; 
-            padding: 30px; 
-            width: calc(100% - 95px); 
-            box-sizing: border-box; 
-        }
-        @media (max-width: 992px) { 
-            .main-content { margin-left: 0; width: 100%; padding-top: 80px; } 
-        }
+        .page-header { margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
+        .page-header h2 { color: var(--theme-color); margin: 0 0 5px 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px;}
+        .page-header p { margin: 0; font-size: 14px; color: var(--text-muted); }
 
-        /* Custom Checkbox Styling */
-        .custom-checkbox {
-            appearance: none;
-            background-color: #f1f5f9;
-            margin: 0;
-            font: inherit;
-            color: currentColor;
-            width: 1.15em;
-            height: 1.15em;
-            border: 1px solid #cbd5e1;
-            border-radius: 0.25em;
-            display: grid;
-            place-content: center;
-            cursor: pointer;
-        }
-        .custom-checkbox::before {
-            content: "";
-            width: 0.65em;
-            height: 0.65em;
-            transform: scale(0);
-            transition: 120ms transform ease-in-out;
-            box-shadow: inset 1em 1em white;
-            background-color: transform;
-            transform-origin: center;
-            clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
-        }
-        .custom-checkbox:checked {
-            background-color: #1b5a5a;
-            border-color: #1b5a5a;
-        }
-        .custom-checkbox:checked::before {
-            transform: scale(1);
-        }
+        .btn-primary { background: var(--theme-color); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: 0.2s; font-size: 14px; box-shadow: 0 4px 6px -1px rgba(27, 90, 90, 0.2);}
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(27, 90, 90, 0.3); }
 
-        /* Table Styles */
-        .table-row-hover:hover { background-color: #f8fafc; }
-        
-        /* Outline removal for select elements */
-        select:focus, input:focus { outline: none; border-color: #1b5a5a; box-shadow: 0 0 0 1px #1b5a5a20; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 35px; }
+        .stat-card { background: white; border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; display: flex; align-items: center; gap: 15px; box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05); transition: transform 0.2s;}
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
+        .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .stat-info h4 { margin: 0; font-size: 22px; color: var(--text-main); font-weight: 800;}
+        .stat-info p { margin: 0; font-size: 11px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
+
+        .table-container { background: white; border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th { background: #f8fafc; padding: 16px 20px; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border-color); }
+        td { padding: 16px 20px; font-size: 14px; font-weight: 600; color: var(--text-main); border-bottom: 1px solid var(--border-color); vertical-align: middle;}
+        tbody tr:hover { background: #fcfcfd; }
+        tbody tr:last-child td { border-bottom: none; }
+
+        .status-badge { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 4px;}
+        .stat-Pending { background: #fef9c3; color: #d97706; }
+        .stat-Approved { background: #dcfce7; color: #16a34a; }
+        .stat-Forwarded { background: #e0f2fe; color: #0284c7; }
+        .stat-Rejected { background: #fee2e2; color: #dc2626; }
+
+        /* Modal */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 20px; backdrop-filter: blur(2px);}
+        .modal-overlay.active { display: flex; }
+        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; position: relative; }
+        .close-modal { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #94a3b8; cursor: pointer; transition: 0.2s;}
+        .close-modal:hover { color: var(--theme-color); }
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; }
+        .form-group input, .form-group select { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--text-main); box-sizing: border-box; outline: none; transition: 0.2s;}
+        .form-group input:focus, .form-group select:focus { border-color: var(--theme-color); box-shadow: 0 0 0 3px rgba(27,90,90,0.1); }
     </style>
 </head>
-<body class="text-slate-800">
+<body>
 
-    <div class="main-content">
-        
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-            <div>
-                <h1 class="text-2xl font-bold text-slate-900">Expenses</h1>
-                <nav class="flex text-sm text-gray-500 mt-1 gap-2 items-center">
-                    <i data-lucide="home" class="w-3 h-3"></i>
-                    <span>></span>
-                    <span>Sales</span>
-                    <span>></span>
-                    <span class="text-slate-800 font-medium">Expenses</span>
-                </nav>
-            </div>
-            
-            <div class="flex gap-3 relative">
-                <div>
-                    <button onclick="toggleExportMenu()" class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-medium text-gray-700 shadow-sm flex items-center gap-2 hover:bg-gray-50 transition-colors">
-                        <i data-lucide="download" class="w-4 h-4"></i> Export <i data-lucide="chevron-down" class="w-4 h-4 text-gray-400"></i>
-                    </button>
-                    <div id="exportMenu" class="hidden absolute top-full left-0 mt-2 w-48 bg-white border border-gray-100 rounded-lg shadow-lg z-50 overflow-hidden">
-                        <button onclick="exportData('pdf')" class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors border-b border-gray-50">
-                            <i data-lucide="file-text" class="w-4 h-4"></i> Export as PDF
-                        </button>
-                        <button onclick="exportData('excel')" class="w-full text-left px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-3 transition-colors">
-                            <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Export as Excel
-                        </button>
-                    </div>
-                </div>
-
-                <button onclick="document.getElementById('addExpenseModal').classList.remove('hidden')" class="px-4 py-2 bg-[#1b5a5a] text-white rounded-lg text-sm font-semibold shadow-sm flex items-center gap-2 hover:bg-[#134040] transition-colors">
-                    <i data-lucide="plus-circle" class="w-4 h-4"></i> Add New Expenses
-                </button>
-                <button class="p-2 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 transition-colors">
-                    <i data-lucide="chevrons-up-down" class="w-4 h-4 text-gray-600"></i>
-                </button>
-            </div>
+<main class="main-content">
+    <div class="page-header">
+        <div>
+            <h2>My Expense Claims</h2>
+            <p>Track and submit your work-related expenses.</p>
         </div>
+        <button class="btn-primary" onclick="document.getElementById('expenseModal').classList.add('active')">
+            <i class="ph-bold ph-plus-circle" style="font-size: 18px;"></i> Add Expense
+        </button>
+    </div>
 
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            
-            <div class="p-5 border-b border-gray-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                <h2 class="font-bold text-lg text-slate-800">Expenses List</h2>
-                
-                <div class="flex flex-wrap gap-3">
-                    <div class="relative">
-                        <i data-lucide="calendar" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"></i>
-                        <input type="text" id="dateRangePicker" value="02/19/2026 - 02/25/2026" class="pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm text-gray-600 w-[220px] bg-white cursor-pointer" readonly>
-                    </div>
-                    
-                    <div class="relative">
-                        <select class="pl-4 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 font-medium bg-white appearance-none cursor-pointer w-[140px] shadow-sm">
-                            <option>₹0.00 - ₹00</option>
-                            <option>₹3000</option>
-                            <option>₹2500</option>
-                        </select>
-                        <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1b5a5a] pointer-events-none font-bold"></i>
-                    </div>
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #f1f5f9; color: #475569;"><i class="ph-fill ph-wallet"></i></div>
+            <div class="stat-info"><h4>₹<?= number_format($metrics['total_amt']) ?></h4><p>Total Claimed</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #dcfce7; color: #16a34a;"><i class="ph-fill ph-check-circle"></i></div>
+            <div class="stat-info"><h4>₹<?= number_format($metrics['approved_amt']) ?></h4><p>Approved Amt</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #fef9c3; color: #d97706;"><i class="ph-fill ph-clock-countdown"></i></div>
+            <div class="stat-info"><h4>₹<?= number_format($metrics['pending_amt']) ?></h4><p>Pending Amt</p></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon" style="background: #fee2e2; color: #dc2626;"><i class="ph-fill ph-x-circle"></i></div>
+            <div class="stat-info"><h4>₹<?= number_format($metrics['rejected_amt']) ?></h4><p>Rejected Amt</p></div>
+        </div>
+    </div>
 
-                    <div class="relative">
-                        <select class="pl-4 pr-8 py-2 border border-gray-200 rounded-lg text-sm text-gray-800 font-medium bg-white appearance-none cursor-pointer w-[160px] shadow-sm">
-                            <option>Sort By : Last 7 Days</option>
-                            <option>Recently Added</option>
-                            <option>Ascending</option>
-                            <option>Descending</option>
-                            <option>Last Month</option>
-                            <option>Last 7 Days</option>
-                        </select>
-                        <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#1b5a5a] pointer-events-none font-bold"></i>
-                    </div>
-                </div>
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Expense Name</th>
+                    <th>Payment Method</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if(empty($my_expenses)): ?>
+                    <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 40px;">No expenses submitted yet.</td></tr>
+                <?php else: foreach($my_expenses as $exp): ?>
+                    <tr>
+                        <td style="color: var(--text-muted);"><i class="ph-bold ph-calendar-blank" style="margin-right: 4px;"></i> <?= date('d M Y', strtotime($exp['expense_date'])) ?></td>
+                        <td>
+                            <?= htmlspecialchars($exp['expense_name']) ?>
+                            <?php if($exp['status'] == 'Rejected' && !empty($exp['rejection_reason'])): ?>
+                                <div style="font-size: 11px; color: #dc2626; margin-top: 4px; font-weight: 500;">
+                                    <i class="ph-fill ph-info"></i> Reason: <?= htmlspecialchars($exp['rejection_reason']) ?>
+                                </div>
+                            <?php endif; ?>
+                        </td>
+                        <td><span style="background: #f1f5f9; padding: 4px 10px; border-radius: 6px; font-size: 12px;"><?= htmlspecialchars($exp['payment_method']) ?></span></td>
+                        <td style="font-size: 16px; font-weight: 800;">₹<?= number_format($exp['amount']) ?></td>
+                        <td>
+                            <span class="status-badge stat-<?= $exp['status'] ?>">
+                                <?php 
+                                    if($exp['status'] == 'Pending') echo '<i class="ph-bold ph-clock"></i> Pending';
+                                    elseif($exp['status'] == 'Approved') echo '<i class="ph-bold ph-check"></i> Approved';
+                                    elseif($exp['status'] == 'Forwarded') echo '<i class="ph-bold ph-paper-plane-tilt"></i> Forwarded';
+                                    else echo '<i class="ph-bold ph-x"></i> Rejected';
+                                ?>
+                            </span>
+                        </td>
+                    </tr>
+                <?php endforeach; endif; ?>
+            </tbody>
+        </table>
+    </div>
+</main>
+
+<div class="modal-overlay" id="expenseModal">
+    <div class="modal-content">
+        <i class="ph-bold ph-x close-modal" onclick="document.getElementById('expenseModal').classList.remove('active')"></i>
+        <h3 style="margin-top: 0; color: var(--theme-color); font-size: 20px; font-weight: 800; margin-bottom: 25px;">Add New Expense</h3>
+        
+        <form id="addExpenseForm" onsubmit="event.preventDefault(); submitExpense();">
+            <input type="hidden" name="action" value="save_expense">
+            <div class="form-group">
+                <label>Expense Name / Purpose *</label>
+                <input type="text" name="expense_name" required placeholder="e.g. Travel to Client Meet">
             </div>
-
-            <div class="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/30">
-                <div class="flex items-center gap-2 text-sm text-gray-600">
-                    <span>Row Per Page</span>
-                    <select class="border border-gray-200 rounded px-2 py-1 bg-white">
-                        <option>10</option>
+            <div class="form-group">
+                <label>Date incurred *</label>
+                <input type="date" name="expense_date" required max="<?= date('Y-m-d') ?>">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                    <label>Payment Method *</label>
+                    <select name="payment_method" required>
+                        <option value="Cash">Cash</option>
+                        <option value="Card">Card</option>
+                        <option value="UPI">UPI</option>
+                        <option value="Cheque">Cheque</option>
                     </select>
-                    <span>Entries</span>
                 </div>
-                <div class="relative w-64">
-                    <input type="text" placeholder="Search" class="w-full pl-4 pr-4 py-1.5 border border-gray-200 rounded text-sm placeholder-gray-400">
+                <div class="form-group">
+                    <label>Amount (₹) *</label>
+                    <input type="number" name="amount" required min="1" step="0.01" placeholder="1500.00">
                 </div>
             </div>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-left border-collapse whitespace-nowrap">
-                    <thead>
-                        <tr class="bg-gray-50 border-b border-gray-100 text-sm text-gray-600 font-semibold">
-                            <th class="p-4 w-12 text-center">
-                                <input type="checkbox" class="custom-checkbox">
-                            </th>
-                            <th class="p-4">
-                                <div class="flex items-center gap-2 cursor-pointer hover:text-slate-800">
-                                    Expense Name <i data-lucide="arrow-up-down" class="w-3 h-3 text-gray-400"></i>
-                                </div>
-                            </th>
-                            <th class="p-4">
-                                <div class="flex items-center gap-2 cursor-pointer hover:text-slate-800">
-                                    Date <i data-lucide="arrow-up-down" class="w-3 h-3 text-gray-400"></i>
-                                </div>
-                            </th>
-                            <th class="p-4">
-                                <div class="flex items-center gap-2 cursor-pointer hover:text-slate-800">
-                                    Payment Method <i data-lucide="arrow-up-down" class="w-3 h-3 text-gray-400"></i>
-                                </div>
-                            </th>
-                            <th class="p-4">
-                                <div class="flex items-center gap-2 cursor-pointer hover:text-slate-800">
-                                    Amount <i data-lucide="arrow-up-down" class="w-3 h-3 text-gray-400"></i>
-                                </div>
-                            </th>
-                            <th class="p-4 text-center">
-                                <i data-lucide="arrow-up-down" class="w-3 h-3 text-gray-400 mx-auto"></i>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php if($expenses_query && mysqli_num_rows($expenses_query) > 0): ?>
-                            <?php while ($expense = mysqli_fetch_assoc($expenses_query)): ?>
-                            <tr class="border-b border-gray-50 text-sm text-gray-600 table-row-hover transition-colors">
-                                <td class="p-4 text-center">
-                                    <input type="checkbox" class="custom-checkbox">
-                                </td>
-                                <td class="p-4 font-medium text-slate-700"><?php echo htmlspecialchars($expense['expense_name']); ?></td>
-                                <td class="p-4"><?php echo date('d M Y', strtotime($expense['expense_date'])); ?></td>
-                                <td class="p-4"><?php echo htmlspecialchars($expense['payment_method']); ?></td>
-                                <td class="p-4 font-medium text-slate-800">₹<?php echo number_format($expense['amount'], 2); ?></td>
-                                <td class="p-4 text-center">
-                                    <div class="flex items-center justify-center gap-3">
-                                        <button class="text-gray-400 hover:text-blue-600 transition-colors" title="Edit">
-                                            <i data-lucide="edit-2" class="w-4 h-4"></i>
-                                        </button>
-                                        <button class="text-gray-400 hover:text-red-600 transition-colors" title="Delete">
-                                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                        </button>
-                                    </div>
-                                </td>
-                            </tr>
-                            <?php endwhile; ?>
-                        <?php else: ?>
-                            <tr><td colspan="6" class="p-10 text-center text-gray-400">No expenses found for <?php echo htmlspecialchars($my_name); ?>.</td></tr>
-                        <?php endif; ?>
-                    </tbody>
-                </table>
-            </div>
-
-        </div>
+            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px; margin-top: 10px;" id="btnSubmitForm">Submit Claim</button>
+        </form>
     </div>
+</div>
 
-    <div id="addExpenseModal" class="fixed inset-0 bg-slate-900/40 z-50 hidden flex items-center justify-center backdrop-blur-sm transition-opacity">
-        <div class="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden">
-            <div class="flex justify-between items-center p-6 pb-4">
-                <h3 class="text-lg font-bold text-slate-800">Add Expenses</h3>
-                <button type="button" onclick="document.getElementById('addExpenseModal').classList.add('hidden')" class="text-gray-400 hover:bg-gray-100 p-1.5 rounded-full transition-colors">
-                    <i data-lucide="x" class="w-5 h-5"></i>
-                </button>
-            </div>
-            
-            <div class="p-6 pt-2">
-                <form id="expenseForm">
-                    <input type="hidden" name="action" value="save_expense">
-                    <div class="space-y-5">
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Expenses</label>
-                            <input type="text" name="expense_name" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow">
-                        </div>
-                        
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Date</label>
-                                <div class="relative">
-                                    <input type="text" id="expenseDate" name="expense_date" required class="w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow" placeholder="yyyy-mm-dd">
-                                    <i data-lucide="calendar" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
-                                </div>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-semibold text-gray-700 mb-1.5">Amount</label>
-                                <input type="number" step="0.01" name="amount" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] transition-shadow">
-                            </div>
-                        </div>
+<script>
+    function submitExpense() {
+        const btn = document.getElementById('btnSubmitForm');
+        const origText = btn.innerHTML;
+        btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Submitting...'; 
+        btn.disabled = true;
 
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Payment Method</label>
-                            <div class="relative">
-                                <select name="payment_method" required class="w-full pl-4 pr-10 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] appearance-none bg-white transition-shadow cursor-pointer">
-                                    <option value="Cash">Cash</option>
-                                    <option value="Cheque">Cheque</option>
-                                    <option value="UPI">UPI</option>
-                                    <option value="Card">Card</option>
-                                </select>
-                                <i data-lucide="chevron-down" class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"></i>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-1.5">Attach Proof</label>
-                            <input type="file" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:border-[#1b5a5a] focus:ring-1 focus:ring-[#1b5a5a] bg-white transition-shadow text-gray-500 file:mr-4 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-[#1b5a5a] file:text-white hover:file:bg-[#134040]">
-                        </div>
-                    </div>
-                    
-                    <div class="flex justify-end gap-3 mt-8">
-                        <button type="button" onclick="document.getElementById('addExpenseModal').classList.add('hidden')" class="px-5 py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-semibold hover:bg-gray-50 transition-colors shadow-sm">
-                            Cancel
-                        </button>
-                        <button type="submit" id="submitBtn" class="px-5 py-2.5 bg-[#1b5a5a] text-white rounded-lg text-sm font-semibold hover:bg-[#134040] transition-colors shadow-sm">
-                            Add Expenses
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        lucide.createIcons();
-
-        // Initialize Flatpickr
-        flatpickr("#dateRangePicker", {
-            mode: "range",
-            dateFormat: "m/d/Y"
-        });
-        
-        flatpickr("#expenseDate", {
-            dateFormat: "Y-m-d",
-            defaultDate: "today"
-        });
-
-        // AJAX SUBMISSION LOGIC
-        document.getElementById('expenseForm').onsubmit = function(e) {
-            e.preventDefault();
-            const btn = document.getElementById('submitBtn');
-            btn.disabled = true;
-            btn.innerText = "Saving...";
-
-            fetch(window.location.href, {
-                method: 'POST',
-                body: new FormData(this)
-            })
-            .then(r => r.json())
-            .then(data => {
-                if(data.status === 'success') {
-                    Swal.fire({
-                        icon: 'success',
-                        title: 'Success!',
-                        text: 'Expense record created successfully.',
-                        confirmButtonColor: '#1b5a5a'
-                    }).then(() => location.reload());
-                } else {
-                    Swal.fire('Error', data.message, 'error');
-                    btn.disabled = false;
-                    btn.innerText = "Add Expenses";
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                btn.disabled = false;
-                btn.innerText = "Add Expenses";
-            });
-        };
-
-        function toggleExportMenu() {
-            const menu = document.getElementById('exportMenu');
-            menu.classList.toggle('hidden');
-        }
-
-        document.addEventListener('click', function(event) {
-            const menu = document.getElementById('exportMenu');
-            const exportBtn = menu.previousElementSibling;
-            if (!menu.contains(event.target) && !exportBtn.contains(event.target)) {
-                menu.classList.add('hidden');
+        fetch(window.location.href, { method: 'POST', body: new FormData(document.getElementById('addExpenseForm')) })
+        .then(r => r.json())
+        .then(data => { 
+            if(data.status === 'success') {
+                Swal.fire({icon: 'success', title: 'Submitted!', text: 'Your expense claim has been sent for approval.', confirmButtonColor: '#1b5a5a'})
+                .then(() => location.reload());
+            } else { 
+                Swal.fire('Error', data.message, 'error'); 
+                btn.innerHTML = origText; btn.disabled = false; 
             }
+        })
+        .catch(err => {
+            Swal.fire('System Error', 'Could not connect to server.', 'error');
+            btn.innerHTML = origText; btn.disabled = false;
         });
+    }
+</script>
 
-        function exportData(type) {
-            alert('Exporting data as ' + type.toUpperCase() + '...');
-            document.getElementById('exportMenu').classList.add('hidden');
-        }
-    </script>
 </body>
 </html>

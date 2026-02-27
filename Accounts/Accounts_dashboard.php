@@ -348,56 +348,7 @@ include '../header.php';
         <div class="dashboard-container">
             
             <div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
-                <div class="card">
-                    <div class="card-body flex flex-col items-center">
-                        <div class="text-center mb-6">
-                            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Today's Attendance</h3>
-                            <p class="text-lg font-bold text-slate-800 mt-1"><?php echo date("h:i A, d M Y"); ?></p>
-                        </div>
-                        <div class="relative w-40 h-40 mb-6">
-                            <svg class="w-full h-full transform -rotate-90">
-                                <circle cx="80" cy="80" r="70" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
-                                <?php 
-                                    $pct = min(1, $total_seconds_worked / 32400); 
-                                    $dashoffset = 440 - ($pct * 440);
-                                    $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
-                                ?>
-                                <circle cx="80" cy="80" r="70" stroke="<?php echo $ringColor; ?>" stroke-width="12" fill="transparent" 
-                                    stroke-dasharray="440" stroke-dashoffset="<?php echo ($attendance_record && $attendance_record['punch_out']) ? '0' : max(0, $dashoffset); ?>" 
-                                    stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
-                            </svg>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <p class="text-[10px] text-gray-400 font-bold uppercase"><?php echo $is_on_break ? 'ON BREAK' : 'Total Hours'; ?></p>
-                                <p class="text-2xl font-bold text-slate-800" id="liveTimer" 
-                                   data-running="<?php echo ($attendance_record && !$attendance_record['punch_out'] && !$is_on_break) ? 'true' : 'false'; ?>"
-                                   data-total="<?php echo $total_seconds_worked; ?>">
-                                   <?php echo $total_hours_today; ?>
-                                </p>
-                            </div>
-                        </div>
-                        <form method="POST" class="w-full">
-                            <?php if (!$attendance_record): ?>
-                                <button type="submit" name="action" value="punch_in" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
-                                    <i class="fa-solid fa-right-to-bracket"></i> Punch In
-                                </button>
-                            <?php elseif (!$attendance_record['punch_out']): ?>
-                                <div class="grid grid-cols-2 gap-3 w-full">
-                                    <?php if ($is_on_break): ?>
-                                        <button type="submit" name="action" value="break_end" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow transition"><i class="fa-solid fa-play"></i> Resume</button>
-                                    <?php else: ?>
-                                        <button type="submit" name="action" value="break_start" class="bg-amber-400 hover:bg-amber-500 text-white font-bold py-3 rounded-xl shadow transition"><i class="fa-solid fa-mug-hot"></i> Break</button>
-                                    <?php endif; ?>
-                                    <button type="submit" name="action" value="punch_out" class="bg-orange-500 hover:bg-orange-600 text-white font-bold py-3 rounded-xl shadow transition"><i class="fa-solid fa-right-from-bracket"></i> Out</button>
-                                </div>
-                            <?php else: ?>
-                                <button disabled class="w-full bg-gray-100 text-gray-400 font-bold py-3 rounded-xl cursor-not-allowed"><i class="fa-solid fa-check-circle"></i> Shift Completed</button>
-                            <?php endif; ?>
-                        </form>
-                        <p class="text-xs text-gray-400 mt-4 flex items-center gap-1">
-                            <i class="fa-solid fa-fingerprint text-orange-500"></i> Punched In at: <span class="font-bold text-slate-600"><?php echo $display_punch_in; ?></span>
-                        </p>
-                    </div>
-                </div>
+                 <?php include '../attendance_card.php'; ?>
             </div>
 
             <div class="col-span-12 lg:col-span-5 flex flex-col gap-6">
