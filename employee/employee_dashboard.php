@@ -2,7 +2,7 @@
 // -------------------------------------------------------------------------
 // 1. SESSION & CONFIGURATION
 // -------------------------------------------------------------------------
-ob_start(); // CRITICAL: Allows headers to redirect properly inside included files
+ob_start(); 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 $path_to_root = '../'; 
 
@@ -17,28 +17,59 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $current_user_id = $_SESSION['user_id'];
+
+// =========================================================================
+// ACTION: MARK TICKET AS VIEWED (DISMISS NOTIFICATION SAFELY)
+// =========================================================================
+// Silent DB Update: Adds a column to track if the user has read the notification
+$conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS user_read_status TINYINT(1) DEFAULT 0");
+
+if (isset($_GET['dismiss_ticket'])) {
+    $dismiss_id = intval($_GET['dismiss_ticket']);
+    
+    // Updates ONLY the read status, preserving the actual ticket 'status'
+    $dismiss_query = "UPDATE tickets SET user_read_status = 1 WHERE id = ? AND user_id = ?";
+    $stmt_dismiss = mysqli_prepare($conn, $dismiss_query);
+    mysqli_stmt_bind_param($stmt_dismiss, "ii", $dismiss_id, $current_user_id);
+    mysqli_stmt_execute($stmt_dismiss);
+    
+    // Redirect to clear URL parameters
+    header("Location: employee_dashboard.php");
+    exit();
+}
+
 $today = date('Y-m-d');
+$current_month = date('m');
+$current_year = date('Y');
+$user_role = $_SESSION['role'] ?? 'Employee';
 
 // -------------------------------------------------------------------------
 // 2. INITIALIZE VARIABLES
 // -------------------------------------------------------------------------
 $employee_name = "Employee"; $employee_role = "Role"; $employee_phone = "Not Set";
 $employee_email = ""; $joining_date = "Not Set"; $profile_img = "";
+
+// Default leaves for a month is 2
+$leaves_total = 2; 
+$leaves_taken = 0; 
+$leaves_remaining = 2;
+
+// Statistics
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
-$leaves_total = 16; $leaves_taken = 0; $leaves_remaining = 16;
 
 // -------------------------------------------------------------------------
-// 3. DATABASE QUERIES (Attendance Logic moved to attendance_card.php)
+// 3. DATABASE QUERIES
 // -------------------------------------------------------------------------
 
-// A. Fetch User Profile
-$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, p.department, p.experience_label, p.emergency_contacts FROM users u LEFT JOIN employee_profiles p ON u.id = p.user_id WHERE u.id = ?";
+// A. Fetch User Profile & Shift Timings
+$sql_profile = "SELECT u.username, u.role, p.* FROM users u LEFT JOIN employee_profiles p ON u.id = p.user_id WHERE u.id = ?";
 $stmt = mysqli_prepare($conn, $sql_profile);
 mysqli_stmt_bind_param($stmt, "i", $current_user_id);
 mysqli_stmt_execute($stmt);
 $user_res = mysqli_stmt_get_result($stmt);
+$user_info = mysqli_fetch_assoc($user_res);
 
-if ($user_info = mysqli_fetch_assoc($user_res)) {
+if ($user_info) {
     $employee_name = $user_info['full_name'] ?? $user_info['username'];
     $employee_role = $user_info['designation'] ?? $user_info['role'];
     $employee_phone = $user_info['phone'] ?? '+1 234 567 890';
@@ -51,39 +82,72 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
     }
 }
 
-// B. Fetch Statistics
-$stat_sql = "SELECT status, COUNT(*) as count FROM attendance WHERE user_id = ? GROUP BY status";
+// Prepare Shift Timing for Late Logic Comparison
+$shift_timings = $user_info['shift_timings'] ?? '09:00 AM - 06:00 PM';
+$time_parts = explode('-', $shift_timings);
+$shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
+
+// B. Fetch Statistics - Dynamically Calculating Late vs On-Time
+$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND MONTH(date) = ? AND YEAR(date) = ?";
 $stat_stmt = mysqli_prepare($conn, $stat_sql);
-mysqli_stmt_bind_param($stat_stmt, "i", $current_user_id);
+mysqli_stmt_bind_param($stat_stmt, "iii", $current_user_id, $current_month, $current_year);
 mysqli_stmt_execute($stat_stmt);
 $stat_res = mysqli_stmt_get_result($stat_stmt);
+
 while ($row = mysqli_fetch_assoc($stat_res)) {
-    if ($row['status'] == 'On Time') $stats_ontime = $row['count'];
-    if ($row['status'] == 'Late') $stats_late = $row['count'];
-    if ($row['status'] == 'WFH') $stats_wfh = $row['count'];
-    if ($row['status'] == 'Absent') $stats_absent = $row['count'];
-    if ($row['status'] == 'Sick Leave' || $row['status'] == 'Sick') $stats_sick = $row['count'];
+    if ($row['status'] == 'WFH') {
+        $stats_wfh++;
+    } elseif ($row['status'] == 'Absent') {
+        $stats_absent++;
+    } elseif (in_array($row['status'], ['Sick Leave', 'Sick'])) {
+        $stats_sick++;
+    } else {
+        if (!empty($row['punch_in'])) {
+            $expected_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
+            $actual_start_ts = strtotime($row['punch_in']);
+            
+            // Allow 1 minute grace period
+            if ($actual_start_ts > ($expected_start_ts + 60)) {
+                $stats_late++;
+            } else {
+                $stats_ontime++;
+            }
+        } else {
+            $stats_absent++;
+        }
+    }
 }
 
-// C. Fetch Leave Balance
-$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
+// C. Fetch Leave Balance (For CURRENT MONTH Only)
+$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND MONTH(start_date) = ? AND YEAR(start_date) = ?";
 $leave_stmt = mysqli_prepare($conn, $leave_sql);
-mysqli_stmt_bind_param($leave_stmt, "i", $current_user_id);
+mysqli_stmt_bind_param($leave_stmt, "iii", $current_user_id, $current_month, $current_year);
 mysqli_stmt_execute($leave_stmt);
 $leave_res = mysqli_stmt_get_result($leave_stmt);
 if($leave_data = mysqli_fetch_assoc($leave_res)) {
     $leaves_taken = $leave_data['taken'] ?? 0;
-    $leaves_remaining = $leaves_total - $leaves_taken;
 }
+$leaves_remaining = $leaves_total - $leaves_taken;
 
 // D. Projects
-$proj_stmt = mysqli_prepare($conn, "SELECT * FROM projects WHERE leader_id = ? OR leader_id IS NOT NULL LIMIT 2");
-mysqli_stmt_bind_param($proj_stmt, "i", $current_user_id);
+$proj_sql = "
+    SELECT p.id, p.project_name, p.deadline, 
+           COUNT(pt.id) as total_tasks,
+           SUM(CASE WHEN pt.status = 'Completed' THEN 1 ELSE 0 END) as completed_tasks
+    FROM projects p
+    JOIN project_tasks pt ON p.id = pt.project_id
+    WHERE FIND_IN_SET(?, pt.assigned_to) > 0
+    GROUP BY p.id
+    LIMIT 3
+";
+$proj_stmt = mysqli_prepare($conn, $proj_sql);
+mysqli_stmt_bind_param($proj_stmt, "s", $employee_name);
 mysqli_stmt_execute($proj_stmt);
 $projects_result = mysqli_stmt_get_result($proj_stmt);
 
-// E. Tasks
-$task_stmt = mysqli_prepare($conn, "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 5");
+// E. Tasks (Self-assigned personal tasks)
+$task_sql = "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 5";
+$task_stmt = mysqli_prepare($conn, $task_sql);
 mysqli_stmt_bind_param($task_stmt, "i", $current_user_id);
 mysqli_stmt_execute($task_stmt);
 $tasks_result = mysqli_stmt_get_result($task_stmt);
@@ -102,10 +166,90 @@ $perf_data = mysqli_fetch_assoc(mysqli_stmt_get_result($perf_stmt));
 $perf_score = $perf_data['total_score'] ?? 0;
 $perf_grade = $perf_data['performance_grade'] ?? 'N/A';
 
-// H. Notifications & Meetings
-$notif_result = mysqli_query($conn, "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 3");
+// H. UNIFIED PERSONAL NOTIFICATIONS
+$all_notifications = [];
+
+// 1. Solved IT Tickets Notification (FIXED: Checks for Resolved/Closed and User Read Status)
+$q_tickets = "SELECT id, ticket_code, subject, updated_at FROM tickets WHERE user_id = $current_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY updated_at DESC LIMIT 5";
+$r_tickets = mysqli_query($conn, $q_tickets);
+if($r_tickets) {
+    while($row = mysqli_fetch_assoc($r_tickets)) {
+        $all_notifications[] = [
+            'type' => 'ticket', 
+            'id' => $row['id'],
+            'title' => 'Ticket Solved: #' . ($row['ticket_code'] ?? $row['id']),
+            'message' => 'IT Team has resolved your ticket: ' . htmlspecialchars($row['subject']),
+            'time' => $row['updated_at'] ?? date('Y-m-d H:i:s'),
+            'icon' => 'fa-check-double',
+            'color' => 'text-green-600 bg-green-100',
+            'link' => '?dismiss_ticket=' . $row['id']
+        ];
+    }
+}
+
+// 2. Leave Notifications
+$q_leaves = "SELECT leave_type, status, start_date FROM leave_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 3";
+$r_leaves = mysqli_query($conn, $q_leaves);
+if($r_leaves) {
+    while($row = mysqli_fetch_assoc($r_leaves)) {
+        $all_notifications[] = [
+            'type' => 'leave',
+            'title' => 'Leave ' . $row['status'],
+            'message' => 'Your ' . $row['leave_type'] . ' request was ' . strtolower($row['status']) . '.',
+            'time' => $row['start_date'] . ' 09:00:00', 
+            'icon' => ($row['status'] == 'Approved') ? 'fa-check-circle' : 'fa-times-circle',
+            'color' => ($row['status'] == 'Approved') ? 'text-emerald-500 bg-emerald-100' : 'text-rose-500 bg-rose-100',
+            'link' => 'leave_request.php'
+        ];
+    }
+}
+
+// 3. Task Notifications (From TL)
+$q_tasks = "SELECT * FROM project_tasks WHERE FIND_IN_SET('$employee_name', assigned_to) > 0 AND status != 'Completed' ORDER BY id DESC LIMIT 3";
+$r_tasks = mysqli_query($conn, $q_tasks);
+if($r_tasks) {
+    while($row = mysqli_fetch_assoc($r_tasks)) {
+        $all_notifications[] = [
+            'type' => 'task',
+            'title' => 'Pending Task',
+            'message' => 'TL assigned you: ' . htmlspecialchars($row['task_title']),
+            'time' => date('Y-m-d H:i:s'), 
+            'icon' => 'fa-list-check',
+            'color' => 'text-blue-600 bg-blue-100',
+            'link' => 'task_tl.php'
+        ];
+    }
+}
+
+// 4. Announcements
+$q_announcements = "SELECT * FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY created_at DESC LIMIT 10"; 
+$r_announcements = mysqli_query($conn, $q_announcements);
+if($r_announcements) {
+    while($row = mysqli_fetch_assoc($r_announcements)) {
+        $all_notifications[] = [
+            'type' => 'announcement',
+            'title' => 'Announcement: ' . htmlspecialchars($row['title']),
+            'message' => htmlspecialchars(substr($row['message'], 0, 50)) . '...',
+            'time' => $row['created_at'],
+            'icon' => 'fa-bullhorn',
+            'color' => 'text-orange-600 bg-orange-100',
+            'link' => '../view_announcements.php'
+        ];
+    }
+}
+
+// Sort all combined notifications by Time Descending
+usort($all_notifications, function($a, $b) {
+    return strtotime($b['time']) - strtotime($a['time']);
+});
+
+// Show latest 15 for the scrollable view
+$all_notifications = array_slice($all_notifications, 0, 15); 
+
+// MEETINGS FETCH
 $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 3");
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -172,31 +316,37 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="font-bold text-slate-800 text-lg">Notifications</h3>
-                            <button class="text-xs text-teal-600 font-bold bg-teal-50 px-2 py-1 rounded">View All</button>
+                            <button class="text-[10px] text-teal-600 font-bold bg-teal-50 px-2 py-1 rounded uppercase">Your Feed</button>
                         </div>
-                        <div class="space-y-4">
-                            <?php if($notif_result && mysqli_num_rows($notif_result) > 0) { 
-                                while($notif = mysqli_fetch_assoc($notif_result)): 
-                                    $icon_bg = ($notif['type'] == 'file') ? 'bg-red-50 text-red-500' : 'bg-teal-50 text-teal-600';
-                                    $initial = strtoupper(substr($notif['title'], 0, 1));
-                            ?>
-                            <div class="flex gap-3 items-start border-b border-gray-50 pb-3 last:border-0">
-                                <div class="w-8 h-8 rounded-full <?php echo $icon_bg; ?> flex items-center justify-center font-bold text-xs shrink-0">
-                                    <?php echo $initial; ?>
-                                </div>
-                                <div class="min-w-0">
-                                    <p class="text-sm font-semibold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
-                                    <p class="text-xs text-gray-400"><?php echo date("h:i A", strtotime($notif['created_at'])); ?></p>
-                                    <?php if($notif['type'] == 'file'): ?>
-                                        <div class="flex items-center gap-1 mt-1 text-xs text-slate-500 bg-slate-50 p-1 rounded">
-                                            <i class="fa-solid fa-file-pdf text-red-500"></i> <?php echo htmlspecialchars($notif['message']); ?>
-                                        </div>
-                                    <?php else: ?>
+                        <div class="space-y-4 custom-scroll overflow-y-auto max-h-[300px] pr-2">
+                            <?php if(!empty($all_notifications)): ?>
+                                <?php foreach($all_notifications as $notif): ?>
+                                <div class="flex gap-3 items-start border-b border-gray-50 pb-3 last:border-0 hover:bg-slate-50 transition p-2 -mx-2 rounded relative">
+                                    <div class="w-8 h-8 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-xs shrink-0">
+                                        <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-semibold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
+                                        <p class="text-[10px] text-gray-400"><?php echo date("d M Y, h:i A", strtotime($notif['time'])); ?></p>
                                         <p class="text-xs text-gray-500 mt-1"><?php echo htmlspecialchars($notif['message']); ?></p>
-                                    <?php endif; ?>
+                                        
+                                        <div class="mt-2">
+                                            <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[10px] bg-green-50 text-green-700 font-bold px-2 py-1 rounded border border-green-200 hover:bg-green-100 transition">
+                                                    <i class="fa-solid fa-check mr-1"></i> Mark as Viewed
+                                                </a>
+                                            <?php else: ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 font-bold px-2 py-1 rounded hover:bg-slate-200 transition">
+                                                    View Details <i class="fa-solid fa-arrow-right ml-1 text-[8px]"></i>
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                            <?php endwhile; } else { echo "<p class='text-sm text-gray-400'>No notifications.</p>"; } ?>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <p class='text-sm text-gray-400 text-center py-4'>No new personal notifications.</p>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -209,7 +359,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-6">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
-                            <span class="text-xs font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded">2026</span>
+                            <span class="text-xs font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded"><?php echo date('F Y'); ?></span>
                         </div>
                         <div class="flex items-center justify-between">
                             <div class="space-y-4">
@@ -248,21 +398,34 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
                 <div class="card">
                     <div class="card-body">
-                        <h3 class="font-bold text-slate-800 text-lg mb-4">Leave Balance</h3>
-                        <div class="grid grid-cols-3 gap-4 mb-6">
-                            <div class="bg-teal-50 p-3 rounded-xl text-center">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
+                            <span class="text-xs font-bold text-gray-400 uppercase"><?php echo date('M Y'); ?></span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-4 mb-4">
+                            <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
                                 <p class="text-2xl font-bold text-teal-700"><?php echo $leaves_total; ?></p>
                             </div>
-                            <div class="bg-blue-50 p-3 rounded-xl text-center">
+                            <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Taken</p>
                                 <p class="text-2xl font-bold text-blue-700"><?php echo $leaves_taken; ?></p>
                             </div>
-                            <div class="bg-green-50 p-3 rounded-xl text-center">
+                            <div class="bg-green-50 p-3 rounded-xl text-center border border-green-100">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Left</p>
-                                <p class="text-2xl font-bold text-green-700"><?php echo $leaves_remaining; ?></p>
+                                <p class="text-2xl font-bold <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-700'; ?>">
+                                    <?php echo $leaves_remaining; ?>
+                                </p>
                             </div>
                         </div>
+                        
+                        <?php if($leaves_remaining < 0): ?>
+                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2 mb-4 flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-rose-500"></i>
+                                <p class="text-xs font-medium text-rose-700">Monthly limit exceeded! Extra leaves are considered as LOP.</p>
+                            </div>
+                        <?php endif; ?>
+
                         <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 rounded-lg text-center transition shadow-lg shadow-teal-200">
                             <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
                         </a>
@@ -296,7 +459,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700">
                                 <i class="fa-solid fa-envelope"></i>
                             </div>
-                            <div>
+                            <div class="min-w-0">
                                 <p class="text-[10px] text-gray-400 font-bold uppercase">Email</p>
                                 <p class="text-sm font-semibold text-slate-800 truncate w-40" title="<?php echo htmlspecialchars($employee_email); ?>">
                                     <?php echo htmlspecialchars($employee_email); ?>
@@ -347,7 +510,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 <div class="card">
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-4">
-                            <h3 class="font-bold text-slate-800 text-lg">Projects</h3>
+                            <h3 class="font-bold text-slate-800 text-lg">Involved Projects</h3>
                         </div>
                         <div class="space-y-4 custom-scroll overflow-y-auto max-h-[300px] pr-2">
                             <?php if(mysqli_num_rows($projects_result) > 0) {
@@ -358,14 +521,14 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                 <h4 class="font-bold text-sm text-slate-800 mb-1"><?php echo htmlspecialchars($proj['project_name']); ?></h4>
                                 <p class="text-[10px] text-gray-400 mb-2">Deadline: <?php echo date("d M Y", strtotime($proj['deadline'])); ?></p>
                                 <div class="flex justify-between text-xs font-bold text-teal-600 mb-1">
-                                    <span><?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?> Tasks</span>
+                                    <span><?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?> My Tasks Done</span>
                                     <span><?php echo $pct; ?>%</span>
                                 </div>
                                 <div class="w-full bg-gray-100 rounded-full h-1.5">
                                     <div class="bg-teal-600 h-1.5 rounded-full" style="width: <?php echo $pct; ?>%"></div>
                                 </div>
                             </div>
-                            <?php endwhile; } else { echo "<p class='text-sm text-gray-500'>No active projects.</p>"; } ?>
+                            <?php endwhile; } else { echo "<p class='text-sm text-gray-500'>No active projects assigned.</p>"; } ?>
                         </div>
                     </div>
                 </div>
@@ -376,20 +539,26 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="font-bold text-slate-800 text-lg">My Tasks</h3>
+                            <a href="task_tl.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">TL Tasks Board</a>
                         </div>
                         <div class="space-y-3 custom-scroll overflow-y-auto max-h-[300px] pr-2">
                             <?php if(mysqli_num_rows($tasks_result) > 0) {
                                 while($task = mysqli_fetch_assoc($tasks_result)): 
-                                    $badge_bg = ($task['priority'] == 'High') ? 'bg-pink-100 text-pink-600' : 'bg-slate-100 text-slate-600';
+                                    $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
+                                    $icon_class = ($task['status'] == 'completed') ? 'fa-solid fa-circle-check text-emerald-500' : 'fa-regular fa-circle text-teal-600';
                             ?>
                             <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition">
                                 <div class="flex items-center gap-3">
-                                    <input type="checkbox" <?php echo ($task['status'] == 'completed') ? 'checked' : ''; ?> class="w-4 h-4 rounded text-teal-600 focus:ring-teal-500 border-gray-300">
-                                    <span class="text-sm font-medium text-slate-700 truncate w-32"><?php echo htmlspecialchars($task['title']); ?></span>
+                                    <i class="<?php echo $icon_class; ?>"></i>
+                                    <div>
+                                        <span class="text-sm font-medium text-slate-700 block w-32 truncate"><?php echo htmlspecialchars($task['title']); ?></span>
+                                    </div>
                                 </div>
-                                <span class="text-[10px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
+                                <div class="flex flex-col items-end gap-1">
+                                    <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
+                                </div>
                             </div>
-                            <?php endwhile; } else { echo "<p class='text-sm text-gray-500'>No tasks found.</p>"; } ?>
+                            <?php endwhile; } else { echo "<p class='text-sm text-gray-400'>No personal tasks found.</p>"; } ?>
                         </div>
                     </div>
                 </div>

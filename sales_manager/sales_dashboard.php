@@ -227,32 +227,9 @@ if (isset($conn)) {
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6">
                 
-                <div class="lg:col-span-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col items-center justify-between text-center">
-                    <div class="w-full mb-2">
-                        <p class="text-[11px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Today's Attendance</p>
-                        <h2 class="text-[20px] font-black text-[#1e293b]" id="liveDateTime"><?php echo $attendance_time; ?></h2>
+               <div class="lg:col-span-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col h-full">
+                        <?php include '../attendance_card.php'; ?>
                     </div>
-                    
-                    <div class="relative w-44 h-44 my-5 flex items-center justify-center">
-                        <svg class="absolute inset-0 w-full h-full transform -rotate-90" viewBox="0 0 160 160">
-                            <circle cx="80" cy="80" r="66" stroke="#f1f5f9" stroke-width="14" fill="none"></circle>
-                            <circle cx="80" cy="80" r="66" stroke="#0f766e" stroke-width="14" fill="none" stroke-dasharray="414" stroke-dashoffset="<?= $stroke_dashoffset ?>" stroke-linecap="round" class="transition-all duration-500"></circle>
-                        </svg>
-                        <div class="flex flex-col items-center justify-center z-10 mt-1">
-                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Hours</p>
-                            <p class="text-3xl font-black text-[#0f172a] tracking-tight"><?= $prod_time_str ?></p>
-                        </div>
-                    </div>
-
-                    <div class="w-full space-y-4">
-                        <button class="w-full bg-[#118B7E] hover:bg-[#0f7a6f] text-white font-bold py-3.5 rounded-2xl transition flex items-center justify-center gap-2 shadow-md shadow-teal-500/10">
-                            <i class="fa-solid fa-right-to-bracket"></i> Punch In
-                        </button>
-                        <div class="flex items-center justify-center gap-1.5 text-xs font-bold text-slate-400">
-                            <i class="fa-solid fa-fingerprint text-orange-400 text-sm"></i> Punched In at: <?= $punch_in ?>
-                        </div>
-                    </div>
-                </div>
 
                 <div class="lg:col-span-4 flex flex-col gap-6">
                     <div class="bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-6 flex-1 flex flex-col">
@@ -689,10 +666,7 @@ if (isset($conn)) {
             </div>
         </main>
 
-        <div class="fixed right-0 top-1/2 -translate-y-1/2 bg-orange-500 p-3 rounded-l-xl shadow-xl shadow-orange-200 text-white cursor-pointer z-50 hover:bg-orange-600 transition">
-            <i class="fa-solid fa-gear text-lg animate-spin-slow" style="animation: spin 6s linear infinite;"></i>
-        </div>
-
+       
     </div>
 
     <div id="contextMenu" class="absolute hidden bg-white rounded-xl shadow-2xl border border-slate-100 w-72 z-[100] overflow-hidden transition-all duration-200 transform scale-95 opacity-0 origin-top-left">

@@ -236,6 +236,7 @@ $pipeline_series_json = json_encode([
     <title>Sales Executive Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f4f7f6; }
         .card { background: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; }
@@ -277,9 +278,6 @@ $pipeline_series_json = json_encode([
                 <h1 class="text-2xl font-bold text-gray-900">Sales Executive Dashboard</h1>
                 <p class="text-sm text-gray-500">Dashboard > Sales Executive Dashboard</p>
             </div>
-            <div class="flex gap-3">
-               
-            </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
@@ -304,68 +302,12 @@ $pipeline_series_json = json_encode([
             <?php endforeach; ?>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 items-stretch">
             
-            <div class="card p-8 flex flex-col items-center justify-center h-full relative" id="attendanceCardWrapper">
-                
-                <div id="stateInitial" class="flex flex-col items-center w-full h-full justify-center transition-all duration-300">
-                    <p class="text-sm text-gray-500 mb-1">Good Morning, <?= htmlspecialchars(explode(' ', trim($profile['full_name']))[0]) ?></p>
-                    <h2 id="live-clock" class="text-4xl font-extrabold text-[#1c2c42] mb-1 tracking-tight">--:-- --</h2>
-                    <p id="live-date" class="text-sm text-gray-400 mb-6">-- --- ----</p>
-
-                    <div class="w-24 h-24 rounded-full bg-gradient-to-r from-blue-500 to-green-500 p-[3px] mb-8">
-                        <div class="w-full h-full rounded-full border-2 border-white bg-[#225a58] flex items-center justify-center text-3xl font-normal text-white">
-                            <?= strtoupper(substr($profile['full_name'], 0, 2)) ?>
-                        </div>
-                    </div>
-
-                    <div class="w-full bg-[#225a58] text-white py-2.5 rounded-md font-semibold text-sm mb-4 text-center">
-                        Production : <span id="prod-display">0.00</span> hrs
-                    </div>
-
-                    <div class="text-[#0ea5e9] text-emerald-500 text-sm font-medium mb-4 flex items-center justify-center gap-1.5">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span>Not Punched In</span>
-                    </div>
-
-                    <button onclick="punchIn()" class="w-full bg-[#225a58] hover:bg-[#1a4443] text-white py-3 rounded-md font-bold text-sm transition-colors mt-auto">
-                        Punch In
-                    </button>
-                </div>
-
-                <div id="statePunchedIn" class="hidden flex-col items-center w-full h-full justify-center transition-all duration-300">
-                    <p class="text-xs font-bold text-gray-400 tracking-wider mb-1 uppercase">Today's Attendance</p>
-                    <h2 id="punch-in-display-time" class="text-lg font-bold text-[#1c2c42] mb-6">--:-- --, -- --- ----</h2>
-
-                    <div class="relative w-40 h-40 mb-8 flex items-center justify-center">
-                        <svg class="absolute inset-0 w-full h-full transform -rotate-90">
-                            <circle cx="80" cy="80" r="68" stroke="#f1f5f9" stroke-width="12" fill="none"></circle>
-                            <circle id="progressCircle" cx="80" cy="80" r="68" stroke="#0d9488" stroke-width="12" fill="none" stroke-dasharray="427" stroke-dashoffset="427" stroke-linecap="round" class="transition-all duration-500"></circle>
-                        </svg>
-                        <div class="text-center z-10 flex flex-col items-center mt-1">
-                            <span id="timerLabel" class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Total Hours</span>
-                            <span id="timerValue" class="text-[28px] font-bold text-[#1c2c42] leading-tight">00:00:00</span>
-                        </div>
-                    </div>
-
-                    <div class="flex w-full gap-3 mb-5 mt-auto">
-                        <button id="breakBtn" onclick="toggleBreak()" class="flex-1 bg-white hover:bg-gray-50 text-[#f59e0b] border border-[#f59e0b] py-3 rounded-xl font-bold text-[15px] flex items-center justify-center gap-1.5 transition-colors shadow-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4z"/></svg>
-                            Break
-                        </button>
-                        <button onclick="punchOut()" class="flex-1 bg-[#225a58] hover:bg-[#1a4443] text-white py-3 rounded-xl font-bold text-[15px] flex items-center justify-center gap-1.5 transition-colors shadow-sm">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="square" stroke-linejoin="miter" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
-                            Out
-                        </button>
-                    </div>
-
-                    <p class="text-[13px] text-gray-500 font-medium flex items-center gap-1.5">
-                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-[#f97316]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" /></svg>
-                         Punched In at: <span id="actual-punch-time" class="font-bold text-gray-800">--:-- --</span>
-                    </p>
-                </div>
+            <div class="flex flex-col h-full justify-center">
+               <div class="lg:col-span-4 bg-white p-6 flex flex-col h-full justify-center rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+    <?php include '../attendance_card.php'; ?>
+</div>
             </div>
 
             <div class="card p-7 flex flex-col h-full">
@@ -742,74 +684,6 @@ $pipeline_series_json = json_encode([
         setInterval(updateLiveTime, 1000);
         updateLiveTime();
 
-        // ---- DYNAMIC LOGIC: STOPWATCH & PUNCHING ----
-        let isOnBreak = false;
-        let totalSeconds = 0;
-        let timerInterval = null;
-
-        function punchIn() {
-            document.getElementById('stateInitial').classList.add('hidden');
-            document.getElementById('statePunchedIn').classList.remove('hidden');
-            document.getElementById('statePunchedIn').classList.add('flex');
-            
-            const now = new Date();
-            document.getElementById('actual-punch-time').innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-            
-            startStopwatch();
-        }
-
-        function punchOut() {
-            document.getElementById('statePunchedIn').classList.add('hidden');
-            document.getElementById('statePunchedIn').classList.remove('flex');
-            document.getElementById('stateInitial').classList.remove('hidden');
-            
-            clearInterval(timerInterval);
-            document.getElementById('prod-display').innerText = (totalSeconds / 3600).toFixed(2);
-            totalSeconds = 0;
-            updateTimerUI();
-        }
-
-        function startStopwatch() {
-            if (timerInterval) clearInterval(timerInterval);
-            timerInterval = setInterval(() => {
-                if (!isOnBreak) {
-                    totalSeconds++;
-                    updateTimerUI();
-                }
-            }, 1000);
-        }
-
-        function updateTimerUI() {
-            const h = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
-            const m = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
-            const s = (totalSeconds % 60).toString().padStart(2, '0');
-            document.getElementById('timerValue').innerText = `${h}:${m}:${s}`;
-            
-            const maxSecs = 28800; 
-            const progress = Math.min(totalSeconds, maxSecs) / maxSecs;
-            const dashoffset = 427 - (progress * 427);
-            document.getElementById('progressCircle').setAttribute('stroke-dashoffset', dashoffset);
-        }
-
-        function toggleBreak() {
-            isOnBreak = !isOnBreak;
-            const breakBtn = document.getElementById('breakBtn');
-            const timerLabel = document.getElementById('timerLabel');
-            const progressCircle = document.getElementById('progressCircle');
-
-            if (isOnBreak) {
-                breakBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> Resume`;
-                breakBtn.className = 'flex-1 bg-white hover:bg-gray-50 text-[#3b82f6] border border-[#3b82f6] py-3 rounded-xl font-bold text-[15px] flex items-center justify-center gap-1.5 transition-colors shadow-sm';
-                timerLabel.innerText = 'ON BREAK';
-                progressCircle.setAttribute('stroke', '#f97316'); // Orange
-            } else {
-                breakBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 fill-current" viewBox="0 0 24 24"><path d="M20 3H4v10c0 2.21 1.79 4 4 4h6c2.21 0 4-1.79 4-4v-3h2c1.11 0 2-.89 2-2V5c0-1.11-.89-2-2-2zm0 5h-2V5h2v3zM4 19h16v2H4z"/></svg> Break`;
-                breakBtn.className = 'flex-1 bg-white hover:bg-gray-50 text-[#f59e0b] border border-[#f59e0b] py-3 rounded-xl font-bold text-[15px] flex items-center justify-center gap-1.5 transition-colors shadow-sm';
-                timerLabel.innerText = 'TOTAL HOURS';
-                progressCircle.setAttribute('stroke', '#0d9488'); // Teal
-            }
-        }
-
         // ---- DYNAMIC LEAD LIST LOGIC ----
         const mockLeadsByDay = <?= $mock_leads_json ?>;
 
@@ -870,24 +744,14 @@ $pipeline_series_json = json_encode([
             modal.classList.remove('hidden');
             modal.classList.add('block');
             
-            // Absolute positioning logic near the clicked bar
             if (event) {
                 const rect = event.currentTarget.getBoundingClientRect();
-                
-                // Position slightly above the bar
                 let topPos = window.scrollY + rect.top - modal.offsetHeight - 15;
                 let leftPos = window.scrollX + rect.left + (rect.width / 2) - (modal.offsetWidth / 2);
 
-                // If no room above, render it below the bar
-                if (topPos < window.scrollY) {
-                    topPos = window.scrollY + rect.bottom + 15;
-                }
-                
-                // Keep the modal inside the horizontal bounds of the screen
+                if (topPos < window.scrollY) topPos = window.scrollY + rect.bottom + 15;
                 if (leftPos < 0) leftPos = 10;
-                if (leftPos + modal.offsetWidth > window.innerWidth) {
-                    leftPos = window.innerWidth - modal.offsetWidth - 10;
-                }
+                if (leftPos + modal.offsetWidth > window.innerWidth) leftPos = window.innerWidth - modal.offsetWidth - 10;
 
                 modal.style.top = topPos + 'px';
                 modal.style.left = leftPos + 'px';
@@ -900,11 +764,9 @@ $pipeline_series_json = json_encode([
             modal.classList.remove('block');
         }
 
-        // Close the modal when clicking anywhere outside of it
         window.onclick = function(event) {
             const modal = document.getElementById('leadModal');
             if (!modal.classList.contains('hidden')) {
-                // Check if the click happened outside the modal AND not on one of the chart bars
                 if (!modal.contains(event.target) && !event.target.closest('.lead-box')) {
                     closeModal();
                 }

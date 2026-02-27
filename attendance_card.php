@@ -7,10 +7,16 @@ $is_ajax_request = isset($_GET['ajax_card']) && $_GET['ajax_card'] == '1';
 if ($is_ajax_request) {
     if (session_status() === PHP_SESSION_NONE) { session_start(); }
     date_default_timezone_set('Asia/Kolkata');
-    // Connect to DB securely for the AJAX reload
     $paths = ['include/db_connect.php', '../include/db_connect.php'];
     foreach($paths as $path) { if(file_exists($path)) { require_once $path; break; } }
     $current_user_id = $_SESSION['user_id'];
+
+    // Fetch shift details when loaded via AJAX
+    $u_sql = "SELECT shift_type, shift_timings FROM employee_profiles WHERE user_id = ?";
+    $u_stmt = mysqli_prepare($conn, $u_sql);
+    mysqli_stmt_bind_param($u_stmt, "i", $current_user_id);
+    mysqli_stmt_execute($u_stmt);
+    $user_info = mysqli_fetch_assoc(mysqli_stmt_get_result($u_stmt));
 }
 
 $today = date('Y-m-d');
@@ -22,6 +28,12 @@ $is_on_break = false;
 $total_break_seconds = 0;
 $break_start_ts = 0;
 
+// Shift Information from DB (defaults if null)
+$shift_name = $user_info['shift_type'] ?? 'General Shift';
+$shift_timings = $user_info['shift_timings'] ?? '09:00 AM - 06:00 PM';
+$delay_text = "";
+$delay_class = "";
+
 // 1. Fetch Attendance Data
 $check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
 $check_stmt = mysqli_prepare($conn, $check_sql);
@@ -30,6 +42,7 @@ mysqli_stmt_execute($check_stmt);
 $attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
 
 if ($attendance_record) {
+    // Break calculations
     $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
     $bk_stmt = mysqli_prepare($conn, $bk_sql);
     mysqli_stmt_bind_param($bk_stmt, "i", $attendance_record['id']);
@@ -47,7 +60,7 @@ if ($attendance_record) {
     $total_break_seconds = $sum_res['total'] ?? 0;
 }
 
-// 2. Calculate Display Times
+// 2. Calculate Display Times & Late Delay
 $display_break_seconds = $total_break_seconds;
 $break_time_str = "00:00:00";
 
@@ -55,6 +68,28 @@ if ($attendance_record) {
     $display_punch_in = date('h:i A', strtotime($attendance_record['punch_in']));
     $start_ts = strtotime($attendance_record['punch_in']);
     
+    // --- LATE / EARLY CALCULATION ---
+    $time_parts = explode('-', $shift_timings);
+    if (count($time_parts) > 0) {
+        $shift_start_str = trim($time_parts[0]); // e.g., "09:00 AM"
+        $expected_start_ts = strtotime($today . ' ' . $shift_start_str);
+        
+        $diff_seconds = $start_ts - $expected_start_ts;
+        if ($diff_seconds > 60) { // More than 1 min late
+            $mins_late = floor($diff_seconds / 60);
+            $delay_text = "Late by $mins_late mins";
+            $delay_class = "text-rose-600 bg-rose-50 border-rose-200";
+        } elseif ($diff_seconds < -60) { // Early
+            $mins_early = floor(abs($diff_seconds) / 60);
+            $delay_text = "Early by $mins_early mins";
+            $delay_class = "text-emerald-600 bg-emerald-50 border-emerald-200";
+        } else {
+            $delay_text = "On Time";
+            $delay_class = "text-teal-600 bg-teal-50 border-teal-200";
+        }
+    }
+    // --------------------------------
+
     if ($is_on_break) {
         $now_ts = $break_start_ts; 
         $display_break_seconds = $total_break_seconds + (time() - $break_start_ts); 
@@ -76,31 +111,46 @@ if ($attendance_record) {
     $break_time_str = sprintf('%02d:%02d:%02d', $b_hours, $b_mins, $b_secs);
 }
 
-// Ensure the wrapper is only rendered on the initial page load, not during AJAX reloads
 if (!$is_ajax_request): 
 ?>
 <style>
     .progress-ring-circle {
-    /* Changing from 0.35s to 1.5s makes the ring move much slower and smoother */
-    transition: stroke-dashoffset 1.5s ease-in-out; 
-    transform: rotate(-90deg);
-    transform-origin: 50% 50%;
-}
+        transition: stroke-dashoffset 1.5s ease-in-out; 
+        transform: rotate(-90deg);
+        transform-origin: 50% 50%;
+    }
 </style>
 <div class="card" id="attendanceCardWrapper">
 <?php endif; ?>
 
     <div class="card-body flex flex-col items-center w-full">
-        <div class="text-center mb-6">
-            <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Today's Attendance</h3>
-            <p class="text-lg font-bold text-slate-800 mt-1"><?php echo date("h:i A, d M Y"); ?></p>
+        
+        <div class="w-full flex justify-between items-center mb-5">
+            <h3 class="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Today's Shift</h3>
+            <span class="text-[10px] font-bold text-slate-800 bg-slate-100 px-2 py-1 rounded"><?php echo date("d M Y"); ?></span>
+        </div>
+
+        <div class="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl mb-6 flex justify-between items-center">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded bg-teal-100 flex items-center justify-center text-teal-600">
+                    <i class="fa-solid fa-clock"></i>
+                </div>
+                <div>
+                    <p class="text-[9px] font-bold text-gray-400 uppercase">Shift Type</p>
+                    <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($shift_name); ?></p>
+                </div>
+            </div>
+            <div class="text-right">
+                <p class="text-[9px] font-bold text-gray-400 uppercase">Timings</p>
+                <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($shift_timings); ?></p>
+            </div>
         </div>
 
         <div class="relative w-44 h-44 mb-6">
             <svg class="w-full h-full transform -rotate-90">
                 <circle cx="88" cy="88" r="78" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
                 <?php 
-                    $pct = min(1, $total_seconds_worked / 32400); 
+                    $pct = min(1, $total_seconds_worked / 32400); // Assumes 9 hours (32400 seconds) goal
                     $circumference = 490; 
                     $dashoffset = $circumference - ($pct * $circumference);
                     $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
@@ -154,10 +204,17 @@ if (!$is_ajax_request):
             <?php endif; ?>
         </div>
 
-        <p class="text-xs text-gray-400 mt-5 flex items-center gap-1.5 font-medium">
-            <i class="fa-solid fa-fingerprint text-teal-600"></i> 
-            Punched In at: <span class="font-bold text-slate-700"><?php echo $display_punch_in; ?></span>
-        </p>
+        <?php if($attendance_record): ?>
+        <div class="w-full mt-5 flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
+            <p class="text-[10px] text-gray-500 flex items-center gap-1">
+                <i class="fa-solid fa-fingerprint text-teal-600"></i> Punched In: <span class="font-bold text-slate-700"><?php echo $display_punch_in; ?></span>
+            </p>
+            <?php if($delay_text != ""): ?>
+                <span class="text-[9px] font-bold px-2 py-1 border rounded <?php echo $delay_class; ?>"><?php echo $delay_text; ?></span>
+            <?php endif; ?>
+        </div>
+        <?php endif; ?>
+        
     </div>
 
 <?php if (!$is_ajax_request): ?>
@@ -215,21 +272,18 @@ if (!$is_ajax_request):
         const fd = new FormData();
         fd.append('action', actionStr);
 
-        // Visually disable buttons to prevent double-clicks
         const buttons = document.querySelectorAll('#attendanceCardWrapper button');
         buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.6'; });
 
-        // 1. Send the action to the DB safely
         fetch('../api/attendance_action.php', { method: 'POST', body: fd })
         .then(res => res.json())
         .then(data => {
             if (data.success) {
-                // 2. Fetch purely the updated inner UI of the card WITHOUT refreshing the page
                 fetch('../attendance_card.php?ajax_card=1')
                 .then(res => res.text())
                 .then(html => {
                     document.getElementById('attendanceCardWrapper').innerHTML = html;
-                    initAttendance(); // Restart timers on the newly loaded HTML
+                    initAttendance(); 
                 });
             } else {
                 alert("Error: " + data.message);
