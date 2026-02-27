@@ -23,25 +23,25 @@ if (file_exists($dbPath)) {
     die("Critical Error: Cannot find database connection file.");
 }
 
-// 3. SILENT SCHEMA UPDATE (Ensure admin columns exist)
+// 3. SILENT SCHEMA UPDATE
 $conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_to INT DEFAULT NULL");
-$conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS admin_note TEXT DEFAULT NULL");
 $conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
 
-// 4. PROCESS TICKET UPDATE (Admin Action Form)
+// 4. PROCESS TICKET UPDATE (Admin Action Form - Auto Update Status)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_ticket'])) {
     $t_id = (int)$_POST['ticket_id'];
     $assigned_to = !empty($_POST['assigned_to']) ? (int)$_POST['assigned_to'] : NULL;
-    $status = $_POST['status'];
-    $admin_note = trim($_POST['admin_note']);
+    
+    // Automatically set status to "In Progress" if an executive is assigned, else "Open"
+    $status = $assigned_to ? 'In Progress' : 'Open';
 
-    $upd_stmt = $conn->prepare("UPDATE tickets SET assigned_to = ?, status = ?, admin_note = ? WHERE id = ?");
-    $upd_stmt->bind_param("issi", $assigned_to, $status, $admin_note, $t_id);
+    $upd_stmt = $conn->prepare("UPDATE tickets SET assigned_to = ?, status = ? WHERE id = ?");
+    $upd_stmt->bind_param("isi", $assigned_to, $status, $t_id);
     
     if ($upd_stmt->execute()) {
-        $_SESSION['toast'] = ['type' => 'success', 'msg' => 'Ticket updated successfully!'];
+        $_SESSION['toast'] = ['type' => 'success', 'msg' => 'Ticket assigned successfully!'];
     } else {
-        $_SESSION['toast'] = ['type' => 'error', 'msg' => 'Failed to update ticket.'];
+        $_SESSION['toast'] = ['type' => 'error', 'msg' => 'Failed to assign ticket.'];
     }
     
     // Redirect to self to prevent form resubmission on refresh
@@ -292,14 +292,14 @@ function getStatusBadge($status) {
                             <i class="fas fa-history me-2"></i>Activity Log
                         </div>
                         <div class="card-body activity-log bg-light">
-                            <?php if (!empty($ticket['admin_note'])): ?>
+                            <?php if (!empty($ticket['assigned_to'])): ?>
                                 <div class="alert text-dark shadow-sm">
                                     <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <small class="text-muted"><i class="fas fa-user-cog me-1"></i> Admin Update</small>
+                                        <small class="text-muted"><i class="fas fa-user-cog me-1"></i> Ticket Assigned</small>
                                         <small class="text-muted"><?= date('d M Y, h:i A', strtotime($ticket['updated_at'])) ?></small>
                                     </div>
-                                    <div class="fw-medium">Status changed to: <?= htmlspecialchars($ticket['status']) ?></div>
-                                    <div class="mt-2 text-secondary bg-white p-2 rounded border"><strong>Note:</strong> <?= nl2br(htmlspecialchars($ticket['admin_note'])) ?></div>
+                                    <div class="fw-medium">Assigned to: <?= htmlspecialchars($ticket['assigned_name']) ?></div>
+                                    <div class="mt-1 text-secondary small">Status changed to: <?= htmlspecialchars($ticket['status']) ?></div>
                                 </div>
                             <?php endif; ?>
                             
@@ -325,9 +325,9 @@ function getStatusBadge($status) {
                             <input type="hidden" name="update_ticket" value="1">
                             <input type="hidden" name="ticket_id" value="<?= htmlspecialchars($ticket['id']) ?>">
 
-                            <div class="mb-3">
+                            <div class="mb-4">
                                 <label class="form-label fw-bold text-secondary small text-uppercase">Assign Engineer</label>
-                                <select class="form-select shadow-none border-secondary-subtle" name="assigned_to">
+                                <select class="form-select shadow-none border-secondary-subtle py-2" name="assigned_to" required>
                                     <option value="">-- Select Executive --</option>
                                     <optgroup label="Internal IT Team">
                                         <?php foreach ($it_staff as $staff): ?>
@@ -337,28 +337,12 @@ function getStatusBadge($status) {
                                         <?php endforeach; ?>
                                     </optgroup>
                                 </select>
-                            </div>
-
-                            <div class="mb-3">
-                                <label class="form-label fw-bold text-secondary small text-uppercase">Update Status</label>
-                                <select class="form-select shadow-none border-secondary-subtle" name="status">
-                                    <option value="Open" <?= $ticket['status']==='Open' ? 'selected' : '' ?>>Open</option>
-                                    <option value="In Progress" <?= $ticket['status']==='In Progress' ? 'selected' : '' ?>>In Progress</option>
-                                    <option value="Waiting on User" <?= $ticket['status']==='Waiting on User' ? 'selected' : '' ?>>Waiting on User</option>
-                                    <option value="Resolved" <?= $ticket['status']==='Resolved' ? 'selected' : '' ?>>Resolved</option>
-                                    <option value="Closed" <?= $ticket['status']==='Closed' ? 'selected' : '' ?>>Closed</option>
-                                </select>
-                            </div>
-
-                            <div class="mb-4">
-                                <label class="form-label fw-bold text-secondary small text-uppercase">Internal Admin Note <span class="fw-normal text-muted text-lowercase">(not visible to user)</span></label>
-                                <textarea class="form-control shadow-none border-secondary-subtle" name="admin_note" rows="5" 
-                                    placeholder="Add progress notes or resolution details here..."><?= htmlspecialchars($ticket['admin_note'] ?? '') ?></textarea>
+                                <small class="text-muted mt-2 d-block"><i class="fas fa-info-circle"></i> Assigning will automatically mark the ticket as "In Progress".</small>
                             </div>
 
                             <div class="d-grid">
                                 <button type="submit" class="btn btn-brand btn-lg shadow-sm">
-                                    <i class="fas fa-save me-2"></i> Update Ticket
+                                    <i class="fas fa-user-check me-2"></i> Assign Ticket
                                 </button>
                             </div>
                         </form>

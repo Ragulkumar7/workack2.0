@@ -27,6 +27,20 @@ $my_username = $_SESSION['username'] ?? 'User';
 // Role Check: Only certain roles can create groups
 $can_create_group = in_array($my_role, ['Manager', 'Team Lead', 'System Admin', 'HR', 'HR Executive']);
 
+// Fetch users for the meeting dropdown & People Directory
+$all_users = [];
+$res_users = $conn->query("SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as name, ep.profile_img FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id");
+if ($res_users) {
+    while($row = $res_users->fetch_assoc()) {
+        if(empty($row['profile_img']) || $row['profile_img'] == 'default_user.png') {
+            $row['profile_img'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=random";
+        } elseif(!str_starts_with($row['profile_img'], 'http')) {
+            $row['profile_img'] = (file_exists('../assets/profiles/'.$row['profile_img']) ? '../assets/profiles/' : 'assets/profiles/') . $row['profile_img'];
+        }
+        $all_users[] = $row;
+    }
+}
+
 // --- ENCRYPTION HELPERS ---
 define('CHAT_ENC_KEY', 'Workack_Secret_Key_2026');
 
@@ -146,10 +160,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $chats = [];
         while($row = $result->fetch_assoc()) {
             if ($row['type'] == 'group') {
-                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=1b5a5a&color=fff";
+                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=5b5fc7&color=fff";
             } else {
                 if(empty($row['avatar_db']) || $row['avatar_db'] == 'default_user.png') {
-                    $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=1b5a5a&color=fff";
+                    $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=5b5fc7&color=fff";
                 } elseif(!str_starts_with($row['avatar_db'], 'http')) {
                     $row['avatar'] = (file_exists('../assets/profiles/'.$row['avatar_db']) ? '../assets/profiles/' : 'assets/profiles/') . $row['avatar_db'];
                 } else {
@@ -226,7 +240,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $partner['profile_img'] = (file_exists('../assets/profiles/'.$partner['profile_img']) ? '../assets/profiles/' : 'assets/profiles/') . $partner['profile_img'];
                 }
             } else {
-                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=1b5a5a&color=fff"];
+                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=5b5fc7&color=fff"];
             }
         }
 
@@ -383,106 +397,175 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <style>
         :root { 
-            --primary: #1b5a5a;
-            --primary-hover: #144343;
-            --bg-light: #f8fafc; 
-            --border: #e2e8f0; 
-            --text-dark: #1e293b; 
-            --text-muted: #64748b; 
+            --primary: #5b5fc7; /* Microsoft Teams Purple */
+            --primary-hover: #4f52b2;
+            --bg-light: #f5f5f5; 
+            --border: #e0e0e0; 
+            --text-dark: #242424; 
+            --text-muted: #616161; 
+            --outgoing-bg: #e3e5fa;
+            --incoming-bg: #ffffff;
+            --sidebar-bg: #ffffff;
+            --hover-bg: #f5f5f5;
         }
         * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter', sans-serif; }
         body { background-color: var(--bg-light); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
         
         #mainContent { margin-left: 95px; width: calc(100% - 95px); height: 100vh; display: flex; flex-direction: column; transition: all 0.3s; }
-        .app-container { flex: 1; display:flex; height: 0; min-height: 0; background: #fff; border-top: 1px solid var(--border); position: relative;}
+        .app-container { flex: 1; display:flex; height: 0; min-height: 0; background: var(--bg-light); position: relative;}
         
-        /* SIDEBAR */
-        .sidebar { width: 340px; background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 10; transition: transform 0.3s ease;}
-        .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content:space-between; align-items:center; }
-        .search-box { padding: 15px; border-bottom: 1px solid #f1f5f9; background: var(--bg-light); position: relative;}
-        .search-box input { width: 100%; padding: 10px 15px 10px 35px; border: 1px solid var(--border); border-radius: 8px; outline: none; }
-        .search-box i { position: absolute; left: 25px; top: 25px; color: var(--text-muted); }
+        /* SECONDARY SIDEBAR */
+        .sidebar-secondary-teams { width: 80px; background: #ffffff; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 15; }
+        .nav-icon { width: 50px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 0.75rem; border-radius: 6px; margin-bottom: 5px; transition: 0.2s; }
+        .nav-icon i { font-size: 1.4rem; margin-bottom: 2px; }
+        .nav-icon:hover { color: var(--primary); }
+        .nav-icon.active { background: white; color: var(--primary); font-weight: 600; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+
+        /* SIDEBAR (Teams Style) */
+        .sidebar { width: 320px; background: var(--sidebar-bg); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 10; transition: transform 0.3s ease;}
         
-        .chat-list { flex: 1; overflow-y: auto; }
+        /* EXACT NOTIFICATION BANNER FROM SCREENSHOT */
+        .desktop-notif-banner { background: var(--bg-light); padding: 8px 15px; display: flex; align-items: center; justify-content: space-between; font-size: 0.8rem; color: var(--text-dark); border-bottom: 1px solid var(--border); }
+        
+        .sidebar-header { padding: 15px 20px 5px; display: flex; justify-content:space-between; align-items:center; }
+        .btn-icon-small { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: transparent; border: 1px solid transparent; cursor: pointer; color: var(--text-dark); transition: 0.2s; font-size: 1.1rem; }
+        .btn-icon-small:hover { background: var(--hover-bg); border-color: var(--border); }
+        
+        .search-box { padding: 5px 20px 10px; position: relative; }
+        .search-box input { width: 100%; padding: 6px 10px 6px 30px; border: none; border-bottom: 1px solid var(--border); background: transparent; outline: none; transition: border 0.2s; font-size: 0.9rem;}
+        .search-box input:focus { border-bottom-color: var(--primary); }
+        .search-box i { position: absolute; left: 20px; top: 10px; color: var(--text-muted); font-size: 1rem; }
+        
+        .chat-list { flex: 1; overflow-y: auto; padding: 0 10px; }
         .chat-list::-webkit-scrollbar { width: 4px; }
-        .chat-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .chat-list::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
         
-        .chat-item { display: flex; align-items: center; padding: 15px; cursor: pointer; border-bottom: 1px solid #f8fafc; transition: 0.2s;}
-        .chat-item:hover { background: #f1f5f9; }
-        .chat-item.active { background: #f0fdfa; border-right: 4px solid var(--primary); }
-        .avatar { width: 45px; height: 45px; border-radius: 50%; margin-right: 12px; object-fit: cover; border: 1px solid var(--border);}
+        .section-toggle { padding: 10px 10px 5px; display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 0.8rem; cursor: pointer; font-weight: 600; }
         
-        #searchResults { position: absolute; top: 60px; left: 15px; width: calc(100% - 30px); background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 50; display: none; max-height: 300px; overflow-y: auto;}
-        .search-item { padding: 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #f1f5f9;}
-        .search-item:hover { background: #f8fafc; }
+        .chat-item { display: flex; align-items: center; padding: 12px; cursor: pointer; border-radius: 8px; margin: 2px 10px; transition: 0.2s; border: 1px solid transparent;}
+        .chat-item:hover { background: var(--hover-bg); }
+        .chat-item.active { background: white; border: 1px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+        .avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; }
+        
+        .invite-btn-container { padding: 15px; background: transparent; }
+        .invite-btn { width: 100%; padding: 8px; background: white; border: 1px solid var(--border); border-radius: 6px; font-weight: 600; color: var(--text-dark); display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
+        .invite-btn:hover { background: var(--hover-bg); }
+        
+        #searchResults { position: absolute; top: 40px; left: 20px; width: calc(100% - 40px); background: white; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 50; display: none; max-height: 300px; overflow-y: auto;}
+        .search-item { padding: 10px 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--bg-light);}
+        .search-item:hover { background: var(--hover-bg); }
 
-        /* CHAT AREA */
-        .chat-area { flex: 1; display: flex; flex-direction: column; background: #efeae2; position: relative;}
-        .chat-area::before {
-            content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0.05; pointer-events: none;
-            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%231b5a5a' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
-        }
+        /* MAIN CONTENT AREA (Chat / Meet / Files) */
+        .content-area { flex: 1; display: flex; flex-direction: column; background: white; position: relative; overflow-y:auto; }
 
-        .chat-header { height: 70px; background: white; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; justify-content: space-between; z-index: 10;}
-        .header-actions { display: flex; gap: 8px; align-items: center; position: relative;}
-        .btn-icon { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #f1f5f9; border:none; cursor: pointer; color: var(--text-dark); transition: 0.2s;}
-        .btn-icon:hover { background: #e2e8f0; color: var(--primary); }
+        .chat-header { background: white; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 10px 20px; justify-content: space-between; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.02);}
+        
+        .header-nav { display: flex; gap: 20px; align-items: center; margin-left: 20px; border-bottom: 2px solid transparent; }
+        .header-nav-item { padding: 5px 0; color: var(--text-muted); font-size: 0.95rem; font-weight: 500; cursor: pointer; position: relative;}
+        .header-nav-item.active { color: var(--primary); font-weight: 600; }
+        .header-nav-item.active::after { content: ''; position: absolute; bottom: -13px; left: 0; right: 0; height: 3px; background-color: var(--primary); border-radius: 3px 3px 0 0; }
+        .header-nav-item:hover:not(.active) { color: var(--text-dark); }
+
+        .header-actions { display: flex; gap: 4px; align-items: center; position: relative;}
+        .btn-icon { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: transparent; border:none; cursor: pointer; color: var(--text-dark); transition: 0.2s; font-size: 1.2rem;}
+        .btn-icon:hover { background: var(--hover-bg); color: var(--primary); }
         
         .messages-box { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; z-index: 5;}
         .messages-box::-webkit-scrollbar { width: 6px; }
-        .messages-box::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .messages-box::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
 
-        .msg-wrapper { display: flex; flex-direction: column; max-width: 65%; position: relative;}
+        .msg-wrapper { display: flex; flex-direction: column; max-width: 70%; position: relative;}
         .msg-wrapper.incoming { align-self: flex-start; }
         .msg-wrapper.outgoing { align-self: flex-end; }
         
-        .msg { padding: 10px 14px; border-radius: 12px; font-size: 0.95rem; line-height: 1.4; word-wrap: break-word; position: relative; box-shadow: 0 1px 2px rgba(0,0,0,0.05);}
-        .msg.incoming { background: #ffffff; border-top-left-radius: 0; }
-        .msg.outgoing { background: #dcfce7; border-top-right-radius: 0; }
-        .msg.deleted { font-style: italic; color: var(--text-muted); background: #f1f5f9; border: 1px solid var(--border); box-shadow: none;}
+        .msg { padding: 10px 14px; border-radius: 4px; font-size: 0.95rem; line-height: 1.4; word-wrap: break-word; position: relative; box-shadow: 0 1px 2px rgba(0,0,0,0.05);}
+        .msg.incoming { background: var(--incoming-bg); border: 1px solid var(--border); }
+        .msg.outgoing { background: var(--outgoing-bg); color: var(--text-dark); }
+        .msg.deleted { font-style: italic; color: var(--text-muted); background: transparent; border: 1px solid var(--border); box-shadow: none;}
         
-        .msg-meta { display: flex; justify-content: flex-end; align-items: center; gap: 5px; font-size: 0.7rem; color: #888; margin-top: 4px;}
+        .msg-meta { display: flex; justify-content: flex-end; align-items: center; gap: 4px; font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;}
         .ticks { font-size: 0.9rem; margin-left: 2px;}
-        .tick-read { color: #3b82f6; }
+        .tick-read { color: var(--primary); }
         .tick-sent { color: #94a3b8; }
         
-        /* Message Dropdown */
-        .msg-menu-btn { position: absolute; top: 5px; right: 5px; background: transparent; border: none; color: #94a3b8; cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 2px 5px;}
+        /* Message Dropdowns */
+        .msg-menu-btn { position: absolute; top: 4px; right: 4px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 2px 4px; border-radius: 4px;}
+        .msg-menu-btn:hover { background: rgba(0,0,0,0.05); }
         .msg-wrapper:hover .msg-menu-btn { opacity: 1; }
-        .msg-dropdown { position: absolute; top: 25px; right: 10px; background: white; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); z-index: 50; display: none; overflow: hidden; min-width: 120px;}
-        .msg-dropdown button { width: 100%; text-align: left; padding: 10px 15px; border: none; background: white; cursor: pointer; font-size: 0.85rem; transition: 0.2s;}
-        .msg-dropdown button:hover { background: #f1f5f9; }
+        .msg-dropdown { position: absolute; top: 25px; right: 10px; background: white; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 50; display: none; overflow: hidden; min-width: 120px;}
+        .msg-dropdown button { width: 100%; text-align: left; padding: 8px 12px; border: none; background: white; cursor: pointer; font-size: 0.85rem; transition: 0.2s;}
+        .msg-dropdown button:hover { background: var(--hover-bg); }
         .msg-dropdown button.delete-btn:hover { color: #ef4444; }
 
         /* Header Dropdown */
-        #chatOptionsDropdown { position: absolute; top: 45px; right: 0; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); z-index: 50; display: none; min-width: 180px; overflow: hidden;}
-        #chatOptionsDropdown button { width: 100%; text-align: left; padding: 12px 15px; border: none; background: white; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;}
-        #chatOptionsDropdown button:hover { background: #f1f5f9; color: #ef4444;}
+        #chatOptionsDropdown { position: absolute; top: 45px; right: 0; background: white; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 50; display: none; min-width: 160px; overflow: hidden;}
+        #chatOptionsDropdown button { width: 100%; text-align: left; padding: 10px 15px; border: none; background: white; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;}
+        #chatOptionsDropdown button:hover { background: var(--hover-bg); color: #ef4444;}
 
-        .input-area { padding: 15px 20px; background: #f0f2f5; display: flex; align-items: center; gap: 15px; z-index: 10;}
-        .input-area input { flex: 1; padding: 14px 20px; border: none; border-radius: 24px; outline: none; background: #fff; font-size: 0.95rem; box-shadow: 0 1px 2px rgba(0,0,0,0.05);}
-        .btn-send { background: var(--primary); color: white; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: 0.2s;}
-        .btn-send:hover { background: var(--primary-hover); transform: scale(1.05);}
+        /* Teams Input Area */
+        .input-area { padding: 0 20px 20px; background: transparent; display: flex; flex-direction: column; z-index: 10;}
+        .input-wrapper { background: #fff; border-radius: 6px; display: flex; align-items: flex-end; width: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--border); padding: 8px 12px; min-height: 50px;}
+        .input-wrapper input { flex: 1; padding: 8px 10px; border: none; outline: none; background: transparent; font-size: 0.95rem; }
+        .input-tools { display: flex; align-items: center; gap: 8px; margin-left: 10px; padding-bottom: 2px;}
+        .btn-tool { background: transparent; color: var(--text-muted); width: 32px; height: 32px; border-radius: 4px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: 0.2s; font-size: 1.2rem;}
+        .btn-tool:hover { background: var(--hover-bg); color: var(--primary); }
+        .btn-send { color: var(--primary); }
+
+        /* MEET SECTION UI */
+        .meet-hero-btn { flex: 1; background: white; border: 1px solid var(--border); padding: 15px 20px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.02);}
+        .meet-hero-btn:hover { background: var(--hover-bg); }
+        .meet-hero-btn.primary { background: var(--primary); color: white; border-color: var(--primary); }
+        .meet-hero-btn.primary:hover { background: var(--primary-hover); }
+        .meet-hero-btn i { font-size: 1.2rem; }
+
+        /* PEOPLE STYLES */
+        .people-card { display: flex; align-items: center; justify-content: space-between; padding: 15px 30px; border-bottom: 1px solid var(--border); transition: background 0.2s; }
+        .people-card:hover { background: var(--hover-bg); }
+        .people-info { display: flex; align-items: center; gap: 15px; }
+        .people-btn { background: var(--bg-light); color: var(--text-dark); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--border); transition: 0.2s; font-size: 1.2rem;}
+        .people-btn:hover { background: var(--primary); color: white; border-color: var(--primary); transform: scale(1.05); }
+
+        /* CALENDAR STYLES (MATCHING SCREENSHOT) */
+        .calendar-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--border); }
+        .calendar-title { font-size: 1.4rem; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 10px;}
+        .calendar-title i { color: var(--primary); }
+        .cal-nav-btn { background: white; border: 1px solid var(--border); padding: 8px 15px; border-radius: 4px; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
+        .cal-nav-btn:hover { background: var(--bg-light); }
+        .cal-primary-btn { background: var(--primary); color: white; border: none; padding: 8px 15px; border-radius: 4px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        .cal-primary-btn:hover { background: var(--primary-hover); }
+        
+        .calendar-grid { display: flex; flex: 1; overflow: hidden; background: white;}
+        .time-col { width: 60px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .time-slot { height: 60px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: flex-end; padding: 5px 8px 0 0; font-size: 0.75rem; color: var(--text-muted); }
+        
+        .day-cols { display: flex; flex: 1; overflow-x: auto; }
+        .day-col { flex: 1; min-width: 150px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+        .day-header { padding: 15px 10px; border-bottom: 1px solid var(--border); text-align: left; }
+        .day-num { font-size: 1.5rem; font-weight: 400; color: var(--text-dark); }
+        .day-name { font-size: 0.8rem; color: var(--text-muted); text-transform: capitalize; }
+        .day-header.active .day-num, .day-header.active .day-name { color: var(--primary); font-weight: 700; }
+        .grid-cell { height: 60px; border-bottom: 1px solid var(--border); transition: background 0.2s; cursor: pointer; }
+        .grid-cell:hover { background: var(--bg-light); }
 
         /* OVERLAYS */
-        #videoOverlay { display:none; position:absolute; top:70px; left:0; width:100%; height:calc(100% - 70px); background:#0f172a; z-index:200; flex-direction:column; }
+        #videoOverlay { display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:2000; flex-direction:column; }
         .video-overlay-header { padding: 12px 20px; background: #1e293b; display: flex; justify-content: space-between; align-items: center; color: white; }
 
-        .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.7); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(3px);}
-        .modal { background: white; width: 400px; border-radius: 12px; padding: 25px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);}
+        .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.6); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(2px);}
+        .modal { background: white; border-radius: 8px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2);}
         
-        .incoming-call-box { background: white; border-radius: 16px; padding: 30px; text-align: center; min-width: 320px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); animation: pulse 2s infinite;}
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); } 70% { box-shadow: 0 0 0 20px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } }
+        .incoming-call-box { background: white; border-radius: 8px; padding: 30px; text-align: center; min-width: 320px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2); border: 1px solid var(--border); animation: pulse 2s infinite;}
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(91, 95, 199, 0); } 100% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0); } }
         
-        /* Edit Mode Bar */
-        #editModeBar { display: none; background: #f1f5f9; padding: 10px 20px; border-top: 1px solid var(--border); align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
+        #editModeBar { display: none; background: var(--bg-light); padding: 8px 20px; align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
 
         /* Mobile Adjustments */
         #mobileBackBtn { display: none; }
         @media (max-width: 992px) {
             #mainContent { margin-left: 0; width: 100%; }
+            .sidebar-secondary-teams { display: none; }
             .sidebar { width: 100%; position: absolute; height: 100%; z-index: 20; }
-            .chat-area { width: 100%; }
+            .content-area { width: 100%; }
             .sidebar.hide-mobile { transform: translateX(-100%); }
             #mobileBackBtn { display: flex; }
         }
@@ -496,43 +579,315 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <?php if(file_exists('header.php')) include 'header.php'; elseif(file_exists('../header.php')) include '../header.php'; ?>
     
     <div class="app-container">
-        <aside class="sidebar" id="chatSidebar">
-            <div class="sidebar-header">
-                <h2 style="font-weight:800; color:var(--text-dark); font-size: 1.3rem;">Messages</h2>
-                <?php if($can_create_group): ?>
-                    <button onclick="openGroupModal()" title="Create Group" class="btn-icon"><i class="ri-group-line"></i></button>
-                <?php endif; ?>
+        <aside class="sidebar-secondary-teams">
+            <div class="nav-icon active" onclick="switchMainTab('chat_view', this)">
+                <i class="ri-chat-3-fill"></i>
+                <span>Chat</span>
             </div>
-            <div class="search-box">
-                <i class="ri-search-line"></i>
-                <input type="text" id="userSearch" placeholder="Search or start new chat...">
-                <div id="searchResults"></div>
+            <div class="nav-icon" onclick="switchMainTab('meet_view', this)">
+                <i class="ri-video-add-line"></i>
+                <span>Meet</span>
             </div>
-            <div class="chat-list" id="chatList">
-                <div style="text-align:center; padding: 30px; color:var(--text-muted);"><i class="ri-loader-4-line ri-spin"></i> Loading...</div>
+            <div class="nav-icon" onclick="switchMainTab('people_view', this)">
+                <i class="ri-contacts-line"></i>
+                <span>People</span>
+            </div>
+            <div class="nav-icon" onclick="switchMainTab('calendar_view', this)">
+                <i class="ri-calendar-line"></i>
+                <span>Calendar</span>
+            </div>
+            
+            <div style="flex: 1;"></div>
+            <div class="nav-icon">
+                <i class="ri-gem-line"></i>
             </div>
         </aside>
 
-        <section class="chat-area" id="chatArea">
-            <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted); text-align:center; padding:20px; z-index:5;">
-                <div style="width: 100px; height: 100px; background: #e2e8f0; border-radius: 50%; display:flex; align-items:center; justify-content:center; margin-bottom: 20px;">
-                    <i class="ri-message-3-fill" style="font-size:3rem; color: #94a3b8;"></i>
+        <aside class="sidebar" id="chatSidebar">
+            <div class="desktop-notif-banner" id="notifBanner">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <i class="ri-information-fill" style="color: var(--text-muted);"></i>
+                    <span>Stay in the know. Turn on desktop notifications.</span>
                 </div>
-                <h3 style="font-size: 1.5rem; color: var(--text-dark); margin-bottom: 8px;">Workack Team Chat</h3>
-                <p>Send and receive messages securely.<br>Select a conversation from the left to start.</p>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <button style="background: white; border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: var(--text-dark); font-weight: 500;">Turn on</button>
+                    <i class="ri-close-line" style="cursor: pointer; color: var(--text-muted);" onclick="document.getElementById('notifBanner').style.display='none'"></i>
+                </div>
             </div>
+
+            <div class="sidebar-header">
+                <h2 style="font-weight:700; color:var(--text-dark); font-size: 1.4rem; letter-spacing: -0.5px;">Chat</h2>
+                <div style="display: flex; gap: 6px;">
+                    <button class="btn-icon-small" title="Filter"><i class="ri-menu-unfold-line"></i></button>
+                    <button class="btn-icon-small" title="Meet" onclick="switchMainTab('meet_view', document.querySelectorAll('.nav-icon')[1])"><i class="ri-video-add-line"></i></button>
+                    <?php if($can_create_group): ?>
+                        <button class="btn-icon-small" title="New Chat" onclick="openGroupModal()"><i class="ri-edit-box-line"></i></button>
+                    <?php endif; ?>
+                </div>
+            </div>
+            
+            <div class="search-box">
+                <i class="ri-search-line"></i>
+                <input type="text" id="userSearch" placeholder="Search">
+                <div id="searchResults"></div>
+            </div>
+            
+            <div style="flex: 1; overflow-y: auto;">
+                <div class="section-toggle">
+                    <i class="ri-arrow-down-s-fill" style="font-size: 1rem;"></i> Recent
+                </div>
+                <div class="chat-list" id="chatList">
+                    <div style="text-align:center; padding: 30px; color:var(--text-muted);"><i class="ri-loader-4-line ri-spin"></i> Loading...</div>
+                </div>
+
+                <div class="section-toggle" style="margin-top: 5px;">
+                    <i class="ri-arrow-right-s-fill" style="font-size: 1rem;"></i> Contacts
+                </div>
+            </div>
+
+            <div class="invite-btn-container">
+                <button class="invite-btn">
+                    <i class="ri-user-add-line"></i> Invite to Workack
+                </button>
+            </div>
+        </aside>
+
+        <section class="content-area" id="mainContentView">
+            
+            <div id="chat_view" style="display: flex; flex-direction: column; height: 100%; width: 100%;">
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted); text-align:center; padding:20px; z-index:5;" id="chatAreaEmpty">
+                    <i class="ri-chat-3-line" style="font-size:4rem; color: #e0e0e0; margin-bottom: 15px;"></i>
+                    <h3 style="font-size: 1.2rem; color: var(--text-dark); margin-bottom: 8px; font-weight: 600;">Workack Chat</h3>
+                    <p style="font-size: 0.9rem;">Select a chat to start messaging</p>
+                </div>
+                <div id="chatAreaActive" style="display: none; flex-direction: column; height: 100%;"></div>
+            </div>
+
+            <div id="meet_view" style="display: none; flex-direction: column; padding: 40px; max-width: 900px; margin: 0 auto; width: 100%;">
+                <h2 style="font-size: 1.8rem; font-weight: 600; color: var(--text-dark); margin-bottom: 25px;">Meet</h2>
+                
+                <div style="display: flex; gap: 15px; margin-bottom: 40px;">
+                    <button class="meet-hero-btn primary" onclick="document.getElementById('createMeetingModal').style.display='flex'">
+                        <i class="ri-link"></i> Create a meeting link
+                    </button>
+                    <button class="meet-hero-btn" onclick="document.getElementById('scheduleMeetingModal').style.display='flex'">
+                        <i class="ri-calendar-event-line"></i> Schedule a meeting
+                    </button>
+                    <button class="meet-hero-btn" onclick="document.getElementById('joinMeetingModal').style.display='flex'">
+                        <i class="ri-hashtag"></i> Join with a meeting ID
+                    </button>
+                </div>
+
+                <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-dark); margin-bottom: 15px;">Meeting links</h3>
+                <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                    <div style="display: flex; align-items: flex-start; gap: 15px;">
+                        <i class="ri-link" style="font-size: 2rem; color: #a855f7;"></i>
+                        <div>
+                            <p style="font-weight: 600; margin-bottom: 5px;">Quickly create, save, and share links with anyone.</p>
+                            <a href="#" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Learn more about meeting links</a>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-dark);">Scheduled meetings</h3>
+                    <a href="#" onclick="switchMainTab('calendar_view', document.querySelectorAll('.nav-icon')[3])" style="color: var(--text-dark); text-decoration: none; font-size: 0.9rem; display: flex; align-items: center; gap: 5px;"><i class="ri-calendar-line"></i> View in calendar</a>
+                </div>
+                
+                <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; gap: 20px;">
+                        <div style="text-align: center; border-right: 1px solid var(--border); padding-right: 20px;">
+                            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><?php echo date('M'); ?></div>
+                            <div style="font-size: 1.5rem; font-weight: 400; color: var(--text-dark);"><?php echo date('d'); ?></div>
+                        </div>
+                        <div>
+                            <h4 style="font-weight: 600; margin-bottom: 5px;">Project meeting</h4>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 5px;"><?php echo date('l, F d, Y'); ?> &bull; 4:00 PM - 4:30 PM</p>
+                            <p style="font-size: 0.85rem; color: var(--text-dark); margin-bottom: 15px;"><?php echo htmlspecialchars($my_username); ?></p>
+                            <div style="display: flex; gap: 10px;">
+                                <button onclick="openEmbeddedMeeting('Project-Meeting-123', 'video')" style="background: white; border: 1px solid var(--border); padding: 6px 20px; border-radius: 4px; font-weight: 600; cursor: pointer;">Join</button>
+                                <button style="background: white; border: 1px solid var(--border); padding: 6px 20px; border-radius: 4px; font-weight: 600; cursor: pointer;">Share invite</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="width: 200px; height: 120px; background: #e3e5fa; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                        <i class="ri-calendar-event-fill" style="font-size: 3rem; color: var(--primary); opacity: 0.5;"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div id="people_view" style="display: none; flex-direction: column; height: 100%; width: 100%;">
+                <div style="padding: 25px 30px; border-bottom: 1px solid var(--border);">
+                    <h2 style="font-size: 1.8rem; font-weight:700; color: var(--text-dark);">People Directory</h2>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;">Connect with everyone in the organization.</p>
+                </div>
+                <div style="overflow-y: auto; flex: 1; background: #fafafa;">
+                    <?php foreach($all_users as $u): if($u['id'] != $my_id): ?>
+                        <div class="people-card">
+                            <div class="people-info">
+                                <img src="<?= $u['profile_img'] ?>" class="avatar" style="width: 50px; height: 50px;">
+                                <div>
+                                    <div style="font-weight:600; font-size: 1.05rem; color: var(--text-dark);"><?= htmlspecialchars($u['name']) ?></div>
+                                    <div style="font-size:0.85rem; color:var(--text-muted);"><?= $u['role'] ?></div>
+                                </div>
+                            </div>
+                            <button class="people-btn" onclick="startChat(<?= $u['id'] ?>)" title="Message">
+                                <i class="ri-message-3-line"></i>
+                            </button>
+                        </div>
+                    <?php endif; endforeach; ?>
+                </div>
+            </div>
+
+            <div id="calendar_view" style="display: none; flex-direction: column; height: 100%; width: 100%; background: white;">
+                <div class="calendar-header">
+                    <div class="calendar-title">
+                        <i class="ri-calendar-line"></i> Calendar
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <button class="cal-nav-btn"><i class="ri-calendar-event-line"></i> Today</button>
+                        <div style="display: flex; gap: 5px; align-items: center;">
+                            <button class="btn-icon-small"><i class="ri-arrow-left-s-line"></i></button>
+                            <button class="btn-icon-small"><i class="ri-arrow-right-s-line"></i></button>
+                        </div>
+                        <span style="font-weight: 600; font-size: 1.1rem; margin-right: 20px;"><?php echo date('F Y'); ?> <i class="ri-arrow-down-s-line" style="font-size: 0.9rem; color: var(--text-muted);"></i></span>
+                    </div>
+
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button class="cal-nav-btn" onclick="document.getElementById('joinMeetingModal').style.display='flex'"><i class="ri-hashtag"></i> Join with an ID</button>
+                        <button class="cal-nav-btn" onclick="startCall('video')"><i class="ri-vidicon-line"></i> Meet now</button>
+                        <button class="cal-primary-btn" onclick="document.getElementById('scheduleMeetingModal').style.display='flex'"><i class="ri-add-line"></i> New meeting</button>
+                        <button class="cal-nav-btn" style="margin-left: 10px; border:none; background:transparent;">Work week <i class="ri-arrow-down-s-line"></i></button>
+                    </div>
+                </div>
+
+                <div class="calendar-grid">
+                    <div class="time-col">
+                        <div class="day-header" style="height: 73px; border-bottom: none;"></div>
+                        <?php 
+                        $times = ['12 AM','1 AM','2 AM','3 AM','4 AM','5 AM','6 AM','7 AM','8 AM','9 AM','10 AM','11 AM','12 PM','1 PM','2 PM','3 PM','4 PM','5 PM','6 PM','7 PM','8 PM','9 PM','10 PM','11 PM'];
+                        foreach($times as $t): ?>
+                            <div class="time-slot"><?php echo $t; ?></div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <div class="day-cols">
+                        <?php 
+                        // Get current week dates (Mon-Fri)
+                        $ts = strtotime('last monday');
+                        for($i=0; $i<5; $i++): 
+                            $date = date('d', $ts);
+                            $day = date('l', $ts);
+                            $isActive = (date('Y-m-d') == date('Y-m-d', $ts)) ? 'active' : '';
+                        ?>
+                        <div class="day-col">
+                            <div class="day-header <?php echo $isActive; ?>">
+                                <div class="day-num"><?php echo $date; ?></div>
+                                <div class="day-name"><?php echo $day; ?></div>
+                            </div>
+                            <?php for($j=0; $j<24; $j++): ?>
+                                <div class="grid-cell" onclick="document.getElementById('scheduleMeetingModal').style.display='flex'"></div>
+                            <?php endfor; ?>
+                        </div>
+                        <?php 
+                        $ts = strtotime('+1 day', $ts);
+                        endfor; 
+                        ?>
+                    </div>
+                </div>
+            </div>
+
         </section>
     </div>
 </main>
 
+<div id="createMeetingModal" class="modal-overlay">
+    <div class="modal" style="width: 350px; padding: 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+            <h3 style="font-size:1.1rem; font-weight: 600;">Give your meeting a title</h3>
+            <button class="btn-icon-small" onclick="document.getElementById('createMeetingModal').style.display='none'"><i class="ri-close-line"></i></button>
+        </div>
+        <input type="text" id="newMeetTitle" value="Meeting with <?php echo htmlspecialchars($my_username); ?>" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; margin-bottom:15px; outline:none; font-size: 0.95rem;">
+        <button onclick="createAndCopyMeetLink()" style="width:100%; padding:10px; background:var(--primary); color:white; border:none; border-radius:6px; cursor:pointer; font-weight:600; font-size: 0.95rem;">Create and copy link</button>
+    </div>
+</div>
+
+<div id="joinMeetingModal" class="modal-overlay">
+    <div class="modal" style="width: 350px; padding: 20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+            <h3 style="font-size:1.1rem; font-weight: 600;">Join a meeting with an ID</h3>
+            <button class="btn-icon-small" onclick="document.getElementById('joinMeetingModal').style.display='none'"><i class="ri-close-line"></i></button>
+        </div>
+        <label style="font-size: 0.85rem; color: var(--text-dark); margin-bottom: 5px; display: block;">Meeting ID <i class="ri-information-line"></i></label>
+        <input type="text" id="joinMeetId" placeholder="Type a meeting ID" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; margin-bottom:5px; outline:none; font-size: 0.95rem;">
+        <p id="joinMeetError" style="color: #ef4444; font-size: 0.8rem; margin-bottom: 15px; display: none;"><i class="ri-error-warning-fill"></i> meetingID is a required field</p>
+        
+        <label style="font-size: 0.85rem; color: var(--text-dark); margin-bottom: 5px; display: block;">Type a meeting passcode</label>
+        <input type="text" placeholder="Type a meeting passcode" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; margin-bottom:20px; outline:none; font-size: 0.95rem; background: var(--bg-light);">
+        
+        <button onclick="joinManualMeet()" style="width:100%; padding:10px; background:#e2e8f0; color:var(--text-muted); border:none; border-radius:6px; cursor:pointer; font-weight:600; font-size: 0.95rem;" id="joinMeetBtn">Join meeting</button>
+    </div>
+</div>
+
+<div id="scheduleMeetingModal" class="modal-overlay">
+    <div class="modal" style="width: 800px; max-width: 95vw; padding: 0; overflow: hidden;">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding: 15px 20px; border-bottom: 1px solid var(--border);">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <i class="ri-calendar-event-fill" style="color: var(--primary); font-size: 1.2rem;"></i>
+                <h3 style="font-size:1.1rem; font-weight: 600;">New meeting <span style="font-weight: 400; color: var(--text-muted); font-size: 0.9rem;">Details</span></h3>
+            </div>
+            <div style="display:flex; gap: 10px;">
+                <button onclick="saveScheduledMeeting()" style="background:var(--primary); color:white; border:none; padding:6px 16px; border-radius:4px; font-weight:600; cursor:pointer;">Save</button>
+                <button onclick="document.getElementById('scheduleMeetingModal').style.display='none'" style="background:white; border:1px solid var(--border); padding:6px 16px; border-radius:4px; font-weight:600; cursor:pointer;">Close</button>
+            </div>
+        </div>
+        <div style="padding: 20px; background: #faf9f8;">
+            <input type="text" id="schTitle" placeholder="Add title" style="width:100%; padding:10px 0; border:none; border-bottom:1px solid var(--primary); background:transparent; font-size: 1.2rem; outline:none; margin-bottom: 15px;">
+            
+            <select id="schUser" style="width:100%; padding:10px; border:none; border-radius:4px; background:white; font-size: 0.95rem; outline:none; margin-bottom: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <option value="">Select a team member to invite...</option>
+                <?php foreach($all_users as $u): if($u['id'] != $my_id): ?>
+                    <option value="<?php echo $u['id']; ?>"><?php echo htmlspecialchars($u['name']); ?></option>
+                <?php endif; endforeach; ?>
+            </select>
+
+            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 15px;">
+                <input type="date" id="schDate" value="<?php echo date('Y-m-d'); ?>" style="padding:8px; border:none; border-radius:4px; background:white; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <select id="schTime" style="padding:8px; border:none; border-radius:4px; background:white; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                    <option value="10:00 AM">10:00 AM</option>
+                    <option value="11:00 AM">11:00 AM</option>
+                    <option value="12:00 PM">12:00 PM</option>
+                    <option value="02:00 PM">02:00 PM</option>
+                    <option value="04:00 PM" selected>04:00 PM</option>
+                    <option value="05:00 PM">05:00 PM</option>
+                </select>
+            </div>
+            <textarea id="schDetails" placeholder="Type details for this new meeting" style="width:100%; height:150px; padding:15px; border:none; border-radius:4px; background:white; resize:none; outline:none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);"></textarea>
+        </div>
+    </div>
+</div>
+
+<div id="videoOverlay">
+    <div class="video-overlay-header">
+        <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
+            <i class="ri-record-circle-fill" style="color:#ef4444; font-size:0.9rem; animation: pulse 1s infinite;"></i> <span id="callTypeLabel">Live Meeting</span>
+        </h3>
+        <button onclick="closeCall()" style="background:#ef4444; border:none; color:white; padding:6px 14px; border-radius:4px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:6px;">
+            <i class="ri-phone-x-line"></i> End
+        </button>
+    </div>
+    <div id="jitsiContainer" style="flex:1;"></div>
+</div>
+
 <div id="incomingCallModal" class="modal-overlay">
     <div class="incoming-call-box">
-        <img id="incomingCallerAvatar" src="" style="width:80px; height:80px; border-radius:50%; margin:0 auto 15px auto; object-fit:cover; border:3px solid #22c55e;">
+        <img id="incomingCallerAvatar" src="" style="width:80px; height:80px; border-radius:50%; margin:0 auto 15px auto; object-fit:cover; border:3px solid var(--primary);">
         <h3 id="incomingCallerName" style="font-size:1.2rem; margin-bottom:5px;">Incoming Call</h3>
         <p id="incomingCallLabel" style="color:var(--text-muted); font-size:0.9rem;">Video Call</p>
         <div style="display:flex; gap:16px; justify-content:center; margin-top:25px;">
-            <button onclick="declineIncomingCall()" style="background:#ef4444; color:white; width:50px; height:50px; border-radius:50%; border:none; cursor:pointer; font-size:1.5rem;"><i class="ri-phone-fill"></i></button>
-            <button onclick="acceptIncomingCall()" style="background:#22c55e; color:white; width:50px; height:50px; border-radius:50%; border:none; cursor:pointer; font-size:1.5rem; animation: jump 1s infinite;"><i class="ri-phone-fill"></i></button>
+            <button onclick="declineIncomingCall()" style="background:#ef4444; color:white; width:45px; height:45px; border-radius:50%; border:none; cursor:pointer; font-size:1.3rem;"><i class="ri-phone-fill"></i></button>
+            <button onclick="acceptIncomingCall()" style="background:#22c55e; color:white; width:45px; height:45px; border-radius:50%; border:none; cursor:pointer; font-size:1.3rem; animation: jump 1s infinite;"><i class="ri-phone-fill"></i></button>
         </div>
     </div>
 </div>
@@ -540,20 +895,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 <div class="modal-overlay" id="groupModal">
     <div class="modal">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-            <h3 style="font-size:1.2rem;">Create Group</h3>
-            <i class="ri-close-line" style="font-size:1.5rem; cursor:pointer; color:var(--text-muted);" onclick="closeGroupModal()"></i>
+            <h3 style="font-size:1.2rem; font-weight: 600;">Create Group</h3>
+            <button class="btn-icon" style="width:30px; height:30px;" onclick="closeGroupModal()"><i class="ri-close-line" style="font-size:1.2rem;"></i></button>
         </div>
-        <input type="text" id="groupName" placeholder="Group Subject" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:15px; outline:none;">
-        <input type="text" id="memberSearch" placeholder="Search members to add..." oninput="searchForGroup(this.value)" style="width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; margin-bottom:10px; outline:none; font-size:0.9rem;">
-        <div id="groupUserList" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; margin-bottom:15px;"></div>
-        <button onclick="createGroup()" style="width:100%; padding:12px; background:var(--primary); color:white; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Create Group</button>
+        <input type="text" id="groupName" placeholder="Group Subject" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; margin-bottom:15px; outline:none; background:var(--bg-light);">
+        <input type="text" id="memberSearch" placeholder="Search members to add..." oninput="searchForGroup(this.value)" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; margin-bottom:10px; outline:none; font-size:0.9rem; background:var(--bg-light);">
+        <div id="groupUserList" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; margin-bottom:15px;"></div>
+        <button onclick="createGroup()" style="width:100%; padding:10px; background:var(--primary); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; font-size: 0.95rem;">Create</button>
     </div>
 </div>
 
 <script>
     let activeConvId = null;
     let editingMsgId = null;
-    let masterPollInterval = null; // --- FIX: Merged Interval ---
+    let masterPollInterval = null; 
     let isFetchingMessages = false;
     let isSidebarFetching = false;
     let lastFetchedMsgId = 0;
@@ -564,6 +919,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     let currentIncomingCall = null;
     let searchDebounce = null;
     let typingTimer = null;
+
+    // --- Tab Switching Logic (Secondary Sidebar) ---
+    function switchMainTab(tabId, el) {
+        document.querySelectorAll('.sidebar-secondary-teams .nav-icon').forEach(n => n.classList.remove('active'));
+        el.classList.add('active');
+
+        ['chat_view', 'people_view', 'calendar_view', 'meet_view'].forEach(id => {
+            const domEl = document.getElementById(id);
+            if(domEl) domEl.style.display = 'none';
+        });
+        
+        document.getElementById(tabId).style.display = 'flex';
+        
+        const chatSidebar = document.getElementById('chatSidebar');
+        if(tabId !== 'chat_view') {
+            chatSidebar.style.display = 'none';
+        } else {
+            chatSidebar.style.display = 'flex';
+            if(activeConvId) fetchMessages(false);
+        }
+    }
+
+    // --- Meet Handlers ---
+    document.getElementById('joinMeetId').addEventListener('input', function(e) {
+        const btn = document.getElementById('joinMeetBtn');
+        const err = document.getElementById('joinMeetError');
+        if(e.target.value.trim().length > 0) {
+            btn.style.background = 'var(--primary)';
+            btn.style.color = 'white';
+            err.style.display = 'none';
+            e.target.style.borderColor = 'var(--border)';
+        } else {
+            btn.style.background = '#e2e8f0';
+            btn.style.color = 'var(--text-muted)';
+        }
+    });
+
+    function createAndCopyMeetLink() {
+        let title = document.getElementById('newMeetTitle').value;
+        let id = 'Workack-Meet-' + Math.random().toString(36).substring(2, 10);
+        navigator.clipboard.writeText(id).then(() => {
+            Swal.fire({
+                title: 'Copied!',
+                text: 'Meeting ID copied to clipboard: ' + id,
+                icon: 'success',
+                confirmButtonColor: 'var(--primary)'
+            }).then(() => {
+                document.getElementById('createMeetingModal').style.display = 'none';
+                openEmbeddedMeeting(id, 'video');
+            });
+        });
+    }
+
+    function joinManualMeet() {
+        let input = document.getElementById('joinMeetId');
+        let id = input.value.trim();
+        if(!id) {
+            input.style.borderColor = '#ef4444';
+            document.getElementById('joinMeetError').style.display = 'block';
+            return;
+        }
+        document.getElementById('joinMeetingModal').style.display = 'none';
+        openEmbeddedMeeting(id, 'video');
+    }
+
+    function saveScheduledMeeting() {
+        let title = document.getElementById('schTitle').value || 'Scheduled Meeting';
+        let targetUser = document.getElementById('schUser').value;
+        let date = document.getElementById('schDate').value;
+        let time = document.getElementById('schTime').value;
+        
+        if(!targetUser) {
+            Swal.fire('Error', 'Please select a user to invite.', 'error');
+            return;
+        }
+
+        let meetId = 'Workack-Meet-' + Math.random().toString(36).substring(2, 10);
+        let msg = `📅 **Scheduled Meeting: ${title}**<br>Date: ${date} at ${time}<br>Click to Join: video:${meetId}`;
+
+        // Send logic
+        let fd = new FormData();
+        fd.append('action', 'start_chat');
+        fd.append('target_user_id', targetUser);
+        
+        fetch(window.location.href, { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if(data.id) {
+                let sendFd = new FormData();
+                sendFd.append('action', 'send_message');
+                sendFd.append('conversation_id', data.id);
+                sendFd.append('message', msg);
+                sendFd.append('type', 'text');
+                
+                fetch(window.location.href, { method: 'POST', body: sendFd }).then(() => {
+                    document.getElementById('scheduleMeetingModal').style.display = 'none';
+                    Swal.fire('Success', 'Meeting scheduled and invite sent via chat!', 'success');
+                    
+                    // Reset modal
+                    document.getElementById('schTitle').value = '';
+                    document.getElementById('schUser').value = '';
+                    
+                    // Switch back to chat to see the message
+                    switchMainTab('chat_view', document.querySelectorAll('.nav-icon')[0]);
+                    loadConversation(data.id);
+                });
+            }
+        });
+    }
 
     // --- Responsive Layout Logic ---
     function setupLayoutObserver() {
@@ -618,15 +1082,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             let html = '';
             data.forEach(c => {
                 let active = (c.conversation_id == activeConvId) ? 'active' : '';
-                let unread = c.unread > 0 ? `<span style="background:#22c55e; color:white; font-size:0.7rem; font-weight:bold; padding:2px 6px; border-radius:10px;">${c.unread}</span>` : '';
+                let unread = c.unread > 0 ? `<span style="background:var(--primary); color:white; font-size:0.7rem; font-weight:bold; padding:2px 6px; border-radius:10px;">${c.unread}</span>` : '';
                 let msgText = c.last_msg || '';
                 
                 html += `<div class="chat-item ${active}" onclick="loadConversation(${c.conversation_id})">
-                            <img src="${c.avatar}" class="avatar" loading="lazy">
+                            <div style="position:relative;">
+                                <img src="${c.avatar}" class="avatar" style="margin:0 12px 0 0;" loading="lazy">
+                                <span style="position:absolute; bottom:2px; right:10px; width:12px; height:12px; border:2px solid ${active ? 'white' : 'var(--bg-light)'}; border-radius:50%; background-color:#22c55e;"></span>
+                            </div>
                             <div style="flex:1; min-width:0;">
-                                <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                                    <div style="font-weight:600; color:var(--text-dark); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div>
-                                    <div style="font-size:0.7rem; color:var(--text-muted);">${c.time}</div>
+                                <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+                                    <div style="font-weight:400; color:var(--text-dark); font-size:0.95rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name}</div>
+                                    <div style="font-size:0.75rem; color:var(--text-muted);">${c.time}</div>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:80%; font-size:0.85rem; color:var(--text-muted); ${msgText.includes('🚫') ? 'font-style:italic;' : ''}">${msgText}</span>
@@ -642,28 +1109,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     function loadConversation(convId) {
-        if(activeConvId === convId) return; // Don't reload if already active
+        if(activeConvId === convId) return; 
         
         activeConvId = convId;
         editingMsgId = null;
-        lastFetchedMsgId = 0; // Reset delta fetch
+        lastFetchedMsgId = 0; 
         isUserScrolling = false;
         toggleMobileSidebar();
 
-        document.getElementById('chatArea').innerHTML = `
+        document.getElementById('chatAreaEmpty').style.display = 'none';
+        const activeArea = document.getElementById('chatAreaActive');
+        activeArea.style.display = 'flex';
+
+        activeArea.innerHTML = `
             <div class="chat-header" id="chatHeader">
-                <div style="display:flex; align-items:center; gap:15px;">
-                    <button id="mobileBackBtn" class="btn-icon" onclick="backToList()"><i class="ri-arrow-left-line"></i></button>
-                    <img src="" id="headerAvatar" class="avatar" style="width:42px;height:42px;margin:0;border:none;">
-                    <div style="display:flex; flex-direction:column;">
-                        <h3 id="headerName" style="font-size:1.05rem; color:var(--text-dark); margin:0; line-height:1.2;">Loading...</h3>
-                        <span id="typingIndicator" style="font-size:0.75rem; color:var(--primary); height:14px; font-style:italic;"></span>
+                <div style="display:flex; align-items:center;">
+                    <button id="mobileBackBtn" class="btn-icon" style="margin-right:8px;" onclick="backToList()"><i class="ri-arrow-left-line"></i></button>
+                    <div style="position:relative;">
+                         <img src="" id="headerAvatar" class="avatar" style="width:36px;height:36px;margin:0;border:none;">
+                         <span style="position:absolute; bottom:0; right:-2px; width:12px; height:12px; border:2px solid white; border-radius:50%; background-color:#22c55e;"></span>
                     </div>
+                    
+                    <h3 id="headerName" style="font-size:1.05rem; color:var(--text-dark); margin:0 0 0 12px; line-height:1.2; font-weight:600;">Loading...</h3>
+                    
+                    <div class="header-nav">
+                        <div class="header-nav-item active" onclick="switchInnerTab('chat')">Chat</div>
+                        <div class="header-nav-item" onclick="switchInnerTab('files')">Files</div>
+                        <div class="header-nav-item" onclick="switchInnerTab('photos')">Photos</div>
+                    </div>
+                    
+                    <span id="typingIndicator" style="font-size:0.8rem; color:var(--primary); height:14px; font-style:italic; margin-left: 15px;"></span>
                 </div>
+                
                 <div class="header-actions">
-                    <button class="btn-icon" onclick="startCall('audio')" title="Voice Call"><i class="ri-phone-line"></i></button>
                     <button class="btn-icon" onclick="startCall('video')" title="Video Call"><i class="ri-vidicon-line"></i></button>
-                    <button class="btn-icon" onclick="toggleHeaderMenu(event)"><i class="ri-more-2-fill"></i></button>
+                    <button class="btn-icon" onclick="startCall('audio')" title="Voice Call"><i class="ri-phone-line"></i></button>
+                    <button class="btn-icon" title="Add People"><i class="ri-user-add-line"></i></button>
+                    <button class="btn-icon" onclick="toggleHeaderMenu(event)"><i class="ri-more-fill"></i></button>
                     <div id="chatOptionsDropdown">
                         <button onclick="clearDeleteChat('clear')"><i class="ri-eraser-line"></i> Clear Chat</button>
                         <button onclick="clearDeleteChat('delete')"><i class="ri-delete-bin-line"></i> Delete Chat</button>
@@ -671,30 +1153,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
             </div>
             
-            <div class="messages-box" id="msgBox" onscroll="handleScroll()"></div>
-            
-            <div id="editModeBar">
-                <div style="display:flex; align-items:center; gap:8px;"><i class="ri-edit-2-fill"></i> <span>Editing message</span></div>
-                <i class="ri-close-line" style="cursor:pointer; font-size:1.2rem;" onclick="cancelEdit()"></i>
-            </div>
-            
-            <div class="input-area">
-                <label for="fileUpload" style="cursor:pointer;"><i class="ri-attachment-2 text-xl text-gray-500 hover:text-gray-700 transition"></i></label>
-                <input type="file" id="fileUpload" hidden onchange="handleFileUpload(this)">
-                <input type="text" id="msgInput" placeholder="Type a message..." onkeypress="if(event.key === 'Enter') submitMessage()">
-                <button class="btn-send" onclick="submitMessage()"><i class="ri-send-plane-fill"></i></button>
-            </div>
-            
-            <div id="videoOverlay">
-                <div class="video-overlay-header">
-                    <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px;">
-                        <i class="ri-record-circle-fill" style="color:#ef4444; font-size:0.9rem; animation: pulse 1s infinite;"></i> <span id="callTypeLabel">Live Meeting</span>
-                    </h3>
-                    <button onclick="closeCall()" style="background:#ef4444; border:none; color:white; padding:8px 16px; border-radius:6px; cursor:pointer; font-weight:600; display:flex; align-items:center; gap:6px;">
-                        <i class="ri-phone-x-line"></i> End
-                    </button>
+            <div id="chatMessagesContainer" style="display:flex; flex-direction:column; flex:1; height:100%; overflow:hidden;">
+                <div class="messages-box" id="msgBox" onscroll="handleScroll()"></div>
+                
+                <div id="editModeBar">
+                    <div style="display:flex; align-items:center; gap:8px;"><i class="ri-edit-2-fill"></i> <span>Editing message</span></div>
+                    <i class="ri-close-line" style="cursor:pointer; font-size:1.2rem;" onclick="cancelEdit()"></i>
                 </div>
-                <div id="jitsiContainer" style="flex:1;"></div>
+                
+                <div class="input-area">
+                    <div class="input-wrapper">
+                        <input type="file" id="fileUpload" hidden onchange="handleFileUpload(this)">
+                        <input type="text" id="msgInput" placeholder="Type a new message" onkeypress="if(event.key === 'Enter') submitMessage()">
+                        <div class="input-tools">
+                            <button class="btn-tool" title="Format"><i class="ri-format-clear"></i></button>
+                            <label for="fileUpload" class="btn-tool" title="Attach file"><i class="ri-attachment-2"></i></label>
+                            <button class="btn-tool" title="Emoji"><i class="ri-emotion-line"></i></button>
+                            <button class="btn-tool btn-send" onclick="submitMessage()" title="Send"><i class="ri-send-plane-2-fill"></i></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="chatFilesContainer" style="display:none; flex-direction:column; flex:1; height:100%; align-items:center; justify-content:center; text-align:center; background:white;">
+                <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #e3e5fa, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
+                    <i class="ri-folder-upload-fill" style="font-size: 5rem; color: var(--primary);"></i>
+                </div>
+                <h3 style="font-size: 1.25rem; color: var(--text-dark); margin-bottom: 8px; font-weight: 700;">Share files in this chat</h3>
+                <p style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 25px;">When you upload files to this files tab, they will show up in chat.</p>
+                <button onclick="document.getElementById('fileUpload').click()" style="background:var(--primary); color:white; border:none; padding:10px 24px; border-radius:6px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:8px; font-size:0.95rem;">
+                    <i class="ri-upload-2-line"></i> Upload
+                </button>
+            </div>
+            
+            <div id="chatPhotosContainer" style="display:none; flex-direction:column; flex:1; height:100%; background:white; overflow-y:auto; padding:30px;">
+                <div id="photosEmptyState" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
+                    <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #e3e5fa, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
+                        <i class="ri-image-2-fill" style="font-size: 5rem; color: #3b82f6;"></i>
+                    </div>
+                    <h3 style="font-size: 1.25rem; color: var(--text-dark); margin-bottom: 8px; font-weight: 700;">No photos shared in the chat</h3>
+                    <p style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 25px;">Photos added to chat automatically show up here.</p>
+                </div>
+                <div id="photosGrid" style="display:none; width:100%; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; align-content: start;"></div>
             </div>
         `;
 
@@ -711,9 +1211,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fetchMessages(true); 
     }
 
+    // Inner Tab Switching (Chat/Files/Photos)
+    function switchInnerTab(tabName) {
+        const navItems = document.querySelectorAll('.header-nav-item');
+        navItems.forEach(item => item.classList.remove('active'));
+        
+        document.getElementById('chatMessagesContainer').style.display = 'none';
+        document.getElementById('chatFilesContainer').style.display = 'none';
+        document.getElementById('chatPhotosContainer').style.display = 'none';
+        
+        if (tabName === 'chat') {
+            navItems[0].classList.add('active');
+            document.getElementById('chatMessagesContainer').style.display = 'flex';
+            let box = document.getElementById('msgBox');
+            box.scrollTo({ top: box.scrollHeight });
+        } else if (tabName === 'files') {
+            navItems[1].classList.add('active');
+            document.getElementById('chatFilesContainer').style.display = 'flex';
+        } else if (tabName === 'photos') {
+            navItems[2].classList.add('active');
+            document.getElementById('chatPhotosContainer').style.display = 'flex';
+        }
+    }
+
+    function addPhotoToGallery(path, id) {
+        let emptyState = document.getElementById('photosEmptyState');
+        let grid = document.getElementById('photosGrid');
+        
+        if(emptyState) emptyState.style.display = 'none';
+        if(grid) {
+            grid.style.display = 'grid';
+            if(!document.getElementById('gallery-img-'+id)) {
+                grid.insertAdjacentHTML('beforeend', `<div id="gallery-img-${id}" style="aspect-ratio: 1; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 2px 5px rgba(0,0,0,0.05);"><img src="${path}" style="width: 100%; height: 100%; object-fit: cover; cursor: pointer; transition: transform 0.3s ease;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'" onclick="window.open('${path}', '_blank')"></div>`);
+            }
+        }
+    }
+
     function backToList() {
         activeConvId = null;
         toggleMobileSidebar();
+        document.getElementById('chatAreaEmpty').style.display = 'flex';
+        document.getElementById('chatAreaActive').style.display = 'none';
     }
 
     function handleScroll() {
@@ -741,7 +1279,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         let menuHtml = '';
         if (m.is_me && !isDeleted && m.message_type === 'text') {
             menuHtml = `
-                <button class="msg-menu-btn" onclick="toggleMsgMenu(event, ${m.id})"><i class="ri-arrow-down-s-line"></i></button>
+                <button class="msg-menu-btn" onclick="toggleMsgMenu(event, ${m.id})"><i class="ri-more-fill"></i></button>
                 <div class="msg-dropdown" id="msg-drop-${m.id}">
                     <button onclick="initEdit(${m.id}, '${escapeHTML(m.message)}')"><i class="ri-pencil-line mr-2"></i> Edit</button>
                     <button onclick="deleteMessage(${m.id})" class="delete-btn"><i class="ri-delete-bin-line mr-2"></i> Delete</button>
@@ -757,19 +1295,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             let callType = raw.startsWith('audio:') ? 'audio' : 'video';
             let meetId = raw.replace(/^(audio|video):/i, '');
             let label = callType === 'audio' ? 'Voice Call' : 'Video Meeting';
+            
             innerMsg = `<div class="msg ${cls}" id="msg-content-${m.id}" style="text-align:center;">
-                            <div style="background:rgba(0,0,0,0.05); padding:10px; border-radius:8px; margin-bottom:8px;">
+                            <div style="background:rgba(0,0,0,0.05); padding:10px; border-radius:4px; margin-bottom:8px;">
                                 <i class="${callType==='audio'?'ri-phone-fill':'ri-vidicon-fill'}" style="font-size:1.5rem; color:var(--primary);"></i>
                                 <br><strong style="font-size:0.9rem;">${label}</strong>
                             </div>
-                            <button onclick="openEmbeddedMeeting('${meetId}','${callType}')" style="background:var(--primary); color:white; border:none; padding:6px 16px; border-radius:15px; cursor:pointer; font-size:0.8rem; width:100%;">Join</button>
+                            <button onclick="openEmbeddedMeeting('${meetId}','${callType}')" style="background:var(--primary); color:white; border:none; padding:6px 16px; border-radius:4px; cursor:pointer; font-size:0.8rem; width:100%;">Join</button>
                             ${metaHtml}
                         </div>`;
         } else {
-            if(m.message_type === 'image') content = `<img src="${m.attachment_path}" style="max-width:100%; border-radius:8px; margin-bottom:5px;">`;
-            else if(m.message_type === 'file') content = `<a href="${m.attachment_path}" target="_blank" style="display:flex; align-items:center; gap:8px; color:inherit; text-decoration:none; background:rgba(0,0,0,0.05); padding:8px; border-radius:6px;"><i class="ri-file-text-fill text-xl"></i> <span>Download File</span></a>`;
+            if(m.message_type === 'image') content = `<img src="${m.attachment_path}" style="max-width:100%; border-radius:4px; margin-bottom:5px;">`;
+            else if(m.message_type === 'file') content = `<a href="${m.attachment_path}" target="_blank" style="display:flex; align-items:center; gap:8px; color:inherit; text-decoration:none; background:rgba(0,0,0,0.05); padding:8px; border-radius:4px;"><i class="ri-file-text-fill text-xl"></i> <span>Download File</span></a>`;
+            else if(m.message.includes('video:')) {
+                // Handling scheduled meetings in chat text
+                let meetParts = m.message.split('video:');
+                let plainText = meetParts[0];
+                let meetId = meetParts[1];
+                content = `${plainText}<button onclick="openEmbeddedMeeting('${meetId}','video')" style="margin-top:10px; background:var(--primary); color:white; border:none; padding:6px 16px; border-radius:4px; cursor:pointer; font-size:0.8rem; width:100%;">Join Meeting</button>`;
+            }
             
-            let senderName = (!m.is_me && m.display_name) ? `<div style="font-size:0.7rem;color:#0d9488;margin-bottom:4px;font-weight:600;">${m.display_name}</div>` : '';
+            let senderName = (!m.is_me && m.display_name) ? `<div style="font-size:0.75rem;color:var(--text-dark);margin-bottom:4px;font-weight:600;">${m.display_name}</div>` : '';
             innerMsg = `<div class="msg ${cls}" id="msg-content-${m.id}">${senderName}<span id="msg-text-${m.id}">${content}</span>${metaHtml}${menuHtml}</div>`;
         }
 
@@ -815,6 +1361,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         existingMsg.outerHTML = buildMessageHTML(m);
                     } else {
                         box.insertAdjacentHTML('beforeend', buildMessageHTML(m));
+                    }
+                    
+                    // IF IMAGE, POPULATE PHOTOS TAB
+                    if (m.message_type === 'image' && !m.is_deleted) {
+                        addPhotoToGallery(m.attachment_path, m.id);
                     }
                 });
                 
@@ -898,6 +1449,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 fetch(window.location.href, { method: 'POST', body: fd }).then(() => {
                     lastFetchedMsgId = 0; 
                     document.getElementById('msgBox').innerHTML = '';
+                    
+                    let grid = document.getElementById('photosGrid');
+                    if(grid) grid.innerHTML = '';
+                    let emptyState = document.getElementById('photosEmptyState');
+                    if(emptyState) emptyState.style.display = 'flex';
+
                     fetchMessages(false);
                 });
             }
@@ -922,7 +1479,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 fd.append('conversation_id', activeConvId);
                 fetch(window.location.href, { method: 'POST', body: fd }).then(() => {
                     activeConvId = null;
-                    document.getElementById('chatArea').innerHTML = '<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:var(--text-muted);"><div style="width: 100px; height: 100px; background: #e2e8f0; border-radius: 50%; display:flex; align-items:center; justify-content:center; margin-bottom: 20px;"><i class="ri-delete-bin-fill" style="font-size:3rem; color: #94a3b8;"></i></div><h3 style="font-size: 1.5rem; color: var(--text-dark);">Chat Removed</h3></div>';
+                    document.getElementById('chatAreaEmpty').style.display = 'flex';
+                    document.getElementById('chatAreaActive').style.display = 'none';
                     loadSidebar();
                 });
             }
@@ -937,8 +1495,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fd.append('file', input.files[0]);
         
         let box = document.getElementById('msgBox');
-        box.insertAdjacentHTML('beforeend', `<div class="msg-wrapper outgoing"><div class="msg outgoing" style="opacity:0.7;">Uploading file...</div></div>`);
-        box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+        if (box) {
+            box.insertAdjacentHTML('beforeend', `<div class="msg-wrapper outgoing"><div class="msg outgoing" style="opacity:0.7;">Uploading file...</div></div>`);
+            box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' });
+        }
+        
+        switchInnerTab('chat');
 
         fetch(window.location.href, { method: 'POST', body: fd }).then(() => {
             input.value = '';
@@ -947,25 +1509,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         });
     }
 
-    // --- FIX: OPTIMIZED POLLING ---
-    // Combined 3 separate intervals into 1 single, slower loop to stop Max Connections limit.
     function startSmartPolling() {
         if(masterPollInterval) clearInterval(masterPollInterval);
 
         masterPollInterval = setInterval(() => {
             if (!document.hidden) {
-                // Check Incoming Calls
                 checkIncomingCalls();
-                
-                // Load Sidebar
                 loadSidebar();
-                
-                // Load Messages if chat is open
                 if (activeConvId) {
                     fetchMessages(false);
                 }
             }
-        }, 8000); // 8 seconds is safe for Shared Hosting (450 connections/hour max)
+        }, 8000); 
     }
 
     function checkIncomingCalls() {
@@ -998,13 +1553,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fetch(window.location.href, { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             let html = '';
             data.forEach(u => {
-                let isSel = selectedMembers.has(u.id) ? 'background:#f0fdfa;' : '';
-                let icon = selectedMembers.has(u.id) ? '<i class="ri-checkbox-circle-fill text-green-500"></i>' : '<i class="ri-checkbox-blank-circle-line text-gray-300"></i>';
-                let safeName = u.display_name.replace(/'/g, "\\'");
-                html += `<div onclick="toggleMember(${u.id}, this)" style="padding:10px 15px; display:flex; align-items:center; gap:12px; cursor:pointer; border-bottom:1px solid #f1f5f9; transition:0.2s; ${isSel}">
+                let isSel = selectedMembers.has(u.id) ? 'background:var(--hover-bg);' : '';
+                let icon = selectedMembers.has(u.id) ? '<i class="ri-checkbox-circle-fill text-primary"></i>' : '<i class="ri-checkbox-blank-circle-line text-gray-300"></i>';
+                html += `<div onclick="toggleMember(${u.id}, this)" style="padding:10px 15px; display:flex; align-items:center; gap:12px; cursor:pointer; border-bottom:1px solid var(--border); transition:0.2s; ${isSel}">
                             ${icon}
                             <img src="${u.profile_img}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-                            <div style="font-weight:600; font-size:0.9rem;">${u.display_name}</div>
+                            <div style="font-weight:600; font-size:0.9rem;">${escapeHTML(u.display_name)}</div>
                         </div>`;
             });
             document.getElementById('groupUserList').innerHTML = html || '<div style="padding:15px;text-align:center;color:#888;">No users found</div>';
@@ -1018,8 +1572,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             el.querySelector('i').className = 'ri-checkbox-blank-circle-line text-gray-300';
         } else {
             selectedMembers.add(uid);
-            el.style.background = '#f0fdfa';
-            el.querySelector('i').className = 'ri-checkbox-circle-fill text-green-500';
+            el.style.background = 'var(--hover-bg)';
+            el.querySelector('i').className = 'ri-checkbox-circle-fill text-primary';
+            el.querySelector('i').style.color = 'var(--primary)';
         }
     }
 
@@ -1056,7 +1611,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             fetch(window.location.href, { method: 'POST', body: fd })
             .then(r => r.json())
             .then(data => {
-                let html = data.map(u => `<div class="search-item" onclick="startChat(${u.id});"><img src="${u.profile_img}" style="width:35px;height:35px;border-radius:50%;object-fit:cover;"><div><div style="font-weight:600; font-size:0.9rem;">${u.display_name}</div><div style="font-size:0.75rem;color:var(--text-muted);">${u.role}</div></div></div>`).join('');
+                let html = data.map(u => `<div class="search-item" onclick="startChat(${u.id});"><img src="${u.profile_img}" style="width:35px;height:35px;border-radius:50%;object-fit:cover;"><div><div style="font-weight:600; font-size:0.9rem;">${escapeHTML(u.display_name)}</div><div style="font-size:0.75rem;color:var(--text-muted);">${escapeHTML(u.role)}</div></div></div>`).join('');
                 results.innerHTML = html || '<div style="padding:15px;text-align:center;color:#888;">No users found</div>';
             });
         }, 300);

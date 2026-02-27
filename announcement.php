@@ -26,6 +26,15 @@ function uploadFile($fileInput, $targetDir, $allowedTypes) {
     }
     return null;
 }
+// User oda role HR-a illana Manager-a nu check panni target set panrom
+if ($_SESSION['role'] == 'HR') {
+    $target_audience = 'All Employees';
+} else if ($_SESSION['role'] == 'Manager') {
+    // Manager oda department-a target-a set panrom
+    $target_audience = $_SESSION['department']; 
+} else {
+    $target_audience = 'All'; // Default
+}
 
 // --- HANDLE FORM SUBMISSION ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -233,24 +242,21 @@ if (in_array($logged_in_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
                         <div>
                             <label class="block text-xs font-bold uppercase mb-1">Target Audience</label>
                             <select name="target_audience" id="inpAudience" class="w-full border rounded-lg p-2.5 text-sm focus:border-teal-500">
-                                <?php if(in_array($logged_in_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])): ?>
-                                    <option value="All">All Employees</option>
-                                    <option value="HR">HR Team</option>
-                                    <option value="Manager">Managers</option>
-                                    <option value="Team Lead">Team Leads</option>
-                                    <option value="Employee">Employees</option>
-                                    <option value="Accounts">Accounts Team</option>
-                                    <option value="IT Admin">IT Admins</option>
-                                    <option value="IT Executive">IT Executives</option>
-                                    <option value="CFO">CFO Office</option>
-                                <?php elseif($logged_in_role == 'Manager'): ?>
-                                    <option value="Team Lead">Team Leads</option>
-                                    <option value="Employee">My Team (Employees)</option>
-                                <?php elseif($logged_in_role == 'Team Lead'): ?>
-                                    <option value="Employee">My Team (Employees)</option>
-                                <?php else: ?>
-                                    <option value="All">General</option>
-                                <?php endif; ?>
+                                <option value="All Employees">All Employees</option>
+                                <option value="System Admin">System Admin</option>
+                                <option value="HR">HR</option>
+                                <option value="HR Executive">HR Executive</option>
+                                <option value="Manager">Manager</option>
+                                <option value="Team Lead">Team Lead</option>
+                                <option value="Employee">Employee</option>
+                                <option value="Accounts">Accounts</option>
+                                <option value="Sales Manager">Sales Manager</option>
+                                <option value="Sales Executive">Sales Executive</option>
+                                <option value="IT Admin">IT Admin</option>
+                                <option value="IT Executive">IT Executive</option>
+                                <option value="CFO">CFO</option>
+                                <option value="CEO">CEO</option>
+
                             </select>
                         </div>
                         <div>
