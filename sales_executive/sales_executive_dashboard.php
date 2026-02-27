@@ -1,30 +1,232 @@
 <?php
 ob_start(); // Prevents "Cannot modify header information" errors
+
+// Include your DB connection FIRST so other files can use it
+include '../include/db_connect.php'; 
+
 include '../sidebars.php'; 
 include '../header.php';
 
-// Mock Data - In a real app, this would come from your database
+// Assume Logged in user ID (Using ID 36 from DB -> Prem Karthick, Sales Executive)
+$logged_in_user_id = 36;
+
+// 1. Fetch KPIs
+$total_leads = 0; $new_leads = 0; $lost_leads = 0; $total_customers = 0;
+
+if ($conn) {
+    $res = mysqli_query($conn, "SELECT COUNT(*) as count FROM crm_clients");
+    if($res) $total_leads = mysqli_fetch_assoc($res)['count'] ?? 0;
+
+    $res = mysqli_query($conn, "SELECT COUNT(*) as count FROM crm_clients WHERE status = 'New'");
+    if($res) $new_leads = mysqli_fetch_assoc($res)['count'] ?? 0;
+
+    $res = mysqli_query($conn, "SELECT COUNT(*) as count FROM crm_clients WHERE status = 'Lost'");
+    if($res) $lost_leads = mysqli_fetch_assoc($res)['count'] ?? 0;
+
+    $res = mysqli_query($conn, "SELECT COUNT(*) as count FROM clients");
+    if($res) $total_customers = mysqli_fetch_assoc($res)['count'] ?? 0;
+}
+
 $kpis = [
-    ['icon' => 'Δ', 'title' => 'Total No of Leads', 'value' => '6000', 'trend' => '-4.01%', 'trend_up' => false, 'color' => 'bg-orange-500'],
-    ['icon' => '¤', 'title' => 'No of New Leads', 'value' => '120', 'trend' => '+20.01%', 'trend_up' => true, 'color' => 'bg-teal-700'],
-    ['icon' => '📈', 'title' => 'No of Lost Leads', 'value' => '30', 'trend' => '+55%', 'trend_up' => true, 'color' => 'bg-red-500'],
-    ['icon' => '👥', 'title' => 'No of Total Customers', 'value' => '9895', 'trend' => '+55%', 'trend_up' => true, 'color' => 'bg-purple-500']
+    ['icon' => 'Δ', 'title' => 'Total No of Leads', 'value' => $total_leads, 'trend' => 'Calculated', 'trend_up' => true, 'color' => 'bg-orange-500'],
+    ['icon' => '¤', 'title' => 'No of New Leads', 'value' => $new_leads, 'trend' => 'Calculated', 'trend_up' => true, 'color' => 'bg-teal-700'],
+    ['icon' => '📈', 'title' => 'No of Lost Leads', 'value' => $lost_leads, 'trend' => 'Calculated', 'trend_up' => false, 'color' => 'bg-red-500'],
+    ['icon' => '👥', 'title' => 'No of Total Customers', 'value' => $total_customers, 'trend' => 'Calculated', 'trend_up' => true, 'color' => 'bg-purple-500']
 ];
 
-$recent_leads = [
-    ['company' => 'BrightWave', 'stage' => 'Contacted', 'stage_color' => 'bg-teal-700', 'date' => '14 Jan 2024', 'owner' => 'William Parsons'],
-    ['company' => 'Stellar', 'stage' => 'Closed', 'stage_color' => 'bg-green-500', 'date' => '21 Jan 2024', 'owner' => 'Lucille Tomberlin'],
-    ['company' => 'Quantum', 'stage' => 'Lost', 'stage_color' => 'bg-red-500', 'date' => '20 Feb 2024', 'owner' => 'Frederick Johnson'],
-    ['company' => 'EcoVision', 'stage' => 'Not Contacted', 'stage_color' => 'bg-purple-500', 'date' => '15 Mar 2024', 'owner' => 'Sarah Henry'],
-];
+// 2. Fetch Recent Leads
+$recent_leads = [];
+if ($conn) {
+    $stmt = mysqli_query($conn, "SELECT name as company, status as stage, created_at, executive as owner FROM crm_clients ORDER BY created_at DESC LIMIT 4");
+    if ($stmt) {
+        while ($row = mysqli_fetch_assoc($stmt)) {
+            $stage_color = 'bg-gray-500';
+            if (strtolower($row['stage']) == 'new') $stage_color = 'bg-teal-700';
+            elseif (strtolower($row['stage']) == 'closed') $stage_color = 'bg-green-500';
+            elseif (strtolower($row['stage']) == 'lost') $stage_color = 'bg-red-500';
+            else $stage_color = 'bg-purple-500';
 
-$company_leads = [
-    ['name' => 'Pitch', 'value' => '$45,985', 'status' => 'Not Contacted', 'color' => 'bg-purple-500', 'icon' => 'bg-black'],
-    ['name' => 'Initech', 'value' => '$21,145', 'status' => 'Closed', 'color' => 'bg-green-500', 'icon' => 'bg-purple-600'],
-    ['name' => 'Umbrella Corp', 'value' => '$15,685', 'status' => 'Contacted', 'color' => 'bg-teal-800', 'icon' => 'bg-blue-400'],
-    ['name' => 'Capital Partners', 'value' => '$12,105', 'status' => 'Contacted', 'color' => 'bg-teal-800', 'icon' => 'bg-orange-500'],
-    ['name' => 'Massive Dynamic', 'value' => '$2,546', 'status' => 'Lost', 'color' => 'bg-red-500', 'icon' => 'bg-gray-800'],
+            $recent_leads[] = [
+                'company' => $row['company'],
+                'stage' => $row['stage'],
+                'stage_color' => $stage_color,
+                'date' => date('d M Y', strtotime($row['created_at'])),
+                'owner' => $row['owner']
+            ];
+        }
+    }
+}
+
+// 3. Fetch Company Leads (Top Values)
+$company_leads = [];
+$icons = ['bg-black', 'bg-purple-600', 'bg-teal-800', 'bg-orange-500', 'bg-gray-800'];
+if ($conn) {
+    $stmt = mysqli_query($conn, "SELECT name, deal_value as value, status FROM crm_clients ORDER BY deal_value DESC LIMIT 5");
+    $i = 0;
+    if ($stmt) {
+        while ($row = mysqli_fetch_assoc($stmt)) {
+            $status_ui = ($row['status'] == 'New') ? 'Not Contacted' : $row['status'];
+            $company_leads[] = [
+                'name' => $row['name'],
+                'value' => '₹' . number_format((float)$row['value'], 0),
+                'status' => $status_ui, 
+                'icon' => $icons[$i % count($icons)]
+            ];
+            $i++;
+        }
+    }
+}
+
+// 4. Fetch User Profile
+$profile = [
+    'full_name' => 'Admin User', 'designation' => 'Executive', 
+    'phone' => 'N/A', 'email' => 'N/A', 'joining_date' => date('Y-m-d')
 ];
+if ($conn) {
+    $prof_query = "SELECT full_name, designation, phone, email, joining_date FROM employee_profiles WHERE user_id = ?";
+    if ($stmt = mysqli_prepare($conn, $prof_query)) {
+        mysqli_stmt_bind_param($stmt, "i", $logged_in_user_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        if ($fetched_profile = mysqli_fetch_assoc($result)) {
+            $profile = $fetched_profile;
+        }
+        mysqli_stmt_close($stmt);
+    }
+}
+
+// 5. Fetch Notifications
+$notifications = [];
+if ($conn) {
+    $notif_query = "SELECT title, message, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 4";
+    if ($stmt = mysqli_prepare($conn, $notif_query)) {
+        mysqli_stmt_bind_param($stmt, "i", $logged_in_user_id);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        while($row = mysqli_fetch_assoc($result)) {
+            $notifications[] = $row;
+        }
+        mysqli_stmt_close($stmt);
+    }
+}
+
+// --- DYNAMIC DATA FOR NEW CHARTS & SECTIONS ---
+
+// Lost Leads Chart Data
+$lost_leads_labels = [];
+$lost_leads_data = [];
+if ($conn) {
+    $stmt = mysqli_query($conn, "SELECT source, COUNT(*) as count FROM crm_clients WHERE status = 'Lost' GROUP BY source");
+    if ($stmt && mysqli_num_rows($stmt) > 0) {
+        while ($row = mysqli_fetch_assoc($stmt)) {
+            $lost_leads_labels[] = !empty($row['source']) ? $row['source'] : 'Unknown';
+            $lost_leads_data[] = (int)$row['count'];
+        }
+    } else {
+        $lost_leads_labels = ['Competitor', 'Budget', 'Unresponsive', 'Timing'];
+        $lost_leads_data = [0, 0, 0, 0];
+    }
+}
+$lost_leads_labels_json = json_encode($lost_leads_labels);
+$lost_leads_data_json = json_encode($lost_leads_data);
+// Dynamically size the background gray bars to match array length
+$lost_leads_bg_colors = json_encode(array_fill(0, max(1, count($lost_leads_labels)), '#F3F4F6'));
+
+
+// New Leads By Day Data
+$leads_by_day = [
+    'Monday' => [], 'Tuesday' => [], 'Wednesday' => [], 
+    'Thursday' => [], 'Friday' => [], 'Saturday' => [], 'Sunday' => []
+];
+if ($conn) {
+    $stmt = mysqli_query($conn, "SELECT name, created_at, executive, deal_value, status FROM crm_clients WHERE status = 'New'");
+    if ($stmt) {
+        while ($row = mysqli_fetch_assoc($stmt)) {
+            $dayName = date('l', strtotime($row['created_at']));
+            if(array_key_exists($dayName, $leads_by_day)) {
+                $leads_by_day[$dayName][] = [
+                    'name' => $row['name'],
+                    'owner' => !empty($row['executive']) ? $row['executive'] : 'Unknown',
+                    'value' => !empty($row['deal_value']) ? $row['deal_value'] : '0',
+                    'status' => !empty($row['status']) ? $row['status'] : 'New'
+                ];
+            }
+        }
+    }
+}
+$mock_leads_json = json_encode($leads_by_day);
+
+// Recent Follow Ups Data (Colleagues/Clients)
+$recent_followups = [];
+if ($conn) {
+    // Modified to fetch actual email & phone to make actions functional, and ordered to get recent colleagues
+    $stmt = mysqli_query($conn, "SELECT full_name, designation, phone, email FROM employee_profiles WHERE user_id != $logged_in_user_id ORDER BY id DESC LIMIT 5");
+    if ($stmt) {
+        while ($row = mysqli_fetch_assoc($stmt)) {
+            $recent_followups[] = $row;
+        }
+    }
+}
+
+// Recent Activities Data
+$recent_activities = [];
+if ($conn) {
+    $stmt = mysqli_query($conn, "SELECT title, description, created_at FROM sales_tasks ORDER BY created_at DESC LIMIT 4");
+    if ($stmt) {
+        while($row = mysqli_fetch_assoc($stmt)) {
+            $recent_activities[] = $row;
+        }
+    }
+}
+
+// --- DYNAMIC PIPELINE CHART DATA (MONTHLY TARGETS) ---
+$current_year = date('Y');
+$monthly_pipeline = [
+    'Contacted' => array_fill(0, 12, 0),
+    'Opportunity' => array_fill(0, 12, 0),
+    'Not Contacted' => array_fill(0, 12, 0)
+];
+$total_contacted = 0;
+$total_opportunity = 0;
+$total_not_contacted = 0;
+
+if ($conn) {
+    $stmt = mysqli_query($conn, "
+        SELECT 
+            MONTH(created_at) as month_num,
+            status,
+            SUM(deal_value) as total_val
+        FROM crm_clients 
+        WHERE YEAR(created_at) = '$current_year'
+        GROUP BY MONTH(created_at), status
+    ");
+    
+    if ($stmt) {
+        while ($row = mysqli_fetch_assoc($stmt)) {
+            $month_idx = (int)$row['month_num'] - 1; // 0 for Jan, 11 for Dec
+            $val = (float)$row['total_val'];
+            $status = strtolower($row['status']);
+
+            if (in_array($status, ['new', 'not contacted'])) {
+                $monthly_pipeline['Not Contacted'][$month_idx] += $val;
+                $total_not_contacted += $val;
+            } elseif (in_array($status, ['opportunity', 'closed', 'won'])) {
+                $monthly_pipeline['Opportunity'][$month_idx] += $val;
+                $total_opportunity += $val;
+            } else {
+                // Treats 'Contacted', 'Lost', etc. as Contacted group
+                $monthly_pipeline['Contacted'][$month_idx] += $val;
+                $total_contacted += $val;
+            }
+        }
+    }
+}
+
+$pipeline_series_json = json_encode([
+    ['name' => 'Contacted', 'data' => $monthly_pipeline['Contacted']],
+    ['name' => 'Opportunity', 'data' => $monthly_pipeline['Opportunity']],
+    ['name' => 'Not Contacted', 'data' => $monthly_pipeline['Not Contacted']]
+]);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -57,14 +259,14 @@ $company_leads = [
 </head>
 <body class="text-gray-800">
 
-    <div id="leadModal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-[9999] p-4">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
-            <div class="p-4 border-b flex justify-between items-center bg-gray-50">
-                <h3 class="font-bold text-lg" id="modalTitle">Leads</h3>
-                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+    <div id="leadModal" class="absolute hidden z-[9999] bg-white rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.3)] w-full max-w-sm overflow-hidden border border-gray-200">
+        <div class="p-4 border-b flex justify-between items-center bg-white">
+            <h3 class="font-bold text-lg text-[#1e293b]" id="modalTitle">Marketing Deals</h3>
+            <div class="flex items-center gap-3">
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
             </div>
-            <div class="p-4 max-h-[400px] overflow-y-auto" id="modalContent">
-                </div>
+        </div>
+        <div class="max-h-[300px] overflow-y-auto bg-white" id="modalContent">
         </div>
     </div>
 
@@ -76,8 +278,7 @@ $company_leads = [
                 <p class="text-sm text-gray-500">Dashboard > Sales Executive Dashboard</p>
             </div>
             <div class="flex gap-3">
-                <button class="px-4 py-2 bg-white border rounded shadow-sm text-sm">Export ⌄</button>
-                <button class="px-4 py-2 bg-white border rounded shadow-sm text-sm" id="dashboard-date"><?= date('m/d/Y') ?></button>
+               
             </div>
         </div>
 
@@ -90,7 +291,7 @@ $company_leads = [
                     </div>
                     <div>
                         <p class="text-sm text-gray-500"><?= $kpi['title'] ?></p>
-                        <p class="text-xl font-bold"><?= $kpi['value'] ?></p>
+                        <p class="text-xl font-bold"><?= htmlspecialchars($kpi['value']) ?></p>
                     </div>
                 </div>
                 <div class="text-sm border-t pt-2 mt-2">
@@ -108,13 +309,13 @@ $company_leads = [
             <div class="card p-8 flex flex-col items-center justify-center h-full relative" id="attendanceCardWrapper">
                 
                 <div id="stateInitial" class="flex flex-col items-center w-full h-full justify-center transition-all duration-300">
-                    <p class="text-sm text-gray-500 mb-1">Good Morning, admin</p>
+                    <p class="text-sm text-gray-500 mb-1">Good Morning, <?= htmlspecialchars(explode(' ', trim($profile['full_name']))[0]) ?></p>
                     <h2 id="live-clock" class="text-4xl font-extrabold text-[#1c2c42] mb-1 tracking-tight">--:-- --</h2>
                     <p id="live-date" class="text-sm text-gray-400 mb-6">-- --- ----</p>
 
                     <div class="w-24 h-24 rounded-full bg-gradient-to-r from-blue-500 to-green-500 p-[3px] mb-8">
                         <div class="w-full h-full rounded-full border-2 border-white bg-[#225a58] flex items-center justify-center text-3xl font-normal text-white">
-                            AD
+                            <?= strtoupper(substr($profile['full_name'], 0, 2)) ?>
                         </div>
                     </div>
 
@@ -170,7 +371,7 @@ $company_leads = [
             <div class="card p-7 flex flex-col h-full">
                 <div class="flex justify-between items-center mb-8">
                     <h3 class="font-bold text-[18px] text-[#031d38]">Leave Details</h3>
-                    <button class="px-3 py-1 bg-white border border-gray-100 rounded-md shadow-[0_1px_2px_rgba(0,0,0,0.03)] text-[13px] font-semibold text-gray-600">2026</button>
+                    <button class="px-3 py-1 bg-white border border-gray-100 rounded-md shadow-[0_1px_2px_rgba(0,0,0,0.03)] text-[13px] font-semibold text-gray-600"><?= date('Y') ?></button>
                 </div>
                 <div class="flex items-center justify-between flex-1">
                     <div class="flex flex-col gap-[22px]">
@@ -219,25 +420,25 @@ $company_leads = [
             <div class="card overflow-hidden flex flex-col h-full">
                 <div class="bg-teal-700 text-center p-6 text-white">
                     <div class="w-20 h-20 bg-teal-600 rounded-full mx-auto border-4 border-white flex items-center justify-center text-2xl font-bold relative">
-                        SP
+                        <?= strtoupper(substr($profile['full_name'], 0, 2)) ?>
                         <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 rounded-full border-2 border-white"></div>
                     </div>
-                    <h2 class="text-xl font-bold mt-3">Stephen Peralt</h2>
-                    <p class="text-sm text-teal-200">Senior Software Engineer</p>
+                    <h2 class="text-xl font-bold mt-3"><?= htmlspecialchars($profile['full_name']) ?></h2>
+                    <p class="text-sm text-teal-200"><?= htmlspecialchars($profile['designation']) ?></p>
                     <button class="mt-3 px-4 py-1 bg-teal-600/50 rounded-full text-xs font-semibold">Verified Account</button>
                 </div>
                 <div class="p-5 flex-1">
                     <div class="flex gap-3 mb-4 items-center">
                         <div class="p-2 bg-gray-100 rounded text-teal-700">📞</div>
-                        <div><p class="text-xs text-gray-400">PHONE</p><p class="text-sm font-bold">+1 234 567 890</p></div>
+                        <div><p class="text-xs text-gray-400">PHONE</p><p class="text-sm font-bold"><?= htmlspecialchars($profile['phone']) ?></p></div>
                     </div>
                     <div class="flex gap-3 mb-4 items-center border-b pb-4">
                         <div class="p-2 bg-gray-100 rounded text-teal-700">✉️</div>
-                        <div><p class="text-xs text-gray-400">EMAIL</p><p class="text-sm font-bold">employee@gmail.com</p></div>
+                        <div><p class="text-xs text-gray-400">EMAIL</p><p class="text-sm font-bold"><?= htmlspecialchars($profile['email']) ?></p></div>
                     </div>
                     <div class="bg-green-50 p-3 rounded flex justify-between items-center text-sm font-bold text-green-900">
                         <span>📅 Joined</span>
-                        <span>15 Jan 2024</span>
+                        <span><?= date('d M Y', strtotime($profile['joining_date'])) ?></span>
                     </div>
                 </div>
             </div>
@@ -249,12 +450,12 @@ $company_leads = [
             <div class="card p-5 lg:col-span-2">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Monthly Target</h3>
-                    <button class="px-3 py-1 bg-gray-50 border rounded text-sm">2023 - 2024</button>
+                    <button class="px-3 py-1 bg-gray-50 border rounded text-sm">2023 - <?= date('Y') ?></button>
                 </div>
                 <div class="flex gap-4 mb-4 text-sm font-semibold">
-                    <div><span class="inline-block w-3 h-3 bg-orange-500 rounded-full mr-1"></span> Contacted: 50000</div>
-                    <div><span class="inline-block w-3 h-3 bg-teal-800 rounded-full mr-1"></span> Opportunity: 25985</div>
-                    <div><span class="inline-block w-3 h-3 bg-blue-500 rounded-full mr-1"></span> Not Contacted: 12566</div>
+                    <div><span class="inline-block w-3 h-3 bg-orange-500 rounded-full mr-1"></span> Contacted: <?= number_format($total_contacted, 0) ?></div>
+                    <div><span class="inline-block w-3 h-3 bg-teal-800 rounded-full mr-1"></span> Opportunity: <?= number_format($total_opportunity, 0) ?></div>
+                    <div><span class="inline-block w-3 h-3 bg-blue-500 rounded-full mr-1"></span> Not Contacted: <?= number_format($total_not_contacted, 0) ?></div>
                 </div>
                 <div id="pipelineChart" class="h-64"></div>
             </div>
@@ -275,21 +476,25 @@ $company_leads = [
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach ($recent_leads as $lead): ?>
-                            <tr class="border-b text-sm">
-                                <td class="p-3 font-semibold flex items-center gap-2">
-                                    <div class="w-8 h-8 bg-gray-200 rounded-full shrink-0"></div>
-                                    <?= $lead['company'] ?>
-                                </td>
-                                <td class="p-3">
-                                    <span class="px-2 py-1 text-xs font-bold text-white rounded <?= $lead['stage_color'] ?>">
-                                        <?= $lead['stage'] ?>
-                                    </span>
-                                </td>
-                                <td class="p-3 text-gray-500"><?= $lead['date'] ?></td>
-                                <td class="p-3 text-gray-500"><?= $lead['owner'] ?></td>
-                            </tr>
-                            <?php endforeach; ?>
+                            <?php if(empty($recent_leads)): ?>
+                            <tr><td colspan="4" class="p-3 text-center text-gray-500 text-sm">No recent leads found.</td></tr>
+                            <?php else: ?>
+                                <?php foreach ($recent_leads as $lead): ?>
+                                <tr class="border-b text-sm">
+                                    <td class="p-3 font-semibold flex items-center gap-2">
+                                        <div class="w-8 h-8 bg-gray-200 rounded-full shrink-0 flex items-center justify-center font-bold text-gray-500 text-xs"><?= substr($lead['company'],0,1) ?></div>
+                                        <?= htmlspecialchars($lead['company']) ?>
+                                    </td>
+                                    <td class="p-3">
+                                        <span class="px-2 py-1 text-xs font-bold text-white rounded <?= $lead['stage_color'] ?>">
+                                            <?= htmlspecialchars($lead['stage']) ?>
+                                        </span>
+                                    </td>
+                                    <td class="p-3 text-gray-500"><?= $lead['date'] ?></td>
+                                    <td class="p-3 text-gray-500"><?= htmlspecialchars($lead['owner']) ?></td>
+                                </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
@@ -324,59 +529,34 @@ $company_leads = [
                         <span>120</span><span>80</span><span>60</span><span>40</span><span>20</span><span>0</span>
                     </div>
                     <div class="flex-1 grid grid-cols-7 gap-[2px] h-full border-b border-gray-200 relative pb-1">
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div onclick="showLeads('Monday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
-                            <div onclick="showLeads('Monday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">22</div>
-                            <div onclick="showLeads('Monday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">22</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Mon</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">20</div>
-                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
-                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
-                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">29</div>
-                            <div onclick="showLeads('Tuesday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">29</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Tue</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#F97316] flex items-center justify-center">75</div>
-                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
-                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#FFEDD5] text-gray-400 flex items-center justify-center">13</div>
-                            <div onclick="showLeads('Wednesday')" class="lead-box w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center">13</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Wed</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Thursday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Thu</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div onclick="showLeads('Friday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Friday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Friday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Fri</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Saturday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sat</span>
-                        </div>
-                        <div class="flex flex-col justify-end gap-[2px] h-full relative">
-                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#FDBA74] flex items-center justify-center">32</div>
-                            <div onclick="showLeads('Sunday')" class="lead-box w-full h-8 bg-[#CBD5E1] flex items-center justify-center">32</div>
-                            <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">Sun</span>
-                        </div>
+                        <?php foreach(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as $day): ?>
+                            <?php 
+                                $count = count($leads_by_day[$day]); 
+                                // Create a visual stack to mimic the original HTML design
+                                $boxes = [];
+                                if ($count == 0) {
+                                    $boxes[] = ['bg' => 'bg-[#E2E8F0]', 'text' => 'text-gray-400', 'val' => '0'];
+                                } elseif ($count <= 5) {
+                                    $boxes[] = ['bg' => 'bg-[#F97316]', 'text' => 'text-white', 'val' => $count];
+                                    $boxes[] = ['bg' => 'bg-[#CBD5E1]', 'text' => 'text-transparent', 'val' => ''];
+                                } elseif ($count <= 15) {
+                                    $boxes[] = ['bg' => 'bg-[#F97316]', 'text' => 'text-white', 'val' => $count];
+                                    $boxes[] = ['bg' => 'bg-[#FDBA74]', 'text' => 'text-transparent', 'val' => ''];
+                                    $boxes[] = ['bg' => 'bg-[#CBD5E1]', 'text' => 'text-transparent', 'val' => ''];
+                                } else {
+                                    $boxes[] = ['bg' => 'bg-[#F97316]', 'text' => 'text-white', 'val' => $count];
+                                    $boxes[] = ['bg' => 'bg-[#FDBA74]', 'text' => 'text-transparent', 'val' => ''];
+                                    $boxes[] = ['bg' => 'bg-[#CBD5E1]', 'text' => 'text-transparent', 'val' => ''];
+                                    $boxes[] = ['bg' => 'bg-[#E2E8F0]', 'text' => 'text-transparent', 'val' => ''];
+                                }
+                            ?>
+                            <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                                <?php foreach($boxes as $box): ?>
+                                    <div onclick="showLeads('<?= $day ?>', event)" class="lead-box w-full h-8 <?= $box['bg'] ?> <?= $box['text'] ?> flex items-center justify-center text-xs font-bold"><?= $box['val'] ?></div>
+                                <?php endforeach; ?>
+                                <span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal"><?= substr($day, 0, 3) ?></span>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
                 </div>
                 
@@ -391,33 +571,37 @@ $company_leads = [
                     </button>
                 </div>
                 <div class="flex flex-col gap-3">
-                    <?php foreach ($company_leads as $c_lead): ?>
-                    <?php
-                        // Map Status to Background Color
-                        $status_bg = 'bg-gray-500';
-                        if ($c_lead['status'] == 'Not Contacted') $status_bg = 'bg-[#A855F7]'; // Purple
-                        elseif ($c_lead['status'] == 'Closed') $status_bg = 'bg-[#10B981]'; // Green
-                        elseif ($c_lead['status'] == 'Contacted') $status_bg = 'bg-[#115E59]'; // Dark Teal
-                        elseif ($c_lead['status'] == 'Lost') $status_bg = 'bg-[#EF4444]'; // Red
-                    ?>
-                    <div class="flex items-center justify-between p-3 border border-gray-100 rounded bg-gray-50/50 shadow-sm">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold <?= $c_lead['icon'] ?>">
-                                <?= substr($c_lead['name'], 0, 1) ?>
+                    <?php if (empty($company_leads)): ?>
+                        <p class="text-sm text-gray-500 text-center py-4">No company leads found.</p>
+                    <?php else: ?>
+                        <?php foreach ($company_leads as $c_lead): ?>
+                        <?php
+                            // Map Status to Background Color
+                            $status_bg = 'bg-gray-500';
+                            if ($c_lead['status'] == 'Not Contacted' || $c_lead['status'] == 'New') $status_bg = 'bg-[#A855F7]'; // Purple
+                            elseif ($c_lead['status'] == 'Closed') $status_bg = 'bg-[#10B981]'; // Green
+                            elseif ($c_lead['status'] == 'Contacted') $status_bg = 'bg-[#115E59]'; // Dark Teal
+                            elseif ($c_lead['status'] == 'Lost') $status_bg = 'bg-[#EF4444]'; // Red
+                        ?>
+                        <div class="flex items-center justify-between p-3 border border-gray-100 rounded bg-gray-50/50 shadow-sm">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold <?= $c_lead['icon'] ?>">
+                                    <?= strtoupper(substr($c_lead['name'], 0, 1)) ?>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-semibold text-gray-800"><?= htmlspecialchars($c_lead['name']) ?></p>
+                                    <p class="text-xs text-gray-500">Value : <?= htmlspecialchars($c_lead['value']) ?></p>
+                                </div>
                             </div>
                             <div>
-                                <p class="text-sm font-semibold text-gray-800"><?= $c_lead['name'] ?></p>
-                                <p class="text-xs text-gray-500">Value : <?= $c_lead['value'] ?></p>
+                                <span class="px-2.5 py-1 text-[11px] font-bold text-white rounded flex items-center gap-1.5 <?= $status_bg ?>">
+                                    <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+                                    <?= htmlspecialchars($c_lead['status']) ?>
+                                </span>
                             </div>
                         </div>
-                        <div>
-                            <span class="px-2.5 py-1 text-[11px] font-bold text-white rounded flex items-center gap-1.5 <?= $status_bg ?>">
-                                <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
-                                <?= $c_lead['status'] ?>
-                            </span>
-                        </div>
-                    </div>
-                    <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -431,30 +615,25 @@ $company_leads = [
                     <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm">View All</button>
                 </div>
                 <div class="relative pl-3 ml-3 border-l border-dashed border-gray-200 flex flex-col gap-8 mt-2 pb-2">
-                    <div class="relative">
-                        <div class="absolute -left-[27px] top-0 w-7 h-7 rounded-full bg-green-500 flex items-center justify-center text-white border-[3px] border-white">📞</div>
-                        <p class="text-sm font-bold text-gray-900">Drain responded to your appointment schedule question.</p>
-                        <p class="text-xs text-gray-500 mt-1.5">09:25 PM</p>
-                    </div>
-                    <div class="relative">
-                        <div class="absolute -left-[27px] top-0 w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-white border-[3px] border-white">💬</div>
-                        <p class="text-sm font-bold text-gray-900">You sent 1 Message to the James.</p>
-                        <p class="text-xs text-gray-500 mt-1.5">10:25 PM</p>
-                    </div>
-                    <div class="relative">
-                        <div class="absolute -left-[27px] top-0 w-7 h-7 rounded-full bg-green-500 flex items-center justify-center text-white border-[3px] border-white">📞</div>
-                        <p class="text-sm font-bold text-gray-900">Denwar responded to your appointment on 25 Jan 2025, 08:15 PM</p>
-                        <p class="text-xs text-gray-500 mt-1.5">09:25 PM</p>
-                    </div>
-                    <div class="relative flex items-center gap-2">
-                        <div class="absolute -left-[27px] top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-purple-500 flex items-center justify-center text-white border-[3px] border-white text-[10px]">👤</div>
-                        <p class="text-sm font-bold text-gray-900">Meeting With</p>
-                        <div class="w-6 h-6 rounded-full bg-gray-200 overflow-hidden"><img src="https://i.pravatar.cc/100?img=60" alt="avatar" class="w-full h-full object-cover"></div>
-                        <p class="text-sm font-bold text-gray-900">Abraham</p>
-                    </div>
-                    <div class="relative">
-                        <p class="text-xs text-gray-500 mt-[-10px]">09:25 PM</p>
-                    </div>
+                    <?php if(empty($recent_activities)): ?>
+                        <p class="text-sm text-gray-500 italic">No recent activities.</p>
+                    <?php else: ?>
+                        <?php 
+                        $activity_icons = [
+                            ['bg' => 'bg-green-500', 'icon' => '📞'],
+                            ['bg' => 'bg-blue-500', 'icon' => '💬'],
+                            ['bg' => 'bg-purple-500', 'icon' => '👤']
+                        ];
+                        foreach($recent_activities as $idx => $activity): 
+                            $style = $activity_icons[$idx % count($activity_icons)];
+                        ?>
+                        <div class="relative">
+                            <div class="absolute -left-[27px] top-0 w-7 h-7 rounded-full <?= $style['bg'] ?> flex items-center justify-center text-white border-[3px] border-white text-[12px]"><?= $style['icon'] ?></div>
+                            <p class="text-sm font-bold text-gray-900"><?= htmlspecialchars($activity['title']) ?> - <?= htmlspecialchars($activity['description']) ?></p>
+                            <p class="text-xs text-gray-500 mt-1.5"><?= date('h:i A', strtotime($activity['created_at'])) ?></p>
+                        </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -464,86 +643,24 @@ $company_leads = [
                     <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm">View All</button>
                 </div>
                 <div class="flex flex-col gap-6 mt-2">
-                    <div class="flex gap-3">
-                        <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-blue-900"><img src="https://i.pravatar.cc/100?img=11" alt="avatar" class="w-full h-full object-cover"></div>
-                        <div>
-                            <p class="text-sm font-bold text-gray-900">Lex Murphy requested access to UNIX</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Today at 9:42 AM</p>
-                            <div class="flex items-center gap-1.5 mt-2 bg-gray-50 border border-gray-100 px-3 py-1.5 rounded w-max">
-                                <span class="w-4 h-4 rounded-full bg-red-500 text-white text-[8px] flex justify-center items-center">📄</span>
-                                <span class="text-xs font-semibold text-gray-700">EY_review.pdf</span>
+                    <?php if(empty($notifications)): ?>
+                        <p class="text-sm text-gray-500 italic text-center">No recent notifications.</p>
+                    <?php else: ?>
+                        <?php 
+                        $avatar_indexes = [11, 12, 33, 13];
+                        foreach($notifications as $index => $notif): 
+                            $avatar = $avatar_indexes[$index % count($avatar_indexes)];
+                        ?>
+                        <div class="flex gap-3">
+                            <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-blue-900"><img src="https://i.pravatar.cc/100?img=<?= $avatar ?>" alt="avatar" class="w-full h-full object-cover"></div>
+                            <div>
+                                <p class="text-sm font-bold text-gray-900"><?= htmlspecialchars($notif['title']) ?></p>
+                                <p class="text-xs text-gray-600 mt-0.5"><?= htmlspecialchars($notif['message']) ?></p>
+                                <p class="text-xs text-gray-400 mt-1"><?= date('M d, g:i A', strtotime($notif['created_at'])) ?></p>
                             </div>
                         </div>
-                    </div>
-                    <div class="flex gap-3">
-                        <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-pink-200"><img src="https://i.pravatar.cc/100?img=12" alt="avatar" class="w-full h-full object-cover"></div>
-                        <div>
-                            <p class="text-sm font-bold text-gray-900">Lex Murphy requested access to UNIX</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Today at 10:00 AM</p>
-                        </div>
-                    </div>
-                    <div class="flex gap-3">
-                        <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-teal-200"><img src="https://i.pravatar.cc/100?img=33" alt="avatar" class="w-full h-full object-cover"></div>
-                        <div>
-                            <p class="text-sm font-bold text-gray-900">Lex Murphy requested access to UNIX</p>
-                            <p class="text-xs text-gray-500 mt-0.5 mb-2">Today at 10:50 AM</p>
-                            <div class="flex gap-2">
-                                <button class="bg-[#F97316] hover:bg-orange-600 text-white px-4 py-1.5 rounded text-xs font-bold transition">Approve</button>
-                                <button class="bg-white border border-[#F97316] text-[#F97316] hover:bg-orange-50 px-4 py-1.5 rounded text-xs font-bold transition">Decline</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="flex gap-3">
-                        <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-red-900"><img src="https://i.pravatar.cc/100?img=13" alt="avatar" class="w-full h-full object-cover"></div>
-                        <div>
-                            <p class="text-sm font-bold text-gray-900">Lex Murphy requested access to UNIX</p>
-                            <p class="text-xs text-gray-500 mt-0.5">Today at 05:00 PM</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card p-5">
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="font-bold text-lg text-gray-900">Recent Follow Up</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm">View All</button>
-                </div>
-                <div class="flex flex-col gap-6">
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=11" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Alexander Jermai</p><p class="text-xs text-gray-500">UI/UX Designer</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">✉️</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=5" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Doglas Martini</p><p class="text-xs text-gray-500">Product Designer</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">📞</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-red-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=9" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Daniel Esbella</p><p class="text-xs text-gray-500">Project Manager</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">✉️</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=12" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Daniel Esbella</p><p class="text-xs text-gray-500">Team Lead</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">💬</button>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <div class="flex gap-3 items-center">
-                            <div class="w-10 h-10 rounded-full bg-yellow-200 flex items-center justify-center text-white overflow-hidden"><img src="https://i.pravatar.cc/100?img=1" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div><p class="text-sm font-bold text-gray-900">Doglas Martini</p><p class="text-xs text-gray-500">Team Lead</p></div>
-                        </div>
-                        <button class="w-8 h-8 flex items-center justify-center rounded bg-gray-50 border text-gray-500 hover:text-gray-800 transition">💬</button>
-                    </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
             </div>
 
@@ -553,13 +670,7 @@ $company_leads = [
     <script>
         // ApexCharts config for Pipeline Stages (Stacked Bar)
         var options = {
-            series: [{
-                name: 'Contacted', data: [25, 30, 45, 55, 60, 50, 40, 55, 45, 35, 20, 30]
-            }, {
-                name: 'Opportunity', data: [30, 20, 30, 25, 30, 30, 40, 30, 35, 40, 0, 25]
-            }, {
-                name: 'Not Contacted', data: [10, 5, 10, 25, 30, 25, 20, 25, 20, 15, 0, 25]
-            }],
+            series: <?= $pipeline_series_json ?>,
             chart: { type: 'bar', height: 280, stacked: true, toolbar: { show: false } },
             colors: ['#F97316', '#115E59', '#3B82F6'], // Orange, Teal, Blue
             plotOptions: { bar: { horizontal: false, columnWidth: '50%', borderRadius: 4 } },
@@ -571,11 +682,11 @@ $company_leads = [
         var chart = new ApexCharts(document.querySelector("#pipelineChart"), options);
         chart.render();
 
-        // ApexCharts config for Lost Leads
+        // ApexCharts config for Lost Leads (DYNAMIC)
         var lostLeadsOptions = {
             series: [{
                 name: 'Lost Leads',
-                data: [80, 40, 60, 40]
+                data: <?= $lost_leads_data_json ?>
             }],
             chart: {
                 type: 'bar',
@@ -588,7 +699,7 @@ $company_leads = [
                     columnWidth: '45%',
                     borderRadius: 4,
                     colors: {
-                        backgroundBarColors: ['#F3F4F6', '#F3F4F6', '#F3F4F6', '#F3F4F6'],
+                        backgroundBarColors: <?= $lost_leads_bg_colors ?>,
                         backgroundBarRadius: 4,
                     }
                 },
@@ -596,14 +707,13 @@ $company_leads = [
             colors: ['#F97316'], // Orange
             dataLabels: { enabled: false },
             xaxis: {
-                categories: ['Competitor', 'Budget', 'Unresponsive', 'Timing'],
+                categories: <?= $lost_leads_labels_json ?>,
                 axisBorder: { show: false },
                 axisTicks: { show: false },
                 labels: { style: { colors: '#6B7280', fontSize: '12px' } }
             },
             yaxis: {
                 min: 0,
-                max: 200,
                 tickAmount: 4,
                 labels: { style: { colors: '#6B7280', fontSize: '12px' } }
             },
@@ -638,26 +748,21 @@ $company_leads = [
         let timerInterval = null;
 
         function punchIn() {
-            // UI Switch
             document.getElementById('stateInitial').classList.add('hidden');
             document.getElementById('statePunchedIn').classList.remove('hidden');
             document.getElementById('statePunchedIn').classList.add('flex');
             
-            // Set static punch time
             const now = new Date();
             document.getElementById('actual-punch-time').innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
             
-            // Start Timer
             startStopwatch();
         }
 
         function punchOut() {
-            // UI Switch back
             document.getElementById('statePunchedIn').classList.add('hidden');
             document.getElementById('statePunchedIn').classList.remove('flex');
             document.getElementById('stateInitial').classList.remove('hidden');
             
-            // Stop and reset
             clearInterval(timerInterval);
             document.getElementById('prod-display').innerText = (totalSeconds / 3600).toFixed(2);
             totalSeconds = 0;
@@ -680,7 +785,6 @@ $company_leads = [
             const s = (totalSeconds % 60).toString().padStart(2, '0');
             document.getElementById('timerValue').innerText = `${h}:${m}:${s}`;
             
-            // Circular Progress Animation (based on 8h shift)
             const maxSecs = 28800; 
             const progress = Math.min(totalSeconds, maxSecs) / maxSecs;
             const dashoffset = 427 - (progress * 427);
@@ -706,87 +810,113 @@ $company_leads = [
             }
         }
 
-        // ---- LEAD LIST LOGIC ----
-        const mockLeadsByDay = {
-            'Monday': ['Acme Corp', 'Globex', 'Soylent Corp'],
-            'Tuesday': ['Initech', 'Umbrella Corp', 'Hooli'],
-            'Wednesday': ['Stark Ind', 'Wayne Ent', 'Oscorp'],
-            'Thursday': ['Cyberdyne', 'Tyrell Corp', 'Weyland-Yutani'],
-            'Friday': ['Wonka Ind', 'Duff Beer', 'Bubba Gump'],
-            'Saturday': ['Pied Piper', 'Bluth Company'],
-            'Sunday': ['Vandelay Ind', 'Kramerica']
-        };
+        // ---- DYNAMIC LEAD LIST LOGIC ----
+        const mockLeadsByDay = <?= $mock_leads_json ?>;
 
-        function showLeads(day) {
+        function showLeads(day, event) {
             const modal = document.getElementById('leadModal');
             const title = document.getElementById('modalTitle');
             const content = document.getElementById('modalContent');
             
-            // Calculate date for the clicked day
             const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const today = new Date();
-            const todayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1; // Adjust index so Mon=0, Sun=6
+            const todayIndex = today.getDay() === 0 ? 6 : today.getDay() - 1;
             const targetIndex = dayNames.indexOf(day) === 0 ? 6 : dayNames.indexOf(day) - 1;
             
             const specificDate = new Date(today);
             specificDate.setDate(today.getDate() + (targetIndex - todayIndex));
             
-            // Adjust if 'Last Week' is active in the toggle
             const weekSelector = document.getElementById('weekSelectorText');
             if (weekSelector && weekSelector.innerText === 'Last Week') {
                 specificDate.setDate(specificDate.getDate() - 7);
             }
 
-            // Format date to string (e.g., "25 Feb 2026")
             const dateString = specificDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-            
-            title.innerText = `New Leads for ${day} (${dateString})`;
+            title.innerText = `New leads for ${day} ${dateString}`;
             content.innerHTML = '';
             
             const leads = mockLeadsByDay[day] || [];
+            
             if(leads.length === 0) {
-                content.innerHTML = '<p class="text-gray-500 text-center italic">No leads recorded for this day.</p>';
+                content.innerHTML = '<p class="text-gray-500 text-center italic py-6">No leads recorded for this day.</p>';
             } else {
                 leads.forEach(lead => {
+                    const leadName = typeof lead === 'string' ? lead : lead.name;
+                    const leadOwner = lead.owner || 'Unknown';
+                    const leadValue = lead.value || '0';
+                    const leadStatus = lead.status || 'New';
+
                     const div = document.createElement('div');
-                    div.className = 'flex items-center gap-3 p-3 border-b last:border-0 hover:bg-gray-50 transition cursor-pointer';
+                    div.className = 'flex justify-between items-center p-4 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition cursor-pointer bg-white';
                     div.innerHTML = `
-                        <div class="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-xs">
-                            ${lead.charAt(0)}
+                        <div class="flex flex-col gap-1.5">
+                            <span class="font-bold text-[15px] text-[#1e293b]">${leadName}</span>
+                            <div class="flex items-center text-[#64748b] text-xs gap-1.5 font-medium">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                                </svg>
+                                ${leadOwner}
+                            </div>
                         </div>
-                        <span class="font-medium text-gray-700">${lead}</span>
+                        <div class="flex flex-col items-end gap-1.5">
+                            <span class="text-[#059669] font-bold text-[15px]">₹${leadValue}</span>
+                            <span class="bg-[#e2e8f0] text-[#475569] text-[11px] font-bold px-2.5 py-0.5 rounded shadow-sm">${leadStatus}</span>
+                        </div>
                     `;
                     content.appendChild(div);
                 });
             }
             
             modal.classList.remove('hidden');
-            modal.classList.add('flex');
+            modal.classList.add('block');
+            
+            // Absolute positioning logic near the clicked bar
+            if (event) {
+                const rect = event.currentTarget.getBoundingClientRect();
+                
+                // Position slightly above the bar
+                let topPos = window.scrollY + rect.top - modal.offsetHeight - 15;
+                let leftPos = window.scrollX + rect.left + (rect.width / 2) - (modal.offsetWidth / 2);
+
+                // If no room above, render it below the bar
+                if (topPos < window.scrollY) {
+                    topPos = window.scrollY + rect.bottom + 15;
+                }
+                
+                // Keep the modal inside the horizontal bounds of the screen
+                if (leftPos < 0) leftPos = 10;
+                if (leftPos + modal.offsetWidth > window.innerWidth) {
+                    leftPos = window.innerWidth - modal.offsetWidth - 10;
+                }
+
+                modal.style.top = topPos + 'px';
+                modal.style.left = leftPos + 'px';
+            }
         }
 
         function closeModal() {
             const modal = document.getElementById('leadModal');
             modal.classList.add('hidden');
-            modal.classList.remove('flex');
+            modal.classList.remove('block');
         }
 
-        // Close modal on click outside
+        // Close the modal when clicking anywhere outside of it
         window.onclick = function(event) {
             const modal = document.getElementById('leadModal');
-            if (event.target == modal) {
-                closeModal();
+            if (!modal.classList.contains('hidden')) {
+                // Check if the click happened outside the modal AND not on one of the chart bars
+                if (!modal.contains(event.target) && !event.target.closest('.lead-box')) {
+                    closeModal();
+                }
             }
         }
 
-        // --- NEW LEADS WEEK SELECTOR LOGIC ---
         function toggleWeekSelection() {
             const btnText = document.getElementById('weekSelectorText');
             if (btnText.innerText === 'This Week') {
                 btnText.innerText = 'Last Week';
-                // You could also trigger an update to the New Leads chart data here
             } else {
                 btnText.innerText = 'This Week';
-                // Revert chart data here
             }
         }
     </script>
