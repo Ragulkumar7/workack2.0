@@ -2,6 +2,7 @@
 error_reporting(0);
 header('Content-Type: application/json');
 
+// Connect to Database
 $paths = ['../include/db_connect.php', '../../include/db_connect.php', '../db_connect.php'];
 foreach($paths as $path) { if(file_exists($path)) { require_once $path; break; } }
 if(!isset($conn)) { echo json_encode(['success'=>false, 'message'=>'Database Connection Failed']); exit; }
@@ -21,11 +22,16 @@ if (!empty($status_filter)) {
 
 $where_sql = implode(' AND ', $where_clauses);
 
-// CRITICAL FIX: 's.*' ensures basic, hra, da, and user_id are fetched so the Edit modal has data!
+// CRITICAL FIX: Joined with 'employee_onboarding' using 'e.id = s.user_id'
+// Merged first_name and last_name into 'name' for the UI
 $query = "SELECT s.*, 
-                 p.emp_id_code as emp_code, p.full_name as name, p.designation, p.email, p.profile_img
+                 e.emp_id_code as emp_code, 
+                 CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as name, 
+                 e.designation, 
+                 e.email, 
+                 e.profile_img
           FROM employee_salary s
-          LEFT JOIN employee_profiles p ON s.user_id = p.user_id
+          LEFT JOIN employee_onboarding e ON s.user_id = e.id
           WHERE $where_sql
           ORDER BY s.created_at DESC";
 
