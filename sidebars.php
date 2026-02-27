@@ -505,7 +505,7 @@ $sections = [
                 'name' => 'Raise Ticket', 
                 'path' => $base . 'ticketraise_form.php', 
                 'icon' => 'plus-circle', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Accounts', 'HR Executive', 'CFO']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Accounts', 'HR Executive', 'CFO', 'Sales Manager', 'Sales Executive']
             ],
         ]
     ],
@@ -517,7 +517,7 @@ $sections = [
                 'name' => 'Reports', 
                 'path' => $base . 'Accounts/accounts_reports.php', 
                 'icon' => 'pie-chart', 
-                'allowed' => ['Accounts', 'CFO']
+                'allowed' => ['Accounts']
             ]
         ]
     ],
