@@ -89,29 +89,32 @@ function decryptChatMessage($encryptedText) {
             if ($decrypted !== false) return $decrypted;
         }
     }
-    return $encryptedText; // Fallback if unencrypted
+    return $encryptedText; 
 }
 
-// Ensure database schema is up-to-date silently
-if (!isset($_SESSION['chat_db_checked'])) {
+// Ensure database schema is up-to-date silently (Version updated to force table creation)
+if (!isset($_SESSION['chat_db_checked_v4'])) {
     $conn->query("CREATE TABLE IF NOT EXISTS call_requests (id INT AUTO_INCREMENT PRIMARY KEY, conversation_id INT NOT NULL, caller_id INT NOT NULL, room_id VARCHAR(64) NOT NULL, call_type ENUM('audio','video') DEFAULT 'video', status ENUM('ringing','answered','declined','ended') DEFAULT 'ringing', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
     $conn->query("CREATE TABLE IF NOT EXISTS message_reads (message_id INT NOT NULL, user_id INT NOT NULL, read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (message_id, user_id)) ENGINE=InnoDB");
     $conn->query("CREATE TABLE IF NOT EXISTS typing_status (conversation_id INT NOT NULL, user_id INT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (conversation_id, user_id)) ENGINE=InnoDB");
     
-    // Ensure necessary columns exist
+    // Calendar Tables
+    $conn->query("CREATE TABLE IF NOT EXISTS calendar_meetings (id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255), meet_date DATE, meet_time VARCHAR(50), meet_link VARCHAR(100), created_by INT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
+    $conn->query("CREATE TABLE IF NOT EXISTS calendar_meeting_participants (meeting_id INT NOT NULL, user_id INT NOT NULL, PRIMARY KEY (meeting_id, user_id)) ENGINE=InnoDB");
+
     $conn->query("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_at DATETIME NULL DEFAULT NULL");
     $conn->query("ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_at DATETIME NULL DEFAULT NULL");
     $conn->query("ALTER TABLE chat_participants ADD COLUMN IF NOT EXISTS muted_until DATETIME NULL DEFAULT NULL");
     $conn->query("ALTER TABLE chat_participants ADD COLUMN IF NOT EXISTS hidden_at DATETIME NULL DEFAULT NULL");
     
-    $_SESSION['chat_db_checked'] = true;
+    $_SESSION['chat_db_checked_v4'] = true;
 }
 
 // =========================================================================================
 // AJAX HANDLERS
 // =========================================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    session_write_close(); // Prevent session locking during polling
+    session_write_close(); 
     header('Content-Type: application/json');
     $action = $_POST['action'];
 
@@ -138,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 
     // 2. CREATE GROUP
-    if ($action === 'create_group' && $can_create_group) {
+    if ($action === 'create_group') {
         $group_name = trim($_POST['group_name'] ?? '');
         $members = json_decode($_POST['members'] ?? '[]', true);
         
@@ -164,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         echo json_encode(['status' => 'success', 'conversation_id' => $conv_id]); exit;
     }
 
-    // 3. GET RECENT CHATS
+    // 3. GET RECENT CHATS (Optimized query for sidebar)
     if ($action === 'get_recent_chats') {
         $sql = "
             SELECT 
@@ -300,6 +303,81 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt->bind_param("iisss", $conv_id, $my_id, $msg_text, $attachment, $msg_type);
         $stmt->execute();
         echo json_encode(['status' => 'sent']); exit;
+    }
+
+    // CALENDAR - CREATE SCHEDULED MEETING AND SEND INVITATION
+    if ($action === 'create_scheduled_meeting') {
+        $title = trim($_POST['title'] ?? 'Scheduled Meeting');
+        $date = $_POST['date'];
+        $time = $_POST['time'];
+        $members = json_decode($_POST['members'] ?? '[]', true);
+        $members[] = $my_id; // Always add the creator to the meeting
+        $members = array_filter(array_unique(array_map('intval', $members)));
+
+        $meet_id = 'Workack-Meet-' . substr(md5(uniqid()), 0, 10);
+
+        // 1. Save Meeting to DB
+        $stmt = $conn->prepare("INSERT INTO calendar_meetings (title, meet_date, meet_time, meet_link, created_by) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("ssssi", $title, $date, $time, $meet_id, $my_id);
+        if (!$stmt->execute()) {
+            echo json_encode(['status' => 'error', 'message' => 'DB Insert Failed: ' . $stmt->error]); exit;
+        }
+        $new_meet_id = $conn->insert_id;
+
+        // 2. Add Participants to DB
+        $stmt_part = $conn->prepare("INSERT INTO calendar_meeting_participants (meeting_id, user_id) VALUES (?, ?)");
+        foreach ($members as $uid) {
+            $stmt_part->bind_param("ii", $new_meet_id, $uid);
+            $stmt_part->execute();
+        }
+
+        // 3. Send Chat Message
+        $msg = "📅 **Scheduled Meeting: $title**<br>Date: $date at $time<br>Click to Join: video:$meet_id";
+        $enc_msg = encryptChatMessage($msg);
+
+        // Decide conversation routing (Direct or Group)
+        if (count($members) == 2) {
+            $target = ($members[0] == $my_id) ? $members[1] : $members[0];
+            $chk = $conn->query("SELECT c.id FROM chat_conversations c JOIN chat_participants cp1 ON c.id = cp1.conversation_id JOIN chat_participants cp2 ON c.id = cp2.conversation_id WHERE c.type = 'direct' AND cp1.user_id = $my_id AND cp2.user_id = $target LIMIT 1");
+            if ($chk->num_rows > 0) {
+                $conv_id = $chk->fetch_assoc()['id'];
+                $conn->query("UPDATE chat_participants SET hidden_at = NULL WHERE conversation_id = $conv_id");
+            } else {
+                $conn->query("INSERT INTO chat_conversations (type) VALUES ('direct')");
+                $conv_id = $conn->insert_id;
+                $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($conv_id, $my_id), ($conv_id, $target)");
+            }
+        } else {
+            $gname = 'Meeting: ' . $title;
+            $conn->query("INSERT INTO chat_conversations (type, group_name, created_by) VALUES ('group', '$gname', $my_id)");
+            $conv_id = $conn->insert_id;
+            foreach ($members as $uid) {
+                $conn->query("INSERT INTO chat_participants (conversation_id, user_id) VALUES ($conv_id, $uid)");
+            }
+        }
+
+        $conn->query("INSERT INTO chat_messages (conversation_id, sender_id, message, message_type) VALUES ($conv_id, $my_id, '$enc_msg', 'text')");
+        echo json_encode(['status' => 'success', 'conversation_id' => $conv_id]);
+        exit;
+    }
+
+    // CALENDAR - FETCH EVENTS
+    if ($action === 'get_calendar_events') {
+        $start = $_POST['start_date'];
+        $end = $_POST['end_date'];
+        
+        $sql = "SELECT cm.* FROM calendar_meetings cm
+                JOIN calendar_meeting_participants cmp ON cm.id = cmp.meeting_id
+                WHERE cmp.user_id = ? AND cm.meet_date >= ? AND cm.meet_date <= ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("iss", $my_id, $start, $end);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        $events = [];
+        while($row = $res->fetch_assoc()) {
+            $events[] = $row;
+        }
+        echo json_encode($events); exit;
     }
 
     // 6. EDIT MESSAGE
@@ -481,8 +559,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .search-item { padding: 10px 12px; cursor: pointer; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--bg-light);}
         .search-item:hover { background: var(--hover-bg); }
 
-        /* MAIN CONTENT AREA (Chat / Meet / Files) */
-        .content-area { flex: 1; display: flex; flex-direction: column; background: white; position: relative; overflow-y:auto; }
+        /* MAIN CONTENT AREA */
+        .content-area { flex: 1; display: flex; flex-direction: column; background: white; position: relative; overflow-y:hidden; }
 
         .chat-header { background: white; border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 10px 20px; justify-content: space-between; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.02);}
         
@@ -528,7 +606,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         #chatOptionsDropdown button { width: 100%; text-align: left; padding: 10px 15px; border: none; background: white; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 8px;}
         #chatOptionsDropdown button:hover { background: var(--hover-bg); color: #ef4444;}
 
-        /* Teams Input Area */
+        /* Teams Input Area & Emoji Picker */
         .input-area { padding: 0 20px 20px; background: transparent; display: flex; flex-direction: column; z-index: 10; position: relative;}
         .input-wrapper { background: #fff; border-radius: 6px; display: flex; align-items: flex-end; width: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--border); padding: 8px 12px; min-height: 50px;}
         .input-wrapper input { flex: 1; padding: 8px 10px; border: none; outline: none; background: transparent; font-size: 0.95rem; }
@@ -536,8 +614,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .btn-tool { background: transparent; color: var(--text-muted); width: 32px; height: 32px; border-radius: 4px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: 0.2s; font-size: 1.2rem;}
         .btn-tool:hover { background: var(--hover-bg); color: var(--primary); }
         .btn-send { color: var(--primary); }
-
-        /* EMOJI PICKER */
+        
         #emojiPicker { display: none; position: absolute; bottom: 75px; right: 20px; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); width: 260px; height: 200px; overflow-y: auto; padding: 10px; z-index: 100; grid-template-columns: repeat(6, 1fr); gap: 8px; text-align: center; font-size: 1.3rem; }
         #emojiPicker span { cursor: pointer; transition: transform 0.1s; }
         #emojiPicker span:hover { transform: scale(1.3); }
@@ -565,18 +642,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .cal-primary-btn { background: var(--primary); color: white; border: none; padding: 8px 15px; border-radius: 4px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px; }
         .cal-primary-btn:hover { background: var(--primary-hover); }
         
-        .calendar-grid { display: flex; flex: 1; overflow: hidden; background: white;}
+        .calendar-grid-container { display: flex; flex-direction: column; flex: 1; overflow: hidden; background: white; }
+        .calendar-grid { display: flex; flex: 1; overflow-y: auto; overflow-x: auto; }
         .time-col { width: 60px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
         .time-slot { height: 60px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; justify-content: flex-end; padding: 5px 8px 0 0; font-size: 0.75rem; color: var(--text-muted); }
         
-        .day-cols { display: flex; flex: 1; overflow-x: auto; }
-        .day-col { flex: 1; min-width: 150px; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-        .day-header { padding: 15px 10px; border-bottom: 1px solid var(--border); text-align: left; }
-        .day-num { font-size: 1.5rem; font-weight: 400; color: var(--text-dark); }
-        .day-name { font-size: 0.8rem; color: var(--text-muted); text-transform: capitalize; }
+        .day-cols { display: flex; flex: 1; }
+        .day-col { flex: 1; min-width: 150px; border-right: 1px solid var(--border); display: flex; flex-direction: column; position: relative; }
+        .day-header { padding: 15px 10px; border-bottom: 1px solid var(--border); text-align: left; height: 73px; position: sticky; top:0; background:white; z-index:10; }
+        .day-num { font-size: 1.5rem; font-weight: 400; color: var(--text-dark); line-height: 1; }
+        .day-name { font-size: 0.8rem; color: var(--text-muted); text-transform: capitalize; margin-top:4px;}
         .day-header.active .day-num, .day-header.active .day-name { color: var(--primary); font-weight: 700; }
-        .grid-cell { height: 60px; border-bottom: 1px solid var(--border); transition: background 0.2s; cursor: pointer; }
+        .grid-cell { height: 60px; border-bottom: 1px solid var(--border); transition: background 0.2s; cursor: pointer; position: relative; }
         .grid-cell:hover { background: var(--bg-light); }
+        
+        .cal-event { background: var(--primary); color: white; padding: 4px 6px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin: 2px 5px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: absolute; width: calc(100% - 10px); z-index: 5; box-shadow: 0 1px 3px rgba(0,0,0,0.2);}
+        .cal-event:hover { filter: brightness(1.1); }
 
         /* OVERLAYS */
         #videoOverlay { display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:#0f172a; z-index:2000; flex-direction:column; }
@@ -627,10 +708,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <div class="nav-icon" onclick="switchMainTab('calendar_view', this)">
                 <i class="ri-calendar-line"></i>
                 <span>Calendar</span>
-            </div>
-            <div class="nav-icon">
-                <i class="ri-notification-3-line"></i>
-                <span>Activity</span>
             </div>
             <div style="flex: 1;"></div>
             <div class="nav-icon">
@@ -774,60 +851,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
             </div>
 
-            <div id="calendar_view" style="display: none; flex-direction: column; height: 100%; width: 100%; background: white;">
+            <div id="calendar_view" style="display: none; flex-direction: column; height: 100%; width: 100%; background: white; overflow: hidden;">
                 <div class="calendar-header">
                     <div class="calendar-title">
                         <i class="ri-calendar-line"></i> Calendar
                     </div>
                     
                     <div style="display: flex; align-items: center; gap: 15px;">
-                        <button class="cal-nav-btn"><i class="ri-calendar-event-line"></i> Today</button>
+                        <button class="cal-nav-btn" onclick="resetCalendarToToday()">Today</button>
                         <div style="display: flex; gap: 5px; align-items: center;">
-                            <button class="btn-icon-small"><i class="ri-arrow-left-s-line"></i></button>
-                            <button class="btn-icon-small"><i class="ri-arrow-right-s-line"></i></button>
+                            <button class="btn-icon-small" onclick="shiftCalendarWeek(-1)"><i class="ri-arrow-left-s-line"></i></button>
+                            <button class="btn-icon-small" onclick="shiftCalendarWeek(1)"><i class="ri-arrow-right-s-line"></i></button>
                         </div>
-                        <span style="font-weight: 600; font-size: 1.1rem; margin-right: 20px;"><?php echo date('F Y'); ?> <i class="ri-arrow-down-s-line" style="font-size: 0.9rem; color: var(--text-muted);"></i></span>
+                        <div style="position:relative; display:inline-flex; align-items:center;">
+                            <input type="month" id="calendarMonthPicker" onchange="changeCalendarMonth(this.value)" style="border:none; outline:none; font-weight: 600; font-size: 1.1rem; cursor: pointer; color: var(--text-dark); background: transparent;">
+                        </div>
                     </div>
 
                     <div style="display: flex; align-items: center; gap: 10px;">
                         <button class="cal-nav-btn" onclick="document.getElementById('joinMeetingModal').style.display='flex'"><i class="ri-hashtag"></i> Join with an ID</button>
-                        <button class="cal-nav-btn" onclick="startCall('video')"><i class="ri-vidicon-line"></i> Meet now</button>
                         <button class="cal-primary-btn" onclick="document.getElementById('scheduleMeetingModal').style.display='flex'"><i class="ri-add-line"></i> New meeting</button>
-                        <button class="cal-nav-btn" style="margin-left: 10px; border:none; background:transparent;">Work week <i class="ri-arrow-down-s-line"></i></button>
+                        <select id="calendarViewSelect" onchange="toggleWeekendView(this.value)" class="cal-nav-btn" style="border:none; background:transparent; appearance: none; outline:none; cursor:pointer; font-weight:600;">
+                            <option value="work_week">Work week</option>
+                            <option value="week">Week</option>
+                        </select>
                     </div>
                 </div>
 
-                <div class="calendar-grid">
-                    <div class="time-col">
-                        <div class="day-header" style="height: 73px; border-bottom: none;"></div>
-                        <?php 
-                        $times = ['12 AM','1 AM','2 AM','3 AM','4 AM','5 AM','6 AM','7 AM','8 AM','9 AM','10 AM','11 AM','12 PM','1 PM','2 PM','3 PM','4 PM','5 PM','6 PM','7 PM','8 PM','9 PM','10 PM','11 PM'];
-                        foreach($times as $t): ?>
-                            <div class="time-slot"><?php echo $t; ?></div>
-                        <?php endforeach; ?>
-                    </div>
-
-                    <div class="day-cols">
-                        <?php 
-                        $ts = strtotime('last monday');
-                        for($i=0; $i<5; $i++): 
-                            $date = date('d', $ts);
-                            $day = date('l', $ts);
-                            $isActive = (date('Y-m-d') == date('Y-m-d', $ts)) ? 'active' : '';
-                        ?>
-                        <div class="day-col">
-                            <div class="day-header <?php echo $isActive; ?>">
-                                <div class="day-num"><?php echo $date; ?></div>
-                                <div class="day-name"><?php echo $day; ?></div>
-                            </div>
-                            <?php for($j=0; $j<24; $j++): ?>
-                                <div class="grid-cell" onclick="document.getElementById('scheduleMeetingModal').style.display='flex'"></div>
-                            <?php endfor; ?>
+                <div class="calendar-grid-container">
+                    <div class="calendar-grid">
+                        <div class="time-col">
+                            <div class="day-header" style="height: 73px; border-bottom: none; position: sticky; top:0; background:white; z-index:10;"></div>
+                            <?php 
+                            $times = ['12 AM','1 AM','2 AM','3 AM','4 AM','5 AM','6 AM','7 AM','8 AM','9 AM','10 AM','11 AM','12 PM','1 PM','2 PM','3 PM','4 PM','5 PM','6 PM','7 PM','8 PM','9 PM','10 PM','11 PM'];
+                            foreach($times as $t): ?>
+                                <div class="time-slot"><?php echo $t; ?></div>
+                            <?php endforeach; ?>
                         </div>
-                        <?php 
-                        $ts = strtotime('+1 day', $ts);
-                        endfor; 
-                        ?>
+
+                        <div class="day-cols" id="calendarDayCols">
+                            </div>
                     </div>
                 </div>
             </div>
@@ -879,25 +942,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         <div style="padding: 20px; background: #faf9f8;">
             <input type="text" id="schTitle" placeholder="Add title" style="width:100%; padding:10px 0; border:none; border-bottom:1px solid var(--primary); background:transparent; font-size: 1.2rem; outline:none; margin-bottom: 15px;">
             
-            <select id="schUser" style="width:100%; padding:10px; border:none; border-radius:4px; background:white; font-size: 0.95rem; outline:none; margin-bottom: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                <option value="">Select a team member to invite...</option>
-                <?php foreach($all_users as $u): if($u['id'] != $my_id): ?>
-                    <option value="<?php echo $u['id']; ?>"><?php echo htmlspecialchars($u['name']); ?></option>
-                <?php endif; endforeach; ?>
-            </select>
+            <div style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 10px; background: white; margin-bottom: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; font-weight: 600;">Add required attendees (Select multiple):</p>
+                <div id="schUserList" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <?php foreach($all_users as $u): if($u['id'] != $my_id): ?>
+                        <label style="display: flex; align-items: center; cursor: pointer; font-size: 0.95rem; padding: 5px; border-radius: 4px; transition: 0.2s;" onmouseover="this.style.background='var(--bg-light)'" onmouseout="this.style.background='transparent'">
+                            <input type="checkbox" class="sch-user-checkbox" value="<?php echo $u['id']; ?>" style="margin-right: 10px; width: 16px; height: 16px; accent-color: var(--primary);">
+                            <img src="<?php echo $u['profile_img']; ?>" style="width: 24px; height: 24px; border-radius: 50%; margin-right: 8px; object-fit:cover;">
+                            <span><?php echo htmlspecialchars($u['name']); ?></span> 
+                            <span style="color:var(--text-muted); font-size:0.75rem; margin-left: 5px;">(<?php echo htmlspecialchars($u['role']); ?>)</span>
+                        </label>
+                    <?php endif; endforeach; ?>
+                </div>
+            </div>
 
             <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 15px;">
                 <input type="date" id="schDate" value="<?php echo date('Y-m-d'); ?>" style="padding:8px; border:none; border-radius:4px; background:white; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
                 <select id="schTime" style="padding:8px; border:none; border-radius:4px; background:white; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                    <option value="10:00 AM">10:00 AM</option>
-                    <option value="11:00 AM">11:00 AM</option>
-                    <option value="12:00 PM">12:00 PM</option>
-                    <option value="02:00 PM">02:00 PM</option>
-                    <option value="04:00 PM" selected>04:00 PM</option>
-                    <option value="05:00 PM">05:00 PM</option>
+                    <?php 
+                    for ($h = 0; $h < 24; $h++) {
+                        $hf = $h == 0 ? 12 : ($h > 12 ? $h - 12 : $h);
+                        $ap = $h < 12 ? 'AM' : 'PM';
+                        $tsStr = sprintf("%02d:00 %s", $hf, $ap);
+                        echo "<option value=\"$tsStr\">$tsStr</option>";
+                    }
+                    ?>
                 </select>
             </div>
-            <textarea id="schDetails" placeholder="Type details for this new meeting" style="width:100%; height:150px; padding:15px; border:none; border-radius:4px; background:white; resize:none; outline:none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);"></textarea>
+            <textarea id="schDetails" placeholder="Type details for this new meeting" style="width:100%; height:120px; padding:15px; border:1px solid var(--border); border-radius:4px; background:white; resize:none; outline:none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);"></textarea>
         </div>
     </div>
 </div>
@@ -923,19 +995,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <button onclick="declineIncomingCall()" style="background:#ef4444; color:white; width:45px; height:45px; border-radius:50%; border:none; cursor:pointer; font-size:1.3rem;"><i class="ri-phone-fill"></i></button>
             <button onclick="acceptIncomingCall()" style="background:#22c55e; color:white; width:45px; height:45px; border-radius:50%; border:none; cursor:pointer; font-size:1.3rem; animation: jump 1s infinite;"><i class="ri-phone-fill"></i></button>
         </div>
-    </div>
-</div>
-
-<div class="modal-overlay" id="groupModal">
-    <div class="modal">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px;">
-            <h3 style="font-size:1.2rem; font-weight: 600;">Create Group</h3>
-            <button class="btn-icon" style="width:30px; height:30px;" onclick="closeGroupModal()"><i class="ri-close-line" style="font-size:1.2rem;"></i></button>
-        </div>
-        <input type="text" id="groupName" placeholder="Group Subject" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; margin-bottom:15px; outline:none; background:var(--bg-light);">
-        <input type="text" id="memberSearch" placeholder="Search members to add..." oninput="searchForGroup(this.value)" style="width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:6px; margin-bottom:10px; outline:none; font-size:0.9rem; background:var(--bg-light);">
-        <div id="groupUserList" style="max-height:200px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; margin-bottom:15px;"></div>
-        <button onclick="createGroup()" style="width:100%; padding:10px; background:var(--primary); color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; font-size: 0.95rem;">Create</button>
     </div>
 </div>
 
@@ -973,7 +1032,131 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             chatSidebar.style.display = 'flex';
             if(activeConvId) fetchMessages(false);
         }
+
+        if (tabId === 'calendar_view') {
+            renderCalendar();
+        }
     }
+
+    // --- CALENDAR LOGIC ---
+    let currentCalDate = new Date();
+    let calViewMode = 'work_week'; // 'work_week' (5 days) or 'week' (7 days)
+
+    function toggleWeekendView(mode) {
+        calViewMode = mode;
+        renderCalendar();
+    }
+
+    function shiftCalendarWeek(direction) {
+        currentCalDate.setDate(currentCalDate.getDate() + (direction * 7));
+        renderCalendar();
+    }
+
+    function resetCalendarToToday() {
+        currentCalDate = new Date();
+        renderCalendar();
+    }
+
+    function changeCalendarMonth(val) {
+        if(!val) return;
+        let parts = val.split('-'); // YYYY-MM
+        currentCalDate = new Date(parts[0], parts[1] - 1, 1);
+        renderCalendar();
+    }
+
+    function renderCalendar() {
+        let colsContainer = document.getElementById('calendarDayCols');
+        colsContainer.innerHTML = ''; 
+
+        // Start of week (Monday)
+        let dayOfWeek = currentCalDate.getDay();
+        let diff = currentCalDate.getDate() - dayOfWeek + (dayOfWeek == 0 ? -6 : 1);
+        let startOfWeek = new Date(currentCalDate);
+        startOfWeek.setDate(diff);
+
+        let daysToRender = calViewMode === 'work_week' ? 5 : 7;
+        let dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+        let today = new Date();
+        
+        // 1. Draw the basic layout immediately
+        for (let i = 0; i < daysToRender; i++) {
+            let renderDate = new Date(startOfWeek);
+            renderDate.setDate(startOfWeek.getDate() + i);
+            
+            let isToday = (renderDate.getDate() === today.getDate() && renderDate.getMonth() === today.getMonth() && renderDate.getFullYear() === today.getFullYear());
+            let activeClass = isToday ? 'active' : '';
+
+            let colHtml = `
+                <div class="day-col" id="cal-col-${i}">
+                    <div class="day-header ${activeClass}">
+                        <div class="day-num">${renderDate.getDate()}</div>
+                        <div class="day-name">${dayNames[i]}</div>
+                    </div>
+            `;
+            
+            for(let j=0; j<24; j++) {
+                let hourFormat = j === 0 ? 12 : (j > 12 ? j - 12 : j);
+                let amPm = j < 12 ? 'AM' : 'PM';
+                let timeString = `${String(hourFormat).padStart(2,'0')}:00 ${amPm}`;
+                let dateString = `${renderDate.getFullYear()}-${String(renderDate.getMonth()+1).padStart(2,'0')}-${String(renderDate.getDate()).padStart(2,'0')}`;
+                
+                colHtml += `<div class="grid-cell" id="cell-${dateString}-${j}" onclick="openScheduleModal('${dateString}', '${timeString}')"></div>`;
+            }
+            colHtml += `</div>`;
+            colsContainer.insertAdjacentHTML('beforeend', colHtml);
+        }
+
+        let midWeek = new Date(startOfWeek);
+        midWeek.setDate(startOfWeek.getDate() + 3); 
+        let monthInput = document.getElementById('calendarMonthPicker');
+        monthInput.value = `${midWeek.getFullYear()}-${String(midWeek.getMonth()+1).padStart(2,'0')}`;
+
+        // 2. Fetch events asynchronously and overlay them
+        let endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + daysToRender - 1);
+
+        let startStr = `${startOfWeek.getFullYear()}-${String(startOfWeek.getMonth()+1).padStart(2,'0')}-${String(startOfWeek.getDate()).padStart(2,'0')}`;
+        let endStr = `${endOfWeek.getFullYear()}-${String(endOfWeek.getMonth()+1).padStart(2,'0')}-${String(endOfWeek.getDate()).padStart(2,'0')}`;
+
+        let fd = new FormData();
+        fd.append('action', 'get_calendar_events');
+        fd.append('start_date', startStr);
+        fd.append('end_date', endStr);
+
+        fetch(window.location.href, { method: 'POST', body: fd })
+        .then(r=>r.json())
+        .then(events => {
+            if (!events || events.length === 0) return;
+            
+            events.forEach(ev => {
+                let timeMatch = ev.meet_time.match(/(\d+):00 (AM|PM)/);
+                if (timeMatch) {
+                    let h = parseInt(timeMatch[1]);
+                    let ampm = timeMatch[2];
+                    let j = (h === 12 ? (ampm === 'AM' ? 0 : 12) : (ampm === 'PM' ? h + 12 : h));
+                    
+                    let targetCell = document.getElementById(`cell-${ev.meet_date}-${j}`);
+                    if (targetCell) {
+                        targetCell.innerHTML += `<div class="cal-event" onclick="event.stopPropagation(); openEmbeddedMeeting('${ev.meet_link}','video')" title="${ev.title}">${ev.title}</div>`;
+                    }
+                }
+            });
+        }).catch(err => console.log('Calendar fetch issue:', err));
+    }
+
+    function openScheduleModal(date, time) {
+        document.getElementById('schDate').value = date;
+        let selectOptions = document.getElementById('schTime').options;
+        for(let i=0; i < selectOptions.length; i++) {
+            if(selectOptions[i].value === time) {
+                document.getElementById('schTime').selectedIndex = i;
+                break;
+            }
+        }
+        document.getElementById('scheduleMeetingModal').style.display='flex';
+    }
+
 
     // --- EMOJI PICKER LOGIC ---
     const emojis = ['😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🤭','🤫','🤥','😶','😐','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','👹','👺','🤡','💩','👻','💀','☠️','👽','👾','🤖','🎃','😺','😸','😹','😻','😼','😽','🙀','😿','😾'];
@@ -1057,46 +1240,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     function saveScheduledMeeting() {
         let title = document.getElementById('schTitle').value || 'Scheduled Meeting';
-        let targetUser = document.getElementById('schUser').value;
+        
+        let checkboxes = document.querySelectorAll('.sch-user-checkbox:checked');
+        let selectedUsers = Array.from(checkboxes).map(cb => cb.value);
+        
         let date = document.getElementById('schDate').value;
         let time = document.getElementById('schTime').value;
         
-        if(!targetUser) {
-            Swal.fire('Error', 'Please select a user to invite.', 'error');
+        if(selectedUsers.length === 0) {
+            Swal.fire('Error', 'Please select at least one person to invite.', 'error');
             return;
         }
 
-        let meetId = 'Workack-Meet-' + Math.random().toString(36).substring(2, 10);
-        let msg = `📅 **Scheduled Meeting: ${title}**<br>Date: ${date} at ${time}<br>Click to Join: video:${meetId}`;
-
-        // Send logic
         let fd = new FormData();
-        fd.append('action', 'start_chat');
-        fd.append('target_user_id', targetUser);
+        fd.append('action', 'create_scheduled_meeting');
+        fd.append('title', title);
+        fd.append('date', date);
+        fd.append('time', time);
+        fd.append('members', JSON.stringify(selectedUsers));
         
         fetch(window.location.href, { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
-            if(data.id) {
-                let sendFd = new FormData();
-                sendFd.append('action', 'send_message');
-                sendFd.append('conversation_id', data.id);
-                sendFd.append('message', msg);
-                sendFd.append('type', 'text');
+            if(data.status === 'success') {
+                document.getElementById('scheduleMeetingModal').style.display = 'none';
+                Swal.fire('Success', 'Meeting scheduled and invite sent via chat!', 'success');
                 
-                fetch(window.location.href, { method: 'POST', body: sendFd }).then(() => {
-                    document.getElementById('scheduleMeetingModal').style.display = 'none';
-                    Swal.fire('Success', 'Meeting scheduled and invite sent via chat!', 'success');
-                    
-                    // Reset modal
-                    document.getElementById('schTitle').value = '';
-                    document.getElementById('schUser').value = '';
-                    
-                    // Switch back to chat to see the message
-                    switchMainTab('chat_view', document.querySelectorAll('.nav-icon')[0]);
-                    loadConversation(data.id);
-                });
+                document.getElementById('schTitle').value = '';
+                checkboxes.forEach(cb => cb.checked = false); 
+                
+                // Refresh Calendar immediately if open
+                if (document.getElementById('calendar_view').style.display !== 'none') {
+                    renderCalendar();
+                }
+                
+                // Switch back to chat to see the message
+                switchMainTab('chat_view', document.querySelectorAll('.nav-icon')[0]);
+                loadConversation(data.conversation_id);
+            } else {
+                Swal.fire('Error', 'Could not schedule meeting. ' + (data.message || ''), 'error');
             }
+        })
+        .catch(err => {
+            console.error('Save Meeting Error:', err);
+            Swal.fire('Error', 'Failed to connect to the server.', 'error');
         });
     }
 
@@ -1285,7 +1472,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fetchMessages(true); 
     }
 
-    // Inner Tab Switching (Chat/Files/Photos)
     function switchInnerTab(tabName) {
         const navItems = document.querySelectorAll('.header-nav-item');
         navItems.forEach(item => item.classList.remove('active'));
@@ -1383,7 +1569,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if(m.message_type === 'image') content = `<img src="${m.attachment_path}" style="max-width:100%; border-radius:4px; margin-bottom:5px;">`;
             else if(m.message_type === 'file') content = `<a href="${m.attachment_path}" target="_blank" style="display:flex; align-items:center; gap:8px; color:inherit; text-decoration:none; background:rgba(0,0,0,0.05); padding:8px; border-radius:4px;"><i class="ri-file-text-fill text-xl"></i> <span>Download File</span></a>`;
             else if(m.message.includes('video:')) {
-                // Handling scheduled meetings in chat text
                 let meetParts = m.message.split('video:');
                 let plainText = meetParts[0];
                 let meetId = meetParts[1];
@@ -1690,7 +1875,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         fd.append('target_user_id', userId);
         fetch(window.location.href, { method: 'POST', body: fd })
         .then(r => r.json())
-        .then(data => { if(data.id) loadConversation(data.id); });
+        .then(data => { if(data.id) { switchMainTab('chat_view', document.querySelectorAll('.sidebar-secondary-teams .nav-icon')[0]); loadConversation(data.id); } });
     }
 
     function startCall(type) {
