@@ -93,7 +93,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             $company_bank = null;
             if(!empty($invoice['company_bank_id'])) {
-                // Check if company_banks table exists safely
                 $check_cb = mysqli_query($conn, "SHOW TABLES LIKE 'company_banks'");
                 if(mysqli_num_rows($check_cb) > 0) {
                     $cb_res = mysqli_query($conn, "SELECT * FROM company_banks WHERE id = " . $invoice['company_bank_id']);
@@ -115,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     }
 }
 
-// 3. FETCH UI DATA 
+// 3. FETCH UI DATA (RELAXED CONDITION & SAFE QUERY)
 $clients_query = mysqli_query($conn, "SELECT * FROM clients ORDER BY client_name ASC");
 $all_clients = [];
 if($clients_query) {
@@ -279,6 +278,7 @@ include '../header.php';
                             <option value="<?= $c['id'] ?>"><?= $c['client_name'] ?> <?= !empty($c['company_name']) ? "({$c['company_name']})" : '' ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <input type="hidden" name="client_name" id="hiddenClientName">
                 </div>
                 <div class="form-group">
                     <label>GST Number</label>
@@ -350,6 +350,8 @@ include '../header.php';
                         <td><input type="number" name="item_disc_val[]" class="disc-input" value="0" min="0" oninput="calculateTotals()" style="width: 100%; text-align: center; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;"></td>
                         <td>
                             <input type="text" name="item_total[]" class="row-total" value="0.00" readonly style="width: 100%; text-align: right; font-weight: 700; background: #f8fafc; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                            <input type="hidden" name="item_tax_p[]" class="tax-p-hidden" value="0">
+                            <input type="hidden" name="item_tax_a[]" class="row-tax-amount" value="0">
                         </td>
                         <td style="text-align: center; padding-top: 15px;"><i class="ph ph-trash remove-item" style="font-size: 20px; color: #dc2626; cursor: pointer;" onclick="this.closest('tr').remove(); calculateTotals(); updateRowNumbers();"></i></td>
                     </tr>
@@ -392,6 +394,7 @@ include '../header.php';
                     
                     <input type="hidden" name="final_sub_total" id="hiddenSubTotal">
                     <input type="hidden" name="discount" id="hiddenDiscountTotal">
+                    <input type="hidden" name="final_tax_amount" id="hiddenTaxTotal">
                     <input type="hidden" name="cgst" id="hiddenCgst">
                     <input type="hidden" name="sgst" id="hiddenSgst">
                     <input type="hidden" name="round_off" id="hiddenRoundOff">
@@ -539,7 +542,24 @@ include '../header.php';
     const clientData = <?= json_encode($all_clients, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE) ?>;
     let itemIndex = 1;
 
-    // --- AUTO-FILL UI LOGIC ---
+    // --- BULLETPROOF AUTO-FILL UI LOGIC ---
+    function updateClientBankUI() {
+        const bankSelect = document.getElementById('clientBankSelect');
+        const selectedOption = bankSelect.options[bankSelect.selectedIndex];
+
+        if (selectedOption && selectedOption.value !== "") {
+            document.getElementById('ui_client_bank').value = selectedOption.getAttribute('data-bname') || '';
+            document.getElementById('ui_client_acc').value = selectedOption.getAttribute('data-bacc') || '';
+            document.getElementById('ui_client_ifsc').value = selectedOption.getAttribute('data-bifsc') || '';
+            document.getElementById('hidden_client_bank_details').value = selectedOption.getAttribute('data-bdet') || '';
+        } else {
+            document.getElementById('ui_client_bank').value = '';
+            document.getElementById('ui_client_acc').value = '';
+            document.getElementById('ui_client_ifsc').value = '';
+            document.getElementById('hidden_client_bank_details').value = '';
+        }
+    }
+
     document.getElementById('clientSelect').addEventListener('change', function() {
         const clientId = this.value;
         const bankSelect = document.getElementById('clientBankSelect');
@@ -547,11 +567,9 @@ include '../header.php';
         bankSelect.innerHTML = '<option value="">-- No Client Bank Found --</option>';
         document.getElementById('ui_client_gst').value = '';
         document.getElementById('ui_client_mobile').value = '';
-        document.getElementById('ui_client_bank').value = '';
-        document.getElementById('ui_client_acc').value = '';
-        document.getElementById('ui_client_ifsc').value = '';
         document.getElementById('hiddenClientName').value = '';
-        document.getElementById('hidden_client_bank_details').value = '';
+        
+        updateClientBankUI(); // Clear bank inputs initially
 
         if (!clientId) return;
 
@@ -567,38 +585,25 @@ include '../header.php';
                     const option = document.createElement('option');
                     option.value = idx; 
                     option.text = bank.display;
-                    option.setAttribute('data-bank', JSON.stringify(bank));
+                    option.setAttribute('data-bname', bank.bank_name || '');
+                    option.setAttribute('data-bacc', bank.account_number || '');
+                    option.setAttribute('data-bifsc', bank.ifsc_code || '');
+                    option.setAttribute('data-bdet', bank.details || '');
                     bankSelect.appendChild(option);
                 });
                 
+                // Automatically auto-select if there is exactly 1 bank
                 if(client.banks_list.length === 1) {
                     bankSelect.selectedIndex = 1;
-                    bankSelect.dispatchEvent(new Event('change'));
                 }
             }
         }
+        
+        // Final update to push data to UI text boxes
+        updateClientBankUI();
     });
 
-    document.getElementById('clientBankSelect').addEventListener('change', function() {
-        const selectedIdx = this.value;
-        const clientId = document.getElementById('clientSelect').value;
-
-        if (selectedIdx !== "" && clientId) {
-            const client = clientData.find(c => c.id == clientId);
-            if (client && client.banks_list[selectedIdx]) {
-                const bankData = client.banks_list[selectedIdx];
-                document.getElementById('ui_client_bank').value = bankData.bank_name || '';
-                document.getElementById('ui_client_acc').value = bankData.account_number || '';
-                document.getElementById('ui_client_ifsc').value = bankData.ifsc_code || '';
-                document.getElementById('hidden_client_bank_details').value = bankData.details;
-            }
-        } else {
-            document.getElementById('ui_client_bank').value = '';
-            document.getElementById('ui_client_acc').value = '';
-            document.getElementById('ui_client_ifsc').value = '';
-            document.getElementById('hidden_client_bank_details').value = '';
-        }
-    });
+    document.getElementById('clientBankSelect').addEventListener('change', updateClientBankUI);
 
     // --- CALCULATIONS & TABLE LOGIC ---
     function addRow() {
@@ -623,6 +628,7 @@ include '../header.php';
     function calculateTotals() {
         let subtotal = 0, totalDisc = 0;
         
+        // Get the single GST% from the summary box
         const overallGstP = parseFloat(document.getElementById('overall_gst_p').value) || 0;
         const halfGstP = (overallGstP / 2).toFixed(1);
         
@@ -769,6 +775,7 @@ include '../header.php';
                 document.getElementById('p_grand').innerText = '₹ ' + parseFloat(inv.grand_total).toFixed(2);
                 
                 document.getElementById('p_notes').innerText = inv.notes || '';
+                // Uses the hardcoded terms passed to DB
                 document.getElementById('p_terms').innerText = inv.terms || '';
                 
                 const table = document.getElementById('p_items'); 

@@ -480,7 +480,7 @@ $sections = [
                 'name' => 'Masters', 
                 'path' => $base . 'accounts/masters.php', 
                 'icon' => 'database', 
-                'allowed' => ['Accounts']
+                'allowed' => ['Accounts', 'CFO']
             ],
             ]
         ],
