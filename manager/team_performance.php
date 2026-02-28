@@ -76,25 +76,6 @@ if ($tl_result) {
             #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
         }
         
-        /* Custom Range Slider */
-        input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 20px;
-            width: 20px;
-            border-radius: 50%;
-            background: #3b82f6;
-            cursor: pointer;
-            margin-top: -8px;
-            box-shadow: 0 0 0 4px #eff6ff;
-        }
-        input[type=range]::-webkit-slider-runnable-track {
-            width: 100%;
-            height: 6px;
-            cursor: pointer;
-            background: #e2e8f0;
-            border-radius: 4px;
-        }
-        
         /* Hide Scrollbar for clean tables */
         .hide-scrollbar::-webkit-scrollbar { display: none; }
         .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
@@ -312,40 +293,6 @@ if ($tl_result) {
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 shadow-sm">
-                        <h3 class="font-bold text-slate-800 flex items-center gap-2 mb-6 border-b border-slate-100 pb-4">
-                            <i class="fa-regular fa-comment-dots text-blue-500"></i> Manager's Feedback
-                        </h3>
-                        
-                        <form action="update_review.php" method="POST">
-                            <input type="hidden" name="employee_id" id="m_form_emp_id">
-                            
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
-                                <div>
-                                    <div class="flex justify-between items-end mb-4">
-                                        <label class="text-sm font-semibold text-slate-600">Soft Skills Rating (10% Score)</label>
-                                        <span id="sliderValue" class="text-2xl font-bold text-slate-800 bg-slate-100 px-3 py-1 rounded-md">70</span>
-                                    </div>
-                                    <input type="range" name="soft_skills" id="softSkillsSlider" min="0" max="100" value="70" class="w-full appearance-none bg-transparent outline-none mb-2" oninput="document.getElementById('sliderValue').innerText = this.value">
-                                    <div class="flex justify-between text-xs text-slate-400 font-medium">
-                                        <span>Poor</span>
-                                        <span>Excellent</span>
-                                    </div>
-                                </div>
-                                
-                                <div>
-                                    <label class="block text-sm font-semibold text-slate-600 mb-2">Comments</label>
-                                    <textarea name="comments" rows="3" class="w-full border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" placeholder="Write feedback here..."></textarea>
-                                </div>
-                            </div>
-                            
-                            <div class="mt-6 flex justify-end pt-4 border-t border-slate-100">
-                                <button type="submit" class="w-full sm:w-auto bg-slate-800 text-white font-semibold py-2.5 px-6 rounded-lg shadow hover:bg-slate-700 transition flex items-center justify-center gap-2">
-                                    <i class="fa-solid fa-check-circle"></i> Update Review
-                                </button>
-                            </div>
-                        </form>
-                    </div>
                 </div>
             </div>
         </div>
@@ -367,7 +314,6 @@ if ($tl_result) {
                     document.getElementById('m_emp_role').innerText = empData.designation;
                     document.getElementById('m_emp_grade').innerText = empData.grade;
                     document.getElementById('m_emp_score').innerText = empData.score;
-                    document.getElementById('m_form_emp_id').value = empData.id;
 
                     document.getElementById('m_emp_projects').innerText = empData.projects + "%";
                     document.getElementById('m_emp_tasks').innerText = empData.tasks + "%";
