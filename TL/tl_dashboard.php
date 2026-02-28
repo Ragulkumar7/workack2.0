@@ -9,12 +9,18 @@ if (!isset($_SESSION['user_id'])) {
     exit(); 
 }
 
-// 2. DATABASE CONNECTION
+// 2. DATABASE CONNECTION & PATHS
 $db_path = __DIR__ . '/../include/db_connect.php';
 if (file_exists($db_path)) {
     require_once $db_path;
+    $path_to_root = '../';
+    $sidebarPath = '../sidebars.php';
+    $headerPath = '../header.php';
 } else {
     require_once '../include/db_connect.php'; 
+    $path_to_root = '';
+    $sidebarPath = 'sidebars.php';
+    $headerPath = 'header.php';
 }
 
 date_default_timezone_set('Asia/Kolkata');
@@ -42,27 +48,29 @@ if (isset($_GET['dismiss_ticket'])) {
 // =========================================================================
 // TL PROFILE & SHIFT TIMINGS
 // =========================================================================
-$tl_name = "Team Leader"; $tl_phone = "Not Set"; $tl_email = ""; $tl_dept = "General"; $tl_exp = "Fresher"; $tl_join = "Not Set";
-$shift_timings = '09:00 AM - 06:00 PM';
+$tl_name = "Team Leader"; $tl_phone = "Not Set"; $tl_email = ""; $tl_dept = "General"; $tl_exp = "Fresher"; 
 $tl_emergency_contacts = '[]';
+$shift_timings = '09:00 AM - 06:00 PM';
 
-$profile_query = "SELECT u.username, u.email, p.* FROM users u LEFT JOIN employee_profiles p ON u.id = p.user_id WHERE u.id = ?";
+$profile_query = "SELECT u.username, u.email, u.role, p.* FROM users u LEFT JOIN employee_profiles p ON u.id = p.user_id WHERE u.id = ?";
 $stmt_p = $conn->prepare($profile_query);
 $stmt_p->bind_param("i", $tl_user_id);
 $stmt_p->execute();
 if ($row = $stmt_p->get_result()->fetch_assoc()) {
     $tl_name = $row['full_name'] ?? $row['username'];
-    $tl_phone = $row['phone'] ?? $tl_phone;
+    $tl_phone = $row['phone'] ?? 'Not Set';
     $tl_email = $row['email'] ?? $row['username'];
-    $tl_dept = $row['department'] ?? $tl_dept;
-    $tl_exp = $row['experience_label'] ?? $tl_exp;
-    $tl_join = $row['joining_date'] ? date("d M Y", strtotime($row['joining_date'])) : "Not Set";
-    $shift_timings = $row['shift_timings'] ?? $shift_timings;
+    $tl_dept = $row['department'] ?? 'General';
+    $tl_exp = $row['experience_label'] ?? 'Fresher';
     $tl_emergency_contacts = $row['emergency_contacts'] ?? '[]';
+    $shift_timings = $row['shift_timings'] ?? $shift_timings;
+    
+    // For Display
+    $joining_date_display = $row['joining_date'] ? date("d M Y", strtotime($row['joining_date'])) : "Not Set";
     
     $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($tl_name) . "&background=0d9488&color=fff&size=128&bold=true";
     if (!empty($row['profile_img']) && $row['profile_img'] !== 'default_user.png') {
-        $profile_img = str_starts_with($row['profile_img'], 'http') ? $row['profile_img'] : '../assets/profiles/' . $row['profile_img'];
+        $profile_img = str_starts_with($row['profile_img'], 'http') ? $row['profile_img'] : $path_to_root . 'assets/profiles/' . $row['profile_img'];
     }
 }
 $stmt_p->close();
@@ -81,22 +89,16 @@ mysqli_stmt_bind_param($stat_stmt, "iii", $tl_user_id, $current_month, $current_
 mysqli_stmt_execute($stat_stmt);
 $stat_res = mysqli_stmt_get_result($stat_stmt);
 
-while ($row = mysqli_fetch_assoc($stat_res)) {
-    if ($row['status'] == 'WFH') { $stats_wfh++; } 
-    elseif ($row['status'] == 'Absent') { $stats_absent++; } 
-    elseif (in_array($row['status'], ['Sick Leave', 'Sick'])) { $stats_sick++; } 
+while ($stat_row = mysqli_fetch_assoc($stat_res)) {
+    if ($stat_row['status'] == 'WFH') { $stats_wfh++; } 
+    elseif ($stat_row['status'] == 'Absent') { $stats_absent++; } 
+    elseif (in_array($stat_row['status'], ['Sick Leave', 'Sick'])) { $stats_sick++; } 
     else {
-        if (!empty($row['punch_in'])) {
-            $expected_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
-            $actual_start_ts = strtotime($row['punch_in']);
-            if ($actual_start_ts > ($expected_start_ts + 60)) {
-                $stats_late++;
-            } else {
-                $stats_ontime++;
-            }
-        } else {
-            $stats_absent++;
-        }
+        if (!empty($stat_row['punch_in'])) {
+            $expected_start_ts = strtotime($stat_row['date'] . ' ' . $shift_start_str);
+            $actual_start_ts = strtotime($stat_row['punch_in']);
+            if ($actual_start_ts > ($expected_start_ts + 60)) { $stats_late++; } else { $stats_ontime++; }
+        } else { $stats_absent++; }
     }
 }
 
@@ -104,10 +106,19 @@ while ($row = mysqli_fetch_assoc($stat_res)) {
 // TL'S OWN LEAVE CARRY-FORWARD LOGIC
 // =========================================================================
 $base_leaves_per_month = 2;
-// Use original join date for calculation
-$calc_join_date = ($tl_join !== "Not Set") ? date('Y-m-d', strtotime($tl_join)) : date('Y-m-01');
+$raw_join_date = $row['joining_date'] ?? null;
+
+if (!empty($raw_join_date) && $raw_join_date != '0000-00-00') {
+    $calc_join_date = date('Y-m-d', strtotime($raw_join_date));
+    $display_join_month_year = date('M Y', strtotime($raw_join_date));
+} else {
+    $calc_join_date = date('Y-m-01');
+    $display_join_month_year = date('M Y');
+}
+
 $d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
 $d2 = new DateTime('now'); $d2->modify('first day of this month');
+
 $months_worked = 0;
 if ($d2 >= $d1) {
     $interval = $d1->diff($d2);
@@ -115,27 +126,18 @@ if ($d2 >= $d1) {
 }
 $total_earned_leaves = $months_worked * $base_leaves_per_month;
 
+// Fetch ALL Approved leaves
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
 $leave_stmt->bind_param("i", $tl_user_id);
 $leave_stmt->execute();
 $leave_data = $leave_stmt->get_result()->fetch_assoc();
-$leaves_taken = $leave_data['taken'] ?? 0;
-$leaves_remaining = max(0, $total_earned_leaves - $leaves_taken);
+$leaves_taken = floatval($leave_data['taken'] ?? 0);
+$leaves_remaining = $total_earned_leaves - $leaves_taken;
 
 // =========================================================================
-// TEAM ATTENDANCE OVERVIEW
+// FETCH MY TEAM (e.g. Vasanth Raj & Co)
 // =========================================================================
-$res_team = $conn->query("SELECT COUNT(*) as total FROM employee_profiles WHERE reporting_to = $tl_user_id")->fetch_assoc();
-$total_team = $res_team['total'] ?? 0;
-$res_p = $conn->query("SELECT COUNT(*) as cnt FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE ep.reporting_to = $tl_user_id AND a.date = '$today' AND (a.status='On Time' OR a.status='WFH' OR a.status='Late')")->fetch_assoc();
-$team_present = $res_p['cnt'] ?? 0;
-$res_l = $conn->query("SELECT COUNT(*) as cnt FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE ep.reporting_to = $tl_user_id AND a.date = '$today' AND a.status='Late'")->fetch_assoc();
-$team_late = $res_l['cnt'] ?? 0;
-$team_absent = max(0, $total_team - $team_present);
-$team_att_pct = ($total_team > 0) ? round(($team_present / $total_team) * 100) : 0;
-
-// Fetch Team Members List
 $team_members = [];
 $team_q = "SELECT ep.user_id, ep.full_name, ep.designation, ep.profile_img, a.status as today_status 
            FROM employee_profiles ep 
@@ -153,21 +155,40 @@ if ($stmt_team) {
 }
 
 // =========================================================================
-// PROJECTS & TASK PRIORITIES
+// TEAM ATTENDANCE OVERVIEW
+// =========================================================================
+$res_team = $conn->query("SELECT COUNT(*) as total FROM employee_profiles WHERE reporting_to = $tl_user_id")->fetch_assoc();
+$total_team = $res_team['total'] ?? 0;
+$res_p = $conn->query("SELECT COUNT(*) as cnt FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE ep.reporting_to = $tl_user_id AND a.date = '$today' AND (a.status='On Time' OR a.status='WFH' OR a.status='Late')")->fetch_assoc();
+$team_present = $res_p['cnt'] ?? 0;
+$res_l = $conn->query("SELECT COUNT(*) as cnt FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE ep.reporting_to = $tl_user_id AND a.date = '$today' AND a.status='Late'")->fetch_assoc();
+$team_late = $res_l['cnt'] ?? 0;
+$team_absent = max(0, $total_team - $team_present);
+$team_att_pct = ($total_team > 0) ? round(($team_present / $total_team) * 100) : 0;
+
+// =========================================================================
+// PROJECTS DYNAMIC PROGRESS (Calculated from project_tasks)
 // =========================================================================
 $active_projects = [];
-$proj_q = "SELECT project_name, progress FROM projects WHERE leader_id = ? AND status != 'Completed' LIMIT 4";
+$proj_q = "SELECT p.id, p.project_name, p.deadline, p.status,
+                  (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id) as total_tasks,
+                  (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id AND pt.status = 'Completed') as completed_tasks
+           FROM projects p 
+           WHERE p.leader_id = ? AND p.status != 'Completed' 
+           ORDER BY p.id DESC LIMIT 4";
 $stmt_proj = $conn->prepare($proj_q);
 if ($stmt_proj) {
     $stmt_proj->bind_param("i", $tl_user_id);
     $stmt_proj->execute();
     $res_proj = $stmt_proj->get_result();
-    while ($row = $res_proj->fetch_assoc()) { $active_projects[] = $row; }
+    while ($p_row = $res_proj->fetch_assoc()) { 
+        $active_projects[] = $p_row; 
+    }
     $stmt_proj->close();
 }
 
-// My Own Tasks
-$task_sql = "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 4";
+// My Own Personal Tasks
+$task_sql = "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 5";
 $task_stmt = mysqli_prepare($conn, $task_sql);
 mysqli_stmt_bind_param($task_stmt, "i", $tl_user_id);
 mysqli_stmt_execute($task_stmt);
@@ -181,10 +202,10 @@ if ($stmt_tp) {
     $stmt_tp->bind_param("i", $tl_user_id);
     $stmt_tp->execute();
     $res_tp = $stmt_tp->get_result();
-    while ($row = $res_tp->fetch_assoc()) {
-        if ($row['priority'] == 'High') $high_tasks = $row['cnt'];
-        if ($row['priority'] == 'Medium') $med_tasks = $row['cnt'];
-        if ($row['priority'] == 'Low') $low_tasks = $row['cnt'];
+    while ($pr_row = $res_tp->fetch_assoc()) {
+        if ($pr_row['priority'] == 'High') $high_tasks = $pr_row['cnt'];
+        if ($pr_row['priority'] == 'Medium') $med_tasks = $pr_row['cnt'];
+        if ($pr_row['priority'] == 'Low') $low_tasks = $pr_row['cnt'];
     }
     $stmt_tp->close();
 }
@@ -194,61 +215,65 @@ if ($stmt_tp) {
 // =========================================================================
 $all_notifications = [];
 
+// IT Tickets
 $q_tickets = "SELECT id, ticket_code, subject, created_at FROM tickets WHERE user_id = $tl_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY created_at DESC LIMIT 3";
 $r_tickets = mysqli_query($conn, $q_tickets);
 if($r_tickets) {
-    while($row = mysqli_fetch_assoc($r_tickets)) {
+    while($nt_row = mysqli_fetch_assoc($r_tickets)) {
         $all_notifications[] = [
-            'type' => 'ticket', 'id' => $row['id'],
-            'title' => 'Ticket Solved: #' . ($row['ticket_code'] ?? $row['id']),
-            'message' => 'IT Team resolved your ticket: ' . htmlspecialchars($row['subject']),
-            'time' => $row['created_at'], 'icon' => 'fa-check-double',
+            'type' => 'ticket', 'id' => $nt_row['id'],
+            'title' => 'Ticket Solved: #' . ($nt_row['ticket_code'] ?? $nt_row['id']),
+            'message' => 'IT Team resolved your ticket: ' . htmlspecialchars($nt_row['subject']),
+            'time' => $nt_row['created_at'], 'icon' => 'fa-check-double',
             'color' => 'text-green-600 bg-green-100',
-            'link' => '?dismiss_ticket=' . $row['id']
+            'link' => '?dismiss_ticket=' . $nt_row['id']
         ];
     }
 }
 
+// Own Leave Approvals
 $q_own_leaves = "SELECT leave_type, status, start_date FROM leave_requests WHERE user_id = $tl_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 2";
 $r_own_leaves = mysqli_query($conn, $q_own_leaves);
 if($r_own_leaves) {
-    while($row = mysqli_fetch_assoc($r_own_leaves)) {
+    while($nl_row = mysqli_fetch_assoc($r_own_leaves)) {
         $all_notifications[] = [
             'type' => 'leave',
-            'title' => 'Leave ' . $row['status'],
-            'message' => 'Your ' . $row['leave_type'] . ' request was ' . strtolower($row['status']) . '.',
-            'time' => $row['start_date'] . ' 09:00:00', 
-            'icon' => ($row['status'] == 'Approved') ? 'fa-check-circle' : 'fa-times-circle',
-            'color' => ($row['status'] == 'Approved') ? 'text-emerald-500 bg-emerald-100' : 'text-rose-500 bg-rose-100',
+            'title' => 'Leave ' . $nl_row['status'],
+            'message' => 'Your ' . $nl_row['leave_type'] . ' request was ' . strtolower($nl_row['status']) . '.',
+            'time' => $nl_row['start_date'] . ' 09:00:00', 
+            'icon' => ($nl_row['status'] == 'Approved') ? 'fa-check-circle' : 'fa-times-circle',
+            'color' => ($nl_row['status'] == 'Approved') ? 'text-emerald-500 bg-emerald-100' : 'text-rose-500 bg-rose-100',
             'link' => '../employee/leave_request.php'
         ];
     }
 }
 
+// Announcements
 $q_announcements = "SELECT * FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY created_at DESC LIMIT 10"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
-    while($row = mysqli_fetch_assoc($r_announcements)) {
+    while($na_row = mysqli_fetch_assoc($r_announcements)) {
         $all_notifications[] = [
             'type' => 'announcement',
-            'title' => 'Announcement: ' . htmlspecialchars($row['title']),
-            'message' => htmlspecialchars(substr($row['message'], 0, 50)) . '...',
-            'time' => $row['created_at'], 'icon' => 'fa-bullhorn',
+            'title' => 'Announcement: ' . htmlspecialchars($na_row['title']),
+            'message' => htmlspecialchars(substr($na_row['message'], 0, 50)) . '...',
+            'time' => $na_row['created_at'], 'icon' => 'fa-bullhorn',
             'color' => 'text-orange-600 bg-orange-100',
             'link' => '../view_announcements.php'
         ];
     }
 }
 
+// Assigned Projects
 $q_new_proj = "SELECT project_name, created_at FROM projects WHERE leader_id = $tl_user_id ORDER BY created_at DESC LIMIT 2";
 $r_new_proj = mysqli_query($conn, $q_new_proj);
 if($r_new_proj) {
-    while($row = mysqli_fetch_assoc($r_new_proj)) {
+    while($np_row = mysqli_fetch_assoc($r_new_proj)) {
         $all_notifications[] = [
             'type' => 'project',
             'title' => 'New Project Assigned',
-            'message' => 'You are leading: ' . htmlspecialchars($row['project_name']),
-            'time' => $row['created_at'], 'icon' => 'fa-briefcase',
+            'message' => 'You are leading: ' . htmlspecialchars($np_row['project_name']),
+            'time' => $np_row['created_at'], 'icon' => 'fa-briefcase',
             'color' => 'text-blue-600 bg-blue-100',
             'link' => 'tl_projects.php'
         ];
@@ -261,8 +286,6 @@ $all_notifications = array_slice($all_notifications, 0, 15);
 // Meetings
 $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 3");
 
-$sidebarPath = __DIR__ . '/../sidebars.php';
-$headerPath = __DIR__ . '/../header.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -275,20 +298,10 @@ $headerPath = __DIR__ . '/../header.php';
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        :root { --primary-teal: #0d9488; --bg-gray: #f8fafc; }
-        body { font-family: 'Inter', sans-serif; background-color: var(--bg-gray); color: #1e293b; margin: 0; }
-        #mainContent { margin-left: 95px; width: calc(100% - 95px); padding: 25px 35px; transition: all 0.3s ease; }
-        @media (max-width: 991px) { 
-            #mainContent { margin-left: 0; width: 100%; padding: 70px 15px 15px 15px; } 
-            .dashboard-container { grid-template-columns: 1fr; }
-            .col-span-12, .lg\:col-span-4, .lg\:col-span-5, .lg\:col-span-3 { grid-column: span 12 !important; }
-        }
+        body { background-color: #f1f5f9; font-family: 'Inter', sans-serif; color: #1e293b; }
         .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); transition: all 0.3s ease; height: 100%; display: flex; flex-direction: column; }
         .card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
         .card-body { padding: 1.5rem; flex-grow: 1; }
-        .btn-teal { background-color: var(--primary-teal); color: white; padding: 10px 16px; border-radius: 10px; font-weight: 600; transition: 0.3s; text-align: center; display: inline-block; width: 100%; }
-        .btn-teal:hover { background-color: #0f766e; }
-        .dashboard-container { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; align-items: stretch; }
         .meeting-timeline { position: relative; }
         .meeting-timeline::before { content: ''; position: absolute; left: 80px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
         .meeting-row-wrapper { position: relative; margin-bottom: 1.5rem; }
@@ -299,29 +312,39 @@ $headerPath = __DIR__ . '/../header.php';
         .custom-scroll::-webkit-scrollbar { width: 5px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+        .dashboard-container { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; align-items: stretch; }
+        
+        #mainContent { margin-left: 100px; width: calc(100% - 100px); transition: all 0.3s; padding-top: 10px;}
+        @media (max-width: 991px) {
+            .dashboard-container { grid-template-columns: 1fr; }
+            #mainContent { margin-left: 0; width: 100%; padding-top: 70px;}
+            .col-span-3, .col-span-4, .col-span-5, .col-span-6, .col-span-8, .col-span-12 { grid-column: span 12 !important; }
+        }
     </style>
 </head>
 <body class="bg-slate-100">
 
     <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
+    <?php if (file_exists($headerPath)) include($headerPath); ?>
 
     <main id="mainContent" class="p-6 lg:p-8 min-h-screen">
-        <?php if (file_exists($headerPath)) include($headerPath); ?>
-
+        
         <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
             <div>
-                <h1 class="text-3xl font-black text-slate-800 tracking-tight">TL Dashboard</h1>
+                <h1 class="text-3xl font-bold text-slate-800 tracking-tight">TL Dashboard</h1>
                 <p class="text-slate-500 text-sm mt-1">Welcome back, <b><?php echo htmlspecialchars($tl_name); ?></b></p>
             </div>
-            <div class="flex items-center gap-4 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
-                <i class="fa-regular fa-calendar text-teal-600"></i>
-                <span class="text-sm font-bold text-slate-600"><?php echo date('d M Y'); ?></span>
+            <div class="flex gap-3">
+                <div class="bg-white border border-gray-200 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 shadow-sm flex items-center gap-2">
+                    <i class="fa-regular fa-calendar"></i> <?php echo date("d M Y"); ?>
+                </div>
             </div>
         </div>
 
         <div class="dashboard-container">
 
             <div class="col-span-12 lg:col-span-4 flex flex-col gap-6">
+                
                 <?php include '../attendance_card.php'; ?>
 
                 <div class="card">
@@ -365,6 +388,7 @@ $headerPath = __DIR__ . '/../header.php';
             </div>
 
             <div class="col-span-12 lg:col-span-5 flex flex-col gap-6">
+                
                 <div class="card">
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-6">
@@ -399,7 +423,9 @@ $headerPath = __DIR__ . '/../header.php';
                                     <span class="text-sm text-gray-500">Sick Leave</span>
                                 </div>
                             </div>
-                            <div class="relative"><div id="attendanceChart" class="w-32 h-32"></div></div>
+                            <div class="relative">
+                                <div id="attendanceChart" class="w-32 h-32"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -408,29 +434,34 @@ $headerPath = __DIR__ . '/../header.php';
                     <div class="card-body flex flex-col">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">With Carry Forward</span>
+                            <span class="text-[10px] font-bold text-gray-400 uppercase">With Carry Forward</span>
                         </div>
                         <div class="grid grid-cols-3 gap-4 mb-4">
                             <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Earned</p>
                                 <p class="text-2xl font-bold text-teal-700"><?php echo $total_earned_leaves; ?></p>
+                                <p class="text-[8px] text-teal-600 mt-1 opacity-70">Since: <?php echo $display_join_month_year; ?></p>
                             </div>
                             <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Taken</p>
                                 <p class="text-2xl font-bold text-blue-700"><?php echo $leaves_taken; ?></p>
+                                <p class="text-[8px] text-blue-600 mt-1 opacity-70">Approved only</p>
                             </div>
-                            <div class="bg-green-50 p-3 rounded-xl text-center border border-green-100">
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">Left</p>
-                                <p class="text-2xl font-bold <?php echo $leaves_remaining == 0 ? 'text-rose-600' : 'text-green-700'; ?>">
+                            <div class="bg-green-50 p-3 rounded-xl text-center border border-green-100 relative overflow-hidden">
+                                <p class="text-[10px] text-gray-500 font-bold uppercase relative z-10">Left</p>
+                                <p class="text-2xl font-bold relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-700'; ?>">
                                     <?php echo $leaves_remaining; ?>
                                 </p>
+                                <?php if($leaves_remaining < 0): ?>
+                                    <div class="absolute bottom-0 left-0 right-0 h-1 bg-rose-500"></div>
+                                <?php endif; ?>
                             </div>
                         </div>
                         
-                        <?php if($leaves_remaining == 0): ?>
+                        <?php if($leaves_remaining < 0): ?>
                             <div class="bg-rose-50 border border-rose-200 rounded-lg p-2 mb-4 flex items-center gap-2">
                                 <i class="fa-solid fa-triangle-exclamation text-rose-500"></i>
-                                <p class="text-xs font-medium text-rose-700">Monthly limit exceeded! Extra leaves are considered as LOP.</p>
+                                <p class="text-[10px] font-bold text-rose-700">Monthly limit exceeded! Extra leaves are considered as LOP.</p>
                             </div>
                         <?php endif; ?>
 
@@ -439,6 +470,7 @@ $headerPath = __DIR__ . '/../header.php';
                         </a>
                     </div>
                 </div>
+
             </div>
 
             <div class="col-span-12 lg:col-span-3">
@@ -449,7 +481,7 @@ $headerPath = __DIR__ . '/../header.php';
                             <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($tl_name); ?></h2>
-                        <p class="text-teal-200 text-sm mb-3"><?php echo htmlspecialchars($tl_dept); ?> Lead</p>
+                        <p class="text-teal-200 text-sm mb-3"><?php echo htmlspecialchars($user_role); ?></p>
                         <span class="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-bold">Verified Account</span>
                     </div>
                     <div class="card-body space-y-6">
@@ -479,7 +511,7 @@ $headerPath = __DIR__ . '/../header.php';
                                 <i class="fa-solid fa-calendar-check text-green-600"></i>
                                 <span class="text-xs font-bold text-gray-600">Joined</span>
                             </div>
-                            <span class="text-xs font-bold text-slate-800"><?php echo $tl_join; ?></span>
+                            <span class="text-xs font-bold text-slate-800"><?php echo $joining_date_display; ?></span>
                         </div>
 
                         <div class="mt-6 pt-6 border-t border-dashed border-gray-200">
@@ -543,6 +575,48 @@ $headerPath = __DIR__ . '/../header.php';
                                 <div class="h-full bg-teal-500 rounded-full" style="width: <?php echo $team_att_pct; ?>%"></div>
                             </div>
                         </div>
+                        
+                        <div class="mt-6 pt-4 border-t border-dashed border-gray-200">
+                            <div class="flex justify-between items-center mb-3">
+                                <h3 class="font-bold text-slate-800 text-sm">My Team</h3>
+                                <a href="team_member.php" class="text-[9px] bg-slate-100 text-slate-600 font-bold px-2 py-1 rounded uppercase hover:bg-slate-200 transition">View List</a>
+                            </div>
+                            <div class="space-y-2 custom-scroll overflow-y-auto max-h-[140px] pr-2">
+                                <?php if(!empty($team_members)): ?>
+                                    <?php foreach($team_members as $member): 
+                                        $m_name = $member['full_name'] ?: 'Unknown';
+                                        $m_role = $member['designation'] ?: 'Employee';
+                                        $m_status = $member['today_status'] ?: 'Not Logged In';
+                                        
+                                        $m_img = "https://ui-avatars.com/api/?name=".urlencode($m_name)."&background=random";
+                                        if (!empty($member['profile_img']) && $member['profile_img'] !== 'default_user.png') {
+                                            $m_img = str_starts_with($member['profile_img'], 'http') ? $member['profile_img'] : $path_to_root . 'assets/profiles/' . $member['profile_img'];
+                                        }
+
+                                        $status_color = 'bg-slate-100 text-slate-500';
+                                        if ($m_status == 'On Time') $status_color = 'bg-emerald-100 text-emerald-700';
+                                        elseif ($m_status == 'Late') $status_color = 'bg-orange-100 text-orange-700';
+                                        elseif ($m_status == 'Absent') $status_color = 'bg-rose-100 text-rose-700';
+                                        elseif ($m_status == 'WFH') $status_color = 'bg-blue-100 text-blue-700';
+                                    ?>
+                                    <div class="flex items-center justify-between p-2 border border-gray-50 rounded-lg hover:bg-slate-50 transition">
+                                        <div class="flex items-center gap-2">
+                                            <img src="<?php echo $m_img; ?>" class="w-8 h-8 rounded-full object-cover border border-slate-200">
+                                            <div class="min-w-0">
+                                                <p class="text-xs font-bold text-slate-800 truncate" style="max-width: 100px;"><?php echo htmlspecialchars($m_name); ?></p>
+                                                <p class="text-[9px] text-slate-500 font-medium truncate"><?php echo htmlspecialchars($m_role); ?></p>
+                                            </div>
+                                        </div>
+                                        <span class="text-[8px] font-bold px-2 py-0.5 rounded uppercase tracking-wider <?php echo $status_color; ?>"><?php echo $m_status; ?></span>
+                                    </div>
+                                    <?php endforeach; ?>
+                                <?php else: ?>
+                                    <div class="text-center py-4 text-slate-400">
+                                        <p class="text-xs font-medium">No team members assigned.</p>
+                                    </div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -554,22 +628,45 @@ $headerPath = __DIR__ . '/../header.php';
                             <h3 class="font-bold text-slate-800 text-lg">My Managed Projects</h3>
                             <a href="tl_projects.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
                         </div>
-                        <div class="space-y-4 custom-scroll overflow-y-auto max-h-[150px] pr-2">
+                        <div class="space-y-4 custom-scroll overflow-y-auto max-h-[350px] pr-2">
                             <?php if(!empty($active_projects)): ?>
-                                <?php foreach($active_projects as $proj): ?>
+                                <?php foreach($active_projects as $proj): 
+                                    // DYNAMIC PROJECT PROGRESS CALCULATION
+                                    $pct = ($proj['total_tasks'] > 0) ? round(($proj['completed_tasks'] / $proj['total_tasks']) * 100) : 0;
+                                    
+                                    // Progress Bar Color Logic
+                                    $prog_color = 'bg-blue-500';
+                                    if($pct >= 100) { $prog_color = 'bg-emerald-500'; }
+                                    elseif($pct < 30) { $prog_color = 'bg-orange-500'; }
+                                ?>
                                 <div class="border border-gray-100 rounded-xl p-4 shadow-sm hover:border-teal-200 transition bg-slate-50">
-                                    <h4 class="font-bold text-sm text-slate-800 mb-2 truncate" title="<?php echo htmlspecialchars($proj['project_name']); ?>"><?php echo htmlspecialchars($proj['project_name']); ?></h4>
-                                    <div class="flex justify-between text-[10px] font-black text-teal-600 mb-1 uppercase tracking-widest">
-                                        <span>Progress</span>
-                                        <span><?php echo $proj['progress']; ?>%</span>
+                                    <div class="flex justify-between items-start mb-1">
+                                        <h4 class="font-bold text-sm text-slate-800 mb-2 truncate pr-2 w-3/4" title="<?php echo htmlspecialchars($proj['project_name']); ?>">
+                                            <?php echo htmlspecialchars($proj['project_name']); ?>
+                                        </h4>
+                                        <?php if(!empty($proj['deadline'])): ?>
+                                            <span class="text-[9px] font-bold text-gray-400 bg-white border border-gray-200 px-2 py-1 rounded">
+                                                Due: <?php echo date("d M Y", strtotime($proj['deadline'])); ?>
+                                            </span>
+                                        <?php endif; ?>
                                     </div>
-                                    <div class="w-full bg-gray-200 rounded-full h-1.5">
-                                        <div class="bg-teal-600 h-1.5 rounded-full" style="width: <?php echo $proj['progress']; ?>%"></div>
+                                    
+                                    <div class="mt-2">
+                                        <div class="flex justify-between text-[9px] font-black text-gray-500 mb-1 uppercase tracking-widest">
+                                            <span>Progress (<?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?> Tasks Done)</span>
+                                            <span class="<?php echo str_replace('bg-', 'text-', $prog_color); ?>"><?php echo $pct; ?>%</span>
+                                        </div>
+                                        <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                                            <div class="<?php echo $prog_color; ?> h-1.5 rounded-full transition-all duration-500" style="width: <?php echo $pct; ?>%"></div>
+                                        </div>
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
                             <?php else: ?>
-                                <p class='text-sm text-gray-400'>No active projects.</p>
+                                <div class="text-center py-6 text-slate-400">
+                                    <i class="fa-solid fa-layer-group text-3xl mb-2 opacity-50"></i>
+                                    <p class="text-sm">No active projects assigned.</p>
+                                </div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -583,30 +680,35 @@ $headerPath = __DIR__ . '/../header.php';
                             <h3 class="font-bold text-slate-800 text-lg">My Personal Tasks</h3>
                             <a href="task_tl.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">Tasks Board</a>
                         </div>
-                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[150px] pr-2">
+                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[350px] pr-2">
                             <?php if(mysqli_num_rows($tasks_result) > 0) {
                                 while($task = mysqli_fetch_assoc($tasks_result)): 
                                     $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
                                     $icon_class = ($task['status'] == 'completed') ? 'fa-solid fa-circle-check text-emerald-500' : 'fa-regular fa-circle text-teal-600';
                             ?>
-                            <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition">
+                            <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
                                 <div class="flex items-center gap-3">
                                     <i class="<?php echo $icon_class; ?>"></i>
                                     <div>
-                                        <span class="text-sm font-medium text-slate-700 block w-32 truncate"><?php echo htmlspecialchars($task['title']); ?></span>
+                                        <span class="text-sm font-medium text-slate-700 block w-40 truncate" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
                                     </div>
                                 </div>
                                 <div class="flex flex-col items-end gap-1">
                                     <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
                                 </div>
                             </div>
-                            <?php endwhile; } else { echo "<p class='text-sm text-gray-400'>No personal tasks found.</p>"; } ?>
+                            <?php endwhile; } else { ?>
+                                <div class="text-center py-6 text-slate-400">
+                                    <i class="fa-solid fa-clipboard-check text-3xl mb-2 opacity-50"></i>
+                                    <p class="text-sm">No personal tasks found.</p>
+                                </div>
+                            <?php } ?>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div class="col-span-12 lg:col-span-4">
+            <div class="col-span-12 lg:col-span-6">
                 <div class="card">
                     <div class="card-body">
                         <h3 class="font-bold text-slate-800 text-lg mb-2">Project Tasks Priority</h3>
@@ -620,54 +722,7 @@ $headerPath = __DIR__ . '/../header.php';
                 </div>
             </div>
 
-            <div class="col-span-12 lg:col-span-4">
-                <div class="card">
-                    <div class="card-body">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="font-bold text-slate-800 text-lg">My Team</h3>
-                            <a href="team_member.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
-                        </div>
-                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[250px] pr-2">
-                            <?php if(!empty($team_members)): ?>
-                                <?php foreach($team_members as $member): 
-                                    $m_name = $member['full_name'] ?: 'Unknown';
-                                    $m_role = $member['designation'] ?: 'Employee';
-                                    $m_status = $member['today_status'] ?: 'Not Logged In';
-                                    
-                                    $m_img = "https://ui-avatars.com/api/?name=".urlencode($m_name)."&background=random";
-                                    if (!empty($member['profile_img']) && $member['profile_img'] !== 'default_user.png') {
-                                        $m_img = str_starts_with($member['profile_img'], 'http') ? $member['profile_img'] : '../assets/profiles/' . $member['profile_img'];
-                                    }
-
-                                    $status_color = 'bg-slate-100 text-slate-500';
-                                    if ($m_status == 'On Time') $status_color = 'bg-emerald-100 text-emerald-700';
-                                    elseif ($m_status == 'Late') $status_color = 'bg-orange-100 text-orange-700';
-                                    elseif ($m_status == 'Absent') $status_color = 'bg-rose-100 text-rose-700';
-                                    elseif ($m_status == 'WFH') $status_color = 'bg-blue-100 text-blue-700';
-                                ?>
-                                <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition">
-                                    <div class="flex items-center gap-3">
-                                        <img src="<?php echo $m_img; ?>" class="w-10 h-10 rounded-full object-cover border border-slate-200">
-                                        <div>
-                                            <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($m_name); ?></p>
-                                            <p class="text-[10px] text-slate-500 font-medium"><?php echo htmlspecialchars($m_role); ?></p>
-                                        </div>
-                                    </div>
-                                    <span class="text-[9px] font-bold px-2 py-1 rounded uppercase tracking-wider <?php echo $status_color; ?>"><?php echo $m_status; ?></span>
-                                </div>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <div class="text-center py-6 text-slate-400">
-                                    <i class="fa-solid fa-users-slash text-3xl mb-2 opacity-50"></i>
-                                    <p class="text-sm font-medium">No team members assigned.</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-span-12 lg:col-span-4">
+            <div class="col-span-12 lg:col-span-6">
                 <div class="card">
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-4">
@@ -702,7 +757,7 @@ $headerPath = __DIR__ . '/../header.php';
 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            // My Attendance Chart
+            // Attendance Donut Chart
             var attOptions = {
                 series: [<?php echo $stats_ontime; ?>, <?php echo $stats_late; ?>, <?php echo $stats_wfh; ?>, <?php echo $stats_absent; ?>, <?php echo $stats_sick; ?>],
                 chart: { type: 'donut', width: 100, height: 100, sparkline: { enabled: true } },
