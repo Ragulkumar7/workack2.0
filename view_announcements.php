@@ -9,7 +9,7 @@ $user_role = $_SESSION['role'] ?? 'Employee';
 $user_id = $_SESSION['user_id'];
 
 // Login aagiruka employee oda department-a edukkurom
-$user_dept = $_SESSION['department']; 
+$user_dept = $_SESSION['department'] ?? ''; 
 
 // HR potta 'All Employees' post-um, Employee-oda department post-um mattum filter panrom
 $sql = "SELECT * FROM announcements 
@@ -101,7 +101,7 @@ $latest = !empty($announcements) ? $announcements[0] : [
         #mainContent { 
             margin-left: 95px; padding: 20px 30px; 
             width: calc(100% - 95px); min-height: 100vh; 
-            padding-top: 80px !important; 
+            padding-top: 10px !important; 
             transition: margin-left 0.3s ease; 
         }
         #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }

@@ -22,6 +22,7 @@ $performanceData = [];
 
 // This query checks if the employee reports to the logged-in user either as a TL or Manager
 $sql = "SELECT 
+            ep.user_id,
             ep.emp_id_code as employee_id, 
             ep.full_name, 
             ep.designation, 
@@ -30,7 +31,9 @@ $sql = "SELECT
             COALESCE(per.total_score, 0) as performance_score,
             COALESCE(per.project_completion_pct, 0) as project_completion_rate,
             COALESCE(per.task_completion_pct, 0) as task_completion_rate,
-            COALESCE(per.attendance_pct, 0) as attendance_rate
+            COALESCE(per.attendance_pct, 0) as attendance_rate,
+            COALESCE(per.soft_skills, 0) as soft_skills,
+            per.manager_comments
         FROM employee_profiles ep
         LEFT JOIN employee_performance per ON ep.user_id = per.user_id
         WHERE ep.reporting_to = ? OR ep.manager_id = ?
@@ -51,6 +54,7 @@ if ($stmt) {
                       : 'Average';
 
             $performanceData[] = [
+                "user_id" => $row['user_id'],
                 "id" => $row['employee_id'],
                 "name" => $row['full_name'],
                 "role" => $row['designation'],
@@ -60,6 +64,8 @@ if ($stmt) {
                 "attendance" => (float)$row['attendance_rate'],
                 "speed" => (float)$row['performance_score'],
                 "quality" => (float)$row['project_completion_rate'],
+                "soft_skills" => (float)$row['soft_skills'],
+                "comments" => $row['manager_comments'],
                 "status" => $status
             ];
         }
@@ -328,7 +334,7 @@ if ($stmt) {
                                         <td><span style="font-weight:700;"><?= rtrim(rtrim($row['speed'], '0'), '.') ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
                                         <td><span class="grade-badge status-<?= $row['status'] ?>"><?= $row['status'] ?></span></td>
                                         <td>
-                                            <button class="btn-view" onclick='openDetails(<?= json_encode($row) ?>)'>
+                                            <button class="btn-view" onclick='openDetails(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8") ?>)'>
                                                 <i data-lucide="eye" style="width:14px"></i> View
                                             </button>
                                         </td>
@@ -395,7 +401,7 @@ if ($stmt) {
                                         </div>
                                         <div class="metric-item">
                                             <span class="metric-label">Manager <span style="font-weight:400">10%</span></span>
-                                            <span class="metric-value">70%</span>
+                                            <span class="metric-value" id="dManager">0%</span>
                                             <span class="metric-sub">Soft Skills</span>
                                         </div>
                                     </div>
@@ -417,32 +423,6 @@ if ($stmt) {
                             </div>
                         </div>
 
-                        <div class="feedback-section">
-                            <div class="feedback-title">
-                                <i data-lucide="message-square" style="width:20px; color:var(--text-muted);"></i> 
-                                Manager's Feedback (10% Score)
-                            </div>
-                            
-                            <div class="feedback-grid">
-                                <div class="slider-wrapper">
-                                    <div class="slider-header">
-                                        <span>Soft Skills Rating</span>
-                                        <span class="val" id="softSkillVal">70</span>
-                                    </div>
-                                    <input type="range" min="0" max="100" value="70" id="softSkillSlider" oninput="updateSliderVal(this.value)">
-                                    <div class="slider-labels">
-                                        <span>Poor</span>
-                                        <span>Excellent</span>
-                                    </div>
-                                </div>
-
-                                <div class="comments-area">
-                                    <span style="font-size:14px; font-weight:500; color:var(--text-muted);">Comments</span>
-                                    <textarea class="feedback-textarea" id="managerComments" placeholder="Enter feedback here...">Needs to improve on meeting deadlines. Technical skills are good.</textarea>
-                                </div>
-                            </div>
-                        </div>
-                        <button class="btn-update">Update Review</button>
                     </div>
                 </div>
             </div>
@@ -473,6 +453,9 @@ if ($stmt) {
             document.getElementById('dDone').innerText = data.tasks_done + "%";
             document.getElementById('dAtt').innerText = data.attendance + "%";
             document.getElementById('dQual').innerText = data.quality + "%";
+            
+            // Populate the dynamic Manager Score
+            document.getElementById('dManager').innerText = data.soft_skills + "%";
             
             // Format score to drop trailing decimals
             let rawScore = parseFloat(data.speed);
@@ -527,6 +510,7 @@ if ($stmt) {
                 }
             }
         });
+
     </script>
 </body>
 </html>
