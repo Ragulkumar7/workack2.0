@@ -3,7 +3,58 @@
 
 // 1. INCLUDE DATABASE CONNECTION & SESSION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-require_once '../include/db_connect.php';
+
+// Catch the Hostinger max_connections error gracefully so it doesn't crash the UI
+try {
+    require_once '../include/db_connect.php';
+} catch (mysqli_sql_exception $e) {
+    die("<div style='padding: 2rem; text-align: center; font-family: sans-serif; color: #334155;'>
+            <h2 style='color: #ef4444;'>Database Connection Limit Reached</h2>
+            <p>Hostinger strictly limits connections to 500 per hour. Please wait an hour for the limit to reset, or switch to a local database for development.</p>
+         </div>");
+}
+
+// --- ADDED: Handle AJAX POST request for saving performance ---
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['employee_id'])) {
+    $emp_id = intval($_POST['employee_id']);
+    $soft_skills = floatval($_POST['soft_skills']);
+    $comments = mysqli_real_escape_string($conn, $_POST['comments'] ?? '');
+
+    // Check if performance record exists for the user
+    $check_query = "SELECT id FROM employee_performance WHERE user_id = $emp_id";
+    $check_result = mysqli_query($conn, $check_query);
+
+    if (mysqli_num_rows($check_result) > 0) {
+        mysqli_query($conn, "UPDATE employee_performance SET soft_skills = $soft_skills, manager_comments = '$comments' WHERE user_id = $emp_id");
+    } else {
+        mysqli_query($conn, "INSERT INTO employee_performance (user_id, soft_skills, manager_comments) VALUES ($emp_id, $soft_skills, '$comments')");
+    }
+
+    // Recalculate total_score and performance_grade based on weights
+    $update_score_query = "
+        UPDATE employee_performance 
+        SET 
+            total_score = (COALESCE(project_completion_pct, 0) * 0.4) + 
+                          (COALESCE(task_completion_pct, 0) * 0.3) + 
+                          (COALESCE(attendance_pct, 0) * 0.2) + 
+                          (COALESCE(soft_skills, 0) * 0.1),
+            performance_grade = CASE 
+                WHEN ((COALESCE(project_completion_pct, 0) * 0.4) + (COALESCE(task_completion_pct, 0) * 0.3) + (COALESCE(attendance_pct, 0) * 0.2) + (COALESCE(soft_skills, 0) * 0.1)) >= 90 THEN 'Excellent'
+                WHEN ((COALESCE(project_completion_pct, 0) * 0.4) + (COALESCE(task_completion_pct, 0) * 0.3) + (COALESCE(attendance_pct, 0) * 0.2) + (COALESCE(soft_skills, 0) * 0.1)) >= 75 THEN 'Good'
+                WHEN ((COALESCE(project_completion_pct, 0) * 0.4) + (COALESCE(task_completion_pct, 0) * 0.3) + (COALESCE(attendance_pct, 0) * 0.2) + (COALESCE(soft_skills, 0) * 0.1)) >= 50 THEN 'Average'
+                ELSE 'Poor'
+            END
+        WHERE user_id = $emp_id
+    ";
+    mysqli_query($conn, $update_score_query);
+
+    // Explicitly close connection to free up the Hostinger slot immediately
+    mysqli_close($conn);
+
+    echo json_encode(['status' => 'success']);
+    exit();
+}
+// --- END POST HANDLING ---
 
 // Security check: Ensure user is logged in
 if (!isset($_SESSION['user_id'])) { 
@@ -33,7 +84,13 @@ function calculateGrade($score) {
 
 // Handle Filters
 $selected_dept = isset($_GET['department']) ? $_GET['department'] : 'All';
-$selected_month = isset($_GET['month']) ? $_GET['month'] : date('Y-m');
+$from_month = isset($_GET['from_month']) ? $_GET['from_month'] : date('Y-m'); 
+$to_month = isset($_GET['to_month']) ? $_GET['to_month'] : date('Y-m'); 
+
+// Smart viewing text formatting
+$display_from = date('F Y', strtotime($from_month . '-01'));
+$display_to = date('F Y', strtotime($to_month . '-01'));
+$viewing_text = ($from_month === $to_month) ? $display_from : $display_from . ' - ' . $display_to;
 
 // Fetch distinct departments for the filter dropdown
 $dept_query = "SELECT DISTINCT department FROM employee_profiles WHERE department IS NOT NULL AND department != ''";
@@ -44,7 +101,6 @@ while ($d_row = mysqli_fetch_assoc($dept_result)) {
 }
 
 // Build the Main Query
-// EXCLUDING top-level roles so HR only sees employees under them
 $where_clauses = ["ep.status = 'Active'", "u.role NOT IN ('System Admin', 'HR', 'Manager', 'CFO')"];
 
 if ($selected_dept !== 'All') {
@@ -53,11 +109,10 @@ if ($selected_dept !== 'All') {
 }
 
 $where_sql = implode(' AND ', $where_clauses);
+$safe_from = mysqli_real_escape_string($conn, $from_month);
+$safe_to = mysqli_real_escape_string($conn, $to_month);
 
-/* Note: If you add an 'evaluation_month' column to `employee_performance` table in the future, 
- you can add this to the LEFT JOIN: AND DATE_FORMAT(per.created_at, '%Y-%m') = '$selected_month'
-*/
-
+// RESOLVED: Selection now reads from per.soft_skills
 $hr_query = "
     SELECT ep.user_id as id, 
            ep.full_name, 
@@ -68,7 +123,8 @@ $hr_query = "
            COALESCE(per.total_score, 0) as performance_score, 
            COALESCE(per.project_completion_pct, 0) as project_completion_rate, 
            COALESCE(per.task_completion_pct, 0) as task_completion_rate, 
-           COALESCE(per.attendance_pct, 0) as attendance_rate 
+           COALESCE(per.attendance_pct, 0) as attendance_rate,
+           COALESCE(per.soft_skills, 0) as soft_skills_rate 
     FROM employee_profiles ep
     JOIN users u ON ep.user_id = u.id
     LEFT JOIN employee_performance per ON ep.user_id = per.user_id
@@ -126,19 +182,24 @@ if ($hr_result) {
     <div id="mainContent">
         <?php include('../header.php'); ?>
         
-        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
+        <div class="flex flex-col xl:flex-row justify-between items-start gap-4 mb-14">
             <div>
                 <h1 class="text-2xl font-bold text-slate-800">Employee Performance</h1>
                 <p class="text-sm text-slate-500">Track and evaluate performance scores of your workforce</p>
             </div>
             
-            <form method="GET" class="w-full lg:w-auto flex flex-col sm:flex-row gap-3">
-                <div class="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-2 shadow-sm">
-                    <i class="fa-solid fa-calendar-days text-slate-400 mr-2"></i>
-                    <input type="month" name="month" value="<?php echo $selected_month; ?>" class="text-sm text-slate-700 focus:outline-none" onchange="this.form.submit()">
+            <form method="GET" class="w-full xl:w-auto flex flex-col md:flex-row flex-wrap gap-3 items-start">
+                <div class="flex items-center bg-white border border-slate-200 rounded-lg px-3 h-[42px] shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 mr-2 uppercase">From</span>
+                    <input type="month" name="from_month" value="<?php echo $from_month; ?>" class="text-sm text-slate-700 focus:outline-none bg-transparent" onchange="this.form.submit()">
                 </div>
 
-                <div class="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-2 shadow-sm min-w-[200px]">
+                <div class="flex items-center bg-white border border-slate-200 rounded-lg px-3 h-[42px] shadow-sm">
+                    <span class="text-xs font-bold text-slate-400 mr-2 uppercase">To</span>
+                    <input type="month" name="to_month" value="<?php echo $to_month; ?>" class="text-sm text-slate-700 focus:outline-none bg-transparent" onchange="this.form.submit()">
+                </div>
+
+                <div class="flex items-center bg-white border border-slate-200 rounded-lg px-3 h-[42px] shadow-sm min-w-[200px]">
                     <i class="fa-solid fa-layer-group text-slate-400 mr-2"></i>
                     <select name="department" class="w-full text-sm text-slate-700 focus:outline-none bg-transparent" onchange="this.form.submit()">
                         <option value="All">All Departments</option>
@@ -150,9 +211,16 @@ if ($hr_result) {
                     </select>
                 </div>
 
-                <div class="relative w-full sm:w-64">
-                    <input type="text" id="searchInput" placeholder="Search employee..." class="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-sm">
-                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                <div class="flex flex-col w-full sm:w-64 relative">
+                    <div class="relative h-[42px]">
+                        <input type="text" id="searchInput" placeholder="Search employee..." class="w-full h-full pl-10 pr-4 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-sm">
+                        <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                    </div>
+                    
+                    <div class="absolute -bottom-14 right-0 mt-8 bg-slate-50 border border-slate-200 text-slate-600 text-sm px-4 py-2 rounded-lg shadow-sm font-medium whitespace-nowrap flex items-center gap-2">
+                        <i class="fa-regular fa-calendar text-teal-600 text-base"></i>
+                        <span>Viewing: <span class="text-teal-700 font-bold"><?php echo $viewing_text; ?></span></span>
+                    </div>
                 </div>
             </form>
         </div>
@@ -161,14 +229,11 @@ if ($hr_result) {
             <div class="bg-white p-12 rounded-xl border border-slate-200 text-center shadow-sm">
                 <i class="fa-solid fa-users-slash text-4xl text-slate-300 mb-3 block"></i>
                 <h3 class="text-lg font-bold text-slate-700">No Employees Found</h3>
-                <p class="text-slate-500 text-sm mt-1">Try changing the department or month filter.</p>
+                <p class="text-slate-500 text-sm mt-1">Try changing the department or date filter.</p>
             </div>
         <?php else: ?>
-            
             <?php foreach ($all_employees as $dept_name => $members): ?>
-                
                 <div class="department-block bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">
-                    
                     <div class="bg-teal-800 p-4 flex justify-between items-center">
                         <div class="flex items-center gap-3">
                             <div class="w-10 h-10 rounded-lg bg-teal-700 flex items-center justify-center text-teal-100">
@@ -189,6 +254,7 @@ if ($hr_result) {
                                     <th class="p-4 text-center">Projects</th>
                                     <th class="p-4 text-center">Tasks</th>
                                     <th class="p-4 text-center">Attendance</th>
+                                    <th class="p-4 text-center text-teal-700">Soft Skills</th>
                                     <th class="p-4 text-center">Total Score</th>
                                     <th class="p-4 text-center">Grade</th>
                                     <th class="p-4 text-center">Action</th>
@@ -216,7 +282,8 @@ if ($hr_result) {
                                         'score' => rtrim(rtrim($emp['performance_score'], '0'), '.'),
                                         'projects' => $emp['project_completion_rate'],
                                         'tasks' => $emp['task_completion_rate'] ?? 0,
-                                        'attendance' => $emp['attendance_rate']
+                                        'attendance' => $emp['attendance_rate'],
+                                        'soft_skills' => $emp['soft_skills_rate']
                                     ];
                                     $json_empData = htmlspecialchars(json_encode($empData), ENT_QUOTES, 'UTF-8');
                                 ?>
@@ -233,6 +300,7 @@ if ($hr_result) {
                                     <td class="p-4 text-center text-slate-600 font-medium"><?php echo $emp['project_completion_rate']; ?>%</td>
                                     <td class="p-4 text-center text-slate-600 font-medium"><?php echo $emp['task_completion_rate'] ?? 0; ?>%</td>
                                     <td class="p-4 text-center text-slate-600 font-medium"><?php echo $emp['attendance_rate']; ?>%</td>
+                                    <td class="p-4 text-center text-teal-600 font-bold"><?php echo $emp['soft_skills_rate']; ?>%</td>
                                     <td class="p-4 text-center">
                                         <div class="flex items-center justify-center gap-1">
                                             <span class="font-bold text-slate-800 text-base"><?php echo rtrim(rtrim($emp['performance_score'], '0'), '.'); ?></span>
@@ -253,7 +321,6 @@ if ($hr_result) {
                         </table>
                     </div>
                 </div>
-                
             <?php endforeach; ?>
         <?php endif; ?>
     </div>
@@ -278,7 +345,7 @@ if ($hr_result) {
                 <div class="p-4 sm:p-6">
                     <div class="bg-white rounded-xl border border-slate-200 p-4 sm:p-6 mb-6 shadow-sm">
                         <div class="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
-                            <h3 class="font-bold text-slate-800">Performance Overview <span class="text-xs text-slate-400 font-normal ml-2">(<?php echo date('F Y', strtotime($selected_month)); ?>)</span></h3>
+                            <h3 class="font-bold text-slate-800">Performance Overview <span class="text-xs text-slate-400 font-normal ml-2">(<?php echo $viewing_text; ?>)</span></h3>
                             <span id="m_emp_grade" class="font-bold text-orange-500 text-lg">Average</span>
                         </div>
                         
@@ -307,8 +374,8 @@ if ($hr_result) {
                                     <div id="m_emp_attendance" class="text-xl sm:text-2xl font-bold text-slate-800">0%</div>
                                 </div>
                                 <div class="border border-slate-100 rounded-lg p-3 sm:p-4 bg-slate-50">
-                                    <div class="flex justify-between text-[10px] sm:text-xs text-slate-400 font-bold mb-2"><span>MANAGER RATING</span> <span>10%</span></div>
-                                    <div id="m_emp_manager" class="text-xl sm:text-2xl font-bold text-slate-800">70%</div>
+                                    <div class="flex justify-between text-[10px] sm:text-xs text-slate-400 font-bold mb-2"><span>SOFT SKILLS</span> <span>10%</span></div>
+                                    <div id="m_emp_manager" class="text-xl sm:text-2xl font-bold text-slate-800">0%</div>
                                 </div>
                             </div>
                         </div>
@@ -319,9 +386,10 @@ if ($hr_result) {
                             <i class="fa-solid fa-clipboard-check text-teal-600"></i> HR Verification & Notes
                         </h3>
                         
-                        <form action="hr_update_review.php" method="POST">
+                        <form id="hrReviewForm" action="" method="POST">
                             <input type="hidden" name="employee_id" id="m_form_emp_id">
-                            <input type="hidden" name="eval_month" value="<?php echo $selected_month; ?>">
+                            <input type="hidden" name="from_month" value="<?php echo $from_month; ?>">
+                            <input type="hidden" name="to_month" value="<?php echo $to_month; ?>">
                             
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
                                 <div>
@@ -360,8 +428,8 @@ if ($hr_result) {
             const closeBtn = document.getElementById('closeModalBtn');
             const viewButtons = document.querySelectorAll('.view-performance-btn');
             const searchInput = document.getElementById('searchInput');
+            const hrReviewForm = document.getElementById('hrReviewForm');
 
-            // JS Filter for Name Search
             searchInput.addEventListener('input', function(e) {
                 const term = e.target.value.toLowerCase();
                 const rows = document.querySelectorAll('.emp-row');
@@ -386,7 +454,6 @@ if ($hr_result) {
                 });
             });
 
-            // Open Modal
             viewButtons.forEach(btn => {
                 btn.addEventListener('click', function() {
                     const empData = JSON.parse(this.getAttribute('data-emp'));
@@ -401,7 +468,10 @@ if ($hr_result) {
                     document.getElementById('m_emp_projects').innerText = empData.projects + "%";
                     document.getElementById('m_emp_tasks').innerText = empData.tasks + "%";
                     document.getElementById('m_emp_attendance').innerText = empData.attendance + "%";
-                    document.getElementById('m_emp_manager').innerText = "70%"; 
+                    document.getElementById('m_emp_manager').innerText = empData.soft_skills + "%"; 
+
+                    document.getElementById('softSkillsSlider').value = empData.soft_skills;
+                    document.getElementById('sliderValue').innerText = empData.soft_skills;
 
                     let circumference = 351;
                     let offset = circumference - (empData.score / 100) * circumference;
@@ -430,7 +500,50 @@ if ($hr_result) {
             modal.addEventListener('click', (e) => {
                 if(e.target === modal || e.target.parentElement === modal) closeModal();
             });
+
+            hrReviewForm.addEventListener('submit', function(e) {
+                e.preventDefault(); 
+                
+                const formData = new FormData(this);
+                const submitBtn = this.querySelector('button[type="submit"]');
+                const originalContent = submitBtn.innerHTML;
+                
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+
+                // Explicit fetch handling so it doesn't crash loop
+                fetch(window.location.href, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) throw new Error('Network error');
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.status === 'success') {
+                        location.reload(); 
+                    } else {
+                        alert('Error saving data.');
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = originalContent;
+                    }
+                })
+                .catch(error => {
+                    console.error('Fetch error:', error);
+                    alert('Database connection limit reached. Hostinger allows 500 connections/hr. Please wait or use a local DB.');
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = originalContent;
+                });
+            });
         });
     </script>
 </body>
 </html>
+
+<?php 
+// Final cleanup to ensure connections are freed immediately
+if (isset($conn) && $conn) {
+    mysqli_close($conn); 
+}
+?>
