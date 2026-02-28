@@ -22,7 +22,7 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) {
 $view_user_id = isset($_GET['id']) ? intval($_GET['id']) : (isset($_SESSION['user_id']) ? $_SESSION['user_id'] : $_SESSION['id']);
 
 // A. Fetch Employee Profile Data
-$sql_profile = "SELECT full_name, emp_id_code, designation, joining_date FROM employee_profiles WHERE user_id = ?";
+$sql_profile = "SELECT full_name, emp_id_code, designation, joining_date, shift_timings FROM employee_profiles WHERE user_id = ?";
 $stmt = $conn->prepare($sql_profile);
 $stmt->bind_param("i", $view_user_id);
 $stmt->execute();
@@ -33,6 +33,7 @@ $employeeName = $profile_data['full_name'] ?? "Unknown Employee";
 $employeeID   = $profile_data['emp_id_code'] ?? "EMP-0000";
 $designation  = $profile_data['designation'] ?? "Staff";
 $joining_date = $profile_data['joining_date'] ?? date('Y-m-01');
+$shift_timings = $profile_data['shift_timings'] ?? '09:00 AM - 06:00 PM';
 
 // =========================================================================================
 // FILTER LOGIC (Daily, Monthly, Range)
@@ -85,12 +86,15 @@ $sum_overtime = 0;
 $stmt->execute();
 $result = $stmt->get_result();
 
+// --- LATE LOGIC PREP ---
+// Extracts start time from shift_timings (e.g., "09:00 AM")
+$time_parts = explode('-', $shift_timings);
+$shift_start_str = trim($time_parts[0]);
+
 while ($row = $result->fetch_assoc()) {
     $days_count++;
     $prod = floatval($row['production_hours']);
     $total_production += $prod;
-
-    if ($row['status'] == 'Late') { $late_days++; }
 
     $overtime = ($prod > 9) ? ($prod - 9) : 0;
     $total_overtime += $overtime;
@@ -99,7 +103,13 @@ while ($row = $result->fetch_assoc()) {
     $break_min = 0;
     $daily_break_hours = 0;
     
-    if ($row['punch_in'] && $row['punch_out']) {
+    // Default to the database value if it exists and is valid
+    if (!empty($row['break_time'])) {
+        $break_min = intval($row['break_time']);
+        $daily_break_hours = $break_min / 60;
+    } 
+    // Fallback: If break_time is empty, try to calculate it if both punch in/out exist
+    elseif ($row['punch_in'] && $row['punch_out']) {
         $in = strtotime($row['punch_in']);
         $out = strtotime($row['punch_out']);
         $total_duration = ($out - $in) / 3600; 
@@ -109,29 +119,67 @@ while ($row = $result->fetch_assoc()) {
         
         $break_min = round($daily_break_hours * 60);
 
-        if (empty($row['break_time'])) {
-            $update_sql = "UPDATE attendance SET break_time = ? WHERE id = ?";
-            $update_stmt = $conn->prepare($update_sql);
-            $update_stmt->bind_param("si", $break_min, $row['id']);
-            $update_stmt->execute();
-            $update_stmt->close();
-        }
+        // Update DB with the calculated break time
+        $update_sql = "UPDATE attendance SET break_time = ? WHERE id = ?";
+        $update_stmt = $conn->prepare($update_sql);
+        $update_stmt->bind_param("si", $break_min, $row['id']);
+        $update_stmt->execute();
+        $update_stmt->close();
     }
 
     $sum_work += ($prod - $overtime);
     $sum_overtime += $overtime;
     $sum_break += $daily_break_hours;
 
+    // --- LATE CALCULATION LOGIC ---
+    $late_msg = "-";
+    if ($row['punch_in'] && $row['status'] != 'Absent') {
+        $shift_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
+        $punch_in_ts = strtotime($row['punch_in']);
+
+        if ($punch_in_ts > $shift_start_ts) {
+            $delay_diff = $punch_in_ts - $shift_start_ts;
+            $delay_mins = round($delay_diff / 60);
+            
+            if ($delay_mins > 0) {
+                // If it's more than 60 mins, format as Hrs & Mins
+                if ($delay_mins >= 60) {
+                    $delay_hrs = floor($delay_mins / 60);
+                    $rem_mins = $delay_mins % 60;
+                    $late_msg = $delay_hrs . "h " . $rem_mins . "m late";
+                } else {
+                    $late_msg = $delay_mins . " mins late";
+                }
+                $late_days++;
+                
+                // Ensure status is marked as Late if not already (Optional, depends on your preference)
+                if($row['status'] == 'On Time') {
+                    $row['status'] = 'Late';
+                    // Optionally update DB here if you want it to persist
+                }
+            }
+        }
+    }
+
+    // --- PRODUCTION HOURS VALIDATION ---
+    $prod_class = "font-bold text-slate-800";
+    if ($row['status'] != 'Absent' && $row['punch_out']) {
+        if ($prod < 8) {
+            $prod_class = "font-bold text-red-500"; // Red if less than 8 hours
+        }
+    }
+
     $attendanceRecords[] = [
         "date" => date('d M Y', strtotime($row['date'])),
         "checkin" => $row['punch_in'] ? date('h:i A', strtotime($row['punch_in'])) : "-",
-        "status" => ($row['status'] == 'Absent') ? 'Absent' : 'Present',
+        "status" => ($row['status'] == 'Absent') ? 'Absent' : $row['status'],
         "status_raw" => $row['status'],
         "checkout" => $row['punch_out'] ? date('h:i A', strtotime($row['punch_out'])) : "-",
         "break" => ($break_min > 0) ? $break_min . " Min" : "-",
-        "late" => ($row['status'] == 'Late') ? "Yes" : "-",
+        "late" => $late_msg,
         "overtime" => ($overtime > 0) ? number_format($overtime, 2) . " Hrs" : "-",
         "production" => number_format($prod, 2) . " Hrs",
+        "prod_class" => $prod_class,
         "color" => ($row['status'] == 'Absent') ? "red" : "green"
     ];
 }
@@ -194,8 +242,10 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
         .status-pill { padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
         .bg-present { background: #dcfce7; color: #166534; }
         .bg-absent { background: #fee2e2; color: #991b1b; }
-        .bg-late { background: #fee2e2; color: #b91c1c; }
+        .bg-late { background: #fef08a; color: #b45309; } /* Adjusted Late Color for better visibility */
         .modal-backdrop-custom { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        
+        /* Custom styling for date inputs to look clean */
         input[type="date"]::-webkit-calendar-picker-indicator, input[type="month"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; transition: 0.2s; }
         input[type="date"]::-webkit-calendar-picker-indicator:hover, input[type="month"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
     </style>
@@ -241,11 +291,11 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                         <span class="text-3xl font-black text-teal-800"><?php echo $leave_balance; ?></span>
                         <span class="text-xs text-teal-600 font-medium mb-1">Available</span>
                     </div>
-                    <p class="text-[9px] text-teal-600 mt-2 opacity-80">(Includes carry-forward since joining)</p>
+                    <p class="text-[9px] text-teal-600 mt-2 opacity-80">(Total accrued minus total taken)</p>
                 </div>
 
                 <div class="bg-slate-50 rounded-xl p-3 mt-4 border border-slate-100">
-                    <p class="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Total Production (Shown)</p>
+                    <p class="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Total Production (Selected Period)</p>
                     <p class="text-xl font-bold text-slate-800"><?php echo number_format($total_production, 2); ?> Hrs</p>
                 </div>
             </div>
@@ -338,7 +388,7 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                                             <span class="status-pill <?php echo $pillClass; ?>"><?php echo $row['status']; ?></span>
                                         </td>
                                         <td class="py-3"><span class="text-amber-600 font-semibold"><?php echo $row['break']; ?></span></td>
-                                        <td class="py-3"><span class="font-bold text-slate-800"><?php echo $row['production']; ?></span></td>
+                                        <td class="py-3"><span class="<?php echo $row['prod_class']; ?>"><?php echo $row['production']; ?></span></td>
                                         <td class="py-3 <?php echo $row['late'] != '-' ? 'text-red-500 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['late']; ?></td>
                                         <td class="py-3 <?php echo $row['overtime'] != '-' ? 'text-blue-600 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['overtime']; ?></td>
                                         <td class="text-center py-3">

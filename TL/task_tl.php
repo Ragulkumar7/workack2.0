@@ -5,6 +5,9 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require_once '../include/db_connect.php'; 
 
+// ROOT PATH FOR FILE DOWNLOADS
+$path_to_root = '../';
+
 // CHECK LOGIN & ROLE
 if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
 $tl_id = $_SESSION['user_id'];
@@ -55,12 +58,12 @@ $p_stmt->bind_param("i", $tl_id);
 $p_stmt->execute();
 $projects_result = $p_stmt->get_result();
 
-// --- 2. FETCH TASKS CREATED BY ME ---
+// --- 2. FETCH TASKS CREATED BY ME (Includes completed_file) ---
 $tasks_sql = "SELECT t.*, p.project_name 
               FROM project_tasks t 
               JOIN projects p ON t.project_id = p.id 
               WHERE t.created_by = ? 
-              ORDER BY t.due_date ASC";
+              ORDER BY FIELD(t.status, 'Pending', 'In Progress', 'Completed'), t.due_date ASC";
 $t_stmt = $conn->prepare($tasks_sql);
 $t_stmt->bind_param("i", $tl_id);
 $t_stmt->execute();
@@ -95,6 +98,9 @@ $tasks_result = $t_stmt->get_result();
         .modal-box { background: white; width: 700px; max-width: 100%; border-radius: 12px; padding: 24px; max-height: 90vh; overflow-y: auto; }
         .form-input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box; margin-bottom: 10px; }
         .preview-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        
+        .badge-priority { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+        .badge-status { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; }
     </style>
 </head>
 <body>
@@ -137,20 +143,69 @@ $tasks_result = $t_stmt->get_result();
                             <th>Assigned To</th>
                             <th>Priority</th>
                             <th>Due Date</th>
-                            <th style="text-align:right;">Actions</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Actions / File</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php while($task = $tasks_result->fetch_assoc()): ?>
-                        <tr>
-                            <td><b><?= htmlspecialchars($task['task_title']) ?></b><br><small><?= htmlspecialchars($task['description']) ?></small></td>
-                            <td><?= htmlspecialchars($task['project_name']) ?></td>
-                            <td><?= htmlspecialchars($task['assigned_to']) ?></td>
-                            <td><?= htmlspecialchars($task['priority']) ?></td>
-                            <td><?= date('d M Y', strtotime($task['due_date'])) ?></td>
-                            <td align="right"><a href="task_tl.php?delete_task=<?= $task['id'] ?>" style="color:#ef4444;"><i data-lucide="trash-2" style="width:18px;"></i></a></td>
-                        </tr>
-                        <?php endwhile; ?>
+                        <?php if(mysqli_num_rows($tasks_result) > 0): ?>
+                            <?php while($task = $tasks_result->fetch_assoc()): ?>
+                            <tr>
+                                <td>
+                                    <b style="color: #0f172a;"><?= htmlspecialchars($task['task_title']) ?></b><br>
+                                    <small style="color: #64748b;"><?= htmlspecialchars($task['description']) ?></small>
+                                </td>
+                                <td style="font-weight: 500;"><?= htmlspecialchars($task['project_name']) ?></td>
+                                <td style="font-weight: 500; color: #0f766e;"><?= htmlspecialchars($task['assigned_to']) ?></td>
+                                
+                                <td>
+                                    <?php 
+                                        $prio_bg = '#f1f5f9'; $prio_col = '#64748b';
+                                        if($task['priority'] == 'High') { $prio_bg = '#fef2f2'; $prio_col = '#dc2626'; }
+                                        if($task['priority'] == 'Medium') { $prio_bg = '#fff7ed'; $prio_col = '#ea580c'; }
+                                        if($task['priority'] == 'Low') { $prio_bg = '#f0fdf4'; $prio_col = '#16a34a'; }
+                                    ?>
+                                    <span class="badge-priority" style="background: <?= $prio_bg ?>; color: <?= $prio_col ?>; border: 1px solid <?= $prio_bg ?>;">
+                                        <?= htmlspecialchars($task['priority']) ?>
+                                    </span>
+                                </td>
+                                
+                                <td style="font-size: 12px; font-weight: 500;"><?= date('d M Y', strtotime($task['due_date'])) ?></td>
+                                
+                                <td>
+                                    <?php 
+                                        $stat_bg = '#f1f5f9'; $stat_col = '#475569';
+                                        if ($task['status'] == 'Pending' || $task['status'] == 'To Do') { $stat_bg = '#fff7ed'; $stat_col = '#ea580c'; }
+                                        if ($task['status'] == 'In Progress') { $stat_bg = '#eff6ff'; $stat_col = '#2563eb'; }
+                                        if ($task['status'] == 'Completed') { $stat_bg = '#f0fdf4'; $stat_col = '#16a34a'; }
+                                    ?>
+                                    <span class="badge-status" style="background: <?= $stat_bg ?>; color: <?= $stat_col ?>;">
+                                        <?= htmlspecialchars($task['status']) ?>
+                                    </span>
+                                </td>
+                                
+                                <td align="right">
+                                    <div style="display: flex; gap: 12px; justify-content: flex-end; align-items: center;">
+                                        
+                                        <?php if($task['status'] == 'Completed' && !empty($task['completed_file'])): ?>
+                                            <a href="<?= $path_to_root . htmlspecialchars($task['completed_file']) ?>" download target="_blank" 
+                                               style="color: #0ea5e9; background: #e0f2fe; padding: 6px 10px; border-radius: 6px; text-decoration: none; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px; transition: 0.2s;">
+                                                <i data-lucide="download" style="width:14px; height:14px;"></i> Download
+                                            </a>
+                                        <?php elseif($task['status'] == 'Completed'): ?>
+                                            <span style="font-size: 11px; color: #94a3b8; font-style: italic;">No File</span>
+                                        <?php endif; ?>
+
+                                        <a href="task_tl.php?delete_task=<?= $task['id'] ?>" style="color:#ef4444; background: #fef2f2; padding: 6px; border-radius: 6px; display: flex;" title="Delete Task" onclick="return confirm('Are you sure you want to delete this task?');">
+                                            <i data-lucide="trash-2" style="width:16px; height:16px;"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <tr><td colspan="7" style="text-align: center; padding: 30px; color: #64748b;">No tasks created by you yet.</td></tr>
+                        <?php endif; ?>
                     </tbody>
                 </table>
             </div>
@@ -214,7 +269,7 @@ $tasks_result = $t_stmt->get_result();
 
     <datalist id="empList">
         <?php 
-        // CORRECTED: Fetch only employees assigned to this TL
+        // Fetch only employees assigned to this TL
         $e_stmt = $conn->prepare("SELECT full_name FROM employee_profiles WHERE reporting_to = ?");
         $e_stmt->bind_param("i", $tl_id);
         $e_stmt->execute();

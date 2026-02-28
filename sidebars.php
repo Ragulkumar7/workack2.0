@@ -285,14 +285,6 @@ $sections = [
                 'icon' => 'users', 
                 'allowed' => ['Team Lead']
             ],
-           // salary hike for HR only
-            [
-                'name' => 'Salary Hike', 
-                'path' => $base . 'HR/hr_salaryhikes.php', 
-                'icon' => 'banknote', 
-                'allowed' => ['HR'] // Only HR can see Salary Hike option
-            ],
-
             [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
@@ -420,9 +412,9 @@ $sections = [
             // --- EMPLOYEE SALARY (ACCOUNTS ROLE) ---
             [
                 'name' => 'Employee Salary', 
-                'path' => $base . 'Accounts/employee_salary.php', 
+                'path' => $base . './Accounts/employee_salary.php', 
                 'icon' => 'banknote', // Lucide icon for money/salary
-                'allowed' => ['Accounts']
+                'allowed' => ['Accounts', 'HR']
             ],
             [
                 'name' => 'Payslip <br>Management', 
@@ -454,12 +446,6 @@ $sections = [
     [
         'label' => 'Salary Management',
         'items' => [
-    [
-    'name' => 'Salary Revisions', 
-    'path' => $base . 'Accounts/salary_revisions.php', 
-    'icon' => 'trending-up', // 'history'
-    'allowed' => ['Accounts', 'CFO']
-]
         ]
     ],  
     [
