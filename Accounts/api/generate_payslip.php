@@ -12,11 +12,15 @@ if (!$salary_id) {
     die("Invalid request.");
 }
 
-// Fetch Salary & Employee Details
-$query = "SELECT s.*, p.full_name as name, p.emp_id_code as emp_code, p.designation, p.phone, u.email 
+// FIXED: Fetch Salary & Employee Details from 'employee_onboarding' table
+$query = "SELECT s.*, 
+                 CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as name, 
+                 e.emp_id_code as emp_code, 
+                 e.designation, 
+                 e.phone, 
+                 e.email 
           FROM employee_salary s 
-          JOIN users u ON s.user_id = u.id 
-          LEFT JOIN employee_profiles p ON u.id = p.user_id
+          JOIN employee_onboarding e ON s.user_id = e.id 
           WHERE s.id = ?";
           
 $stmt = $conn->prepare($query);
@@ -70,6 +74,9 @@ $amount_in_words = getIndianCurrency($data['net_salary']);
 // Aggregate minor allowances and deductions for a cleaner layout
 $other_allowances = floatval($data['allowance'] ?? 0) + floatval($data['medical'] ?? 0) + floatval($data['others_earnings'] ?? 0);
 $other_deductions = floatval($data['leave_deduction'] ?? 0) + floatval($data['professional_tax'] ?? 0) + floatval($data['labour_welfare'] ?? 0) + floatval($data['others_deductions'] ?? 0);
+
+// FIXED: Calculate total deductions for the UI
+$total_deductions = floatval($data['tds']) + floatval($data['pf']) + floatval($data['esi']) + $other_deductions;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -213,7 +220,7 @@ $other_deductions = floatval($data['leave_deduction'] ?? 0) + floatval($data['pr
     <div class="top-nav">
         <button class="btn-back" onclick="goBack()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Back to Salary List
+            Back to Dashboard
         </button>
     </div>
 
@@ -236,11 +243,10 @@ $other_deductions = floatval($data['leave_deduction'] ?? 0) + floatval($data['pr
         <div class="address-flex">
             <div class="address-block">
                 <h3>From</h3>
-                <strong>WorkAck Technologies</strong>
+                <strong>Neoera Infotech</strong>
                 <p>9/96 h, Post, Village Nagar, SSKulam</p>
                 <p>Coimbatore, TN 641107</p>
-                <p>Email: info@workack.com</p>
-                <p>Phone: +91 9876543210</p>
+                <p>Email: info@neoerait.com</p>
             </div>
             <div class="address-block">
                 <h3>To</h3>
@@ -331,7 +337,7 @@ $other_deductions = floatval($data['leave_deduction'] ?? 0) + floatval($data['pr
 
                         <tr class="total-row">
                             <td>Total Deductions</td>
-                            <td class="amount">₹<?= number_format($data['total_deductions'], 2) ?></td>
+                            <td class="amount">₹<?= number_format($total_deductions, 2) ?></td>
                         </tr>
                     </tbody>
                 </table>
@@ -352,7 +358,7 @@ $other_deductions = floatval($data['leave_deduction'] ?? 0) + floatval($data['pr
 
     <div class="action-buttons">
         <button class="btn btn-print" onclick="window.print()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2-2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
             Print Payslip
         </button>
         <button class="btn btn-download" id="downloadBtn" onclick="downloadPDF()">
