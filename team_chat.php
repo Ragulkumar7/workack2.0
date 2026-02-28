@@ -716,13 +716,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </aside>
 
         <aside class="sidebar" id="chatSidebar">
-            <div class="desktop-notif-banner" id="notifBanner">
-                
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <button style="background: white; border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: var(--text-dark); font-weight: 500;">Turn on</button>
-                    <i class="ri-close-line" style="cursor: pointer; color: var(--text-muted);" onclick="document.getElementById('notifBanner').style.display='none'"></i>
-                </div>
-            </div>
+           
 
             <div class="sidebar-header">
                 <h2 style="font-weight:700; color:var(--text-dark); font-size: 1.4rem; letter-spacing: -0.5px;">Chat</h2>
