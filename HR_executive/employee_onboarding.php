@@ -3,6 +3,34 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 require_once '../include/db_connect.php'; 
 
 // ---------------------------------------------------------
+// SMART DATABASE PATCHER (Auto-Upgrades your DB schema)
+// ---------------------------------------------------------
+if (isset($conn)) {
+    // 1. Rename casual_leaves to total_leaves
+    $check_total = $conn->query("SHOW COLUMNS FROM `employee_onboarding` LIKE 'total_leaves'");
+    if ($check_total && $check_total->num_rows == 0) {
+        $check_casual = $conn->query("SHOW COLUMNS FROM `employee_onboarding` LIKE 'casual_leaves'");
+        if ($check_casual && $check_casual->num_rows > 0) {
+            $conn->query("ALTER TABLE `employee_onboarding` CHANGE `casual_leaves` `total_leaves` INT(11) DEFAULT 12");
+        } else {
+            $conn->query("ALTER TABLE `employee_onboarding` ADD COLUMN `total_leaves` INT(11) DEFAULT 12");
+        }
+    }
+
+    // 2. Add salary_type
+    $check_sal_type = $conn->query("SHOW COLUMNS FROM `employee_onboarding` LIKE 'salary_type'");
+    if ($check_sal_type && $check_sal_type->num_rows == 0) {
+        $conn->query("ALTER TABLE `employee_onboarding` ADD COLUMN `salary_type` ENUM('Monthly','Annual') DEFAULT 'Annual'");
+    }
+
+    // 3. Add salary_date (Using VARCHAR allows both old and new date formats safely)
+    $check_sal_date = $conn->query("SHOW COLUMNS FROM `employee_onboarding` LIKE 'salary_date'");
+    if ($check_sal_date && $check_sal_date->num_rows == 0) {
+        $conn->query("ALTER TABLE `employee_onboarding` ADD COLUMN `salary_date` VARCHAR(50) DEFAULT NULL");
+    }
+}
+
+// ---------------------------------------------------------
 // FETCH DEPARTMENTS, MANAGERS, AND ONBOARDING HIERARCHY
 // ---------------------------------------------------------
 $departments = [];
@@ -88,13 +116,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $assigned_role = $_POST['role'] ?? 'Employee'; 
         $manager_id = !empty($_POST['manager_id']) ? $_POST['manager_id'] : NULL;
         $manager_name = ''; 
+        
+        // Payroll Info
         $salary = $_POST['salary'] ?? '0';
+        $salary_type = $_POST['salary_type'] ?? 'Annual';
+        $salary_date = $_POST['salary_date'] ?? '';
         $emp_type = $_POST['emp_type'] ?? 'Permanent';
 
         // Custom Work & Leave fields
         $shift_type = $_POST['shift_type'] ?? 'Day Shift';
         $shift_timings = $_POST['shift_timings'] ?? '09:00 AM - 06:00 PM';
-        $casual_leaves = intval($_POST['casual_leaves'] ?? 2);
+        $total_leaves = intval($_POST['total_leaves'] ?? 12);
 
         $pan = strtoupper(trim($_POST['pan'] ?? ''));
         $pf = trim($_POST['pf'] ?? '');
@@ -185,12 +217,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $stmt_uid->execute();
                 $user_id = $stmt_uid->get_result()->fetch_assoc()['id'];
 
-                $stmt_prof = $conn->prepare("UPDATE employee_profiles SET full_name=?, designation=?, department=?, reporting_to=?, manager_id=?, emp_id_code=?, phone=?, joining_date=?, email=?, profile_img=?, bank_info=?, shift_type=?, shift_timings=?, casual_leaves=? WHERE user_id=?");
-                $stmt_prof->bind_param("sssiissssssssii", $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings, $casual_leaves, $user_id);
+                $stmt_prof = $conn->prepare("UPDATE employee_profiles SET full_name=?, designation=?, department=?, reporting_to=?, manager_id=?, emp_id_code=?, phone=?, joining_date=?, email=?, profile_img=?, bank_info=?, shift_type=?, shift_timings=? WHERE user_id=?");
+                $stmt_prof->bind_param("sssiissssssssi", $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings, $user_id);
                 if (!$stmt_prof->execute()) throw new Exception("Error updating employee profiles.");
 
-                $stmt_onb = $conn->prepare("UPDATE employee_onboarding SET emp_id_code=?, first_name=?, last_name=?, email=?, phone=?, department=?, designation=?, manager_name=?, salary=?, employment_type=?, joining_date=?, username=?, pan_no=?, pf_no=?, esi_no=?, bank_name=?, bank_acc_no=?, ifsc_code=?, shift_type=?, shift_timings=?, casual_leaves=?, profile_img=? $pass_update_onb WHERE id=?");
-                $stmt_onb->bind_param("ssssssssssssssssssssisi", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $casual_leaves, $img, $edit_id);
+                $stmt_onb = $conn->prepare("UPDATE employee_onboarding SET emp_id_code=?, first_name=?, last_name=?, email=?, phone=?, department=?, designation=?, manager_name=?, salary=?, salary_type=?, salary_date=?, employment_type=?, joining_date=?, username=?, pan_no=?, pf_no=?, esi_no=?, bank_name=?, bank_acc_no=?, ifsc_code=?, shift_type=?, shift_timings=?, total_leaves=?, profile_img=? $pass_update_onb WHERE id=?");
+                // Exact 25 parameters mapping to "ssssssssssssssssssssssisi"
+                $stmt_onb->bind_param("ssssssssssssssssssssssisi", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $salary_type, $salary_date, $emp_type, $join_date, $uname, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $total_leaves, $img, $edit_id);
                 if (!$stmt_onb->execute()) throw new Exception("Error updating onboarding details.");
 
             } else {
@@ -200,18 +233,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if (!$stmt_user->execute()) throw new Exception("Error creating user account.");
                 $new_user_id = $stmt_user->insert_id;
 
-                $stmt_prof = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, designation, department, reporting_to, manager_id, emp_id_code, phone, joining_date, email, profile_img, bank_info, shift_type, shift_timings, casual_leaves) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                $stmt_prof->bind_param("isssiissssssssi", $new_user_id, $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings, $casual_leaves);
+                $stmt_prof = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, designation, department, reporting_to, manager_id, emp_id_code, phone, joining_date, email, profile_img, bank_info, shift_type, shift_timings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $stmt_prof->bind_param("isssiissssssss", $new_user_id, $fullName, $desig, $dept, $manager_id, $manager_id, $emp_id, $phone, $join_date, $email, $img, $bank_info_json, $shift_type, $shift_timings);
                 if (!$stmt_prof->execute()) throw new Exception("Error creating employee profile.");
 
                 $sql_onb = "INSERT INTO employee_onboarding (
                             emp_id_code, first_name, last_name, email, phone, department, 
-                            designation, manager_name, salary, employment_type, joining_date, 
+                            designation, manager_name, salary, salary_type, salary_date, employment_type, joining_date, 
                             username, password_hash, pan_no, pf_no, esi_no, bank_name, bank_acc_no, ifsc_code,
-                            shift_type, shift_timings, casual_leaves, status, profile_img
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Completed', ?)";
+                            shift_type, shift_timings, total_leaves, status, profile_img
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Completed', ?)";
                 $stmt_onb = $conn->prepare($sql_onb);
-                $stmt_onb->bind_param("sssssssssssssssssssssis", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $emp_type, $join_date, $uname, $pwd_hash, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $casual_leaves, $img);
+                $stmt_onb->bind_param("sssssssssssssssssssssssis", $emp_id, $fname, $lname, $email, $phone, $dept, $desig, $manager_name, $salary, $salary_type, $salary_date, $emp_type, $join_date, $uname, $pwd_hash, $pan, $pf, $esi, $bank_name, $bank_acc, $ifsc, $shift_type, $shift_timings, $total_leaves, $img);
                 if (!$stmt_onb->execute()) throw new Exception("Error saving onboarding details.");
             }
 
@@ -239,7 +272,7 @@ $result = $conn->query($sql);
     <style>
         :root { --primary: #1b5a5a; --primary-light: #2d7a7a; --primary-bg: #f0fdfa; --border: #e2e8f0; --text-muted: #64748b; }
         body { background-color: #f8fafc; font-family: 'Inter', sans-serif; margin: 0; }
-        main#content-wrapper { margin-left: 95px; padding-top: 80px; padding-bottom: 40px; min-height: 100vh; transition: margin-left 0.3s ease; }
+        main#content-wrapper { margin-left: 95px; padding-top: 0px; padding-bottom: 40px; min-height: 100vh; transition: margin-left 0.3s ease; }
         .sidebar-secondary.open ~ main#content-wrapper { margin-left: calc(95px + 220px); }
         .btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; border: 1px solid var(--border); background: white; color: var(--text-muted); font-weight: 500; transition: all 0.2s; }
         .btn:hover { background: #f8fafc; }
@@ -336,7 +369,11 @@ if(file_exists($headerPath)) include $headerPath;
                     <?php if ($result && $result->num_rows > 0): ?>
                         <?php while ($row = $result->fetch_assoc()): 
                             $fullName = htmlspecialchars($row['first_name'] . ' ' . $row['last_name']);
-                            $salaryDisplay = $row['salary'] ? "₹" . number_format((float)$row['salary']) : "—";
+                            
+                            // Displays Salary Type (Monthly/Annual) in the list view
+                            $salTypeTag = isset($row['salary_type']) ? $row['salary_type'] : 'Annual';
+                            $salaryDisplay = $row['salary'] ? "₹" . number_format((float)$row['salary']) . " <span class='text-[10px] bg-gray-100 text-gray-500 px-1 rounded'>{$salTypeTag}</span>" : "—";
+                            
                             $profileImage = $row['profile_img'] && !filter_var($row['profile_img'], FILTER_VALIDATE_URL) ? '../' . $row['profile_img'] : $row['profile_img'];
                             
                             // ==========================================
@@ -352,17 +389,13 @@ if(file_exists($headerPath)) include $headerPath;
 
                             foreach ($all_onboarding as $eo) {
                                 $eo_name = trim($eo['full_name']);
-                                if (strtolower($eo_name) === strtolower($current_name)) continue; // Skip Self
+                                if (strtolower($eo_name) === strtolower($current_name)) continue; 
                                 
                                 $is_team = false;
                                 
-                                // 1. Same exact department
                                 if (!empty($current_dept) && trim($eo['department']) === $current_dept) { $is_team = true; }
-                                // 2. Current User is the Manager of EO
                                 if (trim($eo['manager_name']) === $current_name) { $is_team = true; }
-                                // 3. EO is the Manager of Current User
                                 if ($current_mgr === $eo_name) { $is_team = true; }
-                                // 4. Both share the same Manager
                                 if (!empty($current_mgr) && trim($eo['manager_name']) === $current_mgr) { $is_team = true; }
 
                                 if ($is_team && !in_array($eo_name, $added_names)) {
@@ -380,7 +413,6 @@ if(file_exists($headerPath)) include $headerPath;
                                 $team_display .= " +" . (count($team_display_names) - 2) . " more";
                             }
                             
-                            // SAFELY Encode JSON to pass to JS data-attribute
                             $team_json = htmlspecialchars(json_encode($team_list_detailed), ENT_QUOTES, 'UTF-8');
                         ?>
                         <div class="onboarding-card p-5 sm:px-6 sm:py-4 flex flex-col sm:flex-row gap-4 items-start sm:items-center hover:bg-slate-50 transition-colors" 
@@ -528,8 +560,25 @@ if(file_exists($headerPath)) include $headerPath;
                                     <option value="">Select Department First</option>
                                 </select>
                             </div>
+                        </div>
 
-                            <div class="form-group"><label>Annual Salary (₹) <span>*</span></label><input type="number" class="form-control" id="modSalary" placeholder="e.g. 1200000" min="0" required></div>
+                        <div class="form-section-title mt-4 pt-4 border-t border-gray-100"><i class="fas fa-money-check-alt text-teal-600 mr-2"></i>Payroll & Leave Setup</div>
+                        <div class="form-grid">
+                            <div class="form-group"><label>Base Salary (₹) <span>*</span></label><input type="number" class="form-control" id="modSalary" placeholder="e.g. 1200000" min="0" required></div>
+                            
+                            <div class="form-group">
+                                <label>Salary Type <span>*</span></label>
+                                <select class="form-control bg-gray-50" id="modSalaryType" required>
+                                    <option value="Annual">Annual (CTC)</option>
+                                    <option value="Monthly">Monthly Gross</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Salary Credited On <span>*</span></label>
+                                <input type="date" class="form-control" id="modSalaryDate" required>
+                            </div>
+
                             <div class="form-group">
                                 <label>Employment Type <span>*</span></label>
                                 <select class="form-control bg-gray-50" id="modEmpType">
@@ -541,8 +590,7 @@ if(file_exists($headerPath)) include $headerPath;
                             </div>
                         </div>
 
-                        <div class="form-section-title mt-4 pt-4 border-t border-gray-100"><i class="fas fa-business-time text-teal-600 mr-2"></i>Work & Leave Setup</div>
-                        <div class="form-grid">
+                        <div class="form-grid mt-4">
                             <div class="form-group">
                                 <label>Shift Type <span>*</span></label>
                                 <select class="form-control bg-gray-50" id="modShiftType" required>
@@ -557,12 +605,11 @@ if(file_exists($headerPath)) include $headerPath;
                                     <option value="10:00 AM - 07:00 PM">10:00 AM - 07:00 PM</option>
                                     <option value="09:00 PM - 06:00 AM">09:00 PM - 06:00 AM</option>
                                 </select>
-                                <span style="font-size:11px; color:#64748b; margin-top:4px; display:block;">Total Hours (9) = Production (8) + Break (1)</span>
                             </div>
                             <div class="form-group">
-                                <label>Casual Leaves Allowed (per month) <span>*</span></label>
-                                <input type="number" class="form-control" id="modCasualLeaves" value="2" min="0" required>
-                                <span style="font-size:11px; color:#ef4444; margin-top:4px; display:block;">Exceeding this limits will result in Loss of Pay</span>
+                                <label>Total Leaves Allowed (Per Year) <span>*</span></label>
+                                <input type="number" class="form-control" id="modTotalLeaves" value="12" min="0" required>
+                                <span style="font-size:11px; color:#ef4444; margin-top:4px; display:block;">Used for LOP deductions in payroll calculation</span>
                             </div>
                         </div>
 
@@ -625,7 +672,6 @@ if(file_exists($headerPath)) include $headerPath;
             }
         }
 
-        // Group managers by matching and other departments
         function updateModalManager(selectedManagerId = null) {
             const dept = document.getElementById('modDept').value;
             const mgrSelect = document.getElementById('modManager');
@@ -690,7 +736,9 @@ if(file_exists($headerPath)) include $headerPath;
             // Set defaults for Work Setup
             document.getElementById('modShiftType').value = 'Day Shift';
             document.getElementById('modShiftTimings').value = '09:00 AM - 06:00 PM';
-            document.getElementById('modCasualLeaves').value = 2;
+            document.getElementById('modTotalLeaves').value = 12;
+            document.getElementById('modSalaryType').value = 'Annual';
+            document.getElementById('modSalaryDate').value = ''; // Leave blank so HR selects from the calendar
 
             switchTab(document.querySelector('.tab-item:nth-child(1)'), 'tab-basic');
             document.getElementById('employeeModal').style.display = 'flex'; 
@@ -721,12 +769,26 @@ if(file_exists($headerPath)) include $headerPath;
                     document.getElementById('modRole').value = emp.role || 'Employee';
                     document.getElementById('modDept').value = emp.department;
                     document.getElementById('modDesig').value = emp.designation;
-                    document.getElementById('modSalary').value = emp.salary;
-                    document.getElementById('modEmpType').value = emp.employment_type;
                     
+                    // New Payroll & Leaves Parsing
+                    document.getElementById('modSalary').value = emp.salary;
+                    document.getElementById('modSalaryType').value = emp.salary_type || 'Annual';
+                    
+                    // Smart handling of the new Salary Date picker
+                    let sDate = emp.salary_date || '';
+                    if (sDate && !sDate.includes('-')) {
+                        // Clear the old "1" or "Last Day" formats so the browser calendar doesn't glitch
+                        sDate = '';
+                    }
+                    document.getElementById('modSalaryDate').value = sDate;
+                    
+                    document.getElementById('modEmpType').value = emp.employment_type;
                     document.getElementById('modShiftType').value = emp.shift_type || 'Day Shift';
                     document.getElementById('modShiftTimings').value = emp.shift_timings || '09:00 AM - 06:00 PM';
-                    document.getElementById('modCasualLeaves').value = emp.casual_leaves !== undefined ? emp.casual_leaves : 2;
+                    
+                    // Safely transition from old casual_leaves to total_leaves
+                    const leavesVal = emp.total_leaves !== undefined ? emp.total_leaves : (emp.casual_leaves !== undefined ? emp.casual_leaves : 12);
+                    document.getElementById('modTotalLeaves').value = leavesVal;
 
                     document.getElementById('modPan').value = emp.pan_no || '';
                     document.getElementById('modPf').value = emp.pf_no || '';
@@ -819,16 +881,20 @@ if(file_exists($headerPath)) include $headerPath;
             const dept = document.getElementById('modDept').value;
             const desig = document.getElementById('modDesig').value.trim();
             const manager_id = document.getElementById('modManager').value;
+            
+            // Payroll fields
             const salary = document.getElementById('modSalary').value;
+            const salaryType = document.getElementById('modSalaryType').value;
+            const salaryDate = document.getElementById('modSalaryDate').value;
             const empType = document.getElementById('modEmpType').value;
             
-            // New Shift & Leave fetching
+            // Shift & Leave
             const shiftType = document.getElementById('modShiftType').value;
             const shiftTimings = document.getElementById('modShiftTimings').value;
-            const casualLeaves = document.getElementById('modCasualLeaves').value;
+            const totalLeaves = document.getElementById('modTotalLeaves').value;
 
             // Validations
-            if(!fName || !empId || !joinDate || !desig || !uname || !email || !dept || !salary || !phone || !role || !shiftType || !shiftTimings || casualLeaves==='') {
+            if(!fName || !empId || !joinDate || !desig || !uname || !email || !dept || !salary || !phone || !role || !shiftType || !shiftTimings || totalLeaves==='' || !salaryType || !salaryDate) {
                 showToast("Please fill all required (*) fields.", "error"); return;
             }
             if(editId === '' && !pwd) {
@@ -860,10 +926,12 @@ if(file_exists($headerPath)) include $headerPath;
             formData.append('desig', desig);
             formData.append('manager_id', manager_id);
             formData.append('salary', salary);
+            formData.append('salary_type', salaryType);
+            formData.append('salary_date', salaryDate);
             formData.append('emp_type', empType);
             formData.append('shift_type', shiftType);
             formData.append('shift_timings', shiftTimings);
-            formData.append('casual_leaves', casualLeaves);
+            formData.append('total_leaves', totalLeaves);
             formData.append('pan', document.getElementById('modPan').value.trim());
             formData.append('pf', document.getElementById('modPf').value.trim());
             formData.append('esi', document.getElementById('modEsi').value.trim());
