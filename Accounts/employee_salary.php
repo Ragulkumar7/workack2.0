@@ -12,12 +12,28 @@ if (file_exists('include/db_connect.php')) {
     $sidebarPath = '../sidebars.php'; $headerPath = '../header.php';
 }
 
+// =========================================================================
+// ENTERPRISE SECURITY: Role-Based Access Control (RBAC)
+// =========================================================================
+$user_role = $_SESSION['role'] ?? 'HR'; 
+$current_user_id = $_SESSION['user_id'] ?? 0;
+
+$can_generate = in_array($user_role, ['HR', 'Admin']);
+$can_credit = in_array($user_role, ['Accounts', 'CFO', 'Admin']);
+$can_approve = in_array($user_role, ['CFO', 'Admin']);
+
 if (isset($conn)) {
-    // 1. AUTO-CREATE TABLE
+    // 1. DYNAMICALLY PATCH ONBOARDING TABLE (Adds salary_type if missing)
+    $check_col = $conn->query("SHOW COLUMNS FROM `employee_onboarding` LIKE 'salary_type'");
+    if ($check_col->num_rows == 0) {
+        $conn->query("ALTER TABLE `employee_onboarding` ADD COLUMN `salary_type` ENUM('Monthly','Annual') DEFAULT 'Annual'");
+    }
+
+    // 2. AUTO-CREATE ENTERPRISE PAYROLL TABLE
     $create_table = "CREATE TABLE IF NOT EXISTS `employee_salary` (
       `id` int(11) NOT NULL AUTO_INCREMENT,
       `user_id` int(11) NOT NULL,
-      `salary_month` varchar(20) NOT NULL,
+      `salary_month` DATE NOT NULL,
       `basic` decimal(10,2) DEFAULT 0.00,
       `da` decimal(10,2) DEFAULT 0.00,
       `hra` decimal(10,2) DEFAULT 0.00,
@@ -34,29 +50,67 @@ if (isset($conn)) {
       `others_deductions` decimal(10,2) DEFAULT 0.00,
       `gross_salary` decimal(12,2) DEFAULT 0.00,
       `net_salary` decimal(12,2) DEFAULT 0.00,
-      `credit_status` varchar(50) DEFAULT 'Pending',
+      `credit_status` ENUM('Pending', 'Credited') DEFAULT 'Pending',
       `credit_date` date DEFAULT NULL,
-      `approval_status` varchar(50) DEFAULT 'Pending',
+      `payment_mode` varchar(50) DEFAULT 'Bank Transfer',
+      `transaction_reference` varchar(100) DEFAULT NULL,
+      `approval_status` ENUM('Draft', 'Pending', 'Approved', 'Rejected') DEFAULT 'Draft',
+      `created_by` INT DEFAULT NULL,
       `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-      PRIMARY KEY (`id`)
+      `approved_by` INT DEFAULT NULL,
+      `approved_at` DATETIME DEFAULT NULL,
+      `credited_by` INT DEFAULT NULL,
+      `credited_at` DATETIME DEFAULT NULL,
+      PRIMARY KEY (`id`),
+      UNIQUE KEY `unique_salary` (`user_id`, `salary_month`),
+      INDEX `idx_user_month` (`user_id`, `salary_month`),
+      INDEX `idx_credit_status` (`credit_status`),
+      INDEX `idx_approval_status` (`approval_status`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
     $conn->query($create_table);
 
-    // 2. INTERNAL API LOGIC (Crash-Proofed)
+    // 3. INTERNAL API LOGIC (Zero Raw Queries & Strict Validation)
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
-        ob_clean(); // Clears any whitespace before sending JSON
+        ob_clean(); 
         header('Content-Type: application/json');
         $action = $_POST['ajax_action'];
 
+        // --- SAVE OR UPDATE SALARY ---
         if ($action === 'save_salary') {
+            if (!$can_generate && !$can_credit) {
+                echo json_encode(['success' => false, 'message' => 'Unauthorized Role.']); exit;
+            }
+
             $id = (int)($_POST['id'] ?? 0);
             $user_id = (int)($_POST['user_id'] ?? 0);
-            $salary_month = $_POST['salary_month'] ?? '';
-            $credit_status = $_POST['credit_status'] ?? 'Pending';
+            $salary_month_raw = $_POST['salary_month'] ?? '';
             
-            // Format date safely for MySQL
-            $credit_date = !empty($_POST['credit_date']) ? $_POST['credit_date'] : null;
+            // SECURITY: Regex Validation for Month
+            if (!preg_match('/^\d{4}-\d{2}$/', $salary_month_raw)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid month format.']); exit;
+            }
+            $salary_month_db = $salary_month_raw . '-01'; 
 
+            $credit_status = 'Pending';
+            $credit_date = null;
+            $payment_mode = null;
+            $trans_ref = null;
+            $credited_by = null;
+            $credited_at = null;
+
+            // Security: Only Accounts/CFO can set to Credited
+            if ($can_credit && isset($_POST['credit_status'])) {
+                $credit_status = $_POST['credit_status'];
+                if ($credit_status === 'Credited') {
+                    $credit_date = !empty($_POST['credit_date']) ? $_POST['credit_date'] : null;
+                    $payment_mode = $_POST['payment_mode'] ?? 'Bank Transfer';
+                    $trans_ref = $_POST['transaction_reference'] ?? '';
+                    $credited_by = $current_user_id;
+                    $credited_at = date('Y-m-d H:i:s');
+                }
+            }
+
+            // Calculations
             $basic = (float)($_POST['basic'] ?? 0);
             $da = (float)($_POST['da'] ?? 0);
             $hra = (float)($_POST['hra'] ?? 0);
@@ -77,96 +131,178 @@ if (isset($conn)) {
             $total_deductions = $tds + $esi + $pf + $leave_deduction + $professional_tax + $labour_welfare + $others_deductions;
             $net_salary = $gross_salary - $total_deductions;
 
+            // SECURITY: Prevent Negative Net Salary
+            if ($net_salary < 0) {
+                echo json_encode(['success' => false, 'message' => 'Financial Integrity Error: Net salary cannot be negative.']);
+                exit;
+            }
+
             if ($id > 0) { 
-                $stmt = $conn->prepare("UPDATE employee_salary SET basic=?, da=?, hra=?, conveyance=?, allowance=?, medical=?, others_earnings=?, tds=?, esi=?, pf=?, leave_deduction=?, professional_tax=?, labour_welfare=?, others_deductions=?, gross_salary=?, net_salary=?, credit_status=?, credit_date=?, approval_status='Pending' WHERE id=?");
-                if (!$stmt) {
-                    echo json_encode(['success' => false, 'message' => 'SQL Update Error: ' . $conn->error]);
+                // SECURITY: Double Credit / Hard Lock Attack Prevention
+                $lock_stmt = $conn->prepare("SELECT credit_status FROM employee_salary WHERE id = ?");
+                $lock_stmt->bind_param("i", $id);
+                $lock_stmt->execute();
+                $lock_res = $lock_stmt->get_result()->fetch_assoc();
+                $lock_stmt->close();
+                
+                if ($lock_res && $lock_res['credit_status'] === 'Credited') {
+                    echo json_encode(['success' => false, 'message' => 'Payroll Locked. This salary has already been credited.']);
                     exit;
                 }
-                $stmt->bind_param("ddddddddddddddddssi", $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date, $id);
+
+                $stmt = $conn->prepare("UPDATE employee_salary SET basic=?, da=?, hra=?, conveyance=?, allowance=?, medical=?, others_earnings=?, tds=?, esi=?, pf=?, leave_deduction=?, professional_tax=?, labour_welfare=?, others_deductions=?, gross_salary=?, net_salary=?, credit_status=?, credit_date=?, payment_mode=?, transaction_reference=?, credited_by=?, credited_at=? WHERE id=?");
+                $stmt->bind_param("ddddddddddddddddssssisi", $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date, $payment_mode, $trans_ref, $credited_by, $credited_at, $id);
             } else { 
-                $stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, conveyance, allowance, medical, others_earnings, tds, esi, pf, leave_deduction, professional_tax, labour_welfare, others_deductions, gross_salary, net_salary, credit_status, credit_date, approval_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
-                if (!$stmt) {
-                    echo json_encode(['success' => false, 'message' => 'SQL Insert Error: ' . $conn->error]);
-                    exit;
-                }
-                $stmt->bind_param("isddddddddddddddddss", $user_id, $salary_month, $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date);
+                $stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, conveyance, allowance, medical, others_earnings, tds, esi, pf, leave_deduction, professional_tax, labour_welfare, others_deductions, gross_salary, net_salary, credit_status, credit_date, payment_mode, transaction_reference, approval_status, created_by, credited_by, credited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft', ?, ?, ?)");
+                $stmt->bind_param("isddddddddddddddddssssiis", $user_id, $salary_month_db, $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date, $payment_mode, $trans_ref, $current_user_id, $credited_by, $credited_at);
             }
             
-            if ($stmt->execute()) {
-                echo json_encode(['success' => true]);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Execution Error: ' . $stmt->error]);
-            }
+            if ($stmt->execute()) { echo json_encode(['success' => true]); } 
+            else { echo json_encode(['success' => false, 'message' => 'DB Error or Duplicate Record: ' . $stmt->error]); }
             $stmt->close();
             exit;
         }
         
+        // --- DELETE SALARY (Locked protection) ---
         if ($action === 'delete_salary') {
+            if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
             $id = (int)($_POST['id'] ?? 0);
-            $conn->query("DELETE FROM employee_salary WHERE id = $id");
+            
+            $lock_stmt = $conn->prepare("SELECT credit_status FROM employee_salary WHERE id = ?");
+            $lock_stmt->bind_param("i", $id);
+            $lock_stmt->execute();
+            $lock_res = $lock_stmt->get_result()->fetch_assoc();
+            $lock_stmt->close();
+
+            if ($lock_res && $lock_res['credit_status'] === 'Credited') {
+                echo json_encode(['success' => false, 'message' => 'Payroll Locked. Cannot delete a credited salary.']);
+                exit;
+            }
+
+            $del_stmt = $conn->prepare("DELETE FROM employee_salary WHERE id = ?");
+            $del_stmt->bind_param("i", $id);
+            $del_stmt->execute();
+            $del_stmt->close();
+            
             echo json_encode(['success' => true]);
             exit;
         }
 
+        // --- ASK APPROVAL WORKFLOW ---
+        if ($action === 'ask_approval') {
+            if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
+            $id = (int)($_POST['id'] ?? 0);
+            
+            $app_stmt = $conn->prepare("UPDATE employee_salary SET approval_status = 'Pending' WHERE id = ? AND approval_status = 'Draft'");
+            $app_stmt->bind_param("i", $id);
+            $app_stmt->execute();
+            $app_stmt->close();
+            
+            echo json_encode(['success' => true]);
+            exit;
+        }
+
+        // --- AUTO GENERATE ALL ---
         if ($action === 'auto_generate') {
+            if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
+            
             $month = $_POST['month'] ?? '';
-            $emps = $conn->query("SELECT id, salary FROM employee_onboarding WHERE status = 'Completed'");
+            if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+                echo json_encode(['success' => false, 'message' => 'Invalid month format.']); exit;
+            }
+            $month_db = $month . '-01';
+            
+            list($y, $m) = explode('-', $month);
+            $month_end = date('Y-m-t', strtotime($month_db));
+            $days_in_month = cal_days_in_month(CAL_GREGORIAN, (int)$m, (int)$y);
+            
+            $emps = $conn->query("SELECT id, salary, IFNULL(salary_type, 'Annual') as salary_type FROM employee_onboarding WHERE status = 'Completed'");
             
             while($emp = $emps->fetch_assoc()) {
                 $uid = $emp['id'];
                 $ctc = (float)$emp['salary'];
-                $check = $conn->query("SELECT id FROM employee_salary WHERE user_id = $uid AND salary_month = '$month'");
+                $sal_type = $emp['salary_type'];
                 
-                if ($check->num_rows == 0) {
-                    $monthlyGross = $ctc > 200000 ? ($ctc / 12) : $ctc;
+                $check_stmt = $conn->prepare("SELECT id FROM employee_salary WHERE user_id = ? AND salary_month = ?");
+                $check_stmt->bind_param("is", $uid, $month_db);
+                $check_stmt->execute();
+                $exists = $check_stmt->get_result()->num_rows;
+                $check_stmt->close();
+                
+                if ($exists == 0) {
+                    $abs_stmt = $conn->prepare("SELECT COUNT(*) as absent_count FROM attendance WHERE user_id = ? AND date >= ? AND date <= ? AND status = 'Absent'");
+                    $abs_stmt->bind_param("iss", $uid, $month_db, $month_end);
+                    $abs_stmt->execute();
+                    $abs_days = $abs_stmt->get_result()->fetch_assoc()['absent_count'] ?? 0;
+                    $abs_stmt->close();
+
+                    // SMART CTC DETECTION
+                    $monthlyGross = ($sal_type === 'Annual') ? ($ctc / 12) : $ctc;
+
                     $basic = round($monthlyGross * 0.50, 2); 
                     $da = round($basic * 0.40, 2); 
                     $hra = round($basic * 0.15, 2);
                     $allowance = round($monthlyGross - ($basic + $da + $hra), 2);
+                    if ($allowance < 0) $allowance = 0;
                     $gross = $basic + $da + $hra + $allowance;
+                    
+                    $per_day_salary = $gross / $days_in_month;
+                    $leave_deduction = round($per_day_salary * $abs_days, 2);
                     
                     $pf = round($basic * 0.12, 2);
                     $esi = ($gross <= 21000) ? round($gross * 0.0075, 2) : 0;
                     $pt = ($gross > 15000) ? 200 : 0;
-                    $deductions = $pf + $esi + $pt;
+                    $deductions = $pf + $esi + $pt + $leave_deduction;
                     $net = $gross - $deductions;
+                    if ($net < 0) $net = 0;
 
-                    $stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, allowance, esi, pf, professional_tax, gross_salary, net_salary, credit_status, approval_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Pending')");
+                    $stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, allowance, esi, pf, professional_tax, leave_deduction, gross_salary, net_salary, credit_status, approval_status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Draft', ?)");
                     if($stmt) {
-                        $stmt->bind_param("isddddddddd", $uid, $month, $basic, $da, $hra, $allowance, $esi, $pf, $pt, $gross, $net);
+                        $stmt->bind_param("isddddddddddi", $uid, $month_db, $basic, $da, $hra, $allowance, $esi, $pf, $pt, $leave_deduction, $gross, $net, $current_user_id);
                         $stmt->execute();
+                        $stmt->close();
                     }
                 }
             }
-            echo json_encode(['success' => true, 'message' => "Salaries Auto-Generated successfully!"]);
+            echo json_encode(['success' => true, 'message' => "Salaries Auto-Generated securely!"]);
             exit;
         }
     }
 }
 
-// 3. FETCH AND DISPLAY DATA
+// 3. INDEX-OPTIMIZED DATA FETCHING
 $month_filter = isset($_GET['month']) ? $_GET['month'] : date('Y-m');
 $status_filter = isset($_GET['status']) ? $_GET['status'] : '';
+
+$month_db = $month_filter . '-01';
+$month_end = date('Y-m-t', strtotime($month_db));
 
 $employees_data = []; $grouped_data = [];
 $tot_payroll = 0; $tot_credited = 0; $tot_pending = 0; $tot_deductions = 0;
 
 if (isset($conn)) {
     $query = "SELECT e.id as user_id, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as name, 
-                     e.emp_id_code as emp_code, e.profile_img, e.designation, e.department, e.salary as ctc,
+                     e.emp_id_code as emp_code, e.profile_img, e.designation, e.department, 
+                     e.salary as ctc, IFNULL(e.salary_type, 'Annual') as salary_type,
                      s.id as salary_id, s.salary_month, s.gross_salary, s.net_salary, s.credit_status, s.approval_status,
+                     s.credit_date, s.payment_mode, s.transaction_reference,
                      s.basic, s.da, s.hra, s.conveyance, s.allowance, s.medical, s.others_earnings,
-                     s.tds, s.esi, s.pf, s.leave_deduction, s.professional_tax, s.labour_welfare, s.others_deductions
+                     s.tds, s.esi, s.pf, s.leave_deduction, s.professional_tax, s.labour_welfare, s.others_deductions,
+                     (SELECT COUNT(*) FROM attendance a WHERE a.user_id = e.id AND a.date >= ? AND a.date <= ? AND a.status = 'Absent') as absent_days
               FROM employee_onboarding e
               LEFT JOIN employee_salary s ON e.id = s.user_id AND s.salary_month = ?
               WHERE e.status = 'Completed'";
-    if (!empty($status_filter)) $query .= " AND s.approval_status = ?";
-    $query .= " ORDER BY e.department ASC, e.first_name ASC";
+              
+    if (!empty($status_filter)) {
+        $query .= " AND s.approval_status = ?";
+        $stmt = $conn->prepare($query . " ORDER BY e.department ASC, e.first_name ASC");
+        $stmt->bind_param("ssss", $month_db, $month_end, $month_db, $status_filter);
+    } else {
+        $stmt = $conn->prepare($query . " ORDER BY e.department ASC, e.first_name ASC");
+        $stmt->bind_param("sss", $month_db, $month_end, $month_db);
+    }
 
-    if ($stmt = $conn->prepare($query)) {
-        if (!empty($status_filter)) $stmt->bind_param("ss", $month_filter, $status_filter);
-        else $stmt->bind_param("s", $month_filter);
+    if ($stmt) {
         $stmt->execute();
         $result = $stmt->get_result();
         
@@ -197,10 +333,10 @@ if (isset($conn)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Employee Salary Management | WorkAck HRMS</title>
+    <title>Enterprise Payroll Management | WorkAck HRMS</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --primary: #f97316; --success: #22c55e; --danger: #ef4444; --gray: #6b7280; --bg: #f3f4f6; }
+        :root { --primary: #f97316; --success: #22c55e; --warning: #f59e0b; --danger: #ef4444; --gray: #6b7280; --bg: #f3f4f6; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin: 0; overflow-x: hidden; }
         .main-content { margin-left: 100px; padding-top: 10px; padding-left: 25px; padding-right: 25px; padding-bottom: 30px; min-height: 100vh; box-sizing: border-box; transition: all 0.3s ease; }
         @media (max-width: 991px) { .main-content { margin-left: 0; padding-left: 15px; padding-right: 15px; padding-top: 80px; } }
@@ -213,6 +349,7 @@ if (isset($conn)) {
         .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; color: #fff; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; font-size: 13px; }
         .btn-primary { background: #3b82f6; }
         .btn-success { background: var(--success); }
+        .btn-warning { background: var(--warning); }
         .btn-danger { background: var(--danger); }
         .btn-dark { background: #1f2937; }
         .btn-outline { background: transparent; border: 1px solid #d1d5db; color: #374151; }
@@ -224,9 +361,11 @@ if (isset($conn)) {
         .user-info { display: flex; align-items: center; gap: 12px; }
         .user-avatar { width: 42px; height: 42px; border-radius: 50%; background: #eee; object-fit: cover; }
         .badge { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .badge.Pending { background: #fee2e2; color: #dc2626; }
+        .badge.Draft { background: #f1f5f9; color: #475569; }
+        .badge.Pending { background: #fef3c7; color: #d97706; }
         .badge.Credited { background: #e0f2fe; color: #0284c7; }
         .badge.Approved { background: #dcfce7; color: #16a34a; }
+        .badge.Rejected { background: #fee2e2; color: #dc2626; }
         .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
         .modal-content { background: #fff; padding: 30px; width: 100%; max-width: 850px; border-radius: 16px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
         .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; border-bottom: 1px solid #f3f4f6; padding-bottom: 15px; }
@@ -255,7 +394,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         <div class="summary-cards">
             <div class="card" style="border-left-color: #3b82f6;"><h3>Total Payroll (This Month)</h3><p>₹<?php echo number_format($tot_payroll, 2); ?></p></div>
             <div class="card" style="border-left-color: var(--success);"><h3>Net Credited</h3><p>₹<?php echo number_format($tot_credited, 2); ?></p></div>
-            <div class="card" style="border-left-color: var(--danger);"><h3>Pending Approval</h3><p>₹<?php echo number_format($tot_pending, 2); ?></p></div>
+            <div class="card" style="border-left-color: var(--warning);"><h3>Pending Approval</h3><p>₹<?php echo number_format($tot_pending, 2); ?></p></div>
             <div class="card" style="border-left-color: #8b5cf6;"><h3>Total Deductions</h3><p>₹<?php echo number_format($tot_deductions, 2); ?></p></div>
         </div>
 
@@ -264,6 +403,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                 <input type="month" name="month" id="filter-month" value="<?php echo htmlspecialchars($month_filter); ?>" onchange="this.form.submit()" style="padding:10px; border:1px solid #ddd; border-radius:8px;">
                 <select name="status" onchange="this.form.submit()" style="padding:10px; border:1px solid #ddd; border-radius:8px;">
                     <option value="">All Approval Status</option>
+                    <option value="Draft" <?php if($status_filter == 'Draft') echo 'selected'; ?>>Draft</option>
                     <option value="Pending" <?php if($status_filter == 'Pending') echo 'selected'; ?>>Pending</option>
                     <option value="Approved" <?php if($status_filter == 'Approved') echo 'selected'; ?>>Approved</option>
                 </select>
@@ -271,7 +411,9 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             </form>
             <div style="display:flex; gap: 10px; flex-wrap: wrap;">
                 <button class="btn btn-outline" onclick="exportCSV()"><i class="fa-solid fa-download"></i> Export CSV</button>
+                <?php if($can_generate): ?>
                 <button class="btn btn-dark" onclick="autoGenerateAll()"><i class="fa-solid fa-bolt"></i> Auto-Generate All</button>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -310,8 +452,12 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                                 $hasSalary = !empty($row['salary_id']);
                                 $gross = $hasSalary ? (float)$row['gross_salary'] : 0;
                                 $net = $hasSalary ? (float)$row['net_salary'] : 0;
-                                $isApproved = $hasSalary && $row['approval_status'] === 'Approved';
+                                $appStatus = $hasSalary ? ($row['approval_status'] ?: 'Draft') : 'N/A';
+                                $credStatus = $hasSalary ? ($row['credit_status'] ?: 'Pending') : 'N/A';
+                                $isLocked = ($credStatus === 'Credited');
+                                
                                 $ctc = (float)($row['ctc'] ?? 0);
+                                $sal_type = $row['salary_type'];
                             ?>
                             <tr class="emp-row">
                                 <td>
@@ -323,12 +469,13 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                                                 <span class="emp-code" style="color:var(--primary); font-weight:600;"><?php echo htmlspecialchars($row['emp_code'] ?: 'N/A'); ?></span> | <?php echo htmlspecialchars($row['designation'] ?: 'N/A'); ?>
                                             </div>
                                             <div style="font-size:11px; margin-top:4px; font-weight:700; color:#059669;">
-                                                Base CTC: ₹<?php echo number_format($ctc, 2); ?>
+                                                Base: ₹<?php echo number_format($ctc, 2); ?> (<?php echo htmlspecialchars($sal_type); ?>)
+                                                <?php if($row['absent_days'] > 0) { echo "<span style='color:#ef4444; margin-left:8px;'><i class='fa-solid fa-triangle-exclamation'></i> Absent: ".$row['absent_days']." days</span>"; } ?>
                                             </div>
                                         </div>
                                     </div>
                                 </td>
-                                <td style="font-weight:600; color:#475569;"><?php echo htmlspecialchars($row['salary_month'] ?? $month_filter); ?></td>
+                                <td style="font-weight:600; color:#475569;"><?php echo htmlspecialchars($month_filter); ?></td>
                                 <td>
                                     <?php if($hasSalary): ?>
                                         <div style="font-weight:800; color:#111; font-size:16px;">₹<?php echo number_format($net, 2); ?></div>
@@ -339,14 +486,14 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                                 </td>
                                 <td>
                                     <?php if($hasSalary): ?>
-                                        <span class="badge <?php echo htmlspecialchars($row['credit_status']); ?>"><?php echo htmlspecialchars($row['credit_status']); ?></span>
+                                        <span class="badge <?php echo htmlspecialchars($credStatus); ?>"><?php echo htmlspecialchars($credStatus); ?></span>
                                     <?php else: ?>
                                         <span class="badge" style="background:#f1f5f9; color:#94a3b8;">N/A</span>
                                     <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if($hasSalary): ?>
-                                        <span class="badge <?php echo htmlspecialchars($row['approval_status'] ?: 'Pending'); ?>"><?php echo htmlspecialchars($row['approval_status'] ?: 'Pending'); ?></span>
+                                        <span class="badge <?php echo htmlspecialchars($appStatus); ?>"><?php echo htmlspecialchars($appStatus); ?></span>
                                     <?php else: ?>
                                         <span class="badge" style="background:#f1f5f9; color:#94a3b8;">N/A</span>
                                     <?php endif; ?>
@@ -354,14 +501,24 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                                 <td style="text-align:right;">
                                     <div style="display:flex; gap:8px; justify-content:flex-end; align-items:center;">
                                         <?php if($hasSalary): ?>
-                                            <?php if($isApproved): ?>
+                                            <?php if($isLocked): ?>
                                                 <button class="btn btn-dark" style="padding:6px 12px; font-size:12px;" onclick="window.location.href='api/generate_payslip.php?id=<?php echo $row['salary_id']; ?>'"><i class="fa-solid fa-file-pdf"></i> Payslip</button>
+                                                <span style="font-size:11px; font-weight:700; color:var(--success); margin-left: 8px;"><i class="fa-solid fa-lock"></i> Locked</span>
                                             <?php else: ?>
-                                                <button class="btn btn-success" style="padding:6px 12px; font-size:12px;" onclick="askApproval(<?php echo $row['salary_id']; ?>)"><i class="fa-solid fa-paper-plane"></i> Ask Approval</button>
+                                                <?php if($appStatus === 'Approved'): ?>
+                                                    <button class="btn btn-dark" style="padding:6px 12px; font-size:12px;" onclick="window.location.href='api/generate_payslip.php?id=<?php echo $row['salary_id']; ?>'"><i class="fa-solid fa-file-pdf"></i> Payslip</button>
+                                                <?php elseif($appStatus === 'Pending'): ?>
+                                                    <span class="badge Pending" style="padding:8px 12px;">Awaiting CFO</span>
+                                                <?php elseif($can_generate): ?>
+                                                    <button class="btn btn-warning" style="padding:6px 12px; font-size:12px;" onclick="askApproval(<?php echo $row['salary_id']; ?>)"><i class="fa-solid fa-paper-plane"></i> Ask Approval</button>
+                                                <?php endif; ?>
+                                                
+                                                <button class="btn btn-outline" style="padding:6px 12px;" onclick="editSalary(<?php echo $row['salary_id']; ?>)" title="Edit"><i class="fa-solid fa-pen"></i></button>
+                                                <?php if($can_generate): ?>
+                                                <button class="btn btn-danger" style="padding:6px 12px;" onclick="deleteSalary(<?php echo $row['salary_id']; ?>)" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                                                <?php endif; ?>
                                             <?php endif; ?>
-                                            <button class="btn btn-outline" style="padding:6px 12px;" onclick="editSalary(<?php echo $row['salary_id']; ?>)" title="Edit"><i class="fa-solid fa-pen"></i></button>
-                                            <button class="btn btn-danger" style="padding:6px 12px;" onclick="deleteSalary(<?php echo $row['salary_id']; ?>)" title="Delete"><i class="fa-solid fa-trash"></i></button>
-                                        <?php else: ?>
+                                        <?php elseif($can_generate): ?>
                                             <button class="btn btn-primary" style="padding:6px 14px;" onclick="generateManual(<?php echo $row['user_id']; ?>)"><i class="fa-solid fa-plus"></i> Generate</button>
                                         <?php endif; ?>
                                     </div>
@@ -389,8 +546,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             <div class="form-grid">
                 <div class="form-group">
                     <label>Employee</label>
-                    <select name="user_id" id="employeeSelect" required style="background: #f3f4f6; pointer-events: none; border-color: #e5e7eb;">
-                    </select>
+                    <select name="user_id" id="employeeSelect" required style="background: #f3f4f6; pointer-events: none; border-color: #e5e7eb;"></select>
                 </div>
                 <div class="form-group">
                     <label>Salary Month</label>
@@ -399,14 +555,30 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                 
                 <div class="form-group">
                     <label>Credit Status</label>
-                    <select name="credit_status" id="creditStatus" onchange="toggleDate(this.value)">
+                    <select name="credit_status" id="creditStatus" onchange="toggleDate(this.value)" <?php if(!$can_credit) echo 'disabled style="background: #f3f4f6;" title="Only Accounts/CFO can update credit status"'; ?>>
                         <option value="Pending">Pending</option>
                         <option value="Credited">Credited</option>
+                    </select>
+                    <?php if(!$can_credit): ?>
+                        <input type="hidden" name="credit_status" id="hiddenCreditStatus" value="Pending">
+                    <?php endif; ?>
+                </div>
+
+                <div class="form-group" id="paymentModeDiv" style="display: none;">
+                    <label>Payment Mode</label>
+                    <select name="payment_mode" id="paymentMode">
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Cash">Cash</option>
                     </select>
                 </div>
                 <div class="form-group" id="creditDateDiv" style="display: none;">
                     <label>Date of Credit</label>
                     <input type="date" name="credit_date" id="creditDate">
+                </div>
+                <div class="form-group" id="transRefDiv" style="display: none; grid-column: 1 / -1;">
+                    <label>Bank Transaction ID / UTR No.</label>
+                    <input type="text" name="transaction_reference" id="transRef" placeholder="e.g. UTR-123456789">
                 </div>
 
                 <div class="section-title" style="color: var(--primary);">Earnings (In ₹)</div>
@@ -422,14 +594,17 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                 <div class="form-group"><label>TDS (Tax)</label><input type="number" name="tds" id="form_tds" value="0" step="0.01"></div>
                 <div class="form-group"><label>ESI (0.75%)</label><input type="number" name="esi" id="form_esi" value="0" step="0.01"></div>
                 <div class="form-group"><label>Provident Fund (PF - 12%)</label><input type="number" name="pf" id="form_pf" value="0" step="0.01"></div>
-                <div class="form-group"><label>Leave / LOP</label><input type="number" name="leave_deduction" id="form_leave_deduction" value="0" step="0.01"></div>
+                <div class="form-group">
+                    <label>Leave / LOP <span id="lop-info" style="font-size:11px; color:#ef4444; font-weight:normal; margin-left: 5px;"></span></label>
+                    <input type="number" name="leave_deduction" id="form_leave_deduction" value="0" step="0.01">
+                </div>
                 <div class="form-group"><label>Professional Tax</label><input type="number" name="professional_tax" id="form_professional_tax" value="0" step="0.01"></div>
                 <div class="form-group"><label>Labour Welfare</label><input type="number" name="labour_welfare" id="form_labour_welfare" value="0" step="0.01"></div>
                 <div class="form-group"><label>Other Deductions</label><input type="number" name="others_deductions" id="form_others_deductions" value="0" step="0.01"></div>
                 
                 <div class="form-group" style="grid-column: 1 / -1; margin-top:20px; border-top:1px solid #f3f4f6; padding-top: 20px; display:flex; flex-direction:row; justify-content:flex-end; gap:12px;">
                     <button type="button" class="btn btn-outline" onclick="closeModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="submit-btn">Save & Send for CFO Approval</button>
+                    <button type="submit" class="btn btn-primary" id="submit-btn">Save Salary Data</button>
                 </div>
             </div>
         </form>
@@ -438,13 +613,19 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
 
 <script>
     const serverData = <?php echo json_encode($employees_data); ?>;
-    
     document.getElementById('current-date').innerText = new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
     function toggleDate(status) {
         const dateDiv = document.getElementById('creditDateDiv');
-        dateDiv.style.display = (status === 'Credited') ? 'flex' : 'none';
-        if (status === 'Credited' && !document.getElementById('creditDate').value) {
+        const modeDiv = document.getElementById('paymentModeDiv');
+        const refDiv = document.getElementById('transRefDiv');
+        
+        const isCredited = (status === 'Credited');
+        dateDiv.style.display = isCredited ? 'flex' : 'none';
+        modeDiv.style.display = isCredited ? 'flex' : 'none';
+        refDiv.style.display = isCredited ? 'flex' : 'none';
+
+        if (isCredited && !document.getElementById('creditDate').value) {
             document.getElementById('creditDate').value = new Date().toISOString().slice(0, 10);
         }
     }
@@ -479,20 +660,24 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
 
         try {
             const res = await fetch(window.location.href, { method: 'POST', body: formData });
-            const rawText = await res.text();
-            try {
-                const result = JSON.parse(rawText);
-                alert(result.message || "Auto-generation complete!");
-                if(result.success) window.location.reload();
-            } catch(e) {
-                alert("Database Error! Message from server: " + rawText.substring(0,100));
-            }
+            const result = await res.json();
+            alert(result.message || "Auto-generation complete!");
+            if(result.success) window.location.reload();
         } catch(err) { alert("Network Error. Check connection."); }
     }
 
-    function askApproval(id) {
-        if(confirm("Notify CFO for final approval of this record?")) {
-            alert("Approval request has been sent to the CFO Dashboard.");
+    async function askApproval(id) {
+        if(confirm("Send this salary to the CFO Dashboard for approval?")) {
+            const formData = new FormData();
+            formData.append('ajax_action', 'ask_approval');
+            formData.append('id', id);
+            
+            try {
+                const res = await fetch(window.location.href, { method: 'POST', body: formData });
+                const result = await res.json();
+                if(result.success) window.location.reload();
+                else alert("Error: " + result.message);
+            } catch(err) { alert("Error sending for approval."); }
         }
     }
 
@@ -507,17 +692,30 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         empSelect.innerHTML = `<option value="${item.user_id}" selected>${item.name} (${item.emp_code})</option>`;
         
         document.getElementById('form_salary_month').value = document.getElementById('filter-month').value;
-        document.getElementById('creditStatus').value = 'Pending';
+        
+        const credSelect = document.getElementById('creditStatus');
+        if(!credSelect.disabled) credSelect.value = 'Pending';
+        if(document.getElementById('hiddenCreditStatus')) document.getElementById('hiddenCreditStatus').value = 'Pending';
         toggleDate('Pending');
         
+        let [yearStr, monthStr] = document.getElementById('filter-month').value.split('-');
+        let daysInMonth = new Date(yearStr, monthStr, 0).getDate();
+        let absentDays = parseInt(item.absent_days) || 0;
+
+        // Enterprise Standard CTC Calculation
         let rawCTC = parseFloat(item.ctc) || 0;
-        let monthlyGross = rawCTC > 200000 ? (rawCTC / 12) : rawCTC; 
+        let salType = item.salary_type || 'Annual';
+        let monthlyGross = (salType === 'Annual') ? (rawCTC / 12) : rawCTC;
 
         let basicPay = monthlyGross * 0.50;
         let daPay = basicPay * 0.40;
         let hraPay = basicPay * 0.15;
         let allowancePay = monthlyGross - (basicPay + daPay + hraPay);
         if(allowancePay < 0) allowancePay = 0;
+        
+        let grossPay = basicPay + daPay + hraPay + allowancePay;
+        let perDaySalary = grossPay / daysInMonth;
+        let lopDeduct = perDaySalary * absentDays;
 
         let pfDeduct = basicPay * 0.12;
         let esiDeduct = monthlyGross <= 21000 ? (monthlyGross * 0.0075) : 0;
@@ -536,12 +734,14 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         document.getElementById('form_esi').value = esiDeduct.toFixed(2);
         document.getElementById('form_professional_tax').value = ptDeduct.toFixed(2);
 
+        document.getElementById('form_leave_deduction').value = lopDeduct.toFixed(2);
+        if (absentDays > 0) document.getElementById('lop-info').innerText = `(Auto-calculated: ${absentDays} days absent)`;
+        else document.getElementById('lop-info').innerText = '';
+
         document.getElementById('form_tds').value = 0;
-        document.getElementById('form_leave_deduction').value = 0;
         document.getElementById('form_labour_welfare').value = 0;
         document.getElementById('form_others_deductions').value = 0;
         
-        document.getElementById('submit-btn').innerText = 'Save & Send for CFO Approval';
         openModal();
     }
 
@@ -551,18 +751,22 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
 
         document.getElementById('modal-title').innerText = `Update Salary: ${item.name}`;
         document.getElementById('salary_db_id').value = item.salary_id;
+        document.getElementById('lop-info').innerText = ''; 
         
         const empSelect = document.getElementById('employeeSelect');
         empSelect.innerHTML = `<option value="${item.user_id}" selected>${item.name} (${item.emp_code})</option>`;
 
-        document.getElementById('form_salary_month').value = item.salary_month;
-        document.getElementById('creditStatus').value = item.credit_status || 'Pending';
+        // Revert DATE 'YYYY-MM-DD' back to 'YYYY-MM' for HTML Input
+        document.getElementById('form_salary_month').value = item.salary_month.substring(0, 7);
         
-        if(item.credit_date && item.credit_date !== 'null' && item.credit_date !== '0000-00-00') {
-            document.getElementById('creditDate').value = item.credit_date.substring(0, 10);
-        } else {
-            document.getElementById('creditDate').value = '';
-        }
+        const credSelect = document.getElementById('creditStatus');
+        if(!credSelect.disabled) credSelect.value = item.credit_status || 'Pending';
+        if(document.getElementById('hiddenCreditStatus')) document.getElementById('hiddenCreditStatus').value = item.credit_status || 'Pending';
+
+        if(item.credit_date) document.getElementById('creditDate').value = item.credit_date.substring(0, 10);
+        if(item.payment_mode) document.getElementById('paymentMode').value = item.payment_mode;
+        if(item.transaction_reference) document.getElementById('transRef').value = item.transaction_reference;
+        
         toggleDate(item.credit_status);
         
         const fields = ['basic', 'da', 'hra', 'conveyance', 'allowance', 'medical', 'others_earnings', 'tds', 'esi', 'pf', 'leave_deduction', 'professional_tax', 'labour_welfare', 'others_deductions'];
@@ -571,7 +775,6 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             if(el) el.value = item[f] ? parseFloat(item[f]).toFixed(2) : 0;
         });
         
-        document.getElementById('submit-btn').innerText = 'Update & Re-send for Approval';
         openModal();
     }
 
@@ -597,10 +800,9 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                 }
             } catch(parseErr) {
                 console.error("PHP Error Details:", rawText);
-                alert("Database Error: A column might be missing. See console for details.\n\n" + rawText.substring(0,100));
+                alert("Database Error! Please see console.");
                 empSelect.style.pointerEvents = 'none'; 
             }
-            
         } catch(err) {
             alert("Network error. Please try again.");
             empSelect.style.pointerEvents = 'none'; 
@@ -608,7 +810,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
     }
 
     async function deleteSalary(id) {
-        if(confirm("Are you sure you want to permanently delete this payroll record?")) {
+        if(confirm("Permanently delete this payroll record?")) {
             const formData = new FormData();
             formData.append('ajax_action', 'delete_salary');
             formData.append('id', id);
@@ -624,7 +826,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
 
     function exportCSV() {
         if(!serverData.length) return alert("No data to export");
-        let csv = "Employee ID,Name,Department,Month,Gross Salary,Net Salary,Credit Status,Approval Status\n";
+        let csv = "Employee ID,Name,Department,Month,Gross Salary,Net Salary,Credit Status,Transaction Ref,Approval Status\n";
         let hasData = false;
         
         serverData.forEach(r => {
@@ -632,7 +834,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                 hasData = true;
                 const gross = parseFloat(r.gross_salary) || 0;
                 const net = parseFloat(r.net_salary) || 0;
-                csv += `"${r.emp_code}","${r.name}","${r.department}","${r.salary_month}","${gross}","${net}","${r.credit_status}","${r.approval_status}"\n`;
+                csv += `"${r.emp_code}","${r.name}","${r.department}","${r.salary_month.substring(0,7)}","${gross}","${net}","${r.credit_status}","${r.transaction_reference || ''}","${r.approval_status}"\n`;
             }
         });
         

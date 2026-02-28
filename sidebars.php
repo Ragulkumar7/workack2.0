@@ -412,9 +412,9 @@ $sections = [
             // --- EMPLOYEE SALARY (ACCOUNTS ROLE) ---
             [
                 'name' => 'Employee Salary', 
-                'path' => $base . 'Accounts/employee_salary.php', 
+                'path' => $base . './Accounts/employee_salary.php', 
                 'icon' => 'banknote', // Lucide icon for money/salary
-                'allowed' => ['Accounts']
+                'allowed' => ['Accounts', 'HR']
             ],
             [
                 'name' => 'Payslip <br>Management', 
