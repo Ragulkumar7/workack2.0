@@ -285,14 +285,6 @@ $sections = [
                 'icon' => 'users', 
                 'allowed' => ['Team Lead']
             ],
-           // salary hike for HR only
-            [
-                'name' => 'Salary Hike', 
-                'path' => $base . 'HR/hr_salaryhikes.php', 
-                'icon' => 'banknote', 
-                'allowed' => ['HR'] // Only HR can see Salary Hike option
-            ],
-
             [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
@@ -454,12 +446,6 @@ $sections = [
     [
         'label' => 'Salary Management',
         'items' => [
-    [
-    'name' => 'Salary Revisions', 
-    'path' => $base . 'Accounts/salary_revisions.php', 
-    'icon' => 'trending-up', // 'history'
-    'allowed' => ['Accounts', 'CFO']
-]
         ]
     ],  
     [
