@@ -10,8 +10,6 @@ elseif (file_exists('../include/db_connect.php')) { require_once '../include/db_
 else { die("Database connection missing."); }
 
 // --- CRITICAL FIX: FORCE CONNECTION CLOSURE ---
-// This ensures that even when the script uses 'exit;', the connection is killed, 
-// preventing "Sleep" processes from eating your 500/hour quota.
 register_shutdown_function(function() use ($conn) {
     if (isset($conn) && $conn instanceof mysqli) {
         mysqli_close($conn);
@@ -27,9 +25,39 @@ $my_username = $_SESSION['username'] ?? 'User';
 // Role Check: Only certain roles can create groups
 $can_create_group = in_array($my_role, ['Manager', 'Team Lead', 'System Admin', 'HR', 'HR Executive']);
 
-// Fetch users for the meeting dropdown & People Directory
+// =========================================================================================
+// ROLE-BASED ACCESS CONTROL (RBAC) FOR USER DIRECTORY & SEARCH
+// =========================================================================================
+$my_info_query = $conn->query("SELECT ep.reporting_to, ep.department, u.role FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = $my_id");
+$my_info = $my_info_query->fetch_assoc();
+$my_tl_id = (int)($my_info['reporting_to'] ?? 0);
+$my_dept = $conn->real_escape_string($my_info['department'] ?? '');
+$my_exact_role = $my_info['role'] ?? 'Employee';
+
+$see_all_roles = ['System Admin', 'HR', 'HR Executive'];
+$manager_roles = ['Manager', 'Sales Manager', 'IT Admin', 'CFO']; 
+
+if (in_array($my_exact_role, $see_all_roles)) {
+    // HR and Admins see everyone
+    $user_filter = "1=1"; 
+} elseif (in_array($my_exact_role, $manager_roles)) {
+    // Managers see everyone in their own department + HR
+    $user_filter = "(ep.department = '$my_dept' OR u.role IN ('HR', 'HR Executive', 'System Admin'))";
+} elseif ($my_exact_role === 'Team Lead') {
+    // TL sees: Their reportees, Managers in their dept, and HR
+    $user_filter = "(ep.reporting_to = $my_id OR (u.role IN ('Manager', 'Sales Manager', 'IT Admin', 'CFO') AND ep.department = '$my_dept') OR u.role IN ('HR', 'HR Executive', 'System Admin'))";
+} else {
+    // Employee sees: Their TL, their teammates (same TL), Managers in their dept, and HR
+    if ($my_tl_id > 0) {
+        $user_filter = "(ep.reporting_to = $my_tl_id OR u.id = $my_tl_id OR (u.role IN ('Manager', 'Sales Manager', 'IT Admin', 'CFO') AND ep.department = '$my_dept') OR u.role IN ('HR', 'HR Executive', 'System Admin'))";
+    } else {
+        $user_filter = "(ep.department = '$my_dept' OR u.role IN ('Manager', 'HR', 'System Admin', 'HR Executive'))";
+    }
+}
+
+// Fetch users for the meeting dropdown & People Directory based on RBAC
 $all_users = [];
-$res_users = $conn->query("SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as name, ep.profile_img FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id");
+$res_users = $conn->query("SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as name, ep.profile_img FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id != $my_id AND ($user_filter)");
 if ($res_users) {
     while($row = $res_users->fetch_assoc()) {
         if(empty($row['profile_img']) || $row['profile_img'] == 'default_user.png') {
@@ -92,7 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $term = "%" . ($_POST['term'] ?? '') . "%";
         $sql = "SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as display_name, ep.profile_img 
                 FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id
-                WHERE (ep.full_name LIKE ? OR u.username LIKE ? OR u.role LIKE ?) AND u.id != ? LIMIT 20";
+                WHERE (ep.full_name LIKE ? OR u.username LIKE ? OR u.role LIKE ?) AND u.id != ? AND ($user_filter) LIMIT 20";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("sssi", $term, $term, $term, $my_id);
         $stmt->execute();
@@ -136,7 +164,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         echo json_encode(['status' => 'success', 'conversation_id' => $conv_id]); exit;
     }
 
-    // 3. GET RECENT CHATS (Optimized query for sidebar)
+    // 3. GET RECENT CHATS
     if ($action === 'get_recent_chats') {
         $sql = "
             SELECT 
@@ -226,7 +254,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $typing_res = $conn->query("SELECT COALESCE(ep.full_name, u.username) as typing_name FROM typing_status ts JOIN users u ON ts.user_id = u.id LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE ts.conversation_id = $conv_id AND ts.user_id != $my_id AND ts.updated_at > DATE_SUB(NOW(), INTERVAL 5 SECOND)");
         while ($t = $typing_res->fetch_assoc()) $typing_users[] = $t['typing_name'];
 
-        // Partner info (only send if initial load to save bandwidth)
+        // Partner info
         $partner = null;
         if ($last_msg_id == 0) {
             $conv_info = $conn->query("SELECT * FROM chat_conversations WHERE id = $conv_id")->fetch_assoc();
@@ -254,7 +282,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $msg_type = $_POST['type'] ?? 'text'; 
         $attachment = null;
 
-        // Unhide conversation for all participants when a new message is sent
         $conn->query("UPDATE chat_participants SET hidden_at = NULL WHERE conversation_id = $conv_id");
 
         if (isset($_FILES['file']) && $_FILES['file']['error'] == 0) {
@@ -369,7 +396,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         echo json_encode(['status' => 'ok']); exit;
     }
 
-    // TYPING INDICATORS
     if ($action === 'start_typing') {
         $conv_id = (int)$_POST['conversation_id'];
         $stmt = $conn->prepare("INSERT INTO typing_status (conversation_id, user_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP");
@@ -415,7 +441,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .app-container { flex: 1; display:flex; height: 0; min-height: 0; background: var(--bg-light); position: relative;}
         
         /* SECONDARY SIDEBAR */
-        .sidebar-secondary-teams { width: 80px; background: #ffffff; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 15; }
+        .sidebar-secondary-teams { width: 68px; background: #ebebeb; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 15; }
         .nav-icon { width: 50px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 0.75rem; border-radius: 6px; margin-bottom: 5px; transition: 0.2s; }
         .nav-icon i { font-size: 1.4rem; margin-bottom: 2px; }
         .nav-icon:hover { color: var(--primary); }
@@ -503,13 +529,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         #chatOptionsDropdown button:hover { background: var(--hover-bg); color: #ef4444;}
 
         /* Teams Input Area */
-        .input-area { padding: 0 20px 20px; background: transparent; display: flex; flex-direction: column; z-index: 10;}
+        .input-area { padding: 0 20px 20px; background: transparent; display: flex; flex-direction: column; z-index: 10; position: relative;}
         .input-wrapper { background: #fff; border-radius: 6px; display: flex; align-items: flex-end; width: 100%; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--border); padding: 8px 12px; min-height: 50px;}
         .input-wrapper input { flex: 1; padding: 8px 10px; border: none; outline: none; background: transparent; font-size: 0.95rem; }
         .input-tools { display: flex; align-items: center; gap: 8px; margin-left: 10px; padding-bottom: 2px;}
         .btn-tool { background: transparent; color: var(--text-muted); width: 32px; height: 32px; border-radius: 4px; display: flex; align-items: center; justify-content: center; border: none; cursor: pointer; transition: 0.2s; font-size: 1.2rem;}
         .btn-tool:hover { background: var(--hover-bg); color: var(--primary); }
         .btn-send { color: var(--primary); }
+
+        /* EMOJI PICKER */
+        #emojiPicker { display: none; position: absolute; bottom: 75px; right: 20px; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); width: 260px; height: 200px; overflow-y: auto; padding: 10px; z-index: 100; grid-template-columns: repeat(6, 1fr); gap: 8px; text-align: center; font-size: 1.3rem; }
+        #emojiPicker span { cursor: pointer; transition: transform 0.1s; }
+        #emojiPicker span:hover { transform: scale(1.3); }
 
         /* MEET SECTION UI */
         .meet-hero-btn { flex: 1; background: white; border: 1px solid var(--border); padding: 15px 20px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.02);}
@@ -525,7 +556,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .people-btn { background: var(--bg-light); color: var(--text-dark); width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; border: 1px solid var(--border); transition: 0.2s; font-size: 1.2rem;}
         .people-btn:hover { background: var(--primary); color: white; border-color: var(--primary); transform: scale(1.05); }
 
-        /* CALENDAR STYLES (MATCHING SCREENSHOT) */
+        /* CALENDAR STYLES */
         .calendar-header { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--border); }
         .calendar-title { font-size: 1.4rem; font-weight: 700; color: var(--text-dark); display: flex; align-items: center; gap: 10px;}
         .calendar-title i { color: var(--primary); }
@@ -557,6 +588,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .incoming-call-box { background: white; border-radius: 8px; padding: 30px; text-align: center; min-width: 320px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2); border: 1px solid var(--border); animation: pulse 2s infinite;}
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(91, 95, 199, 0); } 100% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0); } }
         
+        /* Edit Mode Bar */
         #editModeBar { display: none; background: var(--bg-light); padding: 8px 20px; align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
 
         /* Mobile Adjustments */
@@ -596,7 +628,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <i class="ri-calendar-line"></i>
                 <span>Calendar</span>
             </div>
-            
+            <div class="nav-icon">
+                <i class="ri-notification-3-line"></i>
+                <span>Activity</span>
+            </div>
             <div style="flex: 1;"></div>
             <div class="nav-icon">
                 <i class="ri-gem-line"></i>
@@ -719,7 +754,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <div id="people_view" style="display: none; flex-direction: column; height: 100%; width: 100%;">
                 <div style="padding: 25px 30px; border-bottom: 1px solid var(--border);">
                     <h2 style="font-size: 1.8rem; font-weight:700; color: var(--text-dark);">People Directory</h2>
-                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;">Connect with everyone in the organization.</p>
+                    <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;">Connect with everyone in your designated network.</p>
                 </div>
                 <div style="overflow-y: auto; flex: 1; background: #fafafa;">
                     <?php foreach($all_users as $u): if($u['id'] != $my_id): ?>
@@ -732,7 +767,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 </div>
                             </div>
                             <button class="people-btn" onclick="startChat(<?= $u['id'] ?>)" title="Message">
-                                <i class="ri-message-3-line"></i>
+                                <i class="ri-chat-3-line"></i>
                             </button>
                         </div>
                     <?php endif; endforeach; ?>
@@ -774,7 +809,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
                     <div class="day-cols">
                         <?php 
-                        // Get current week dates (Mon-Fri)
                         $ts = strtotime('last monday');
                         for($i=0; $i<5; $i++): 
                             $date = date('d', $ts);
@@ -940,6 +974,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             if(activeConvId) fetchMessages(false);
         }
     }
+
+    // --- EMOJI PICKER LOGIC ---
+    const emojis = ['😀','😃','😄','😁','😆','😅','😂','🤣','🥲','☺️','😊','😇','🙂','🙃','😉','😌','😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸','🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢','😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😱','😨','😰','😥','😓','🤗','🤔','🤭','🤫','🤥','😶','😐','😑','😬','🙄','😯','😦','😧','😮','😲','🥱','😴','🤤','😪','😵','🤐','🥴','🤢','🤮','🤧','😷','🤒','🤕','🤑','🤠','😈','👿','👹','👺','🤡','💩','👻','💀','☠️','👽','👾','🤖','🎃','😺','😸','😹','😻','😼','😽','🙀','😿','😾'];
+
+    function toggleEmojiPicker(e) {
+        e.stopPropagation();
+        let picker = document.getElementById('emojiPicker');
+        if (!picker) return;
+        if (picker.style.display === 'grid') {
+            picker.style.display = 'none';
+        } else {
+            picker.style.display = 'grid';
+            if (picker.innerHTML.trim() === '') {
+                picker.innerHTML = emojis.map(emo => `<span onclick="insertEmoji('${emo}')">${emo}</span>`).join('');
+            }
+        }
+    }
+
+    function insertEmoji(emo) {
+        let input = document.getElementById('msgInput');
+        if(input) {
+            input.value += emo;
+            input.focus();
+        }
+    }
+
+    document.addEventListener('click', (e) => {
+        let picker = document.getElementById('emojiPicker');
+        if (picker && picker.style.display === 'grid' && !e.target.closest('#emojiPicker')) {
+            picker.style.display = 'none';
+        }
+        document.querySelectorAll('.msg-dropdown, #chatOptionsDropdown').forEach(d => {
+            if(!e.target.closest('.msg-menu-btn') && !e.target.closest('.header-actions')) {
+                d.style.display = 'none';
+            }
+        });
+    });
 
     // --- Meet Handlers ---
     document.getElementById('joinMeetId').addEventListener('input', function(e) {
@@ -1168,10 +1239,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         <div class="input-tools">
                             <button class="btn-tool" title="Format"><i class="ri-format-clear"></i></button>
                             <label for="fileUpload" class="btn-tool" title="Attach file"><i class="ri-attachment-2"></i></label>
-                            <button class="btn-tool" title="Emoji"><i class="ri-emotion-line"></i></button>
+                            
+                            <button class="btn-tool" title="Emoji" onclick="toggleEmojiPicker(event)"><i class="ri-emotion-line"></i></button>
+                            
                             <button class="btn-tool btn-send" onclick="submitMessage()" title="Send"><i class="ri-send-plane-2-fill"></i></button>
                         </div>
                     </div>
+                    <div id="emojiPicker"></div>
                 </div>
             </div>
 
@@ -1296,6 +1370,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             let meetId = raw.replace(/^(audio|video):/i, '');
             let label = callType === 'audio' ? 'Voice Call' : 'Video Meeting';
             
+            // Allow joining scheduled meetings rendered as text messages
             innerMsg = `<div class="msg ${cls}" id="msg-content-${m.id}" style="text-align:center;">
                             <div style="background:rgba(0,0,0,0.05); padding:10px; border-radius:4px; margin-bottom:8px;">
                                 <i class="${callType==='audio'?'ri-phone-fill':'ri-vidicon-fill'}" style="font-size:1.5rem; color:var(--primary);"></i>
@@ -1409,16 +1484,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         input.value = '';
         stopTyping();
     }
-
-    function toggleMsgMenu(e, id) {
-        e.stopPropagation();
-        document.querySelectorAll('.msg-dropdown').forEach(d => d.style.display = 'none');
-        document.getElementById('msg-drop-' + id).style.display = 'block';
-    }
-    
-    document.addEventListener('click', () => {
-        document.querySelectorAll('.msg-dropdown, #chatOptionsDropdown').forEach(d => d.style.display = 'none');
-    });
 
     function initEdit(id, text) {
         editingMsgId = id;
@@ -1688,7 +1753,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     function acceptIncomingCall() {
         if(!currentIncomingCall) return;
-        let fd = new FormData(); fd.append('action', 'answer_call'); fd.append('call_id', currentIncomingCall.id);
+        let fd = new FormData();
+        fd.append('action', 'answer_call');
+        fd.append('call_id', currentIncomingCall.id);
         fetch(window.location.href, { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             document.getElementById('incomingCallModal').style.display = 'none';
             if(data.room_id) {
@@ -1701,7 +1768,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     function declineIncomingCall() {
         if(!currentIncomingCall) return;
-        let fd = new FormData(); fd.append('action', 'decline_call'); fd.append('call_id', currentIncomingCall.id);
+        let fd = new FormData();
+        fd.append('action', 'decline_call');
+        fd.append('call_id', currentIncomingCall.id);
         fetch(window.location.href, { method: 'POST', body: fd });
         document.getElementById('incomingCallModal').style.display = 'none';
         currentIncomingCall = null;
