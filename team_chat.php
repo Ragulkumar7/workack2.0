@@ -191,10 +191,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $chats = [];
         while($row = $result->fetch_assoc()) {
             if ($row['type'] == 'group') {
-                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=5b5fc7&color=fff";
+                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=1b5a5a&color=fff";
             } else {
                 if(empty($row['avatar_db']) || $row['avatar_db'] == 'default_user.png') {
-                    $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=5b5fc7&color=fff";
+                    $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=1b5a5a&color=fff";
                 } elseif(!str_starts_with($row['avatar_db'], 'http')) {
                     $row['avatar'] = (file_exists('../assets/profiles/'.$row['avatar_db']) ? '../assets/profiles/' : 'assets/profiles/') . $row['avatar_db'];
                 } else {
@@ -271,7 +271,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $partner['profile_img'] = (file_exists('../assets/profiles/'.$partner['profile_img']) ? '../assets/profiles/' : 'assets/profiles/') . $partner['profile_img'];
                 }
             } else {
-                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=5b5fc7&color=fff"];
+                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=1b5a5a&color=fff"];
             }
         }
 
@@ -501,13 +501,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <style>
         :root { 
-            --primary: #5b5fc7; /* Microsoft Teams Purple */
-            --primary-hover: #4f52b2;
+            --primary: #1b5a5a; /* Dark Teal */
+            --primary-hover: #134040;
             --bg-light: #f5f5f5; 
             --border: #e0e0e0; 
             --text-dark: #242424; 
             --text-muted: #616161; 
-            --outgoing-bg: #e3e5fa;
+            --outgoing-bg: #eefcfd;
             --incoming-bg: #ffffff;
             --sidebar-bg: #ffffff;
             --hover-bg: #f5f5f5;
@@ -667,7 +667,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .modal { background: white; border-radius: 8px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2);}
         
         .incoming-call-box { background: white; border-radius: 8px; padding: 30px; text-align: center; min-width: 320px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2); border: 1px solid var(--border); animation: pulse 2s infinite;}
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(91, 95, 199, 0); } 100% { box-shadow: 0 0 0 0 rgba(91, 95, 199, 0); } }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(27, 90, 90, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(27, 90, 90, 0); } 100% { box-shadow: 0 0 0 0 rgba(27, 90, 90, 0); } }
         
         /* Edit Mode Bar */
         #editModeBar { display: none; background: var(--bg-light); padding: 8px 20px; align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
@@ -716,7 +716,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </aside>
 
         <aside class="sidebar" id="chatSidebar">
-           
+            
 
             <div class="sidebar-header">
                 <h2 style="font-weight:700; color:var(--text-dark); font-size: 1.4rem; letter-spacing: -0.5px;">Chat</h2>
@@ -784,7 +784,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-dark); margin-bottom: 15px;">Meeting links</h3>
                 <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
                     <div style="display: flex; align-items: flex-start; gap: 15px;">
-                        <i class="ri-link" style="font-size: 2rem; color: #a855f7;"></i>
+                        <i class="ri-link" style="font-size: 2rem; color: #1b5a5a;"></i>
                         <div>
                             <p style="font-weight: 600; margin-bottom: 5px;">Quickly create, save, and share links with anyone.</p>
                             <a href="#" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Learn more about meeting links</a>
@@ -813,7 +813,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             </div>
                         </div>
                     </div>
-                    <div style="width: 200px; height: 120px; background: #e3e5fa; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                    <div style="width: 200px; height: 120px; background: #eefcfd; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
                         <i class="ri-calendar-event-fill" style="font-size: 3rem; color: var(--primary); opacity: 0.5;"></i>
                     </div>
                 </div>
@@ -1428,7 +1428,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             </div>
 
             <div id="chatFilesContainer" style="display:none; flex-direction:column; flex:1; height:100%; align-items:center; justify-content:center; text-align:center; background:white;">
-                <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #e3e5fa, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
+                <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #eefcfd, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
                     <i class="ri-folder-upload-fill" style="font-size: 5rem; color: var(--primary);"></i>
                 </div>
                 <h3 style="font-size: 1.25rem; color: var(--text-dark); margin-bottom: 8px; font-weight: 700;">Share files in this chat</h3>
@@ -1440,8 +1440,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             <div id="chatPhotosContainer" style="display:none; flex-direction:column; flex:1; height:100%; background:white; overflow-y:auto; padding:30px;">
                 <div id="photosEmptyState" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
-                    <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #e3e5fa, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
-                        <i class="ri-image-2-fill" style="font-size: 5rem; color: #3b82f6;"></i>
+                    <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #eefcfd, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
+                        <i class="ri-image-2-fill" style="font-size: 5rem; color: var(--primary);"></i>
                     </div>
                     <h3 style="font-size: 1.25rem; color: var(--text-dark); margin-bottom: 8px; font-weight: 700;">No photos shared in the chat</h3>
                     <p style="font-size: 0.95rem; color: var(--text-muted); margin-bottom: 25px;">Photos added to chat automatically show up here.</p>

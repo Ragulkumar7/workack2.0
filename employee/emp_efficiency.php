@@ -19,6 +19,15 @@ if (!isset($_SESSION['id']) && !isset($_SESSION['user_id'])) {
 }
 $current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : $_SESSION['user_id'];
 
+// --- [BUG FIX]: GET PROPER NAME FOR SEARCHING ---
+// Fetch the user's full name from the database instead of relying on an undefined session variable
+$name_stmt = $conn->prepare("SELECT full_name FROM employee_profiles WHERE user_id = ?");
+$name_stmt->bind_param("i", $current_user_id);
+$name_stmt->execute();
+$name_res = $name_stmt->get_result()->fetch_assoc();
+$emp_full_name = $name_res['full_name'] ?? 'Unknown';
+
+
 // --- 1. DYNAMIC CALCULATION: ATTENDANCE (Weight: 20%) ---
 // Logic: (Present Days / Last 30 Days) * 100
 $att_stmt = $conn->prepare("SELECT COUNT(*) as present_days FROM attendance WHERE user_id = ? AND status = 'On Time' AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
@@ -41,9 +50,9 @@ $task_total = $task_res['total'] > 0 ? $task_res['total'] : 1;
 $task_completion_pct = round(($task_res['completed'] / $task_total) * 100);
 
 // --- 3. DYNAMIC CALCULATION: PROJECT TIMELINES (Weight: 40%) ---
-// Fetching active projects from project_tasks table
+// Fetching active projects from project_tasks table using the fetched full name
 $proj_stmt = $conn->prepare("SELECT task_title as name, due_date as deadline, status FROM project_tasks WHERE assigned_to LIKE ? LIMIT 5");
-$emp_search = "%" . $_SESSION['name'] . "%"; // Search by name as stored in your project_tasks
+$emp_search = "%" . $emp_full_name . "%"; 
 $proj_stmt->bind_param("s", $emp_search);
 $proj_stmt->execute();
 $projects_list = $proj_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -123,7 +132,7 @@ include_once $path_to_root . 'sidebars.php';
         
         <div class="flex justify-between items-end mb-8 mt-0">
             <div class="flex items-center gap-4">
-                <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($_SESSION['name'] ?? 'Employee'); ?>&background=0d9488&color=fff&size=128" class="w-16 h-16 rounded-full border-4 border-white shadow-sm">
+                <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($emp_full_name); ?>&background=0d9488&color=fff&size=128" class="w-16 h-16 rounded-full border-4 border-white shadow-sm">
                 <div>
                     <h1 class="text-2xl font-bold text-slate-800">My Performance</h1>
                     <div class="flex gap-2 text-sm text-slate-500">

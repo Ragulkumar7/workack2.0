@@ -351,7 +351,7 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                                 <input type="date" name="to_date" value="<?php echo $to_date; ?>" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm outline-none text-slate-700 font-medium" title="To Date">
                             </div>
 
-                            <button type="submit" class="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-orange-600 transition w-full sm:w-auto whitespace-nowrap">
+                            <button type="submit" class="bg-[#1b5a5a] text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-[#134040] transition w-full sm:w-auto whitespace-nowrap">
                                 <i class="fa-solid fa-filter mr-1"></i> Apply
                             </button>
                         </form>

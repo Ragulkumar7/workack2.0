@@ -95,6 +95,8 @@ $stmt->close();
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
     <style>
         :root { --primary-orange: #ff5e3a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
         body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
@@ -124,6 +126,15 @@ $stmt->close();
         .bg-absent { background: #fee2e2; color: #991b1b; }
 
         .modal-active { display: flex !important; }
+
+        /* [FEATURE FIX] Print styles for PDF Export */
+        @media print {
+            body * { visibility: hidden; }
+            #mainContent, #mainContent * { visibility: visible; }
+            #mainContent { position: absolute; left: 0; top: 0; width: 100%; margin: 0; padding: 0; }
+            .header-actions, .action-column { display: none !important; }
+            .card { box-shadow: none; border: 1px solid #ccc; }
+        }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -133,16 +144,29 @@ $stmt->close();
 
     <main id="mainContent">
         
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-4 header-actions">
             <div>
                 <div class="d-flex align-items-center gap-3">
                     <h4 class="fw-bold mb-0 text-dark">My Team Attendance</h4>
                 </div>
                 <p class="text-muted small mb-0">Overview of your reporting employees for <?php echo date("F j, Y", strtotime($selected_date)); ?></p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 position-relative">
                 <input type="date" class="form-control form-control-sm" value="<?php echo $selected_date; ?>" style="width: 150px;" onchange="window.location.href='?date='+this.value">
-                <button class="btn btn-light border btn-sm shadow-sm"><i class="fa-solid fa-download text-secondary"></i> Export</button>
+                
+                <div class="position-relative">
+                    <button class="btn btn-light border btn-sm shadow-sm" onclick="toggleExportMenu(event)">
+                        <i class="fa-solid fa-download text-secondary"></i> Export
+                    </button>
+                    <div id="exportMenu" class="position-absolute bg-white border rounded shadow-sm d-none" style="top: 100%; right: 0; min-width: 160px; z-index: 1000; margin-top: 5px;">
+                        <button onclick="exportToPDF()" class="btn btn-light w-100 text-start border-0 rounded-0 border-bottom p-2" style="font-size: 13px;">
+                            <i class="fa-regular fa-file-pdf text-danger me-2"></i> Export as PDF
+                        </button>
+                        <button onclick="exportToExcel()" class="btn btn-light w-100 text-start border-0 rounded-0 p-2" style="font-size: 13px;">
+                            <i class="fa-regular fa-file-excel text-success me-2"></i> Export as Excel
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -195,7 +219,7 @@ $stmt->close();
 
         <div class="card p-0 overflow-hidden">
             <div class="table-responsive">
-                <table class="table mb-0 table-hover">
+                <table class="table mb-0 table-hover" id="attendanceTable">
                     <thead>
                         <tr>
                             <th>Team Member</th>
@@ -203,7 +227,7 @@ $stmt->close();
                             <th>Check In</th>
                             <th>Check Out</th>
                             <th>Production</th>
-                            <th class="text-end">Action</th>
+                            <th class="text-end action-column">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -239,7 +263,7 @@ $stmt->close();
                                         <span class="text-slate-400">-</span>
                                     <?php endif; ?>
                                 </td>
-                                <td class="text-end">
+                                <td class="text-end action-column">
                                     <button class="btn btn-sm btn-white border shadow-sm" onclick="openDetails('<?php echo htmlspecialchars($member['name']); ?>', '<?php echo $member['in']; ?>', '<?php echo $member['out']; ?>', '<?php echo $member['prod']; ?>')">
                                         <i class="fa-regular fa-eye text-secondary"></i> Details
                                     </button>
@@ -296,6 +320,63 @@ $stmt->close();
     </div>
 
     <script>
+        // [FEATURE FIX] Export Dropdown Logic
+        function toggleExportMenu(e) {
+            e.stopPropagation();
+            const menu = document.getElementById('exportMenu');
+            menu.classList.toggle('d-none');
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const menu = document.getElementById('exportMenu');
+            if (!menu.classList.contains('d-none') && !event.target.closest('.position-relative')) {
+                menu.classList.add('d-none');
+            }
+        });
+
+        // [FEATURE FIX] Export to PDF (Uses browser print functionality formatted via CSS)
+        function exportToPDF() {
+            document.getElementById('exportMenu').classList.add('d-none');
+            window.print();
+        }
+
+        // [FEATURE FIX] Export to Excel (Uses SheetJS library loaded in header)
+        function exportToExcel() {
+            document.getElementById('exportMenu').classList.add('d-none');
+            
+            // Clone table to manipulate data before exporting
+            let table = document.getElementById("attendanceTable").cloneNode(true);
+            
+            // Remove 'Action' column
+            let headers = table.querySelectorAll("th");
+            if (headers.length > 0) headers[headers.length - 1].remove();
+            
+            let rows = table.querySelectorAll("tbody tr");
+            rows.forEach(row => {
+                let cells = row.querySelectorAll("td");
+                if (cells.length > 0) {
+                    // Clean up 'Team Member' column to just text
+                    let nameCell = cells[0];
+                    let nameText = nameCell.querySelector('.fw-bold') ? nameCell.querySelector('.fw-bold').innerText : nameCell.innerText;
+                    nameCell.innerText = nameText;
+                    
+                    // Clean up 'Status' column to just text
+                    let statusCell = cells[1];
+                    statusCell.innerText = statusCell.innerText.trim();
+                    
+                    // Remove last action cell
+                    cells[cells.length - 1].remove();
+                }
+            });
+
+            // Convert to workbook and download
+            let wb = XLSX.utils.table_to_book(table, {sheet:"Attendance"});
+            let fileName = "Team_Attendance_<?php echo $selected_date; ?>.xlsx";
+            XLSX.writeFile(wb, fileName);
+        }
+
+        // Modal Logic
         const modal = document.getElementById('detailModal');
 
         function openDetails(name, punchIn, punchOut, prodHours) {

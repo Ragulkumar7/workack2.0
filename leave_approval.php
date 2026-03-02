@@ -251,7 +251,7 @@ if (!file_exists($sidebarPath)) {
 
         <div class="page-header mt-4">
             <div>
-                <h1>Leave Approvals <span style="color: var(--primary); font-size: 18px;">(<?php echo htmlspecialchars($user_role); ?>)</span></h1>
+                <h1>Leave Approvals <span style="color: #000; font-size: 18px;">(<?php echo htmlspecialchars($user_role); ?>)</span></h1>
                 <div class="breadcrumb">
                     <i data-lucide="home" style="width:14px;"></i>
                     <span>/</span> Leaves <span>/</span> <span style="font-weight:600; color:#0f172a;">Approvals</span>

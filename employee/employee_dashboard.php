@@ -21,8 +21,9 @@ $current_user_id = $_SESSION['user_id'];
 // =========================================================================
 // ACTION: MARK TICKET AS VIEWED (DISMISS NOTIFICATION SAFELY)
 // =========================================================================
-// Silent DB Update: Adds a column to track if the user has read the notification
-$conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS user_read_status TINYINT(1) DEFAULT 0");
+// [PERFORMANCE FIX 1]: Disabled Database Lock. Running this on every page load 
+// locks the tables, causing other pages to freeze. Run this directly in your DB once.
+// $conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS user_read_status TINYINT(1) DEFAULT 0");
 
 if (isset($_GET['dismiss_ticket'])) {
     $dismiss_id = intval($_GET['dismiss_ticket']);
@@ -42,6 +43,11 @@ $today = date('Y-m-d');
 $current_month = date('m');
 $current_year = date('Y');
 $user_role = $_SESSION['role'] ?? 'Employee';
+
+// [PERFORMANCE FIX 2]: Released Session Lock. 
+// Closing the session immediately after reading the variables prevents the 
+// browser from freezing when you try to navigate to 'leave_request.php'.
+session_write_close();
 
 // -------------------------------------------------------------------------
 // 2. INITIALIZE VARIABLES

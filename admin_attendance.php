@@ -187,8 +187,8 @@ $jsonData = json_encode($attendanceData);
 
     <style>
         :root { 
-            --primary: #4f46e5; 
-            --primary-light: #e0e7ff;
+            --primary: #1b5a5a; 
+            --primary-light: #eefcfd;
             --bg-body: #f1f5f9; 
             --text-dark: #1e293b;
             --text-muted: #64748b;
@@ -200,6 +200,16 @@ $jsonData = json_encode($attendanceData);
             color: var(--text-dark);
             overflow-x: hidden; 
         }
+
+        /* OVERRIDE BOOTSTRAP PRIMARY COLORS TO CUSTOM TEAL */
+        .text-primary { color: var(--primary) !important; }
+        .bg-primary { background-color: var(--primary) !important; }
+        .bg-primary-subtle { background-color: var(--primary-light) !important; }
+        .btn-primary { background-color: var(--primary) !important; border-color: var(--primary) !important; }
+        .btn-primary:hover { background-color: #134040 !important; border-color: #134040 !important; }
+        .page-item.active .page-link { background-color: var(--primary) !important; border-color: var(--primary) !important; color: white !important; }
+        .page-link { color: var(--primary) !important; }
+        .page-link:hover { color: #134040 !important; }
 
         /* DYNAMIC LAYOUT */
         .main-wrapper { 
@@ -276,8 +286,8 @@ $jsonData = json_encode($attendanceData);
                 <p class="text-muted small mb-0">Manage and track employee attendance records.</p>
             </div>
             <div>
-                <button onclick="exportCSV()" class="btn btn-light border action-btn fw-semibold">
-                    <i class="fa-solid fa-download text-primary me-1"></i> Export Report
+                <button onclick="exportCSV()" class="btn btn-light border action-btn fw-semibold text-[#1b5a5a]">
+                    <i class="fa-solid fa-download text-[#1b5a5a] me-1"></i> Export Report
                 </button>
             </div>
         </div>
@@ -285,8 +295,8 @@ $jsonData = json_encode($attendanceData);
         <div class="row g-4 mb-4">
             <div class="col-md-3">
                 <div class="stat-card p-3 d-flex align-items-center">
-                    <div class="bg-primary-subtle p-3 rounded-circle me-3">
-                        <i class="fa-solid fa-users text-primary fs-5"></i>
+                    <div class="bg-[#eefcfd] p-3 rounded-circle me-3">
+                        <i class="fa-solid fa-users text-[#1b5a5a] fs-5"></i>
                     </div>
                     <div>
                         <div class="text-muted small fw-bold text-uppercase">Total Employees</div>
@@ -378,10 +388,10 @@ $jsonData = json_encode($attendanceData);
                 <span class="text-muted small">Showing <span id="showingCount">0</span> records</span>
                 <nav>
                     <ul class="pagination pagination-sm mb-0">
-                        <li class="page-item disabled"><a class="page-link" href="#">Previous</a></li>
-                        <li class="page-item active"><a class="page-link" href="#">1</a></li>
-                        <li class="page-item"><a class="page-link" href="#">2</a></li>
-                        <li class="page-item"><a class="page-link" href="#">Next</a></li>
+                        <li class="page-item disabled"><a class="page-link text-muted" href="#">Previous</a></li>
+                        <li class="page-item active"><a class="page-link bg-[#1b5a5a] border-[#1b5a5a] text-white" href="#">1</a></li>
+                        <li class="page-item"><a class="page-link text-[#1b5a5a]" href="#">2</a></li>
+                        <li class="page-item"><a class="page-link text-[#1b5a5a]" href="#">Next</a></li>
                     </ul>
                 </nav>
             </div>
@@ -390,9 +400,9 @@ $jsonData = json_encode($attendanceData);
 
     <div id="viewModal" class="custom-modal fixed-top modal-backdrop-custom w-100 h-100 align-items-center justify-content-center z-50">
         <div class="bg-white rounded-4 shadow-lg w-100 mx-3" style="max-width: 700px; max-height: 90vh; overflow-y: auto;">
-            <div class="p-4 border-bottom d-flex justify-content-between align-items-center bg-primary text-white rounded-top-4">
+            <div class="p-4 border-bottom d-flex justify-content-between align-items-center bg-[#1b5a5a] text-white rounded-top-4">
                 <h5 class="mb-0 fw-bold"><i class="fa-regular fa-file-lines me-2"></i>Detailed Report</h5>
-                <button onclick="closeModal('viewModal')" class="btn btn-sm btn-light text-primary fw-bold rounded-circle p-0 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">&times;</button>
+                <button onclick="closeModal('viewModal')" class="btn btn-sm btn-light text-[#1b5a5a] fw-bold rounded-circle p-0 d-flex align-items-center justify-content-center" style="width: 30px; height: 30px;">&times;</button>
             </div>
             <div class="p-5">
                 <div class="d-flex align-items-center mb-4">
@@ -572,8 +582,8 @@ $jsonData = json_encode($attendanceData);
                         <td>${rec.checkout}</td>
                         <td><span class="fw-bold text-dark">${rec.production}</span></td>
                         <td class="text-end">
-                            <button onclick="openViewModal('${rec.id}')" class="btn btn-sm btn-light text-primary border" title="View Report">
-                                <i class="fa-solid fa-eye"></i> View
+                            <button onclick="openViewModal('${rec.id}')" class="btn btn-sm btn-light text-[#1b5a5a] border" title="View Report">
+                                <i class="fa-solid fa-eye text-[#1b5a5a]"></i> View
                             </button>
                         </td>
                     </tr>

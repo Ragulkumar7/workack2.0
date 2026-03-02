@@ -8,56 +8,128 @@ if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
 require_once '../include/db_connect.php';
 $manager_id = $_SESSION['user_id'];
 
-// 2. HANDLE FORM SUBMISSION (Create or Edit Team)
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_team') {
-    $team_name = mysqli_real_escape_string($conn, $_POST['team_name']);
-    $tl_id = (int)$_POST['team_lead_id'];
-    $members = $_POST['members'] ?? [];
-    $old_tl_id = isset($_POST['old_tl_id']) ? (int)$_POST['old_tl_id'] : 0;
+// 2. HANDLE FORM SUBMISSIONS
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    
+    // --- ACTION: CREATE OR EDIT TEAM ---
+    if ($_POST['action'] === 'create_team') {
+        $team_name = mysqli_real_escape_string($conn, $_POST['team_name']);
+        $tl_id = (int)$_POST['team_lead_id'];
+        $members = $_POST['members'] ?? [];
+        $old_tl_id = isset($_POST['old_tl_id']) ? (int)$_POST['old_tl_id'] : 0;
 
-    // IF EDITING: First clear the old team associations 
-    if ($old_tl_id > 0) {
-        // Clear reporting_to for old members
-        $stmt_clear = $conn->prepare("UPDATE employee_profiles SET department = NULL, reporting_to = NULL WHERE reporting_to = ?");
-        $stmt_clear->bind_param("i", $old_tl_id);
-        $stmt_clear->execute();
-        $stmt_clear->close();
-
-        // Clear old Team Lead's department
-        $stmt_clear_tl = $conn->prepare("UPDATE employee_profiles SET department = NULL WHERE user_id = ?");
-        $stmt_clear_tl->bind_param("i", $old_tl_id);
-        $stmt_clear_tl->execute();
-        $stmt_clear_tl->close();
-    }
-
-    // A. Update the chosen Team Lead's profile (Set department and manager)
-    $stmt_tl = $conn->prepare("UPDATE employee_profiles SET department = ?, manager_id = ? WHERE user_id = ?");
-    $stmt_tl->bind_param("sii", $team_name, $manager_id, $tl_id);
-    $stmt_tl->execute();
-    $stmt_tl->close();
-
-    // B. Update the selected Members (Assign them to the TL and Department)
-    if (!empty($members)) {
-        foreach($members as $emp_id) {
-            $emp_id = (int)$emp_id;
-            $stmt_m = $conn->prepare("UPDATE employee_profiles SET department = ?, reporting_to = ?, manager_id = ? WHERE user_id = ?");
-            $stmt_m->bind_param("siii", $team_name, $tl_id, $manager_id, $emp_id);
-            $stmt_m->execute();
-            $stmt_m->close();
+        // IF CREATING NEW TEAM: Verify the selected Team Lead is not already assigned to another team
+        if ($old_tl_id == 0) {
+            $check_stmt = $conn->prepare("SELECT department FROM employee_profiles WHERE user_id = ?");
+            $check_stmt->bind_param("i", $tl_id);
+            $check_stmt->execute();
+            $check_res = $check_stmt->get_result()->fetch_assoc();
+            $check_stmt->close();
+            
+            if (!empty($check_res['department'])) {
+                $_SESSION['toast'] = "Error: The selected employee is already a Team Lead for another team.";
+                $_SESSION['toast_type'] = "error";
+                header("Location: " . $_SERVER['PHP_SELF']);
+                exit();
+            }
         }
+
+        // IF EDITING: First clear the old team associations
+        if ($old_tl_id > 0) {
+            $stmt_clear = $conn->prepare("UPDATE employee_profiles SET department = NULL, reporting_to = NULL WHERE reporting_to = ?");
+            $stmt_clear->bind_param("i", $old_tl_id);
+            $stmt_clear->execute();
+            $stmt_clear->close();
+
+            $stmt_clear_tl = $conn->prepare("UPDATE employee_profiles SET department = NULL WHERE user_id = ?");
+            $stmt_clear_tl->bind_param("i", $old_tl_id);
+            $stmt_clear_tl->execute();
+            $stmt_clear_tl->close();
+        }
+
+        // A. Update the chosen Team Lead's profile
+        $stmt_tl = $conn->prepare("UPDATE employee_profiles SET department = ?, manager_id = ? WHERE user_id = ?");
+        $stmt_tl->bind_param("sii", $team_name, $manager_id, $tl_id);
+        $stmt_tl->execute();
+        $stmt_tl->close();
+
+        // B. Update the selected Members
+        if (!empty($members)) {
+            foreach($members as $emp_id) {
+                $emp_id = (int)$emp_id;
+                $stmt_m = $conn->prepare("UPDATE employee_profiles SET department = ?, reporting_to = ?, manager_id = ? WHERE user_id = ?");
+                $stmt_m->bind_param("siii", $team_name, $tl_id, $manager_id, $emp_id);
+                $stmt_m->execute();
+                $stmt_m->close();
+            }
+        }
+        
+        $_SESSION['toast'] = ($old_tl_id > 0) ? "Team '{$team_name}' updated successfully!" : "Team '{$team_name}' created successfully!";
+        $_SESSION['toast_type'] = "success";
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
     }
-    
-    // Set success message based on action
-    $msg = ($old_tl_id > 0) ? "Team '{$team_name}' updated successfully!" : "Team '{$team_name}' created successfully!";
-    $_SESSION['toast'] = $msg;
-    
-    header("Location: " . $_SERVER['PHP_SELF']);
-    exit();
+
+    // --- ACTION: PROMOTE EMPLOYEE TO TEAM LEAD ---
+    if ($_POST['action'] === 'promote_tl') {
+        $emp_id = (int)$_POST['promote_emp_id'];
+        
+        if ($emp_id > 0) {
+            // Update users table
+            $stmt = $conn->prepare("UPDATE users SET role = 'Team Lead' WHERE id = ?");
+            $stmt->bind_param("i", $emp_id);
+            $stmt->execute();
+            $stmt->close();
+            
+            // Update profiles table
+            $stmt2 = $conn->prepare("UPDATE employee_profiles SET designation = 'Team Lead' WHERE user_id = ?");
+            $stmt2->bind_param("i", $emp_id);
+            $stmt2->execute();
+            $stmt2->close();
+            
+            $_SESSION['toast'] = "Employee successfully promoted to Team Lead!";
+            $_SESSION['toast_type'] = "success";
+        }
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
+    }
+
+    // --- ACTION: CREATE NEW TEAM LEAD ---
+    if ($_POST['action'] === 'create_tl') {
+        $name = mysqli_real_escape_string($conn, $_POST['tl_name']);
+        $email = mysqli_real_escape_string($conn, $_POST['tl_email']);
+        $username = mysqli_real_escape_string($conn, $_POST['tl_username']);
+        $emp_id_code = mysqli_real_escape_string($conn, $_POST['tl_emp_id']);
+        $password = password_hash($_POST['tl_password'], PASSWORD_DEFAULT);
+
+        // Insert into users table
+        $stmt = $conn->prepare("INSERT INTO users (name, employee_id, username, email, password, role) VALUES (?, ?, ?, ?, ?, 'Team Lead')");
+        $stmt->bind_param("sssss", $name, $emp_id_code, $username, $email, $password);
+        
+        if ($stmt->execute()) {
+            $new_user_id = $stmt->insert_id;
+            
+            // Insert into employee_profiles table
+            $stmt2 = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, emp_id_code, designation) VALUES (?, ?, ?, 'Team Lead')");
+            $stmt2->bind_param("iss", $new_user_id, $name, $emp_id_code);
+            $stmt2->execute();
+            $stmt2->close();
+
+            $_SESSION['toast'] = "New Team Lead created successfully!";
+            $_SESSION['toast_type'] = "success";
+        } else {
+            $_SESSION['toast'] = "Error creating Team Lead. Username/Email might already exist.";
+            $_SESSION['toast_type'] = "error";
+        }
+        $stmt->close();
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
+    }
 }
 
-// 3. FETCH DATA FOR THE MODAL
+// 3. FETCH DATA FOR THE MODALS
 $available_tls = [];
-$tl_res = mysqli_query($conn, "SELECT u.id, COALESCE(ep.full_name, u.name) as name FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.role = 'Team Lead' AND (u.name IS NOT NULL OR ep.full_name IS NOT NULL)");
+$tl_res = mysqli_query($conn, "SELECT u.id, COALESCE(ep.full_name, u.name) as name, ep.department FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.role = 'Team Lead' AND (u.name IS NOT NULL OR ep.full_name IS NOT NULL)");
 while($row = mysqli_fetch_assoc($tl_res)) { $available_tls[] = $row; }
 
 $available_emps = [];
@@ -74,7 +146,7 @@ $teams_res = mysqli_query($conn, "
            ep.profile_img 
     FROM users u 
     JOIN employee_profiles ep ON u.id = ep.user_id 
-    WHERE u.role = 'Team Lead' AND ep.full_name IS NOT NULL
+    WHERE u.role = 'Team Lead' AND ep.full_name IS NOT NULL AND ep.department IS NOT NULL
 ");
 
 while($tl = mysqli_fetch_assoc($teams_res)) {
@@ -104,9 +176,12 @@ while($tl = mysqli_fetch_assoc($teams_res)) {
 
 // Handle Toast session
 $toast_msg = '';
+$toast_type = 'success';
 if (isset($_SESSION['toast'])) {
     $toast_msg = $_SESSION['toast'];
+    $toast_type = $_SESSION['toast_type'] ?? 'success';
     unset($_SESSION['toast']);
+    unset($_SESSION['toast_type']);
 }
 ?>
 <!DOCTYPE html>
@@ -175,12 +250,15 @@ if (isset($_SESSION['toast'])) {
 
         /* Checkbox Style */
         .checkbox-wrapper input:checked + div { background-color: #f0fdfa; border-color: #1b5a5a; color: #1b5a5a; }
+        .checkbox-wrapper input:checked + div .check-square { background-color: #1b5a5a; border-color: #1b5a5a; }
+        .check-icon { display: none; }
         .checkbox-wrapper input:checked + div .check-icon { display: block; }
         
         /* Toast */
         #toast { visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center; border-radius: 8px; padding: 12px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); opacity: 0; transition: opacity 0.5s, bottom 0.5s; }
         #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
         #toast.success { background-color: #1b5a5a; }
+        #toast.error { background-color: #ef4444; }
 
         /* Responsive Details */
         @media (max-width: 1024px) {
@@ -200,9 +278,15 @@ if (isset($_SESSION['toast'])) {
                 <h1 class="text-3xl font-bold text-slate-800 tracking-tight">Manager Overview</h1>
                 <p class="text-sm text-gray-500 mt-1">Manage team structures and resource allocation.</p>
             </div>
-            <div class="flex gap-3 w-full md:w-auto">
+            <div class="flex flex-wrap gap-3 w-full md:w-auto">
                 <button onclick="toggleFilter()" class="flex-1 md:flex-none justify-center bg-white border border-gray-200 px-5 py-2.5 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm hover:shadow-md transition text-slate-600">
                     <i class="fa-solid fa-filter text-primary"></i> Filter
+                </button>
+                <button onclick="openModal('createTlModal')" class="flex-1 md:flex-none justify-center bg-primary hover:bg-primaryHover text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-teal-900/10 transition transform active:scale-95">
+                    <i class="fa-solid fa-users"></i> Create Team Lead
+                </button>
+                <button onclick="openModal('promoteTlModal')" class="flex-1 md:flex-none justify-center bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-emerald-900/10 transition transform active:scale-95">
+                    <i class="fa-solid fa-arrow-up-right-dots"></i> Promote Team Lead
                 </button>
                 <button onclick="prepareAddModal()" class="flex-1 md:flex-none justify-center bg-primary hover:bg-primaryHover text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-teal-900/10 transition transform active:scale-95">
                     <i class="fa-solid fa-plus"></i> Add Team
@@ -286,7 +370,7 @@ if (isset($_SESSION['toast'])) {
     </main>
 
     <div id="addTeamModal" class="modal-overlay">
-        <div class="modal-box transform scale-95 transition-transform duration-300" id="modalPanel">
+        <div class="modal-box transform scale-95 transition-transform duration-300">
             
             <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-12 shrink-0">
                 <h3 class="font-bold text-lg text-slate-800" id="modalHeading">Create New Team</h3>
@@ -310,8 +394,13 @@ if (isset($_SESSION['toast'])) {
                         <div class="relative">
                             <select name="team_lead_id" id="team_lead_id" required class="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
                                 <option value="">Choose a Team Lead</option>
-                                <?php foreach($available_tls as $tl): ?>
-                                    <option value="<?php echo $tl['id']; ?>"><?php echo htmlspecialchars($tl['name']); ?></option>
+                                <?php foreach($available_tls as $tl): 
+                                    $is_assigned = !empty($tl['department']) ? 'true' : 'false';
+                                    $assign_label = ($is_assigned == 'true') ? " (Already Assigned)" : "";
+                                ?>
+                                    <option value="<?php echo $tl['id']; ?>" data-assigned="<?php echo $is_assigned; ?>">
+                                        <?php echo htmlspecialchars($tl['name']) . $assign_label; ?>
+                                    </option>
                                 <?php endforeach; ?>
                             </select>
                             <i class="fa-solid fa-user-tie absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
@@ -328,8 +417,8 @@ if (isset($_SESSION['toast'])) {
                                     <label class="checkbox-wrapper flex cursor-pointer">
                                         <input type="checkbox" name="members[]" id="member_<?php echo $emp['id']; ?>" value="<?php echo $emp['id']; ?>" class="peer sr-only">
                                         <div class="w-full p-2.5 rounded-md border border-transparent hover:bg-slate-50 peer-checked:bg-teal-50 peer-checked:text-primary transition flex items-center bg-white shadow-sm mb-1">
-                                            <div class="w-4 h-4 border border-gray-300 rounded mr-3 flex items-center justify-center peer-checked:bg-primary peer-checked:border-primary shrink-0">
-                                                <i class="fa-solid fa-check text-white text-[10px] hidden check-icon"></i>
+                                            <div class="check-square w-4 h-4 border border-gray-300 rounded mr-3 flex items-center justify-center shrink-0 transition-colors">
+                                                <i class="fa-solid fa-check text-white text-[10px] check-icon"></i>
                                             </div>
                                             <span class="text-sm font-medium"><?php echo htmlspecialchars($emp['name']); ?></span>
                                         </div>
@@ -348,20 +437,103 @@ if (isset($_SESSION['toast'])) {
         </div>
     </div>
 
+    <div id="createTlModal" class="modal-overlay">
+        <div class="modal-box transform scale-95 transition-transform duration-300">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-12 shrink-0">
+                <h3 class="font-bold text-lg text-slate-800">Create New Team Lead</h3>
+                <button onclick="closeModal('createTlModal')" class="text-gray-400 hover:text-red-500 transition-colors bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm border border-gray-100">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-content-scroll">
+                <form method="POST" action="<?php echo htmlspecialchars($_SERVER['PHP_SELF']); ?>" class="space-y-5">
+                    <input type="hidden" name="action" value="create_tl">
+                    
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Full Name <span class="text-red-500">*</span></label>
+                        <input type="text" name="tl_name" required placeholder="e.g. John Doe" class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Email Address <span class="text-red-500">*</span></label>
+                        <input type="email" name="tl_email" required placeholder="john@example.com" class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Username <span class="text-red-500">*</span></label>
+                            <input type="text" name="tl_username" required placeholder="johndoe" class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Employee ID <span class="text-red-500">*</span></label>
+                            <input type="text" name="tl_emp_id" required placeholder="EMP-001" class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Password <span class="text-red-500">*</span></label>
+                        <input type="password" name="tl_password" required placeholder="Enter secure password" class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-6">
+                        <button type="button" onclick="closeModal('createTlModal')" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors">Cancel</button>
+                        <button type="submit" class="bg-primary hover:bg-primaryHover text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-teal-900/20 transition-all transform active:scale-95">Create Profile</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="promoteTlModal" class="modal-overlay">
+        <div class="modal-box transform scale-95 transition-transform duration-300">
+            <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50 rounded-t-12 shrink-0">
+                <h3 class="font-bold text-lg text-slate-800">Promote Employee</h3>
+                <button onclick="closeModal('promoteTlModal')" class="text-gray-400 hover:text-red-500 transition-colors bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-sm border border-gray-100">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="modal-content-scroll">
+                <form method="POST" action="<?php echo htmlspecialchars($_SERVER['PHP_SELF']); ?>" class="space-y-5">
+                    <input type="hidden" name="action" value="promote_tl">
+                    
+                    <p class="text-sm text-gray-500">Select an existing employee to elevate their role to Team Lead.</p>
+                    
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Select Employee <span class="text-red-500">*</span></label>
+                        <div class="relative">
+                            <select name="promote_emp_id" required class="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm appearance-none focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all">
+                                <option value="">Choose an Employee</option>
+                                <?php foreach($available_emps as $emp): ?>
+                                    <option value="<?php echo $emp['id']; ?>"><?php echo htmlspecialchars($emp['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <i class="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end gap-3 pt-4 border-t border-gray-100 mt-6">
+                        <button type="button" onclick="closeModal('promoteTlModal')" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors">Cancel</button>
+                        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-emerald-900/20 transition-all transform active:scale-95">Promote</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div id="toast"></div>
 
     <script>
         // --- Modal Logic ---
         function openModal(id) {
             const modal = document.getElementById(id);
-            const panel = modal.querySelector('#modalPanel');
+            const panel = modal.querySelector('.modal-box');
             modal.classList.add('active');
             setTimeout(() => { panel.classList.remove('scale-95'); panel.classList.add('scale-100'); }, 10);
         }
 
         function closeModal(id) {
             const modal = document.getElementById(id);
-            const panel = modal.querySelector('#modalPanel');
+            const panel = modal.querySelector('.modal-box');
             panel.classList.remove('scale-100'); panel.classList.add('scale-95');
             setTimeout(() => { modal.classList.remove('active'); }, 200);
         }
@@ -369,9 +541,20 @@ if (isset($_SESSION['toast'])) {
         // --- Prepare Modal for ADD ---
         function prepareAddModal() {
             document.getElementById('addTeamForm').reset();
-            document.getElementById('old_tl_id').value = "0";
+            document.getElementById('old_tl_id').value = "0"; 
             document.getElementById('modalHeading').innerText = "Create New Team";
             document.getElementById('submitBtnText').innerText = "Save & Create";
+
+            // Disable TLs that are already assigned when creating a new team
+            const tlSelect = document.getElementById('team_lead_id');
+            for(let i=0; i<tlSelect.options.length; i++) {
+                if(tlSelect.options[i].getAttribute('data-assigned') === 'true') {
+                    tlSelect.options[i].disabled = true;
+                } else {
+                    tlSelect.options[i].disabled = false;
+                }
+            }
+
             openModal('addTeamModal');
         }
 
@@ -387,7 +570,17 @@ if (isset($_SESSION['toast'])) {
             // Populate values
             document.getElementById('old_tl_id').value = teamData.lead_id;
             document.getElementById('team_name').value = teamData.name;
-            document.getElementById('team_lead_id').value = teamData.lead_id;
+            
+            // Disable other assigned TLs to prevent swapping and stealing a team, but keep the current TL enabled
+            const tlSelect = document.getElementById('team_lead_id');
+            for(let i=0; i<tlSelect.options.length; i++) {
+                if(tlSelect.options[i].getAttribute('data-assigned') === 'true' && tlSelect.options[i].value != teamData.lead_id) {
+                    tlSelect.options[i].disabled = true;
+                } else {
+                    tlSelect.options[i].disabled = false;
+                }
+            }
+            tlSelect.value = teamData.lead_id;
             
             // Check existing members
             if (teamData.member_ids && teamData.member_ids.length > 0) {
@@ -435,14 +628,20 @@ if (isset($_SESSION['toast'])) {
 
         // Trigger toast if session variable was set in PHP
         const toastMessage = "<?php echo $toast_msg; ?>";
+        const toastType = "<?php echo $toast_type; ?>";
         if (toastMessage) {
-            showToast(toastMessage, "success");
+            showToast(toastMessage, toastType);
         }
 
-        // Close modal on outside click
+        // Close modals on outside click
         window.onclick = function(event) {
-            const modal = document.getElementById('addTeamModal');
-            if (event.target === modal) { closeModal('addTeamModal'); }
+            const addModal = document.getElementById('addTeamModal');
+            const createModal = document.getElementById('createTlModal');
+            const promoteModal = document.getElementById('promoteTlModal');
+            
+            if (event.target === addModal) { closeModal('addTeamModal'); }
+            if (event.target === createModal) { closeModal('createTlModal'); }
+            if (event.target === promoteModal) { closeModal('promoteTlModal'); }
         }
     </script>
 </body>

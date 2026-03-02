@@ -289,7 +289,7 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                     <span>/</span> Leaves <span>/</span> <span style="font-weight:600; color:#0f172a;">WFH Requests</span>
                 </div>
             </div>
-           
+            
         </div>
 
         <div class="management-card">
@@ -303,12 +303,11 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
 
                 <div class="filter-group">
                     <select id="filterStatus" onchange="runFilter()">
-                        <option value="">All Statuses</option>
+                        <option value="">All Status</option>
                         <option value="Approved">Approved</option>
                         <option value="Pending">Pending</option>
                         <option value="Rejected">Rejected</option>
                     </select>
-                    <i data-lucide="chevron-down" style="width:14px;"></i>
                 </div>
                 
                 <div class="filter-group">
@@ -428,7 +427,7 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
 
                 <div class="form-group">
                     <label>Request Status <span id="statusAsterisk">*</span></label>
-                    <select id="editStatusSelect" class="form-control">
+                    <select id="editStatusSelect" class="form-control" style="-webkit-appearance: auto; appearance: auto;">
                         <option value="Pending">Pending</option>
                         <option value="Approved">Approved</option>
                         <option value="Rejected">Rejected</option>

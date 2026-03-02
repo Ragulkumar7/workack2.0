@@ -6,10 +6,16 @@ $is_ajax_request = isset($_GET['ajax_card']) && $_GET['ajax_card'] == '1';
 
 if ($is_ajax_request) {
     if (session_status() === PHP_SESSION_NONE) { session_start(); }
+    
+    $current_user_id = $_SESSION['user_id'];
+    
+    // [PERFORMANCE FIX]: Prevent Session Locking during AJAX reload. 
+    // This allows the server to process other requests simultaneously.
+    session_write_close();
+
     date_default_timezone_set('Asia/Kolkata');
     $paths = ['include/db_connect.php', '../include/db_connect.php'];
     foreach($paths as $path) { if(file_exists($path)) { require_once $path; break; } }
-    $current_user_id = $_SESSION['user_id'];
 
     // Fetch shift details when loaded via AJAX
     $u_sql = "SELECT shift_type, shift_timings FROM employee_profiles WHERE user_id = ?";
@@ -177,7 +183,7 @@ if (!$is_ajax_request):
             </div>
         </div>
 
-        <div class="w-full">
+        <div class="w-full" id="attendanceActionButtons">
             <?php if (!$attendance_record): ?>
                 <button type="button" onclick="submitAttendanceAction('punch_in')" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
                     <i class="fa-solid fa-right-to-bracket"></i> Punch In
@@ -268,31 +274,119 @@ if (!$is_ajax_request):
         }
     }
 
+    // [PERFORMANCE FIX] Implemented "Optimistic UI". This allows the browser to 
+    // instantly update the buttons, colors, and timers BEFORE the server responds, 
+    // entirely eliminating the 8-second loading delay on the frontend.
     function submitAttendanceAction(actionStr) {
         const fd = new FormData();
         fd.append('action', actionStr);
 
-        const buttons = document.querySelectorAll('#attendanceCardWrapper button');
-        buttons.forEach(b => { b.disabled = true; b.style.opacity = '0.6'; });
+        const btnContainer = document.getElementById('attendanceActionButtons');
+        const timerElement = document.getElementById('liveTimer');
+        const progressRing = document.getElementById('progressRing');
 
+        // 1. INSTANTLY update the buttons visually (0ms delay)
+        if (btnContainer) {
+            if (actionStr === 'punch_in' || actionStr === 'break_end') {
+                btnContainer.innerHTML = `
+                    <div class="grid grid-cols-2 gap-3 w-full">
+                        <button type="button" onclick="submitAttendanceAction('break_start')" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
+                            <i class="fa-solid fa-mug-hot"></i> Break
+                        </button>
+                        <button type="button" onclick="submitAttendanceAction('punch_out')" class="bg-red-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
+                            <i class="fa-solid fa-right-from-bracket"></i> Out
+                        </button>
+                    </div>
+                `;
+                if(timerElement) {
+                    let parts = timerElement.innerText.split(':');
+                    if(parts.length === 3) {
+                        let secs = parseInt(parts[0])*3600 + parseInt(parts[1])*60 + parseInt(parts[2]);
+                        timerElement.setAttribute('data-total', secs);
+                    }
+                    timerElement.setAttribute('data-running', 'true');
+                    timerElement.classList.remove('text-gray-400');
+                    timerElement.classList.add('text-slate-800');
+                    if(timerElement.parentElement.querySelector('p')) timerElement.parentElement.querySelector('p').innerText = 'TOTAL WORK';
+                    
+                    let breakTimerElement = document.getElementById('breakTimer');
+                    if(breakTimerElement) {
+                        breakTimerElement.setAttribute('data-break-running', 'false');
+                        breakTimerElement.parentElement.classList.remove('animate-pulse');
+                    }
+                }
+                if(progressRing) progressRing.setAttribute('stroke', '#0d9488');
+            } else if (actionStr === 'break_start') {
+                btnContainer.innerHTML = `
+                    <div class="grid grid-cols-2 gap-3 w-full">
+                        <button type="button" onclick="submitAttendanceAction('break_end')" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
+                            <i class="fa-solid fa-play"></i> Resume
+                        </button>
+                        <button type="button" onclick="submitAttendanceAction('punch_out')" class="bg-red-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
+                            <i class="fa-solid fa-right-from-bracket"></i> Out
+                        </button>
+                    </div>
+                `;
+                if(timerElement) {
+                    timerElement.setAttribute('data-running', 'false');
+                    timerElement.classList.add('text-gray-400');
+                    timerElement.classList.remove('text-slate-800');
+                    if(timerElement.parentElement.querySelector('p')) timerElement.parentElement.querySelector('p').innerText = 'WORK PAUSED';
+                    
+                    let breakTimerElement = document.getElementById('breakTimer');
+                    if(!breakTimerElement) {
+                        const bDiv = document.createElement('div');
+                        bDiv.className = 'mt-1 flex items-center justify-center gap-1.5 text-amber-500 font-bold text-sm bg-amber-50 px-2 py-0.5 rounded-full animate-pulse';
+                        bDiv.innerHTML = '<i class="fa-solid fa-mug-hot text-[10px]"></i> <span id="breakTimer" data-break-running="true" data-break-total="0">00:00:00</span>';
+                        timerElement.parentElement.appendChild(bDiv);
+                    } else {
+                        let bParts = breakTimerElement.innerText.split(':');
+                        if(bParts.length === 3) {
+                            let bSecs = parseInt(bParts[0])*3600 + parseInt(bParts[1])*60 + parseInt(bParts[2]);
+                            breakTimerElement.setAttribute('data-total', bSecs);
+                        }
+                        breakTimerElement.setAttribute('data-break-running', 'true');
+                        breakTimerElement.parentElement.classList.add('animate-pulse');
+                    }
+                }
+                if(progressRing) progressRing.setAttribute('stroke', '#f59e0b');
+            } else if (actionStr === 'punch_out') {
+                btnContainer.innerHTML = `
+                    <button disabled class="w-full bg-slate-100 text-slate-400 font-bold py-3 rounded-xl cursor-not-allowed flex justify-center items-center gap-2 border border-slate-200">
+                        <i class="fa-solid fa-check-circle text-emerald-500"></i> Shift Completed
+                    </button>
+                `;
+                if(timerElement) {
+                    timerElement.setAttribute('data-running', 'false');
+                    let breakTimerElement = document.getElementById('breakTimer');
+                    if(breakTimerElement) breakTimerElement.setAttribute('data-break-running', 'false');
+                }
+            }
+        }
+        
+        // Instantly restart visual timers
+        initAttendance();
+
+        // 2. Perform the actual saving to the database silently in the background
         fetch('../api/attendance_action.php', { method: 'POST', body: fd })
         .then(res => res.json())
         .then(data => {
-            if (data.success) {
-                fetch('../attendance_card.php?ajax_card=1')
-                .then(res => res.text())
-                .then(html => {
-                    document.getElementById('attendanceCardWrapper').innerHTML = html;
-                    initAttendance(); 
-                });
-            } else {
-                alert("Error: " + data.message);
-                buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
-            }
+            // 3. Once the 8-second backend task finishes, silently re-sync the HTML exactly with the Database
+            fetch('../attendance_card.php?ajax_card=1')
+            .then(res => res.text())
+            .then(html => {
+                document.getElementById('attendanceCardWrapper').innerHTML = html;
+                initAttendance(); 
+            });
         })
         .catch(err => {
-            alert("Network Error updating attendance.");
-            buttons.forEach(b => { b.disabled = false; b.style.opacity = '1'; });
+            // Revert the button if network fails
+            fetch('../attendance_card.php?ajax_card=1')
+            .then(res => res.text())
+            .then(html => {
+                document.getElementById('attendanceCardWrapper').innerHTML = html;
+                initAttendance(); 
+            });
         });
     }
 

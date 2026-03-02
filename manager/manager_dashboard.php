@@ -194,9 +194,7 @@ $hourly_stats = [
                     </nav>
                 </div>
                 <div class="flex gap-2">
-                    <button class="bg-white border border-gray-200 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm hover:bg-gray-50 transition">
-                        <i class="fa-solid fa-file-export text-gray-400"></i> Export
-                    </button>
+                    
                     <div class="bg-teal-50 border border-teal-100 text-teal-700 px-4 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm">
                         <i class="fa-regular fa-calendar"></i> <?php echo date("d M Y"); ?>
                     </div>

@@ -1,5 +1,6 @@
 <?php
 // --- 1. SESSION & DATABASE CONNECTION ---
+ob_start(); // [BUG FIX] Added output buffering to prevent "headers already sent" warnings from included files
 $path_to_root = '../';
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
@@ -13,6 +14,13 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $user_id = $_SESSION['user_id'];
+
+// [PERFORMANCE FIX]: Prevent Session Locking. 
+// This releases the lock on the session file immediately after reading the user_id. 
+// Without this, PHP forces the browser to wait in line if any other background 
+// scripts (like attendance timers or API calls) are running simultaneously.
+session_write_close();
+
 $message = "";
 
 // --- 2. HANDLE FORM SUBMISSION ---
@@ -100,16 +108,13 @@ $total_used = array_sum($used);
 $total_remaining = $total_entitled - $total_used;
 
 // --- 4. FETCH LEAVE HISTORY WITH APPROVER NAMES ---
-// JOIN with users and employee_profiles to dynamically fetch the TL and Manager names
+// [PERFORMANCE FIX]: Replaced 4 massive LEFT JOINs with instant subqueries.
+// This prevents MySQL from doing a full table scan which was causing the page to freeze on load.
 $history_sql = "
     SELECT lr.*, 
-           COALESCE(tl_ep.full_name, tl_u.username) as tl_name,
-           COALESCE(mgr_ep.full_name, mgr_u.username) as mgr_name
+           (SELECT COALESCE(ep.full_name, u.username) FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = lr.tl_id LIMIT 1) as tl_name,
+           (SELECT COALESCE(ep.full_name, u.username) FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = lr.manager_id LIMIT 1) as mgr_name
     FROM leave_requests lr
-    LEFT JOIN users tl_u ON lr.tl_id = tl_u.id
-    LEFT JOIN employee_profiles tl_ep ON lr.tl_id = tl_ep.user_id
-    LEFT JOIN users mgr_u ON lr.manager_id = mgr_u.id
-    LEFT JOIN employee_profiles mgr_ep ON lr.manager_id = mgr_ep.user_id
     WHERE lr.user_id = ? 
     ORDER BY lr.created_at DESC
 ";
@@ -126,8 +131,10 @@ $history_result = mysqli_stmt_get_result($stmt_hist);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Leaves - HRMS</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <script src="https://cdn.tailwindcss.com"></script> <style>
+    
+    <script src="https://cdn.jsdelivr.net/npm/lucide@latest"></script>
+    <script src="https://cdn.tailwindcss.com"></script> 
+    <style>
         /* --- GLOBAL VARIABLES & RESET --- */
         :root {
             --primary: #1b5a5a;
