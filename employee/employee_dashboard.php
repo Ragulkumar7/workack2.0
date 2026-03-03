@@ -55,11 +55,6 @@ session_write_close();
 $employee_name = "Employee"; $employee_role = "Role"; $employee_phone = "Not Set";
 $employee_email = ""; $joining_date = "Not Set"; $profile_img = "";
 
-// Default leaves for a month is 2
-$leaves_total = 2; 
-$leaves_taken = 0; 
-$leaves_remaining = 2;
-
 // Statistics
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
 
@@ -78,7 +73,7 @@ $user_info = mysqli_fetch_assoc($user_res);
 if ($user_info) {
     $employee_name = $user_info['full_name'] ?? $user_info['username'];
     $employee_role = $user_info['designation'] ?? $user_info['role'];
-    $employee_phone = $user_info['phone'] ?? '+1 234 567 890';
+    $employee_phone = $user_info['phone'] ?? 'Not Set';
     $employee_email = $user_info['email'] ?? $user_info['username'];
     $joining_date = $user_info['joining_date'] ? date("d M Y", strtotime($user_info['joining_date'])) : "Not Set";
     
@@ -124,16 +119,33 @@ while ($row = mysqli_fetch_assoc($stat_res)) {
     }
 }
 
-// C. Fetch Leave Balance (For CURRENT MONTH Only)
-$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND MONTH(start_date) = ? AND YEAR(start_date) = ?";
+// C. Fetch Leave Balance (CARRY-FORWARD LOGIC FIXED)
+$base_leaves_per_month = 2;
+// Use original join date for calculation
+$calc_join_date = ($user_info['joining_date'] ?? date('Y-m-01'));
+$d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
+$d2 = new DateTime('now'); $d2->modify('first day of this month');
+
+$months_worked = 0;
+if ($d2 >= $d1) {
+    $interval = $d1->diff($d2);
+    $months_worked = ($interval->y * 12) + $interval->m + 1; // Includes current month
+}
+$total_earned_leaves = $months_worked * $base_leaves_per_month;
+
+// Calculate TOTAL leaves taken by this employee EVER
+$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = mysqli_prepare($conn, $leave_sql);
-mysqli_stmt_bind_param($leave_stmt, "iii", $current_user_id, $current_month, $current_year);
+mysqli_stmt_bind_param($leave_stmt, "i", $current_user_id);
 mysqli_stmt_execute($leave_stmt);
 $leave_res = mysqli_stmt_get_result($leave_stmt);
 if($leave_data = mysqli_fetch_assoc($leave_res)) {
     $leaves_taken = $leave_data['taken'] ?? 0;
+} else {
+    $leaves_taken = 0;
 }
-$leaves_remaining = $leaves_total - $leaves_taken;
+$leaves_remaining = $total_earned_leaves - $leaves_taken;
+
 
 // D. Projects
 $proj_sql = "
@@ -356,7 +368,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         </div>
                     </div>
                 </div>
-
             </div>
 
             <div class="col-span-12 lg:col-span-5 flex flex-col gap-6">
@@ -406,12 +417,12 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <span class="text-xs font-bold text-gray-400 uppercase"><?php echo date('M Y'); ?></span>
+                            <span class="text-[10px] font-bold text-gray-400 uppercase">With Carry Forward</span>
                         </div>
                         <div class="grid grid-cols-3 gap-4 mb-4">
                             <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
-                                <p class="text-2xl font-bold text-teal-700"><?php echo $leaves_total; ?></p>
+                                <p class="text-[10px] text-gray-500 font-bold uppercase">Earned</p>
+                                <p class="text-2xl font-bold text-teal-700"><?php echo $total_earned_leaves; ?></p>
                             </div>
                             <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Taken</p>
@@ -428,11 +439,11 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         <?php if($leaves_remaining < 0): ?>
                             <div class="bg-rose-50 border border-rose-200 rounded-lg p-2 mb-4 flex items-center gap-2">
                                 <i class="fa-solid fa-triangle-exclamation text-rose-500"></i>
-                                <p class="text-xs font-medium text-rose-700">Monthly limit exceeded! Extra leaves are considered as LOP.</p>
+                                <p class="text-[10px] font-bold text-rose-700">Monthly limit exceeded! Extra leaves are considered as LOP.</p>
                             </div>
                         <?php endif; ?>
 
-                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 rounded-lg text-center transition shadow-lg shadow-teal-200">
+                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-3 rounded-lg text-center transition shadow-lg shadow-teal-200 mt-auto">
                             <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
                         </a>
                     </div>
@@ -595,7 +606,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         <div class="space-y-4">
                             <?php if(mysqli_num_rows($skills_result) > 0) { 
                                 while($skill = mysqli_fetch_assoc($skills_result)): ?>
-                            <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:border-teal-200 transition">
+                            <div class="flex items-center justify-between p-3 border border-gray-100 bg-slate-50/50 rounded-xl hover:border-teal-200 transition">
                                 <div class="flex items-center gap-3">
                                     <div class="w-1.5 h-8 rounded-full" style="background-color: <?php echo $skill['color_hex']; ?>"></div>
                                     <div>

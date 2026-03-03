@@ -1,384 +1,577 @@
 <?php 
-include '../include/db_connect.php'; 
+// purchase_order.php
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// --- BACKEND LOGIC: Handle PO Deletion ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'delete_po') {
-    $id = intval($_POST['id']);
-    if (mysqli_query($conn, "DELETE FROM purchase_orders WHERE id = $id")) {
-        echo "success";
-    } else {
-        echo "error";
-    }
-    exit;
-}
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+if (file_exists($dbPath)) { require_once $dbPath; } 
+else { require_once $projectRoot . '/include/db_connect.php'; }
 
-// --- BACKEND LOGIC: Fetch PO Items for View Modal ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action']) && $_POST['ajax_action'] === 'get_po_details') {
-    $id = intval($_POST['id']);
-    $query = mysqli_query($conn, "SELECT pi.*, p.po_number FROM po_line_items pi JOIN purchase_orders p ON pi.po_number = p.po_number WHERE p.id = $id");
-    $items = [];
-    while($row = mysqli_fetch_assoc($query)) { $items[] = $row; }
-    echo json_encode($items);
-    exit;
-}
+if (!isset($conn) || $conn === null) { die("Database connection failed."); }
 
-// --- BACKEND LOGIC: Save the PO Data to the Database ---
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['po_no'])) {
-    $po_no = mysqli_real_escape_string($conn, $_POST['po_no']);
-    $po_date = mysqli_real_escape_string($conn, $_POST['po_date']);
-    $vendor_name = mysqli_real_escape_string($conn, $_POST['shop_name']);
-    $vendor_gstin = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
-    $expected_delivery = mysqli_real_escape_string($conn, $_POST['delivery_date'] ?? null);
-    $po_status = mysqli_real_escape_string($conn, $_POST['status']);
-    $payment_mode = mysqli_real_escape_string($conn, $_POST['payment_mode']);
-    $remark = mysqli_real_escape_string($conn, $_POST['remark'] ?? '');
-    
-    $net_total = floatval($_POST['net_total'] ?? 0);
-    $tax_amount = floatval($_POST['tax_amount'] ?? 0);
-    $freight_charges = floatval($_POST['transport_charges'] ?? 0);
-    $grand_total = floatval($_POST['grand_total'] ?? 0);
-    $paid_amount = floatval($_POST['paid_amount'] ?? 0);
-    $balance_amount = floatval($_POST['balance_amount'] ?? 0);
+// Neoera Infotech Default Details for Printing
+$company_details = [
+    'name' => 'Neoera infotech',
+    'address' => '9/96 h, post, village nagar, Kurumbapalayam SSKulam, coimbatore, Tamil Nadu 641107',
+    'phone' => '+91 866 802 5451',
+    'email' => 'Contact@neoerainfotech.com',
+    'website' => 'www.neoerainfotech.com',
+    'logo' => '../assets/neoera.png' 
+];
 
-    $insert_po = "INSERT INTO purchase_orders 
-        (po_number, po_date, vendor_name, vendor_gstin, expected_delivery, po_status, payment_mode, terms_conditions, net_total, tax_amount, freight_charges, grand_total, paid_amount, balance_amount, approval_status) 
-        VALUES 
-        ('$po_no', '$po_date', '$vendor_name', '$vendor_gstin', '$expected_delivery', '$po_status', '$payment_mode', '$remark', '$net_total', '$tax_amount', '$freight_charges', '$grand_total', '$paid_amount', '$balance_amount', 'Pending')";
+// =========================================================================
+// BACKEND AJAX HANDLER
+// =========================================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
+    if(ob_get_length()) ob_clean(); 
+    header('Content-Type: application/json');
 
-    if (mysqli_query($conn, $insert_po)) {
-        if (isset($_POST['materials']) && is_array($_POST['materials'])) {
-            $count = count($_POST['materials']);
-            for ($i = 0; $i < $count; $i++) {
-                $material = mysqli_real_escape_string($conn, $_POST['materials'][$i]);
-                $item_code = mysqli_real_escape_string($conn, $_POST['item_code'][$i] ?? '');
-                $hsn_code = mysqli_real_escape_string($conn, $_POST['hsn_code'][$i] ?? '');
-                $qty = floatval($_POST['qtys'][$i] ?? 0);
-                $unit = mysqli_real_escape_string($conn, $_POST['unit'][$i] ?? '');
-                $price = floatval($_POST['prices'][$i] ?? 0);
-                $discount = floatval($_POST['discount'][$i] ?? 0);
-                $gst = floatval($_POST['gst_percent'][$i] ?? 0);
-                $line_total = floatval($_POST['totals'][$i] ?? 0);
-
-                if (!empty($material)) {
-                    $insert_item = "INSERT INTO po_line_items 
-                        (po_number, item_description, item_code, hsn_code, quantity, unit, rate, discount_percent, gst_percent, line_total) 
-                        VALUES 
-                        ('$po_no', '$material', '$item_code', '$hsn_code', '$qty', '$unit', '$price', '$discount', '$gst', '$line_total')";
-                    mysqli_query($conn, $insert_item);
-                }
+    try {
+        // --- FETCH PO DETAILS FOR PRINT/VIEW ---
+        if ($_POST['ajax_action'] === 'get_po_details') {
+            $id = intval($_POST['id']);
+            $po_res = mysqli_query($conn, "SELECT * FROM purchase_orders WHERE id = $id");
+            if(!$po_res) throw new Exception(mysqli_error($conn));
+            $po = mysqli_fetch_assoc($po_res);
+            
+            $items = [];
+            if($po) {
+                $items_res = mysqli_query($conn, "SELECT * FROM po_line_items WHERE po_number = '".$po['po_number']."'");
+                while($it = mysqli_fetch_assoc($items_res)) { $items[] = $it; }
             }
+            echo json_encode(['status' => 'success', 'po' => $po, 'items' => $items]);
+            exit;
         }
-        echo "success";
-    } else {
-        echo "error: " . mysqli_error($conn);
+
+        // --- SAVE PURCHASE ORDER ---
+        if ($_POST['ajax_action'] === 'save_po') {
+            $po_no = mysqli_real_escape_string($conn, $_POST['po_no']);
+            $po_date = mysqli_real_escape_string($conn, $_POST['po_date']);
+            $vendor_name = mysqli_real_escape_string($conn, $_POST['shop_name']);
+            $vendor_gstin = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
+            $expected_delivery = mysqli_real_escape_string($conn, $_POST['delivery_date'] ?? null);
+            $po_status = mysqli_real_escape_string($conn, $_POST['status']);
+            $payment_mode = mysqli_real_escape_string($conn, $_POST['payment_mode']);
+            $remark = mysqli_real_escape_string($conn, $_POST['remark'] ?? '');
+            
+            $net_total = floatval($_POST['net_total'] ?? 0);
+            $tax_amount = floatval($_POST['tax_amount'] ?? 0);
+            $freight_charges = floatval($_POST['transport_charges'] ?? 0);
+            $grand_total = floatval($_POST['grand_total'] ?? 0);
+            $paid_amount = floatval($_POST['paid_amount'] ?? 0);
+            $balance_amount = floatval($_POST['balance_amount'] ?? 0);
+
+            // Auto Schema Fix if needed to ensure no crash
+            mysqli_query($conn, "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS vendor_address TEXT DEFAULT NULL");
+            mysqli_query($conn, "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS vendor_email VARCHAR(100) DEFAULT NULL");
+            mysqli_query($conn, "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS vendor_phone VARCHAR(50) DEFAULT NULL");
+            
+            $vendor_address = mysqli_real_escape_string($conn, $_POST['vendor_address'] ?? '');
+            $vendor_email = mysqli_real_escape_string($conn, $_POST['vendor_email'] ?? '');
+            $vendor_phone = mysqli_real_escape_string($conn, $_POST['vendor_phone'] ?? '');
+
+            $insert_po = "INSERT INTO purchase_orders 
+                (po_number, po_date, vendor_name, vendor_address, vendor_email, vendor_phone, vendor_gstin, expected_delivery, po_status, payment_mode, terms_conditions, net_total, tax_amount, freight_charges, grand_total, paid_amount, balance_amount, approval_status, created_at) 
+                VALUES 
+                ('$po_no', '$po_date', '$vendor_name', '$vendor_address', '$vendor_email', '$vendor_phone', '$vendor_gstin', '$expected_delivery', '$po_status', '$payment_mode', '$remark', '$net_total', '$tax_amount', '$freight_charges', '$grand_total', '$paid_amount', '$balance_amount', 'Pending', NOW())";
+            
+            if (mysqli_query($conn, $insert_po)) {
+                if (isset($_POST['materials']) && is_array($_POST['materials'])) {
+                    $count = count($_POST['materials']);
+                    for ($i = 0; $i < $count; $i++) {
+                        $material = mysqli_real_escape_string($conn, $_POST['materials'][$i]);
+                        $hsn_code = mysqli_real_escape_string($conn, $_POST['hsn_code'][$i] ?? '');
+                        $qty = floatval($_POST['qtys'][$i] ?? 0);
+                        $unit = mysqli_real_escape_string($conn, $_POST['unit'][$i] ?? '');
+                        $price = floatval($_POST['prices'][$i] ?? 0);
+                        $discount = floatval($_POST['discount'][$i] ?? 0);
+                        $gst = floatval($_POST['gst_percent'][$i] ?? 0);
+                        $line_total = floatval($_POST['totals'][$i] ?? 0);
+
+                        if (!empty($material)) {
+                            $insert_item = "INSERT INTO po_line_items 
+                                (po_number, item_description, hsn_code, quantity, unit, rate, discount_percent, gst_percent, line_total) 
+                                VALUES 
+                                ('$po_no', '$material', '$hsn_code', '$qty', '$unit', '$price', '$discount', '$gst', '$line_total')";
+                            mysqli_query($conn, $insert_item);
+                        }
+                    }
+                }
+                echo json_encode(['status' => 'success']);
+            } else { 
+                echo json_encode(['status' => 'error', 'message' => "Insert Error: " . mysqli_error($conn)]); 
+            }
+            exit;
+        }
+
+    } catch (Exception $e) {
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+        exit;
     }
-    exit;
 }
+
+// =========================================================================
+// FETCH DATA FOR UI
+// =========================================================================
+$po_query = mysqli_query($conn, "SELECT id FROM purchase_orders ORDER BY id DESC LIMIT 1");
+$last_id = $po_query && mysqli_num_rows($po_query) > 0 ? mysqli_fetch_assoc($po_query)['id'] : 0;
+$next_id = $last_id + 1;
+$po_number = "WS/PO/" . str_pad($next_id, 4, '0', STR_PAD_LEFT) . "/" . date('y') . '-' . (date('y') + 1);
+
+$history_query = mysqli_query($conn, "SELECT * FROM purchase_orders ORDER BY created_at DESC LIMIT 50");
 
 include '../sidebars.php'; 
 include '../header.php';
 ?>
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Purchase Order Entry</title>
+    <title>Purchase Order Management | Workack</title>
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
     <style>
-        :root {
-            --sidebar-bg: #0f172a;
-            --accent: #d4af37;
-            --accent-hover: #c19b2e;
-            --accent-glow: rgba(212, 175, 55, 0.3);
-            --text-main: #f1f5f9;
-            --text-muted: #94a3b8;
-            --hover-bg: rgba(255, 255, 255, 0.08);
-            --border-color: rgba(255, 255, 255, 0.1);
-            --sidebar-width: 280px;
-            --primary-color: #1b5a5a;
-            --accent-gold: #D4AF37;
-            --bg-light: #f8fafc;
-            --border: #e4e4e7;
+        :root { 
+            --theme-color: #1b5a5a; 
+            --theme-light: #f0fdfa;
+            --bg-body: #f1f5f9; 
+            --text-main: #0f172a; 
+            --text-muted: #64748b; 
+            --border-color: #e2e8f0; 
+            --primary-sidebar-width: 95px; 
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06); 
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
-
-        body { background-color: var(--bg-light); font-family: "Plus Jakarta Sans", sans-serif; color: #1e293b; margin: 0; padding: 0; }
-
-        .main-content { margin-left: 95px; padding: 30px; transition: all 0.3s ease; min-height: 100vh; }
-        .header-section { margin-bottom: 25px; }
-        .header-section h2 { color: var(--primary-color); font-weight: 700; margin: 0; }
-        .header-section p { color: #71717a; font-size: 13px; margin: 5px 0 0; }
-
-        .card { background: #fff; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); overflow: hidden; }
-        .card-header { background: var(--primary-color); padding: 15px 25px; border-bottom: 3px solid var(--accent-gold); }
-        .card-header h3 { color: #fff; margin: 0; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px;}
-        .card-body { padding: 25px; }
-
-        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px; }
-        .form-group { display: flex; flex-direction: column; gap: 6px; }
-        label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #52525b; }
-        input, select, textarea { padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; background: #fff; color: #3f3f46; font-family: inherit; }
-        input:focus, select:focus, textarea:focus { border-color: var(--primary-color); }
-        input[readonly] { background: #f4f4f5; }
-
-        .section-title { font-size: 14px; font-weight: 700; color: var(--primary-color); margin: 25px 0 15px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
-        .stacked-input-container { display: flex; flex-direction: column; }
-        .stacked-input-container input:first-child { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
-        .stacked-input-container input:last-child { border-top-left-radius: 0; border-top-right-radius: 0; background-color: #f8fafc; font-size: 11px; height: 32px; }
+        body { background-color: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; color: var(--text-main); font-size: 15px;}
+        .main-content { margin-left: var(--primary-sidebar-width); padding: 40px; width: calc(100% - var(--primary-sidebar-width)); transition: margin-left 0.3s ease; min-height: 100vh; box-sizing: border-box; }
         
-        .qty-unit-group { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff;}
-        .qty-unit-group input { border: none !important; width: 60%; text-align: center; border-radius: 0; }
-        .qty-unit-group select { border: none !important; width: 40%; background: #f4f4f5; border-left: 1px solid var(--border) !important; cursor: pointer; border-radius: 0;}
+        .page-header { margin-bottom: 30px; }
+        .page-header h2 { color: var(--theme-color); font-weight: 800; font-size: 28px; margin: 0; letter-spacing: -0.5px;}
+        .page-header p { color: var(--text-muted); font-size: 16px; margin: 8px 0 0; }
 
-        .table-responsive { overflow-x: auto; margin-bottom: 10px; }
-        .items-table, .history-table { width: 100%; border-collapse: collapse; }
-        .items-table th, .history-table th { background: #f4f4f5; padding: 12px; text-align: left; font-size: 11px; text-transform: uppercase; color: #71717a; font-weight: 700;}
-        .items-table td, .history-table td { padding: 10px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+        .card { background: #fff; border-radius: 14px; border: 1px solid var(--border-color); margin-bottom: 35px; box-shadow: var(--shadow-sm); overflow: hidden; }
+        .card-header { background: #f8fafc; padding: 20px 30px; border-bottom: 1px solid var(--border-color); }
+        .card-header h3 { color: var(--theme-color); margin: 0; font-size: 18px; font-weight: 800; display: flex; align-items: center; gap: 10px;}
+        .card-body { padding: 30px; }
 
-        .btn-add-row { background: transparent; color: #10b981; border: 1px dashed #10b981; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s;}
-        .btn-add-row:hover { background: #f0fdf4; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 25px; margin-bottom: 30px; }
+        .form-group { display: flex; flex-direction: column; gap: 8px; }
+        .form-group label { font-size: 13px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;}
+        .form-control { padding: 12px 16px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 15px; outline: none; background: #fff; color: var(--text-main); font-family: inherit; transition: 0.2s;}
+        .form-control:focus { border-color: var(--theme-color); box-shadow: 0 0 0 4px rgba(27,90,90,0.1); }
+        .form-control[readonly] { background: #f8fafc; color: var(--text-muted); cursor: not-allowed; }
 
-        .terms-summary-wrapper { display: flex; flex-wrap: wrap; gap: 30px; margin-top: 10px; }
-        .terms-section { flex: 1; min-width: 300px; }
-        .summary-section { width: 340px; }
-        .summary-box { background: #eefcfd; padding: 20px; border-radius: 10px; border: 1px solid #c7ecee; }
-        .summary-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 13px; color: #3f3f46; }
-        .summary-row input { text-align: right; background: transparent; border: none; font-weight: 600; width: 120px; outline: none; padding: 0; color: inherit;}
-        .summary-row input.form-control { background: #fff; border: 1px solid #cbd5e1; padding: 6px 10px; border-radius: 6px;}
-        .summary-row.total { font-weight: 700; font-size: 15px; color: var(--primary-color); border-top: 1px solid #cbd5e1; padding-top: 12px; margin-top: 12px; }
-        .summary-row.total input { font-size: 16px; font-weight: 800; color: var(--primary-color); }
+        .section-divider { display: flex; align-items: center; text-transform: uppercase; font-size: 14px; font-weight: 800; color: var(--theme-color); margin: 35px 0 20px; }
+        .section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-color); margin-left: 15px; }
 
-        .btn-save { background: var(--primary-color); color: #fff; border: none; padding: 10px 30px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; display: inline-flex; justify-content: center; align-items: center; gap: 8px; transition: 0.2s;}
-        .btn-save:hover { opacity: 0.9; }
-        .btn-outline { background: #fff; color: #3f3f46; border: 1px solid var(--border); }
-        .btn-outline:hover { background: #f4f4f5; }
+        /* Items Table */
+        .table-responsive { overflow-x: auto; margin-bottom: 20px; border: 1px solid var(--border-color); border-radius: 10px;}
+        .items-table { width: 100%; border-collapse: collapse; background: #fff;}
+        .items-table th { background: #f1f5f9; padding: 15px; text-align: left; font-size: 14px; text-transform: uppercase; color: var(--text-muted); font-weight: 800; border-bottom: 1px solid var(--border-color); white-space: nowrap;}
+        .items-table td { padding: 15px; border-bottom: 1px solid #f1f5f9; font-size: 15px; vertical-align: middle; }
+        
+        .qty-unit-group { display: flex; align-items: center; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fff;}
+        .qty-unit-group input { border: none !important; width: 60%; text-align: center; border-radius: 0; outline: none; padding: 10px;}
+        .qty-unit-group select { border: none !important; width: 40%; background: #f8fafc; border-left: 1px solid #cbd5e1 !important; cursor: pointer; border-radius: 0; outline: none; padding: 10px; font-size: 14px;}
+
+        .btn-add-row { background: var(--theme-light); color: var(--theme-color); border: 2px dashed var(--theme-color); padding: 12px 25px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; margin-bottom: 25px;}
+        .btn-add-row:hover { background: #ccfbf1; }
+
+        .terms-summary-wrapper { display: flex; flex-wrap: wrap; gap: 40px; margin-top: 15px; }
+        .terms-section { flex: 1; min-width: 350px; }
+        
+        /* Summary Box with Bigger Fonts */
+        .summary-section { width: 420px; }
+        .summary-box { background: #f8fafc; padding: 25px; border-radius: 14px; border: 1px solid #cbd5e1; box-shadow: var(--shadow-sm);}
+        .summary-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; font-size: 16px; color: #475569; font-weight: 600;}
+        .currency-input-wrap { display: flex; align-items: center; justify-content: space-between; width: 160px;}
+        .summary-row input { text-align: right; background: transparent; border: none; font-weight: 800; width: 100%; outline: none; padding: 0; color: inherit; font-size: 16px;}
+        .summary-row input.form-control { background: #fff; border: 1px solid #cbd5e1; padding: 10px 14px; border-radius: 8px; font-size: 16px;}
+        .summary-row.total { font-weight: 800; font-size: 18px; color: var(--theme-color); border-top: 2px dashed #cbd5e1; padding-top: 18px; margin-top: 8px; }
+        .summary-row.total input { font-size: 20px; color: var(--theme-color); }
+
+        .btn-save { background: var(--theme-color); color: #fff; border: none; padding: 16px 40px; border-radius: 10px; font-weight: 800; cursor: pointer; font-size: 16px; display: inline-flex; justify-content: center; align-items: center; gap: 10px; transition: 0.2s; box-shadow: var(--shadow-md);}
+        .btn-save:hover { background: #144444; transform: translateY(-2px); }
+        .btn-outline { background: #fff; color: #475569; border: 1px solid #cbd5e1; box-shadow: none;}
+        .btn-outline:hover { background: #f1f5f9; color: var(--text-main); transform: translateY(0);}
+
+        /* History Table */
+        .history-table { width: 100%; border-collapse: collapse; }
+        .history-table th { background: #f8fafc; padding: 18px; text-align: left; font-size: 13px; text-transform: uppercase; color: var(--text-muted); font-weight: 800; border-bottom: 1px solid var(--border-color); }
+        .history-table td { padding: 18px; border-bottom: 1px solid #f1f5f9; font-size: 15px; vertical-align: middle; }
+        .history-table tr:hover { background: #f8fafc; }
 
         .action-btns { display: flex; gap: 10px; justify-content: center; align-items: center;}
-        .btn-icon { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: none; transition: 0.2s; cursor: pointer; font-size: 16px;}
-        .btn-print { background: #e0e7ff; color: #4338ca; }
-        .btn-delete { background: #fee2e2; color: #991b1b; }
+        .btn-icon { width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; border: none; transition: 0.2s; cursor: pointer; font-size: 18px; font-weight: bold;}
+        .btn-print { background: #e0f2fe; color: #0369a1; }
+        .btn-print:hover { background: #bae6fd; }
         .btn-view { background: #fef3c7; color: #d97706; }
-        .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-block; text-align: center; }
-        .bg-pending { background: #fef3c7; color: #d97706; }
-        .bg-approved { background: #dcfce7; color: #15803d; }
-        .bg-rejected { background: #fee2e2; color: #b91c1c; }
+        .btn-view:hover { background: #fde68a; }
+
+        .status-badge { padding: 8px 16px; border-radius: 30px; font-size: 13px; font-weight: 800; display: inline-flex; align-items: center; gap: 6px; }
+        .bg-pending { background: #fef9c3; color: #d97706; border: 1px solid #fde047;}
+        .bg-approved { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0;}
+        .bg-rejected { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca;}
 
         /* Modal Styles */
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 2000; display: none; justify-content: center; align-items: center; }
-        .modal-content { background: white; border-radius: 12px; width: 90%; max-width: 800px; max-height: 80vh; overflow-y: auto; padding: 25px; position: relative; }
-        .close-modal { position: absolute; top: 15px; right: 15px; font-size: 24px; cursor: pointer; color: #64748b; }
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 2000; display: none; justify-content: center; align-items: center; backdrop-filter: blur(4px);}
+        .modal-content { background: white; border-radius: 14px; width: 95%; max-width: 1000px; max-height: 90vh; overflow-y: auto; padding: 35px; position: relative; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+        .close-modal { position: absolute; top: 25px; right: 25px; font-size: 28px; cursor: pointer; color: #94a3b8; transition: 0.2s;}
+        .close-modal:hover { color: #ef4444; }
 
-        @media (max-width: 768px) { .main-content { margin-left: 0; padding: 15px; } .form-grid { grid-template-columns: 1fr; } .summary-section { width: 100%; } }
-        @media print { .main-content { margin: 0; padding: 0; } .sidebar, .btn-add-row, .card-footer, .history-section, .btn-save, .btn-outline { display: none; } }
+        /* --- STRICT PRINT TEMPLATE CSS --- */
+        #printablePO { display: none; }
+        @media print {
+            @page { size: A4; margin: 15mm; }
+            body { background: #fff !important; margin: 0; padding: 0; height: auto !important; overflow: visible !important;}
+            
+            /* Hide ALL UI elements */
+            body > * { display: none !important; }
+            
+            /* Show ONLY print container */
+            body > #printablePO.active-print {
+                display: block !important;
+                position: relative !important;
+                width: 100% !important;
+                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+                color: #000 !important;
+                line-height: 1.5 !important;
+            }
+            #printablePO * { visibility: visible; }
+
+            .p-header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px; }
+            .p-logo { max-height: 65px; }
+            .p-title { font-size: 34px; font-weight: 900; letter-spacing: 1px; color: #000; margin-bottom: 12px;}
+            
+            .p-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+            .p-table th { background-color: #f0f0f0 !important; color: #000; border-bottom: 2px solid #000; padding: 14px 12px; font-size: 13px; text-transform: uppercase; font-weight: bold;}
+            .p-table td { padding: 14px 12px; border-bottom: 1px solid #ddd; font-size: 14px; vertical-align: top;}
+            
+            .p-totals { width: 400px; float: right; border-collapse: collapse; margin-bottom: 40px;}
+            .p-totals td { padding: 10px 12px; font-size: 15px; text-align: right;}
+            .p-grand { border-top: 2px solid #000; border-bottom: 2px solid #000; font-size: 20px !important; font-weight: bold; background: #f9f9f9 !important;}
+            
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
     </style>
 </head>
 <body>
 
-<main class="main-content">
-    <div class="header-section">
-        <h2>Purchase Order Entry</h2>
-        <p data-key="po-subtitle">Create purchase orders and record vendor bills securely.</p>
-    </div>
+<div id="mainWrapper">
+    <main class="main-content">
+        <div class="page-header">
+            <h2>Purchase Order Generation</h2>
+            <p>Draft professional purchase orders and manage vendor records.</p>
+        </div>
 
-    <form id="poForm">
-        <div class="card p-4">
-            <div class="card-header">
-                <h3><i class="ph-bold ph-identification-card"></i> <span data-key="po-sec-1">Header and Vendor Details</span></h3>
-            </div>
-            <div class="card-body">
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label><span data-key="label-po-no">Purchase Order Number</span></label>
-                        <?php $new_po_no = "PO-" . date('Ymd') . "-" . rand(100, 999); ?>
-                        <input type="text" name="po_no" value="<?= $new_po_no ?>" readonly>
+        <form id="poForm" onsubmit="savePO(event)">
+            <input type="hidden" name="ajax_action" value="save_po">
+            
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="ph-bold ph-identification-card"></i> Header & Vendor Details</h3>
+                </div>
+                <div class="card-body">
+                    <div class="form-grid" style="border-bottom: 1px dashed var(--border-color); padding-bottom: 20px; margin-bottom: 30px;">
+                        <div class="form-group">
+                            <label>Purchase Order #</label>
+                            <input type="text" name="po_no" class="form-control" value="<?= $po_number ?>" readonly style="font-weight: 800; color: var(--theme-color); font-size: 16px;">
+                        </div>
+                        <div class="form-group">
+                            <label>PO Date</label>
+                            <input type="date" name="po_date" class="form-control" value="<?= date('Y-m-d') ?>" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Expected Delivery</label>
+                            <input type="date" name="delivery_date" class="form-control" value="<?= date('Y-m-d', strtotime('+7 days')) ?>" required>
+                        </div>
+                    </div>
+
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Vendor Name <span style="color:#ef4444;">*</span></label>
+                            <input type="text" name="shop_name" id="shopName" class="form-control" required placeholder="Enter Vendor Business Name">
+                        </div>
+                        <div class="form-group">
+                            <label>Vendor GSTIN</label>
+                            <input type="text" name="gst_number" class="form-control" placeholder="Optional">
+                        </div>
+                        <div class="form-group">
+                            <label>Vendor Contact (Email / Phone)</label>
+                            <div style="display:flex; gap:12px;">
+                                <input type="text" name="vendor_phone" class="form-control" placeholder="Phone" style="width: 40%;">
+                                <input type="email" name="vendor_email" class="form-control" placeholder="Email" style="width: 60%;">
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group">
-                        <label><span data-key="label-po-date">PO Date</span></label>
-                        <input type="date" name="po_date" value="<?= date('Y-m-d') ?>">
+                        <label>Vendor Full Address</label>
+                        <textarea name="vendor_address" class="form-control" rows="2" placeholder="Street, City, State, Zip..."></textarea>
                     </div>
-                    <div class="form-group">
-                        <label><span data-key="label-vendor-name">Vendor Name *</span></label>
-                        <input type="text" name="shop_name" id="shopName" required data-key="ph-vendor-name" placeholder="Enter Vendor Business Name">
-                    </div>
-                    <div class="form-group">
-                        <label><span data-key="label-vendor-gst">Vendor GSTIN</span></label>
-                        <input type="text" name="gst_number" data-key="ph-optional" placeholder="Optional">
-                    </div>
-                    <div class="form-group">
-                        <label><span data-key="label-exp-delivery">Expected Delivery</span></label>
-                        <input type="date" name="delivery_date">
-                    </div>
-                    <div class="form-group">
-                        <label><span data-key="label-po-status">PO Status</span></label>
-                        <select name="status">
-                            <option data-key="opt-draft">Draft</option>
-                            <option data-key="opt-approved">Approved</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label><span data-key="label-pay-mode">Payment Mode</span></label>
-                        <select name="payment_mode">
-                            <option value="Cash" data-key="opt-cash">Cash</option>
-                            <option value="Bank Account" data-key="opt-bank">Bank Transfer</option>
-                            <option value="UPI" data-key="opt-upi">UPI</option>
-                        </select>
+                    
+                    <div class="form-grid" style="margin-top: 25px;">
+                        <div class="form-group">
+                            <label>PO Status</label>
+                            <select name="status" class="form-control">
+                                <option value="Draft">Draft</option>
+                                <option value="Approved">Approved</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Payment Mode</label>
+                            <select name="payment_mode" class="form-control">
+                                <option value="Bank Transfer">Bank Transfer (NEFT/RTGS)</option>
+                                <option value="UPI">UPI</option>
+                                <option value="Cash">Cash</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="section-title" data-key="po-sec-2">Line Items</div>
-                <div class="table-responsive">
-                    <table class="items-table">
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="ph-bold ph-list-numbers"></i> Itemized Details</h3>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="items-table" id="itemsTable">
+                            <thead>
+                                <tr>
+                                    <th width="5%" style="text-align:center;">#</th>
+                                    <th width="35%">Item Description</th>
+                                    <th width="10%" style="text-align:center;">HSN</th>
+                                    <th width="15%" style="text-align:center;">Qty & Unit</th>
+                                    <th width="15%" style="text-align:right;">Rate (₹)</th>
+                                    <th width="15%" style="text-align:right;">Amount (₹)</th>
+                                    <th width="5%" style="text-align:center;">Act</th>
+                                </tr>
+                            </thead>
+                            <tbody id="itemsBody">
+                                </tbody>
+                        </table>
+                    </div>
+                    
+                    <button type="button" class="btn-add-row" onclick="addRow()">
+                        <i class="ph-bold ph-plus-circle"></i> Add New Item
+                    </button>
+
+                    <div class="terms-summary-wrapper">
+                        <div class="terms-section">
+                            <div class="form-group">
+                                <label>Notes & Terms / Instructions</label>
+                                <textarea name="remark" class="form-control" rows="6" placeholder="Special instructions for vendor...">1. Please supply the items listed above by the specified delivery date.
+2. Ensure items are properly packaged to avoid damage.
+3. Invoice must reference this PO Number.</textarea>
+                            </div>
+                        </div>
+
+                        <div class="summary-section">
+                            <div class="summary-box">
+                                <div class="summary-row">
+                                    <span>Sub Total</span>
+                                    <span class="currency-input-wrap"><span>₹</span> <input type="text" id="netTotal" name="net_total" value="0.00" readonly></span>
+                                </div>
+                                <div class="summary-row">
+                                    <span>Total Tax Amount</span>
+                                    <span class="currency-input-wrap"><span>₹</span> <input type="text" id="taxAmount" name="tax_amount" value="0.00" readonly></span>
+                                </div>
+                                <div class="summary-row">
+                                    <span>Freight Charges (+)</span>
+                                    <span class="currency-input-wrap"><span>₹</span> <input type="number" name="transport_charges" id="transport" class="form-control" style="width: 120px; text-align:right;" value="0" oninput="calculateTotals()"></span>
+                                </div>
+                                <div class="summary-row total">
+                                    <span>Grand Total</span>
+                                    <span class="currency-input-wrap"><span>₹</span> <input type="text" id="grandTotal" name="grand_total" value="0.00" readonly></span>
+                                </div>
+                                <div class="summary-row" style="margin-top: 20px;">
+                                    <span style="font-weight: 800;">Amount Paid Adv.</span>
+                                    <span class="currency-input-wrap"><span>₹</span> <input type="number" name="paid_amount" id="paidAmount" class="form-control" style="width: 120px; text-align:right; border-color: var(--theme-color);" value="0" oninput="calculateTotals()"></span>
+                                </div>
+                                <div class="summary-row">
+                                    <span style="color: #ef4444; font-weight: 800;">Balance Due</span>
+                                    <span class="currency-input-wrap" style="color: #ef4444;"><span>₹</span> <input type="text" id="balanceAmount" name="balance_amount" value="0.00" readonly style="color: inherit;"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 15px; margin-top: 35px; border-top: 1px solid var(--border-color); padding-top: 25px;">
+                        <button type="button" class="btn-save btn-outline" onclick="location.reload()">Reset Form</button>
+                        <button type="submit" id="saveBtn" class="btn-save">
+                            Generate Purchase Order <i class="ph-bold ph-paper-plane-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </form>
+
+        <div class="card">
+            <div class="card-header" style="background: #fff; border-bottom: 1px solid var(--border-color); border-left: 5px solid var(--theme-color);">
+                <h3 style="color: var(--theme-color);"><i class="ph-bold ph-clock-counter-clockwise"></i> Purchase Order History</h3>
+            </div>
+            <div class="card-body" style="padding: 0;">
+                <div class="table-responsive" style="margin: 0; border: none; border-radius: 0;">
+                    <table class="history-table">
                         <thead>
                             <tr>
-                                <th width="3%" data-key="th-sno">#</th>
-                                <th width="28%" data-key="th-desc-code">Description & Code</th>
-                                <th width="10%" data-key="th-hsn">HSN</th>
-                                <th width="14%" data-key="th-qty-unit">Qty & Unit</th>
-                                <th width="10%" data-key="th-rate">Rate</th>
-                                <th width="8%" data-key="th-disc">Disc%</th>
-                                <th width="10%" data-key="th-gst">GST%</th>
-                                <th width="12%" data-key="th-total">Total</th>
-                                <th width="5%"></th>
+                                <th>PO No</th>
+                                <th>Vendor Details</th>
+                                <th>Date</th>
+                                <th>Amount</th>
+                                <th>Balance</th>
+                                <th>Status</th>
+                                <th style="text-align:center;">Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="items-container"></tbody>
+                        <tbody>
+                            <?php if($history_query && mysqli_num_rows($history_query) > 0): while($row = mysqli_fetch_assoc($history_query)): 
+                                $status = !empty($row['approval_status']) ? $row['approval_status'] : 'Pending';
+                                
+                                $badgeClass = 'bg-pending';
+                                $icon = '<i class="ph-bold ph-clock"></i>';
+                                
+                                if ($status == 'Approved') { 
+                                    $badgeClass = 'bg-approved'; 
+                                    $icon = '<i class="ph-bold ph-check"></i>'; 
+                                } elseif ($status == 'Rejected') { 
+                                    $badgeClass = 'bg-rejected'; 
+                                    $icon = '<i class="ph-bold ph-x"></i>'; 
+                                }
+                            ?>
+                            <tr id="row_<?= $row['id'] ?>">
+                                <td style="color: var(--theme-color); font-weight: 800; font-size: 16px;"><?= $row['po_number'] ?></td>
+                                <td>
+                                    <strong style="font-size: 15px;"><?= htmlspecialchars($row['vendor_name']) ?></strong><br>
+                                    <span style="font-size: 13px; color: var(--text-muted);"><?= htmlspecialchars($row['vendor_email'] ?? '') ?></span>
+                                </td>
+                                <td><?= date('d M Y', strtotime($row['po_date'])) ?></td>
+                                <td><strong style="color: var(--text-main); font-size: 16px;">₹<?= number_format($row['grand_total'], 2) ?></strong></td>
+                                <td style="color: <?= ($row['balance_amount'] > 0) ? '#ef4444' : '#15803d' ?>; font-weight: 800; font-size: 15px;">₹<?= number_format($row['balance_amount'], 2) ?></td>
+                                
+                                <td>
+                                    <span class="status-badge <?= $badgeClass ?>">
+                                        <?= $icon ?> <?= htmlspecialchars($status) ?>
+                                    </span>
+                                </td>
+                                
+                                <td class="action-btns">
+                                    <button type="button" class="btn-icon btn-view" onclick="viewPODetails(<?= $row['id'] ?>, '<?= $row['po_number'] ?>')" title="View Items"><i class="ph-bold ph-eye"></i></button>
+                                    
+                                    <?php if($status == 'Approved'): ?>
+                                        <button type="button" class="btn-icon btn-print" onclick="prepareAndPrintPO(<?= $row['id'] ?>)" title="Print PO Document"><i class="ph-bold ph-printer"></i></button>
+                                    <?php else: ?>
+                                        <div style="width: 38px; height: 38px; visibility: hidden;"></div>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                            <?php endwhile; else: ?>
+                                <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px; font-size: 16px;">No Purchase Orders generated yet.</td></tr>
+                            <?php endif; ?>
+                        </tbody>
                     </table>
                 </div>
-                <button type="button" class="btn-add-row" onclick="addNewRow()">
-                    <i class="ph-bold ph-plus-circle"></i> <span data-key="btn-add-item">Add New Item</span>
-                </button>
-
-                <div class="terms-summary-wrapper">
-                    <div class="terms-section">
-                        <div class="section-title" data-key="po-sec-3">Terms & Shipping</div>
-                        <div class="form-grid" style="margin-bottom: 0;">
-                            <div class="form-group">
-                                <label><span data-key="label-pay-terms">Payment Terms</span></label>
-                                <input type="text" data-key="ph-optional" placeholder="Optional">
-                            </div>
-                            <div class="form-group">
-                                <label><span data-key="label-del-loc">Delivery Location</span></label>
-                                <input type="text" data-key="ph-optional" placeholder="Optional">
-                            </div>
-                        </div>
-                        <div class="form-group" style="margin-top: 15px;">
-                            <label><span data-key="label-terms-cond">Terms & Conditions</span></label>
-                            <textarea name="remark" rows="3" data-key="ph-remarks" placeholder="Notes..."></textarea>
-                        </div>
-                    </div>
-
-                    <div class="summary-section">
-                        <div class="section-title" data-key="po-sec-4">PO Summary</div>
-                        <div class="summary-box">
-                            <div class="summary-row">
-                                <span data-key="label-net-total">Net Total</span>
-                                <input type="text" id="netTotal" name="net_total" value="0.00" readonly>
-                            </div>
-                            <div class="summary-row">
-                                <span data-key="label-tax-amt">Tax Amount</span>
-                                <input type="text" id="taxAmount" name="tax_amount" value="0.00" readonly>
-                            </div>
-                            <div class="summary-row">
-                                <span data-key="label-freight">Freight Charges (+)</span>
-                                <input type="number" name="transport_charges" id="transport" class="form-control" style="width: 100px; text-align:right;" value="0">
-                            </div>
-                            <div class="summary-row total">
-                                <span data-key="label-grand-total">Grand Total</span>
-                                <input type="text" id="grandTotal" name="grand_total" value="0.00" readonly>
-                            </div>
-                            <div class="summary-row" style="margin-top: 12px;">
-                                <span data-key="label-paid-amt" style="font-weight: 600;">Paid Amount</span>
-                                <input type="number" name="paid_amount" id="paidAmount" class="form-control" style="width: 100px; text-align:right;" value="0">
-                            </div>
-                            <div class="summary-row">
-                                <span data-key="label-bal-payable" style="color: #ef4444; font-weight: 700;">Balance Payable</span>
-                                <input type="text" id="balanceAmount" name="balance_amount" value="0.00" readonly style="color: #ef4444;">
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 30px; border-top: 1px solid var(--border); padding-top: 20px;">
-                    <button type="button" class="btn-save btn-outline" onclick="location.reload()" data-key="btn-reset">Reset</button>
-                    <button type="button" class="btn-save" id="submitBtn" onclick="savePO()">
-                        <span data-key="btn-generate">SUBMIT PO</span> <i class="ph-bold ph-arrow-right"></i>
-                    </button>
-                </div>
             </div>
         </div>
-    </form>
-
-    <div class="card history-section">
-        <div class="card-header" style="background: #fff; border-bottom: 1px solid var(--border); border-left: 4px solid var(--primary-color);">
-            <h3 style="color: var(--primary-color);"><i class="ph-bold ph-clock-counter-clockwise"></i> <span data-key="history-title">Purchase Order History</span></h3>
-        </div>
-        <div class="card-body" style="padding: 0;">
-            <div class="table-responsive" style="margin: 0;">
-                <table class="history-table">
-                    <thead>
-                        <tr>
-                            <th data-key="label-po-no">PO No</th>
-                            <th data-key="label-po-date">Date</th>
-                            <th data-key="th-vendor-shop">Vendor Shop</th>
-                            <th data-key="label-grand-total">Grand Total</th>
-                            <th data-key="label-paid-amt">Paid</th>
-                            <th data-key="label-bal-payable">Balance</th>
-                            <th data-key="label-status">Status</th>
-                            <th class="text-center" style="text-align: center;" data-key="th-action">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php
-                        $history_query = mysqli_query($conn, "SELECT * FROM purchase_orders ORDER BY id DESC LIMIT 50");
-                        if ($history_query && mysqli_num_rows($history_query) > 0) {
-                            while ($row = mysqli_fetch_assoc($history_query)) {
-                                $db_id = $row['id'];
-                                $bal_color = ($row['balance_amount'] > 0) ? '#ef4444' : '#10b981';
-                                $status_class = ($row['approval_status'] === 'Approved') ? 'bg-approved' : (($row['approval_status'] === 'Rejected') ? 'bg-rejected' : 'bg-pending');
-                        ?>
-                                <tr id='row_<?= $db_id ?>'>
-                                    <td style="color: var(--primary-color); font-weight: 700;"><?= htmlspecialchars($row['po_number']) ?></td>
-                                    <td><?= date('d-m-Y', strtotime($row['po_date'])) ?></td>
-                                    <td><?= htmlspecialchars($row['vendor_name']) ?></td>
-                                    <td style="font-weight: 600;">₹<?= number_format($row['grand_total'], 2) ?></td>
-                                    <td>₹<?= number_format($row['paid_amount'], 2) ?></td>
-                                    <td style="color: <?= $bal_color ?>; font-weight: 700;">₹<?= number_format($row['balance_amount'], 2) ?></td>
-                                    <td><span class="status-badge <?= $status_class ?>"><?= htmlspecialchars($row['approval_status'] ?? 'Pending') ?></span></td>
-                                    <td class="action-btns">
-                                        <button type="button" class='btn-icon btn-view' onclick='viewPODetails(<?= $db_id ?>, "<?= htmlspecialchars($row['po_number']) ?>")' title="View"><i class='ph-bold ph-eye'></i></button>
-                                        <button type="button" class='btn-icon btn-print' onclick='printPO(<?= $db_id ?>)' title="Print"><i class='ph-bold ph-printer'></i></button>
-                                    </td>
-                                </tr>
-                        <?php 
-                            } 
-                        } else { ?>
-                            <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 20px;">No purchase orders found.</td></tr>
-                        <?php } ?>
-                    </tbody>
-                </table>
+    </main>
+</div> <div class="print-container" id="printablePO">
+    <div class="p-header">
+        <div style="text-align: left;">
+            <img src="<?= $company_details['logo'] ?>" alt="Logo" class="p-logo">
+            <div style="font-size: 18px; font-weight: 800; color: #000; text-transform: uppercase; margin-top: 8px;"><?= $company_details['name'] ?></div>
+            <div style="font-size: 14px; margin-top: 5px; color: #333; max-width: 300px;">
+                <?= $company_details['address'] ?><br>
+                Phone: <?= $company_details['phone'] ?>
             </div>
+        </div>
+        <div style="text-align: right;">
+            <div class="p-title">PURCHASE ORDER</div>
+            <table style="margin-left: auto; font-size: 15px; text-align: left; color: #000;">
+                <tr><td style="padding: 4px 10px; font-weight: bold; text-align: right;">DATE:</td><td style="padding: 4px 10px;" id="p_po_date_lbl"></td></tr>
+                <tr><td style="padding: 4px 10px; font-weight: bold; text-align: right;">PO #:</td><td style="padding: 4px 10px; font-weight: bold; color: #1b5a5a;" id="p_po_no_lbl"></td></tr>
+            </table>
         </div>
     </div>
-</main>
+
+    <div style="margin-bottom: 30px;">
+        <h4 style="font-size: 14px; font-weight: bold; border-bottom: 2px solid #ccc; padding-bottom: 5px; text-transform: uppercase; color: #555; display: inline-block; margin: 0 0 10px 0;">To (Vendor Details):</h4>
+        <div style="font-weight: bold; font-size: 16px; text-transform: uppercase; margin-bottom: 6px;" id="p_po_vendor"></div>
+        <div style="font-size: 14px; margin-bottom: 6px; white-space: pre-line;" id="p_po_vendor_address"></div>
+        <div style="font-size: 14px; margin-bottom: 6px;" id="p_po_vendor_gst"></div>
+        <div style="font-size: 14px;" id="p_po_vendor_contact"></div>
+    </div>
+
+    <table class="p-table">
+        <thead>
+            <tr>
+                <th style="width: 5%; text-align: center;">S.NO</th>
+                <th style="width: 50%;">ITEM DESCRIPTION</th>
+                <th style="width: 10%; text-align: center;">QTY</th>
+                <th style="width: 15%; text-align: right;">UNIT PRICE</th>
+                <th style="width: 20%; text-align: right;">AMOUNT</th>
+            </tr>
+        </thead>
+        <tbody id="p_po_items"></tbody>
+    </table>
+
+    <div style="display: flex; justify-content: flex-end; margin-bottom: 40px;">
+        <table class="p-totals">
+            <tr>
+                <td>Sub Total</td>
+                <td style="width: 150px;">
+                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_sub">0.00</span></div>
+                </td>
+            </tr>
+            <tr id="tr_po_tax">
+                <td>Tax Amount</td>
+                <td>
+                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_tax">0.00</span></div>
+                </td>
+            </tr>
+            <tr id="tr_po_freight">
+                <td>Freight Charges</td>
+                <td>
+                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_freight">0.00</span></div>
+                </td>
+            </tr>
+            <tr class="p-grand">
+                <td>GRAND TOTAL</td>
+                <td>
+                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_grand">0.00</span></div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <div style="font-size: 14px; margin-bottom: 30px;">
+        <p style="font-weight: bold; margin: 0 0 5px 0; text-transform: uppercase; color: #555;">Terms & Instructions:</p>
+        <p style="white-space: pre-line; line-height: 1.6;" id="p_po_notes"></p>
+    </div>
+
+    <div style="text-align: center; font-size: 14px; border-top: 1px solid #000; padding-top: 15px; font-weight: bold; position: fixed; bottom: 15mm; width: 100%;">
+        <?= $company_details['name'] ?> | <?= $company_details['phone'] ?> | <?= $company_details['website'] ?>
+    </div>
+</div>
 
 <div class="modal-overlay" id="viewModal">
     <div class="modal-content">
-        <span class="close-modal" onclick="closeModal()">&times;</span>
-        <h3 id="modalPOTitle" style="color: var(--primary-color); margin-bottom: 20px;"></h3>
-        <div class="table-responsive">
-            <table class="items-table">
+        <span class="close-modal" onclick="closeModal()"><i class="ph-bold ph-x"></i></span>
+        <h3 id="modalPOTitle" style="color: var(--theme-color); margin: 0 0 25px 0; font-weight: 800; font-size: 22px;"></h3>
+        <div class="table-responsive" style="margin: 0; border: none; box-shadow: var(--shadow-sm);">
+            <table class="items-table" style="margin:0;">
                 <thead>
                     <tr>
-                        <th>Item Description</th>
-                        <th>HSN</th>
-                        <th>Qty</th>
-                        <th>Rate</th>
-                        <th>Disc%</th>
-                        <th>GST%</th>
-                        <th>Total</th>
+                        <th style="padding: 16px;">Item Description</th>
+                        <th style="text-align: center; padding: 16px;">HSN</th>
+                        <th style="text-align: center; padding: 16px;">Qty</th>
+                        <th style="text-align: right; padding: 16px;">Rate</th>
+                        <th style="text-align: center; padding: 16px;">GST%</th>
+                        <th style="text-align: right; padding: 16px;">Total</th>
                     </tr>
                 </thead>
                 <tbody id="modalBody"></tbody>
@@ -388,121 +581,252 @@ include '../header.php';
 </div>
 
 <script>
+    let itemIndex = 1;
+
+    $(document).ready(function() {
+        addRow(); // Load one empty row on start
+    });
+
+    // --- CALCULATIONS & TABLE LOGIC ---
+    function addRow() {
+        const tbody = document.getElementById('itemsBody');
+        const tr = document.createElement('tr');
+        tr.className = "item-row";
+        tr.innerHTML = `
+            <td style="text-align: center; font-weight: 800; color: #777; padding-top: 20px;"></td>
+            <td>
+                <input type="text" name="materials[${itemIndex}]" class="form-control" placeholder="Item description..." required style="width: 100%;">
+            </td>
+            <td><input type="text" name="hsn_code[${itemIndex}]" class="form-control" placeholder="HSN" style="width:100%; text-align:center;"></td>
+            <td>
+                <div class="qty-unit-group">
+                    <input type="number" name="qtys[${itemIndex}]" class="qty" value="1" step="0.01" oninput="calculateTotals()">
+                    <select name="unit[${itemIndex}]">
+                        <option>Nos</option><option>Kg</option><option>Pcs</option><option>Box</option>
+                    </select>
+                </div>
+            </td>
+            <td><input type="number" name="prices[${itemIndex}]" class="form-control price" value="0.00" step="0.01" style="width:100%; text-align: right;" oninput="calculateTotals()"></td>
+            
+            <input type="hidden" name="discount[${itemIndex}]" class="discount" value="0">
+            <input type="hidden" name="gst_percent[${itemIndex}]" class="gst" value="0">
+            
+            <td>
+                <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; padding:12px 16px; border:1px solid #cbd5e1; border-radius:8px;">
+                    <span style="color:var(--theme-color); font-weight:800; font-size:16px;">₹</span>
+                    <input type="text" name="totals[${itemIndex}]" class="row-total" readonly value="0.00" style="width:100%; text-align:right; font-weight:800; font-size:16px; color:var(--theme-color); background:transparent; border:none; outline:none;">
+                </div>
+            </td>
+            <td style="text-align: center; vertical-align: middle;">
+                <button type="button" class="btn-icon btn-delete" style="background: transparent; box-shadow:none; padding:0; font-size:22px;" onclick="removeRow(this)"><i class="ph-bold ph-trash"></i></button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+        itemIndex++;
+        updateRowNumbers();
+    }
+
+    function removeRow(btn) { 
+        if($('#items-container tr').length > 1 || document.querySelectorAll('.item-row').length > 1) { 
+            $(btn).closest('tr').remove(); 
+            calculateTotals(); 
+            updateRowNumbers();
+        } else {
+            Swal.fire('Notice', 'At least one item is required.', 'info');
+        }
+    }
+
+    function calculateTotals() {
+        let subTotal = 0;
+        const taxP = parseFloat(document.getElementById('po_tax_p').value) || 0;
+
+        document.querySelectorAll('.item-row').forEach(r => {
+            const qty = parseFloat(r.querySelector('.qty').value) || 0;
+            const rate = parseFloat(r.querySelector('.price').value) || 0;
+            
+            const lineAmount = (qty * rate);
+            r.querySelector('.row-total').value = lineAmount.toFixed(2);
+            subTotal += lineAmount;
+        });
+        
+        const taxAmount = subTotal * (taxP / 100);
+        const freight = parseFloat(document.getElementById('transport').value) || 0;
+        const grandTotal = subTotal + taxAmount + freight;
+        const paid = parseFloat(document.getElementById('paidAmount').value) || 0;
+        const balance = grandTotal - paid;
+
+        document.getElementById('netTotal').value = subTotal.toFixed(2);
+        document.getElementById('displaySubtotal').innerText = subTotal.toFixed(2);
+        
+        document.getElementById('taxAmount').value = taxAmount.toFixed(2);
+        document.getElementById('displayTax').innerText = taxAmount.toFixed(2);
+        
+        document.getElementById('grandTotal').value = grandTotal.toFixed(2);
+        document.getElementById('displayGrandTotal').innerText = grandTotal.toFixed(2);
+        
+        document.getElementById('balanceAmount').value = balance.toFixed(2);
+
+        // Hidden Database fields mapping
+        document.getElementById('hiddenSubTotal').value = subTotal.toFixed(2);
+        document.getElementById('hiddenTaxTotal').value = taxAmount.toFixed(2);
+        document.getElementById('hiddenGrandTotal').value = grandTotal.toFixed(2);
+    }
+
+    function updateRowNumbers() {
+        document.querySelectorAll('.item-row').forEach((row, index) => {
+            row.cells[0].innerText = index + 1;
+        });
+    }
+
+    // --- FORM SUBMISSION (SweetAlert Notifications) ---
+    function savePO(e) {
+        e.preventDefault(); 
+        
+        if(!$('#shopName').val()) { 
+            Swal.fire("Required", "Please enter Vendor Name", "warning"); 
+            return; 
+        }
+
+        const btn = $('#saveBtn');
+        btn.prop('disabled', true).html('<i class="ph-bold ph-spinner ph-spin"></i> Generating...');
+        
+        $.ajax({
+            url: window.location.href, 
+            type: 'POST', 
+            data: $('#poForm').serialize(),
+            dataType: 'json',
+            success: function(res) { 
+                if (res.status === 'success') { 
+                    Swal.fire({title: "Success!", text: "Purchase Order Saved Successfully and sent to CFO for approval!", icon: "success", timer: 2000, showConfirmButton: false})
+                    .then(() => window.location.reload()); 
+                } 
+                else { 
+                    Swal.fire("Database Error", res.message, "error"); 
+                    btn.prop('disabled', false).html('Generate Purchase Order <i class="ph-bold ph-paper-plane-right"></i>'); 
+                }
+            },
+            error: function() { 
+                Swal.fire("Network Error", "Error connecting to server.", "error"); 
+                btn.prop('disabled', false).html('Generate Purchase Order <i class="ph-bold ph-paper-plane-right"></i>'); 
+            }
+        });
+    }
+
+    // --- MODAL VIEW ---
     function viewPODetails(id, poNum) {
-        $('#modalPOTitle').text('Purchase Order: ' + poNum);
-        $.post(window.location.href, {ajax_action: 'get_po_details', id: id}, function(data) {
-            const items = JSON.parse(data);
-            let html = '';
-            items.forEach(item => {
-                html += `<tr>
-                    <td>${item.item_description}</td>
-                    <td>${item.hsn_code}</td>
-                    <td>${item.quantity} ${item.unit}</td>
-                    <td>₹${parseFloat(item.rate).toFixed(2)}</td>
-                    <td>${item.discount_percent}%</td>
-                    <td>${item.gst_percent}%</td>
-                    <td>₹${parseFloat(item.line_total).toFixed(2)}</td>
-                </tr>`;
-            });
-            $('#modalBody').html(html);
-            $('#viewModal').css('display', 'flex');
+        $('#modalPOTitle').text('Purchase Order Details');
+        $.post(window.location.href, {ajax_action: 'get_po_details', id: id}, function(res) {
+            try {
+                let data = typeof res === 'string' ? JSON.parse(res) : res;
+                if(data.status === 'success') {
+                    $('#modalPOTitle').text('PO Reference: ' + data.po.po_number);
+                    let html = '';
+                    data.items.forEach(item => {
+                        html += `<tr>
+                            <td style="padding: 16px; font-size: 15px;">${item.item_description || ''}</td>
+                            <td style="text-align:center; padding: 16px; font-size: 15px;">${item.hsn_code || '-'}</td>
+                            <td style="text-align:center; padding: 16px; font-size: 15px;">${item.quantity || 0} ${item.unit || ''}</td>
+                            <td style="padding: 16px; font-size: 15px;">
+                                <div style="display:flex; justify-content:space-between; width:80px; margin-left:auto;"><span>₹</span><span>${parseFloat(item.rate || 0).toFixed(2)}</span></div>
+                            </td>
+                            <td style="text-align:center; padding: 16px; font-size: 15px;">${parseFloat(item.gst_percent || 0).toFixed(0)}%</td>
+                            <td style="padding: 16px; font-weight:800; font-size: 15px; color:var(--theme-color);">
+                                <div style="display:flex; justify-content:space-between; width:90px; margin-left:auto;"><span>₹</span><span>${parseFloat(item.line_total || 0).toFixed(2)}</span></div>
+                            </td>
+                        </tr>`;
+                    });
+                    $('#modalBody').html(html);
+                    $('#viewModal').css('display', 'flex');
+                }
+            } catch(e) {
+                Swal.fire('Error', 'Failed to parse details.', 'error');
+            }
         });
     }
 
     function closeModal() { $('#viewModal').hide(); }
 
-    async function changeLang(lang) {
-        try {
-            localStorage.setItem('rupnidhi_lang', lang);
-            const response = await fetch(`lang/${lang}.json`);
-            if (!response.ok) throw new Error("Language file not found");
-            const translations = await response.json();
-            document.querySelectorAll('[data-key]').forEach(el => {
-                const key = el.getAttribute('data-key');
-                if (translations[key]) {
-                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') { el.setAttribute('placeholder', translations[key]); } 
-                    else {
-                        if (el.children.length === 0) { el.innerText = translations[key]; } 
-                        else {
-                            const textNode = Array.from(el.childNodes).find(node => node.nodeType === 3 && node.textContent.trim() !== "");
-                            if (textNode) textNode.textContent = translations[key];
-                        }
+    // --- PERFECT ALIGNMENT PRINTING LOGIC ---
+    function prepareAndPrintPO(id) {
+        $.post(window.location.href, {ajax_action: 'get_po_details', id: id}, function(res) {
+            try {
+                let data = typeof res === 'string' ? JSON.parse(res) : res;
+                if(data.status === 'success') {
+                    const po = data.po;
+                    document.getElementById('p_po_no_lbl').innerText = po.po_number;
+                    
+                    const dateObj = new Date(po.po_date);
+                    document.getElementById('p_po_date_lbl').innerText = dateObj.toLocaleDateString('en-GB');
+                    
+                    document.getElementById('p_po_vendor').innerText = po.vendor_name || 'N/A';
+                    document.getElementById('p_po_vendor_address').innerText = po.vendor_address || '';
+                    document.getElementById('p_po_vendor_gst').innerText = po.vendor_gstin ? 'GSTIN: ' + po.vendor_gstin : '';
+                    
+                    let contactInfo = [];
+                    if(po.vendor_email) contactInfo.push(po.vendor_email);
+                    if(po.vendor_phone) contactInfo.push(po.vendor_phone);
+                    document.getElementById('p_po_vendor_contact').innerText = contactInfo.join(' | ');
+                    
+                    document.getElementById('p_po_sub').innerText = parseFloat(po.net_total || 0).toFixed(2);
+                    
+                    if(parseFloat(po.tax_amount) > 0) {
+                        document.getElementById('p_po_tax').innerText = parseFloat(po.tax_amount).toFixed(2);
+                        document.getElementById('tr_po_tax').style.display = 'table-row';
+                    } else {
+                        document.getElementById('tr_po_tax').style.display = 'none';
                     }
+
+                    if(parseFloat(po.freight_charges) > 0) {
+                        document.getElementById('p_po_freight').innerText = parseFloat(po.freight_charges).toFixed(2);
+                        document.getElementById('tr_po_freight').style.display = 'table-row';
+                    } else {
+                        document.getElementById('tr_po_freight').style.display = 'none';
+                    }
+                    
+                    document.getElementById('p_po_grand').innerText = parseFloat(po.grand_total || 0).toFixed(2);
+                    document.getElementById('p_po_notes').innerText = po.terms_conditions || '';
+
+                    const tbody = document.getElementById('p_po_items');
+                    tbody.innerHTML = '';
+                    let sno = 1;
+                    
+                    if(data.items && data.items.length > 0) {
+                        data.items.forEach(it => {
+                            tbody.innerHTML += `<tr>
+                                <td style="border-bottom:1px solid #ddd; padding:14px 10px; text-align:center;">${sno++}</td>
+                                <td style="border-bottom:1px solid #ddd; padding:14px 10px;">${it.item_description || ''}</td>
+                                <td style="border-bottom:1px solid #ddd; padding:14px 10px; text-align:center;">${it.quantity || 1} ${it.unit || ''}</td>
+                                <td style="border-bottom:1px solid #ddd; padding:14px 10px;">
+                                    <div style="display:flex; justify-content:space-between;"><span>₹</span><span>${parseFloat(it.rate || 0).toFixed(2)}</span></div>
+                                </td>
+                                <td style="border-bottom:1px solid #ddd; padding:14px 10px; font-weight:bold;">
+                                    <div style="display:flex; justify-content:space-between;"><span>₹</span><span>${parseFloat(it.line_total || 0).toFixed(2)}</span></div>
+                                </td>
+                            </tr>`;
+                        });
+                    } else {
+                        tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 30px;">No specific items broken down.</td></tr>`;
+                    }
+
+                    // --- TRICK TO PREVENT EXTRA BLANK PAGES ---
+                    document.getElementById('mainWrapper').style.display = 'none';
+                    document.getElementById('printablePO').classList.add('active-print');
+                    
+                    setTimeout(() => { 
+                        window.print(); 
+                        document.getElementById('printablePO').classList.remove('active-print'); 
+                        document.getElementById('mainWrapper').style.display = 'block';
+                    }, 500);
+
+                } else {
+                    Swal.fire('Error', 'Could not fetch PO details', 'error');
                 }
-            });
-            if (lang === 'ta') { document.body.classList.add('lang-ta'); } else { document.body.classList.remove('lang-ta'); }
-            const btnEn = document.getElementById('btn-en'), btnTa = document.getElementById('btn-ta');
-            if (btnEn && btnTa) {
-                if (lang === 'en') { btnEn.classList.add('active'); btnTa.classList.remove('active'); } 
-                else { btnTa.classList.add('active'); btnEn.classList.remove('active'); }
+            } catch(e) {
+                Swal.fire('Error', 'Failed to parse print data.', 'error');
             }
-        } catch (error) { console.error("Language Error:", error); }
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        const savedLang = localStorage.getItem('rupnidhi_lang') || 'en';
-        setTimeout(() => changeLang(savedLang), 150);
-        addNewRow();
-    });
-
-    function addNewRow() {
-        const count = $('#items-container tr').length + 1;
-        const row = `<tr>
-            <td style="color: #71717a; font-weight: 700; text-align: center; padding-top: 15px;">${count}</td>
-            <td class="stacked-input-container">
-                <input type="text" name="materials[]" data-key="placeholder-item-name" placeholder="Item Name" required>
-                <input type="text" name="item_code[]" data-key="ph-item-code" placeholder="Item Code">
-            </td>
-            <td><input type="text" name="hsn_code[]" data-key="th-hsn" placeholder="HSN" style="width:100%;"></td>
-            <td><div class="qty-unit-group"><input type="number" name="qtys[]" class="qty" value="0" step="0.01"><select name="unit[]"><option data-key="unit-kg">Kg</option><option data-key="unit-nos">Nos</option><option data-key="unit-pcs">Pcs</option></select></div></td>
-            <td><input type="number" name="prices[]" class="price" value="0" step="0.01" style="width:100%;"></td>
-            <td><input type="number" name="discount[]" class="discount" value="0" style="width:100%;"></td>
-            <td><select name="gst_percent[]" class="gst" style="width:100%;"><option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18" selected>18%</option></select></td>
-            <td><input type="text" name="totals[]" class="line_total" readonly value="0.00" style="width:100%; font-weight:600;"></td>
-            <td style="text-align: center; vertical-align: middle;"><button type="button" class="btn-remove-row" onclick="removeRow(this)"><i class="ph-bold ph-trash"></i></button></td>
-        </tr>`;
-        $('#items-container').append(row);
-        const currentLang = localStorage.getItem('rupnidhi_lang') || 'en';
-        if(typeof changeLang === 'function') { changeLang(currentLang); }
-    }
-
-    function removeRow(btn) { if($('#items-container tr').length > 1) { $(btn).closest('tr').remove(); calculateTotals(); } }
-
-    $(document).on('input', '.qty, .price, .discount, .gst, #transport, #paidAmount', calculateTotals);
-
-    function calculateTotals() {
-        let subTotal = 0, totalTax = 0;
-        $('#items-container tr').each(function() {
-            let qty = parseFloat($(this).find('.qty').val()) || 0, price = parseFloat($(this).find('.price').val()) || 0, disc = parseFloat($(this).find('.discount').val()) || 0, gst = parseFloat($(this).find('.gst').val()) || 0;
-            let basePrice = qty * price, afterDisc = basePrice - (basePrice * (disc / 100)), taxValue = afterDisc * (gst / 100), lineTotal = afterDisc + taxValue;
-            $(this).find('.line_total').val(lineTotal.toFixed(2));
-            subTotal += afterDisc; totalTax += taxValue;
-        });
-        let freight = parseFloat($('#transport').val()) || 0, grandTotal = subTotal + totalTax + freight, paid = parseFloat($('#paidAmount').val()) || 0;
-        $('#netTotal').val(subTotal.toFixed(2)); $('#taxAmount').val(totalTax.toFixed(2)); $('#grandTotal').val(grandTotal.toFixed(2)); $('#balanceAmount').val((grandTotal - paid).toFixed(2));
-    }
-
-    function savePO() {
-        if(!$('#shopName').val()) { alert("Please enter Vendor Name"); return; }
-        const btn = $('#submitBtn');
-        btn.prop('disabled', true).html('Saving... <i class="ph-bold ph-spinner"></i>');
-        $.ajax({
-            url: window.location.href, type: 'POST', data: $('#poForm').serialize(),
-            success: function(response) { 
-                if (response.trim() === 'success') { alert("Purchase Order Saved Successfully and sent to CFO for approval!"); location.reload(); } 
-                else { alert("Database Error: " + response); btn.prop('disabled', false).html('<span data-key="btn-generate">SUBMIT PO</span> <i class="ph-bold ph-arrow-right"></i>'); }
-            },
-            error: function() { alert("Error connecting to server."); btn.prop('disabled', false).html('<span data-key="btn-generate">SUBMIT PO</span> <i class="ph-bold ph-arrow-right"></i>'); }
         });
     }
 
-    function deletePO(id) { if(confirm("Are you sure you want to delete this Purchase Order?")) { $.post(window.location.href, {ajax_action: 'delete_po', id: id}, function(res) { if(res.trim() === 'success') { $('#row_' + id).fadeOut(); } else { alert("Error deleting record."); } }); } }
-
-    function printPO(id) {
-        const existingFrame = document.getElementById('printFrame'); if (existingFrame) { document.body.removeChild(existingFrame); }
-        const iframe = document.createElement('iframe'); iframe.id = 'printFrame'; iframe.style.position = 'fixed'; iframe.style.right = '0'; iframe.style.bottom = '0'; iframe.style.width = '0'; iframe.style.height = '0'; iframe.style.border = '0';
-        iframe.src = 'poprint.php?id=' + id; document.body.appendChild(iframe);
-    }
 </script>
 </body>
 </html>
