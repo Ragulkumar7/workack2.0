@@ -23,53 +23,61 @@ if (file_exists($dbPath)) {
 
 // 3. HANDLE AJAX POST REQUESTS
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Ensure no previous output (warnings/spaces) breaks JSON
+    if (ob_get_level()) ob_end_clean(); 
     header('Content-Type: application/json');
+    
     $input = json_decode(file_get_contents('php://input'), true);
     
     if (isset($input['action'])) {
+        $response = ['success' => false, 'error' => 'Unknown action'];
+
+        // ACTION: ADD ASSET
         if ($input['action'] === 'add') {
-            $stmt = mysqli_prepare($conn, "INSERT INTO hardware_assets (system_id, category, asset_name, barcode, invoice_number, status, acquisition_date) VALUES (?, ?, ?, ?, ?, ?, NOW())");
-            mysqli_stmt_bind_param($stmt, "ssssss", $input['sys'], $input['cat'], $input['desc'], $input['bar'], $input['inv'], $input['cond']);
+            $stmt = mysqli_prepare($conn, "INSERT INTO hardware_assets (system_id, category, asset_name, barcode, invoice_number, amount, request_status, status, acquisition_date) VALUES (?, ?, ?, ?, ?, ?, 'Pending Accountant', ?, NOW())");
+            mysqli_stmt_bind_param($stmt, "sssssds", $input['sys'], $input['cat'], $input['desc'], $input['bar'], $input['inv'], $input['amt'], $input['cond']);
             $success = mysqli_stmt_execute($stmt);
-            echo json_encode(['success' => $success]);
-            exit;
+            $response = ['success' => $success, 'error' => mysqli_error($conn)];
         }
         
-        if ($input['action'] === 'edit') {
+        // ACTION: EDIT ASSET
+        else if ($input['action'] === 'edit') {
             $formattedDate = date('Y-m-d', strtotime($input['date']));
-            $stmt = mysqli_prepare($conn, "UPDATE hardware_assets SET acquisition_date = ?, category = ?, asset_name = ?, barcode = ?, system_id = ?, status = ?, invoice_number = ? WHERE id = ?");
-            mysqli_stmt_bind_param($stmt, "sssssssi", $formattedDate, $input['cat'], $input['desc'], $input['bar'], $input['sys'], $input['cond'], $input['inv'], $input['id']);
+            $stmt = mysqli_prepare($conn, "UPDATE hardware_assets SET acquisition_date = ?, category = ?, asset_name = ?, barcode = ?, system_id = ?, status = ?, invoice_number = ?, amount = ? WHERE id = ?");
+            mysqli_stmt_bind_param($stmt, "sssssssdi", $formattedDate, $input['cat'], $input['desc'], $input['bar'], $input['sys'], $input['cond'], $input['inv'], $input['amt'], $input['id']);
             $success = mysqli_stmt_execute($stmt);
-            echo json_encode(['success' => $success]);
-            exit;
+            $response = ['success' => $success, 'error' => mysqli_error($conn)];
         }
+
+        // ACTION: PROCESS APPROVAL
+        else if ($input['action'] === 'approve_reject') {
+            $stmt = mysqli_prepare($conn, "UPDATE hardware_assets SET request_status = ? WHERE id = ?");
+            mysqli_stmt_bind_param($stmt, "si", $input['new_status'], $input['asset_id']);
+            $success = mysqli_stmt_execute($stmt);
+            $response = ['success' => $success, 'error' => mysqli_error($conn)];
+        }
+
+        echo json_encode($response);
+        exit;
     }
 }
 
 // 4. FETCH LIVE STATS
-$resTotal = mysqli_query($conn, "SELECT COUNT(*) FROM hardware_assets");
-$statTotal = mysqli_fetch_array($resTotal)[0] ?? 0;
-
-$resLaptops = mysqli_query($conn, "SELECT COUNT(*) FROM hardware_assets WHERE category LIKE '%Laptop%'");
-$statLaptops = mysqli_fetch_array($resLaptops)[0] ?? 0;
-
-$resNodes = mysqli_query($conn, "SELECT COUNT(*) FROM hardware_assets WHERE category LIKE '%Network Node%'");
-$statNodes = mysqli_fetch_array($resNodes)[0] ?? 0;
+$statTotal = mysqli_fetch_array(mysqli_query($conn, "SELECT COUNT(*) FROM hardware_assets"))[0] ?? 0;
+$statLaptops = mysqli_fetch_array(mysqli_query($conn, "SELECT COUNT(*) FROM hardware_assets WHERE category LIKE '%Laptop%'"))[0] ?? 0;
+$statPending = mysqli_fetch_array(mysqli_query($conn, "SELECT COUNT(*) FROM hardware_assets WHERE request_status = 'Pending Accountant'"))[0] ?? 0;
 
 // 5. FETCH TABLE DATA
 $query = "SELECT *, DATE_FORMAT(acquisition_date, '%b %d, %Y') as display_date, acquisition_date as raw_date FROM hardware_assets ORDER BY id DESC";
 $result = mysqli_query($conn, $query);
-$assets = [];
-if ($result) {
-    $assets = mysqli_fetch_all($result, MYSQLI_ASSOC);
-}
+$assets = ($result) ? mysqli_fetch_all($result, MYSQLI_ASSOC) : [];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise IT | Stock Management</title>
+    <title>Enterprise IT | Asset Ledger & Approvals</title>
     
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -85,103 +93,42 @@ if ($result) {
             --text-muted: #64748b;
             --border-color: #e2e8f0;
             --sidebar-width: 95px;
+            --success: #166534;
+            --danger: #991b1b;
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: var(--background); 
-            margin: 0; 
-            padding: 0; 
-            color: var(--text-main);
-            overflow-x: hidden;
-        }
-
-        /* Main Content Wrapper */
-        #mainContent { 
-            margin-left: var(--sidebar-width); 
-            padding: 24px 32px; 
-            transition: margin-left 0.3s ease, width 0.3s ease; 
-            min-height: 100vh; 
-            width: calc(100% - var(--sidebar-width));
-            box-sizing: border-box;
-        }
-
-        .dashboard-container { max-width: 1600px; margin: 0 auto; width: 100%; }
+        body { font-family: 'Inter', sans-serif; background-color: var(--background); margin: 0; color: var(--text-main); }
+        #mainContent { margin-left: var(--sidebar-width); padding: 24px 32px; min-height: 100vh; width: calc(100% - var(--sidebar-width)); box-sizing: border-box; }
         
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 15px; }
-        
-        /* Stats Grid */
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: var(--surface); padding: 20px; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 2px 4px rgba(0,0,0,0.02); transition: 0.2s; }
-        .stat-card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.05); }
-        .stat-card small { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
+        .stat-card { background: var(--surface); padding: 20px; border-radius: 12px; border: 1px solid var(--border-color); }
+        .stat-card small { color: var(--text-muted); font-size: 11px; font-weight: 700; text-transform: uppercase; }
         .stat-card div { font-size: 28px; font-weight: 800; color: var(--primary-color); margin-top: 5px; }
 
-        /* Toolbar */
-        .toolbar { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: white; border-radius: 12px 12px 0 0; border: 1px solid var(--border-color); border-bottom: none; flex-wrap: wrap; gap: 15px; }
-        .search-wrapper { position: relative; width: 100%; max-width: 400px; }
-        .search-wrapper i { position: absolute; left: 15px; top: 12px; color: var(--text-muted); }
-        .search-bar { width: 100%; padding: 10px 15px 10px 40px; border-radius: 8px; border: 1px solid #cbd5e1; outline: none; transition: 0.2s; box-sizing: border-box; font-family: 'Inter', sans-serif;}
-        .search-bar:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; padding: 20px; background: white; border-radius: 12px 12px 0 0; border: 1px solid var(--border-color); border-bottom: none; }
+        .search-bar { padding: 10px 15px 10px 40px; border-radius: 8px; border: 1px solid #cbd5e1; width: 300px; }
         
-        .action-btns { display: flex; gap: 10px; flex-wrap: wrap; }
+        .btn-register { background: var(--primary-color); color: white; padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px;}
         
-        /* Dropdown */
-        .dropdown { position: relative; display: inline-block; }
-        .dropbtn { background: white; border: 1px solid #cbd5e1; color: var(--text-main); padding: 10px 16px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.2s; }
-        .dropbtn:hover { background: #f1f5f9; }
-        .dropdown-content { display: none; position: absolute; right: 0; background-color: #fff; min-width: 160px; box-shadow: 0px 8px 16px rgba(0,0,0,0.1); z-index: 10; border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden;}
-        .dropdown-content a { color: var(--text-main); padding: 12px 16px; text-decoration: none; display: block; font-size: 14px; transition: 0.2s;}
-        .dropdown-content a:hover { background-color: #f8fafc; color: var(--primary-color); }
-        .dropdown:hover .dropdown-content { display: block; }
+        .table-container { background: white; border-radius: 0 0 12px 12px; border: 1px solid var(--border-color); overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8fafc; padding: 16px 20px; text-align: left; font-size: 12px; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border-color); }
+        td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
 
-        /* Buttons */
-        .btn-register { background: var(--primary-color); color: white; padding: 10px 20px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; white-space: nowrap; transition: 0.2s; display: flex; align-items: center; gap: 8px;}
-        .btn-register:hover { background: var(--primary-light); }
+        .badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+        .badge-approved { background: #dcfce7; color: #166534; }
+        .badge-pending { background: #ffedd5; color: #9a3412; }
+        .badge-rejected { background: #fee2e2; color: #991b1b; }
 
-        /* Table */
-        .table-container { background: white; border-radius: 0 0 12px 12px; border: 1px solid var(--border-color); overflow-x: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.02);}
-        table { width: 100%; border-collapse: collapse; min-width: 900px; }
-        th { background: #f8fafc; padding: 16px 20px; text-align: left; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; border-bottom: 1px solid var(--border-color); white-space: nowrap;}
-        td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; font-size: 14px; vertical-align: middle; }
-        tr:hover { background-color: #f8fafc; }
+        .btn-action { padding: 6px 12px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; font-size: 11px; margin-right: 4px; transition: 0.2s; }
+        .btn-approve { background: #dcfce7; color: #166534; }
+        .btn-reject { background: #fee2e2; color: #991b1b; }
+        .btn-edit { background: #f1f5f9; color: var(--text-main); border: 1px solid var(--border-color); }
         
-        .badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
-        .badge-new { background: #dcfce7; color: #166534; }
-        .badge-used { background: #fef9c3; color: #854d0e; }
-        .cat-tag { color: var(--primary-color); font-weight: 700; background: #f0fdfa; padding: 4px 8px; border-radius: 6px; font-size: 12px;}
-
-        /* Modal */
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.7); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(4px); padding: 15px; box-sizing: border-box;}
-        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); max-height: 90vh; overflow-y: auto; position: relative;}
-        .modal-content h3 { margin-top: 0; color: var(--primary-color); border-bottom: 1px solid var(--border-color); padding-bottom: 15px; font-size: 1.25rem; font-weight: 700;}
-        .close-modal { position: absolute; top: 25px; right: 25px; font-size: 20px; color: var(--text-muted); cursor: pointer; transition: 0.2s; }
-        .close-modal:hover { color: #ef4444; }
-        
+        .modal { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 450px; position: relative; }
         .form-group { margin-bottom: 15px; }
-        .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; }
-        .form-control { width: 100%; padding: 12px 15px; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; font-size: 14px; font-family: 'Inter', sans-serif; transition: 0.2s; outline: none;}
-        .form-control:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); }
-
-        /* RESPONSIVE BREAKPOINTS */
-        @media (max-width: 1200px) {
-            .stats-grid { grid-template-columns: repeat(2, 1fr); }
-        }
-
-        @media (max-width: 992px) {
-            #mainContent { margin-left: 0 !important; width: 100% !important; padding: 16px; }
-        }
-
-        @media (max-width: 640px) {
-            .stats-grid { grid-template-columns: 1fr; }
-            .page-header { flex-direction: column; align-items: flex-start; }
-            .action-btns { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
-            .dropdown { width: 100%; }
-            .dropbtn { width: 100%; }
-            .btn-register { width: 100%; justify-content: center; }
-            .toolbar { flex-direction: column; align-items: stretch; }
-            .search-wrapper { max-width: 100%; }
-        }
+        .form-control { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box;}
     </style>
 </head>
 <body>
@@ -192,49 +139,37 @@ if ($result) {
         <?php include $headerPath; ?>
 
         <div class="dashboard-container mt-4">
-            <div class="page-header">
+            <div class="page-header" style="display:flex; justify-content: space-between; align-items:center; margin-bottom:20px;">
                 <div>
-                    <h1 style="margin:0; color:var(--text-main); font-size: 1.5rem; font-weight: 800;">Corporate Hardware Ledger</h1>
-                    <p style="margin:5px 0 0 0; color:var(--text-muted); font-size: 0.9rem;">Internal Asset & Stock Tracking System</p>
+                    <h1 style="margin:0; font-size: 1.5rem; font-weight: 800;">Asset Management & Approvals</h1>
+                    <p style="color:var(--text-muted);">Internal Control Ledger</p>
                 </div>
-                <div class="action-btns">
-                    <div class="dropdown">
-                        <button class="dropbtn"><i class="fa-solid fa-file-export mr-2"></i> Export ▾</button>
-                        <div class="dropdown-content">
-                            <a href="#"><i class="fa-solid fa-file-pdf mr-2 text-red-500"></i> Export as PDF</a>
-                            <a href="#"><i class="fa-solid fa-file-excel mr-2 text-green-600"></i> Export as Excel</a>
-                        </div>
-                    </div>
-                    <button class="btn-register" onclick="openModal('add')"><i class="fa-solid fa-plus"></i> Register Asset</button>
-                </div>
+                <button class="btn-register" onclick="openModal('add')"><i class="fa-solid fa-plus"></i> Register Asset</button>
             </div>
 
             <div class="stats-grid">
                 <div class="stat-card">
-                    <small>Total Assets</small>
-                    <div><?= htmlspecialchars($statTotal) ?></div>
+                    <small>Total Inventory</small>
+                    <div><?= $statTotal ?></div>
                 </div>
                 <div class="stat-card">
-                    <small>Laptops Assigned</small>
-                    <div><?= htmlspecialchars($statLaptops) ?></div>
+                    <small>Pending Approvals</small>
+                    <div style="color:#9a3412"><?= $statPending ?></div>
                 </div>
                 <div class="stat-card">
-                    <small>Network Nodes</small>
-                    <div><?= htmlspecialchars($statNodes) ?></div>
+                    <small>Laptops</small>
+                    <div><?= $statLaptops ?></div>
                 </div>
                 <div class="stat-card">
-                    <small>System Health</small>
-                    <div style="color:var(--primary-color)"><i class="fa-solid fa-circle-check text-green-500 text-xl mr-2"></i>Optimal</div>
+                    <small>System Status</small>
+                    <div style="font-size:18px"><i class="fa-solid fa-shield-check"></i> Connected</div>
                 </div>
             </div>
 
             <div class="toolbar">
-                <div class="search-wrapper">
-                    <i class="fa-solid fa-search"></i>
-                    <input type="text" id="searchInput" class="search-bar" placeholder="Search by asset name, category, or barcode..." onkeyup="filterAssets()">
-                </div>
-                <div style="color: var(--text-muted); font-size: 13px; font-weight: 500;">
-                    Showing live inventory database
+                <div style="position:relative">
+                    <i class="fa-solid fa-search" style="position:absolute; left:15px; top:12px; color:var(--text-muted)"></i>
+                    <input type="text" id="searchInput" class="search-bar" placeholder="Filter assets..." onkeyup="filterAssets()">
                 </div>
             </div>
 
@@ -242,45 +177,46 @@ if ($result) {
                 <table id="assetTable">
                     <thead>
                         <tr>
-                            <th>S.No</th>
-                            <th>Purchase Date</th>
+                            <th>Date</th>
                             <th>Category</th>
-                            <th>Description</th>
-                            <th>Barcode / Serial</th>
-                            <th>System No</th>
-                            <th>Condition</th>
-                            <th>Invoice</th>
-                            <th class="text-right">Action</th>
+                            <th>Asset Details</th>
+                            <th>System ID</th>
+                            <th>Amount</th>
+                            <th>Status</th>
+                            <th style="text-align:right">Management Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php if (empty($assets)): ?>
-                            <tr>
-                                <td colspan="9" style="text-align:center; padding: 60px 20px; color: var(--text-muted);">
-                                    <i class="fa-solid fa-boxes-stacked text-4xl mb-3 opacity-50"></i>
-                                    <p class="mb-0">No hardware assets registered yet.</p>
-                                </td>
-                            </tr>
-                        <?php else: $sno=1; foreach($assets as $row): ?>
-                            <tr class="asset-row">
-                                <td class="font-medium text-slate-500"><?= $sno++ ?></td>
-                                <td class="font-medium"><?= htmlspecialchars($row['display_date']) ?></td>
-                                <td><span class="cat-tag"><?= strtoupper(htmlspecialchars($row['category'])) ?></span></td>
-                                <td class="asset-desc font-medium text-slate-800"><?= htmlspecialchars($row['asset_name']) ?></td>
-                                <td><code style="background:#f1f5f9; padding:4px 8px; border-radius:4px; font-weight:600; color:var(--primary-color); border:1px solid #e2e8f0;"><?= htmlspecialchars($row['barcode']) ?></code></td>
-                                <td class="font-bold text-slate-700"><?= htmlspecialchars($row['system_id']) ?></td>
-                                <td>
-                                    <span class="badge <?= strtoupper($row['status']) == 'NEW' ? 'badge-new' : 'badge-used' ?>">
-                                        <?= htmlspecialchars($row['status']) ?>
-                                    </span>
-                                </td>
-                                <td class="text-muted"><i class="fa-solid fa-file-invoice mr-1 opacity-50"></i> <?= htmlspecialchars($row['invoice_number']) ?></td>
-                                <td class="text-right">
-                                    <button onclick='openModal("edit", <?= json_encode($row, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' style="background:var(--primary-color); color:white; border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-weight:600; font-size:12px; transition:0.2s;" onmouseover="this.style.background='var(--primary-light)'" onmouseout="this.style.background='var(--primary-color)'">
-                                        <i class="fa-solid fa-pen mr-1"></i> Edit
-                                    </button>
-                                </td>
-                            </tr>
+                            <tr><td colspan="7" style="text-align:center; padding: 40px; color: var(--text-muted);">No assets found in history.</td></tr>
+                        <?php else: foreach($assets as $row): ?>
+                        <tr class="asset-row">
+                            <td><?= $row['display_date'] ?></td>
+                            <td><b style="color:var(--primary-color)"><?= strtoupper($row['category'] ?? '') ?></b></td>
+                            <td>
+                                <?= htmlspecialchars($row['asset_name'] ?? '') ?><br>
+                                <small style="color:var(--text-muted)"><?= htmlspecialchars($row['invoice_number'] ?? 'No Invoice') ?></small>
+                            </td>
+                            <td><code><?= htmlspecialchars($row['system_id'] ?? 'N/A') ?></code></td>
+                            <td><b>₹<?= number_format($row['amount'] ?? 0, 2) ?></b></td>
+                            <td>
+                                <?php 
+                                    $statusClass = strtolower(explode(' ', $row['request_status'] ?? 'pending')[0]);
+                                ?>
+                                <span class="badge badge-<?= $statusClass ?>">
+                                    <?= $row['request_status'] ?>
+                                </span>
+                            </td>
+                            <td style="text-align:right">
+                                <?php if(($row['request_status'] ?? '') === 'Pending Accountant'): ?>
+                                    <button onclick="processApproval(<?= $row['id'] ?>, 'Approved')" class="btn-action btn-approve" title="Approve">Approve</button>
+                                    <button onclick="processApproval(<?= $row['id'] ?>, 'Rejected')" class="btn-action btn-reject" title="Reject">Reject</button>
+                                <?php endif; ?>
+                                <button onclick='openModal("edit", <?= json_encode($row, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="btn-action btn-edit">
+                                    <i class="fa-solid fa-pen"></i>
+                                </button>
+                            </td>
+                        </tr>
                         <?php endforeach; endif; ?>
                     </tbody>
                 </table>
@@ -290,155 +226,80 @@ if ($result) {
 
     <div id="assetModal" class="modal">
         <div class="modal-content">
-            <i class="fa-solid fa-xmark close-modal" onclick="closeModal()"></i>
             <h3 id="modalTitle">Register Asset</h3>
-            
             <input type="hidden" id="assetId">
             <input type="hidden" id="assetDate">
             
-            <div class="form-group mt-4">
-                <label>System No (Identifier)</label>
-                <input type="text" id="inSys" class="form-control" placeholder="e.g., IT-LP-101">
-            </div>
+            <div class="form-group"><label>System ID</label><input type="text" id="inSys" class="form-control" placeholder="e.g. SYS-101"></div>
+            <div class="form-group"><label>Category</label><input type="text" id="inCat" class="form-control" placeholder="e.g. Laptop"></div>
+            <div class="form-group"><label>Asset Name / Description</label><input type="text" id="inDesc" class="form-control" placeholder="e.g. Dell Latitude 5420"></div>
+            <div class="form-group"><label>Barcode / Serial No</label><input type="text" id="inBar" class="form-control"></div>
+            <div class="form-group"><label>Invoice Number</label><input type="text" id="inInv" class="form-control"></div>
+            <div class="form-group"><label>Amount (₹)</label><input type="number" id="inAmt" class="form-control"></div>
             <div class="form-group">
-                <label>Asset Category</label>
-                <input type="text" id="inCat" class="form-control" placeholder="e.g., Laptop, Monitor, Networking">
-            </div>
-            <div class="form-group">
-                <label>Asset Description / Model</label>
-                <input type="text" id="inDesc" class="form-control" placeholder="e.g., Dell Latitude 5420">
-            </div>
-            <div class="form-group">
-                <label>Barcode / Serial Number</label>
-                <input type="text" id="inBar" class="form-control" placeholder="Unique serial code">
-            </div>
-            <div class="form-group">
-                <label>Invoice Number</label>
-                <input type="text" id="inInv" class="form-control" placeholder="Vendor invoice reference">
-            </div>
-            <div class="form-group">
-                <label>Condition Status</label>
+                <label>Condition</label>
                 <select id="inCond" class="form-control">
-                    <option value="NEW">Brand New</option>
-                    <option value="USED">Used / Refurbished</option>
+                    <option value="NEW">New</option>
+                    <option value="USED">Used</option>
                 </select>
             </div>
             
-            <button onclick="submitAsset()" id="saveBtn" class="btn-register" style="width:100%; padding: 14px; margin-top: 20px; justify-content:center; font-size: 15px;">
-                <i class="fa-solid fa-save"></i> Save Asset
-            </button>
+            <div style="display:flex; gap:10px; margin-top:20px;">
+                <button onclick="submitAsset()" id="saveBtn" class="btn-register" style="flex:1; justify-content:center">Save Asset</button>
+                <button onclick="closeModal()" class="btn-action" style="background:#ccc; color: #333">Cancel</button>
+            </div>
         </div>
     </div>
 
     <script>
-        // --- Responsive Sidebar Logic ---
-        function setupLayoutObserver() {
-            const primarySidebar = document.querySelector('.sidebar-primary');
-            const secondarySidebar = document.querySelector('.sidebar-secondary');
-            const mainContent = document.getElementById('mainContent');
-            if (!primarySidebar || !mainContent) return;
-
-            const updateMargin = () => {
-                if (window.innerWidth <= 992) {
-                    mainContent.style.marginLeft = '0';
-                    mainContent.style.width = '100%';
-                    return;
-                }
-                let totalWidth = primarySidebar.offsetWidth;
-                if (secondarySidebar && secondarySidebar.classList.contains('open')) {
-                    totalWidth += secondarySidebar.offsetWidth;
-                }
-                mainContent.style.marginLeft = totalWidth + 'px';
-                mainContent.style.width = `calc(100% - ${totalWidth}px)`;
-            };
-
-            new ResizeObserver(() => updateMargin()).observe(primarySidebar);
-            if (secondarySidebar) {
-                new MutationObserver(() => updateMargin()).observe(secondarySidebar, { attributes: true, attributeFilter: ['class'] });
-            }
-            window.addEventListener('resize', updateMargin);
-            updateMargin();
-        }
-        document.addEventListener('DOMContentLoaded', setupLayoutObserver);
-
-        // --- Live Search Filter ---
         function filterAssets() {
             let input = document.getElementById('searchInput').value.toLowerCase();
-            let rows = document.querySelectorAll('.asset-row');
-            
-            rows.forEach(row => {
-                // Get text content from the row (specifically category, desc, and barcode)
-                let text = row.textContent.toLowerCase();
-                if (text.includes(input)) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
+            document.querySelectorAll('.asset-row').forEach(row => {
+                row.style.display = row.textContent.toLowerCase().includes(input) ? '' : 'none';
             });
         }
 
-        // --- Modal & AJAX Logic ---
-        let currentAction = 'add';
-
         function openModal(action, data = null) {
-            currentAction = action;
-            const modal = document.getElementById('assetModal');
-            const title = document.getElementById('modalTitle');
+            window.currentAction = action;
+            document.getElementById('assetModal').style.display = 'flex';
+            document.getElementById('modalTitle').innerText = (action === 'edit') ? 'Edit Asset' : 'Register New Asset';
             
-            if (action === 'edit' && data) {
-                title.innerHTML = "<i class='fa-solid fa-pen-to-square mr-2'></i> Edit Hardware Asset";
+            if(action === 'edit' && data) {
                 document.getElementById('assetId').value = data.id;
-                document.getElementById('assetDate').value = data.raw_date;
                 document.getElementById('inSys').value = data.system_id;
                 document.getElementById('inCat').value = data.category;
                 document.getElementById('inDesc').value = data.asset_name;
                 document.getElementById('inBar').value = data.barcode;
                 document.getElementById('inInv').value = data.invoice_number;
-                
-                // Select correct option
-                const condSelect = document.getElementById('inCond');
-                for(let i=0; i<condSelect.options.length; i++) {
-                    if(condSelect.options[i].value === data.status.toUpperCase()) {
-                        condSelect.selectedIndex = i;
-                        break;
-                    }
-                }
+                document.getElementById('inAmt').value = data.amount;
+                document.getElementById('assetDate').value = data.raw_date;
+                document.getElementById('inCond').value = data.status;
             } else {
-                title.innerHTML = "<i class='fa-solid fa-plus-circle mr-2'></i> Register New Asset";
-                document.getElementById('assetId').value = '';
-                document.getElementById('assetDate').value = '';
-                document.querySelectorAll('.form-control').forEach(el => { if(el.tagName === 'INPUT') el.value = '' });
-                document.getElementById('inCond').selectedIndex = 0;
+                document.querySelectorAll('.form-control').forEach(i => i.value = '');
+                document.getElementById('inCond').value = 'NEW';
             }
-            modal.style.display = 'flex';
         }
 
-        function closeModal() { 
-            document.getElementById('assetModal').style.display = 'none'; 
-        }
+        function closeModal() { document.getElementById('assetModal').style.display = 'none'; }
 
         async function submitAsset() {
-            const saveBtn = document.getElementById('saveBtn');
             const data = {
-                action: currentAction,
+                action: window.currentAction,
                 id: document.getElementById('assetId').value,
+                sys: document.getElementById('inSys').value,
+                cat: document.getElementById('inCat').value,
+                desc: document.getElementById('inDesc').value,
+                bar: document.getElementById('inBar').value,
+                inv: document.getElementById('inInv').value,
+                amt: document.getElementById('inAmt').value,
                 date: document.getElementById('assetDate').value,
-                sys: document.getElementById('inSys').value.trim(),
-                cat: document.getElementById('inCat').value.trim(),
-                desc: document.getElementById('inDesc').value.trim(),
-                bar: document.getElementById('inBar').value.trim(),
-                inv: document.getElementById('inInv').value.trim(),
                 cond: document.getElementById('inCond').value
             };
 
-            // Basic validation
-            if(!data.sys || !data.cat || !data.desc) {
-                Swal.fire({ icon: 'warning', title: 'Missing Info', text: 'System No, Category, and Description are required.', confirmButtonColor: '#1b5a5a' });
+            if(!data.sys || !data.desc || !data.amt) {
+                Swal.fire('Error', 'Please fill in System ID, Description and Amount', 'error');
                 return;
             }
-
-            saveBtn.disabled = true;
-            saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
 
             try {
                 const res = await fetch(window.location.href, { 
@@ -446,34 +307,61 @@ if ($result) {
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(data) 
                 });
-                const result = await res.json();
+                
+                const text = await res.text(); // Get raw text first to debug if needed
+                let result;
+                try {
+                    result = JSON.parse(text);
+                } catch (e) {
+                    console.error("Invalid JSON response:", text);
+                    Swal.fire('Error', 'Server returned an invalid response. Check console.', 'error');
+                    return;
+                }
                 
                 if(result.success) {
                     Swal.fire({
                         icon: 'success',
                         title: 'Success!',
-                        text: 'Hardware asset updated successfully.',
-                        showConfirmButton: false,
+                        text: 'Asset data has been saved.',
                         timer: 1500
-                    }).then(() => {
-                        location.reload();
-                    });
+                    }).then(() => location.reload());
                 } else {
-                    Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to save data. Ensure Barcode/System No is unique.', confirmButtonColor: '#1b5a5a' });
-                    saveBtn.disabled = false;
-                    saveBtn.innerHTML = '<i class="fa-solid fa-save"></i> Save Asset';
+                    Swal.fire('Database Error', result.error || 'Failed to save asset', 'error');
                 }
-            } catch (err) {
-                console.error(err);
-                Swal.fire({ icon: 'error', title: 'Network Error', text: 'Could not connect to the server.', confirmButtonColor: '#1b5a5a' });
-                saveBtn.disabled = false;
-                saveBtn.innerHTML = '<i class="fa-solid fa-save"></i> Save Asset';
+            } catch (e) {
+                Swal.fire('Network Error', 'Could not connect to the server', 'error');
             }
         }
 
-        // Close modal when clicking outside of it
+        async function processApproval(id, status) {
+            const result = await Swal.fire({
+                title: 'Confirm action?',
+                text: `Set this asset request to ${status}?`,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#1b5a5a'
+            });
+
+            if (result.isConfirmed) {
+                try {
+                    const res = await fetch(window.location.href, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ action: 'approve_reject', asset_id: id, new_status: status })
+                    });
+                    const response = await res.json();
+                    if(response.success) {
+                        Swal.fire('Updated!', `Asset has been ${status}.`, 'success').then(() => location.reload());
+                    }
+                } catch(e) {
+                    Swal.fire('Error', 'Failed to process request.', 'error');
+                }
+            }
+        }
+
         window.onclick = function(event) {
-            if (event.target == document.getElementById('assetModal')) closeModal();
+            let modal = document.getElementById('assetModal');
+            if (event.target == modal) closeModal();
         }
     </script>
 </body>

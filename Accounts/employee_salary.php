@@ -403,7 +403,7 @@ if (isset($conn)) {
     <title>Enterprise Payroll Management | WorkAck HRMS</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { --primary: #f97316; --success: #22c55e; --warning: #f59e0b; --danger: #ef4444; --gray: #6b7280; --bg: #f3f4f6; }
+        :root { --primary: #f97316; --success: #22c55e; --warning: #1b5a5a; --danger: #ef4444; --gray: #6b7280; --bg: #f3f4f6; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin: 0; overflow-x: hidden; }
         .main-content { margin-left: 100px; padding-top: 10px; padding-left: 25px; padding-right: 25px; padding-bottom: 30px; min-height: 100vh; box-sizing: border-box; transition: all 0.3s ease; }
         @media (max-width: 991px) { .main-content { margin-left: 0; padding-left: 15px; padding-right: 15px; padding-top: 80px; } }
@@ -479,7 +479,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             <div style="display:flex; gap: 10px; flex-wrap: wrap;">
                 <button class="btn btn-outline" onclick="exportCSV()"><i class="fa-solid fa-download"></i> Export CSV</button>
                 <?php if($can_generate): ?>
-                <button class="btn btn-dark" onclick="autoGenerateAll()"><i class="fa-solid fa-bolt"></i> Auto-Generate All</button>
+                <button class="btn btn-dark" onclick="runAutoGenerate()"><i class="fa-solid fa-bolt"></i> Auto-Generate All</button>
                 <?php endif; ?>
             </div>
         </div>
@@ -582,15 +582,15 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                                                 <?php elseif($appStatus === 'Pending'): ?>
                                                     <span class="badge Pending" style="padding:8px 12px;">Awaiting CFO</span>
                                                     <?php if($can_approve): ?>
-                                                        <button class="btn btn-success" style="padding:6px 12px; font-size:12px;" onclick="directApprove(<?php echo $row['salary_id']; ?>)"><i class="fa-solid fa-check"></i> Approve</button>
+                                                        <button class="btn btn-success" style="padding:6px 12px; font-size:12px;" onclick="confirmPayrollApprove(<?php echo $row['salary_id']; ?>)"><i class="fa-solid fa-check"></i> Approve</button>
                                                     <?php endif; ?>
                                                 <?php elseif($can_generate): ?>
-                                                    <button class="btn btn-warning" style="padding:6px 12px; font-size:12px;" onclick="askApproval(<?php echo $row['salary_id']; ?>)"><i class="fa-solid fa-paper-plane"></i> Ask Approval</button>
+                                                    <button class="btn btn-warning" style="padding:6px 12px; font-size:12px;" onclick="requestPayrollApproval(<?php echo $row['salary_id']; ?>)"><i class="fa-solid fa-paper-plane"></i> Ask Approval</button>
                                                 <?php endif; ?>
                                                 
                                                 <button class="btn btn-outline" style="padding:6px 12px;" onclick="editSalary(<?php echo $row['salary_id']; ?>)" title="Edit"><i class="fa-solid fa-pen"></i></button>
                                                 <?php if($can_generate): ?>
-                                                <button class="btn btn-danger" style="padding:6px 12px;" onclick="deleteSalary(<?php echo $row['salary_id']; ?>)" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                                                <button class="btn btn-danger" style="padding:6px 12px;" onclick="removePayrollRecord(<?php echo $row['salary_id']; ?>)" title="Delete"><i class="fa-solid fa-trash"></i></button>
                                                 <?php endif; ?>
                                             <?php endif; ?>
                                         <?php elseif($can_generate): ?>
@@ -725,9 +725,8 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         });
     }
 
-    async function autoGenerateAll() {
+    async function runAutoGenerate() {
         const month = document.getElementById('filter-month').value;
-        if(!confirm(`Auto-generate base payroll records for all missing employees for ${month}?`)) return;
         
         const formData = new FormData();
         formData.append('ajax_action', 'auto_generate');
@@ -735,40 +734,51 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
 
         try {
             const res = await fetch(window.location.href, { method: 'POST', body: formData });
-            const result = await res.json();
-            alert(result.message || "Auto-generation complete!");
-            if(result.success) window.location.reload();
+            const raw = await res.text();
+            try {
+                const result = JSON.parse(raw);
+                if(result.success) window.location.reload();
+                else alert("Server Info: " + result.message);
+            } catch(e) {
+                console.error("Failed to parse JSON:", raw);
+            }
         } catch(err) { alert("Network Error. Check connection."); }
     }
 
-    async function askApproval(id) {
-        if(confirm("Send this salary to the CFO Dashboard for approval?")) {
-            const formData = new FormData();
-            formData.append('ajax_action', 'ask_approval');
-            formData.append('id', id);
-            
+    async function requestPayrollApproval(id) {
+        const formData = new FormData();
+        formData.append('ajax_action', 'ask_approval');
+        formData.append('id', id);
+        
+        try {
+            const res = await fetch(window.location.href, { method: 'POST', body: formData });
+            const raw = await res.text();
             try {
-                const res = await fetch(window.location.href, { method: 'POST', body: formData });
-                const result = await res.json();
+                const result = JSON.parse(raw);
                 if(result.success) window.location.reload();
                 else alert("Error: " + result.message);
-            } catch(err) { alert("Error sending for approval."); }
-        }
+            } catch(e) {
+                console.error("Failed to parse JSON:", raw);
+            }
+        } catch(err) { alert("Error sending for approval."); }
     }
 
-    async function directApprove(id) {
-        if(confirm("Directly approve this salary record?")) {
-            const formData = new FormData();
-            formData.append('ajax_action', 'approve_salary');
-            formData.append('id', id);
-            
+    async function confirmPayrollApprove(id) {
+        const formData = new FormData();
+        formData.append('ajax_action', 'approve_salary');
+        formData.append('id', id);
+        
+        try {
+            const res = await fetch(window.location.href, { method: 'POST', body: formData });
+            const raw = await res.text();
             try {
-                const res = await fetch(window.location.href, { method: 'POST', body: formData });
-                const result = await res.json();
+                const result = JSON.parse(raw);
                 if(result.success) window.location.reload();
                 else alert("Error: " + result.message);
-            } catch(err) { alert("Error approving record."); }
-        }
+            } catch(e) {
+                console.error("Failed to parse JSON:", raw);
+            }
+        } catch(err) { alert("Error approving record."); }
     }
 
     function generateManual(userId) {
@@ -907,19 +917,22 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         }
     }
 
-    async function deleteSalary(id) {
-        if(confirm("Permanently delete this payroll record?")) {
-            const formData = new FormData();
-            formData.append('ajax_action', 'delete_salary');
-            formData.append('id', id);
-            
+    async function removePayrollRecord(id) {
+        const formData = new FormData();
+        formData.append('ajax_action', 'delete_salary');
+        formData.append('id', id);
+        
+        try {
+            const res = await fetch(window.location.href, { method: 'POST', body: formData });
+            const raw = await res.text();
             try {
-                const res = await fetch(window.location.href, { method: 'POST', body: formData });
-                const result = await res.json();
+                const result = JSON.parse(raw);
                 if(result.success) window.location.reload();
                 else alert("Error: " + result.message);
-            } catch(err) { alert("Error deleting record."); }
-        }
+            } catch(e) {
+                console.error("Failed to parse JSON:", raw);
+            }
+        } catch(err) { alert("Network error deleting record."); }
     }
 
     function exportCSV() {
