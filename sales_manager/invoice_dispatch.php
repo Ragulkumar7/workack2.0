@@ -171,7 +171,6 @@ include '../header.php';
         }
         body { background-color: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; margin: 0; padding: 0; color: var(--text-main); }
         .main-content { margin-left: var(--primary-sidebar-width); padding: 30px; width: calc(100% - var(--primary-sidebar-width)); transition: margin-left 0.3s ease; min-height: 100vh; }
-        
         .page-header { margin-bottom: 25px; display: flex; justify-content: space-between; align-items: flex-end;}
         .page-header h2 { color: var(--theme-color); margin: 0; font-size: 24px; font-weight: 700; }
         .page-header p { margin: 5px 0 0 0; font-size: 14px; color: var(--text-muted); }

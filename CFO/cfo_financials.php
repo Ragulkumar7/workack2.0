@@ -1,38 +1,118 @@
 <?php
 // cfo_financials.php
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+// 1. DATABASE CONNECTION
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+if (file_exists($dbPath)) { require_once $dbPath; } 
+else { require_once $projectRoot . '/include/db_connect.php'; }
+
+if (!isset($conn) || $conn === null) { die("Database connection failed."); }
+
+// =========================================================================
+// ENTERPRISE SECURITY: Role-Based Access Control (RBAC)
+// =========================================================================
+$user_role = $_SESSION['role'] ?? ''; 
+$can_view = in_array($user_role, ['CFO', 'Admin', 'Super Admin', 'Management', 'CEO']);
+if (!$can_view) {
+    die("<div style='padding:50px;text-align:center;font-family:sans-serif;'><h2>Access Denied</h2><p>You do not have clearance to view Executive Financials.</p></div>");
+}
+
+// =========================================================================
+// 2. LIVE FINANCIAL ENGINE (YTD Aggregation)
+// =========================================================================
+$current_year = date('Y');
+$current_month_num = max(1, (int)date('n')); // Avoid division by zero
+
+// Initialize 12-month arrays for the charts
+$chart_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+$chart_revenue = array_fill(0, 12, 0);
+$chart_expenses = array_fill(0, 12, 0);
+
+$total_revenue = 0;
+$total_cogs = 0; // Cost of Goods Sold (Purchase Orders)
+$total_opex = 0; // Operating Expenses (Salaries)
+
+// A. Fetch Revenue (Approved/Paid Invoices)
+$inv_sql = "SELECT MONTH(invoice_date) as m, SUM(grand_total) as total 
+            FROM invoices 
+            WHERE YEAR(invoice_date) = ? AND status IN ('Approved', 'Paid', 'Credited', 'Partial') 
+            GROUP BY MONTH(invoice_date)";
+$stmt = $conn->prepare($inv_sql);
+$stmt->bind_param("i", $current_year);
+$stmt->execute();
+$inv_res = $stmt->get_result();
+while($r = $inv_res->fetch_assoc()) {
+    $m_idx = $r['m'] - 1; // Month index (0 for Jan, 11 for Dec)
+    $val = (float)$r['total'];
+    $chart_revenue[$m_idx] += $val;
+    $total_revenue += $val;
+}
+$stmt->close();
+
+// B. Fetch COGS (Approved Purchase Orders)
+$po_sql = "SELECT MONTH(po_date) as m, SUM(grand_total) as total 
+           FROM purchase_orders 
+           WHERE YEAR(po_date) = ? AND approval_status IN ('Approved', 'Paid', 'Credited') 
+           GROUP BY MONTH(po_date)";
+$stmt = $conn->prepare($po_sql);
+$stmt->bind_param("i", $current_year);
+$stmt->execute();
+$po_res = $stmt->get_result();
+while($r = $po_res->fetch_assoc()) {
+    $m_idx = $r['m'] - 1;
+    $val = (float)$r['total'];
+    $chart_expenses[$m_idx] += $val;
+    $total_cogs += $val;
+}
+$stmt->close();
+
+// C. Fetch OpEx (Approved Salaries)
+// Uses gross_salary to account for employer costs. Ignores soft-deleted records.
+$sal_sql = "SELECT MONTH(salary_month) as m, SUM(gross_salary) as total 
+            FROM employee_salary 
+            WHERE YEAR(salary_month) = ? AND approval_status IN ('Approved', 'Credited') AND is_deleted = 0 
+            GROUP BY MONTH(salary_month)";
+$stmt = $conn->prepare($sal_sql);
+$stmt->bind_param("i", $current_year);
+$stmt->execute();
+$sal_res = $stmt->get_result();
+while($r = $sal_res->fetch_assoc()) {
+    $m_idx = $r['m'] - 1;
+    $val = (float)$r['total'];
+    $chart_expenses[$m_idx] += $val;
+    $total_opex += $val;
+}
+$stmt->close();
+
+// =========================================================================
+// 3. FINANCIAL MATHEMATICS
+// =========================================================================
+$gross_profit = $total_revenue - $total_cogs;
+$net_profit = $gross_profit - $total_opex;
+$profit_margin = ($total_revenue > 0) ? ($net_profit / $total_revenue) * 100 : 0;
+
+$total_expenses = $total_cogs + $total_opex;
+$avg_burn_rate = $total_expenses / $current_month_num;
+
+// Cash Reserve Simulation (Base Capital + Retained Earnings)
+$base_capital = 5000000; // Simulated starting bank balance
+$cash_reserve = $base_capital + $net_profit;
+$runway_months = ($avg_burn_rate > 0) ? ($cash_reserve / $avg_burn_rate) : 0;
+
+$financials = [
+    'revenue' => $total_revenue,
+    'cogs' => $total_cogs,
+    'gross_profit' => $gross_profit,
+    'opex' => $total_opex,
+    'net_profit' => $net_profit,
+    'cash_reserve' => $cash_reserve,
+    'avg_burn_rate' => $avg_burn_rate
+];
+
 include '../sidebars.php'; 
 include '../header.php';
-
-// --- MOCK FINANCIAL DATA (YTD - Year To Date) ---
-$financials = [
-    'revenue' => 15000000,
-    'cogs' => 4500000,       // Cost of Goods Sold
-    'gross_profit' => 0,     // Calculated below
-    'opex' => 6000000,       // Operating Expenses
-    'net_profit' => 0,       // Calculated below
-    'cash_reserve' => 4250000,
-    'avg_burn_rate' => 500000
-];
-
-$financials['gross_profit'] = $financials['revenue'] - $financials['cogs'];
-$financials['net_profit'] = $financials['gross_profit'] - $financials['opex'];
-$profit_margin = ($financials['revenue'] > 0) ? ($financials['net_profit'] / $financials['revenue']) * 100 : 0;
-$runway_months = ($financials['avg_burn_rate'] > 0) ? ($financials['cash_reserve'] / $financials['avg_burn_rate']) : 0;
-
-// Chart Data Mocks
-$chart_months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-$chart_revenue = [1100000, 1250000, 1050000, 1300000, 1400000, 1200000, 1500000, 1600000, 1450000, 1350000, 1550000, 1700000];
-$chart_expenses = [800000, 850000, 820000, 900000, 880000, 950000, 890000, 920000, 900000, 940000, 980000, 1050000];
-
-// P&L Table Detail Mocks
-$pl_details = [
-    ['category' => 'Software Subscriptions', 'type' => 'OpEx', 'amount' => 1200000],
-    ['category' => 'Payroll & Benefits', 'type' => 'OpEx', 'amount' => 3500000],
-    ['category' => 'Office Rent & Utilities', 'type' => 'OpEx', 'amount' => 800000],
-    ['category' => 'Marketing & Ads', 'type' => 'OpEx', 'amount' => 500000],
-    ['category' => 'Cloud Hosting (AWS/GCP)', 'type' => 'COGS', 'amount' => 2500000],
-    ['category' => 'Contractor Fees', 'type' => 'COGS', 'amount' => 2000000],
-];
 ?>
 
 <!DOCTYPE html>
@@ -63,7 +143,7 @@ $pl_details = [
         }
 
         body { background-color: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); margin: 0; padding: 0; }
-        .main-content { margin-left: var(--primary-width); width: calc(100% - var(--primary-width)); padding: 24px; min-height: 100vh; transition: all 0.3s ease; }
+        .main-content { margin-left: var(--primary-width); width: calc(100% - var(--primary-width)); padding: 24px; min-height: 100vh; transition: all 0.3s ease; box-sizing: border-box; }
 
         /* Header Area */
         .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; flex-wrap: wrap; gap: 15px; }
@@ -77,24 +157,12 @@ $pl_details = [
         /* KPI Grid */
         .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 24px; }
         .kpi-card { background: var(--surface); padding: 20px; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0,0,0,0.02); position: relative; overflow: hidden; }
-        
-        /* Ensure text stays above the watermark icon */
         .kpi-card > div { position: relative; z-index: 2; }
-        
         .kpi-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; }
         .kpi-value { font-size: 24px; font-weight: 800; color: var(--text-main); }
         .kpi-trend { font-size: 12px; margin-top: 8px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
         
-        /* UPDATED: Background Watermark Icons */
-        .kpi-icon-bg { 
-            position: absolute; 
-            right: -15px; 
-            bottom: -25px; 
-            font-size: 120px; 
-            opacity:0.65; /* Increased opacity */
-            pointer-events: none; 
-            z-index: 1; 
-        }
+        .kpi-icon-bg { position: absolute; right: -15px; bottom: -25px; font-size: 120px; opacity:0.15; pointer-events: none; z-index: 1; }
 
         /* Charts Layout */
         .dashboard-split { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 24px; }
@@ -126,7 +194,7 @@ $pl_details = [
     <div class="page-header">
         <div class="header-text">
             <h1>Financial Intelligence</h1>
-            <p>P&L summary, cash runway, and macro-level expense analytics (YTD 2026)</p>
+            <p>Live General Ledger Aggregation (YTD <?= $current_year ?>)</p>
         </div>
         <div class="header-actions">
             <button class="btn-export" onclick="exportToExcel()"><i class="ph ph-microsoft-excel-logo"></i> Executive Export</button>
@@ -136,14 +204,14 @@ $pl_details = [
     <div class="kpi-grid">
         <div class="kpi-card" style="border-top: 4px solid var(--success);">
             <div class="kpi-label">YTD Revenue</div>
-            <div class="kpi-value">₹<?= number_format($financials['revenue']) ?></div>
-            <div class="kpi-trend" style="color: var(--success);"><i class="ph ph-trend-up"></i> +12% YoY</div>
+            <div class="kpi-value">₹<?= number_format($financials['revenue'], 2) ?></div>
+            <div class="kpi-trend" style="color: var(--success);"><i class="ph-bold ph-receipt"></i> From Approved Invoices</div>
             <i class="ph-fill ph-coins kpi-icon-bg" style="color: var(--success);"></i>
         </div>
         
         <div class="kpi-card" style="border-top: 4px solid var(--warning);">
-            <div class="kpi-label">Total COGS & OpEx</div>
-            <div class="kpi-value">₹<?= number_format($financials['cogs'] + $financials['opex']) ?></div>
+            <div class="kpi-label">Total Burn (COGS + OpEx)</div>
+            <div class="kpi-value">₹<?= number_format($financials['cogs'] + $financials['opex'], 2) ?></div>
             <div class="kpi-trend" style="color: var(--text-muted);">Avg ₹<?= number_format($financials['avg_burn_rate']) ?> / mo</div>
             <i class="ph-fill ph-calculator kpi-icon-bg" style="color: var(--warning);"></i>
         </div>
@@ -151,14 +219,17 @@ $pl_details = [
         <div class="kpi-card" style="border-top: 4px solid var(--theme-color);">
             <div class="kpi-label">Net Profit Margin</div>
             <div class="kpi-value"><?= number_format($profit_margin, 1) ?>%</div>
-            <div class="kpi-trend" style="color: var(--success);"><i class="ph ph-check-circle"></i> Target > 25%</div>
+            <div class="kpi-trend" style="color: <?= $profit_margin >= 0 ? 'var(--success)' : 'var(--danger)' ?>;">
+                <i class="ph <?= $profit_margin >= 0 ? 'ph-trend-up' : 'ph-trend-down' ?>"></i> 
+                <?= $profit_margin >= 0 ? 'Profitable' : 'Deficit' ?>
+            </div>
             <i class="ph-fill ph-chart-pie-slice kpi-icon-bg" style="color: var(--theme-color);"></i>
         </div>
 
         <div class="kpi-card" style="border-top: 4px solid #3b82f6;">
-            <div class="kpi-label">Cash Runway</div>
+            <div class="kpi-label">Est. Cash Runway</div>
             <div class="kpi-value"><?= number_format($runway_months, 1) ?> Months</div>
-            <div class="kpi-trend" style="color: #3b82f6;"><i class="ph ph-bank"></i> ₹<?= number_format($financials['cash_reserve']) ?> Reserve</div>
+            <div class="kpi-trend" style="color: #3b82f6;"><i class="ph ph-bank"></i> ₹<?= number_format($financials['cash_reserve']) ?> Bank Est.</div>
             <i class="ph-fill ph-hourglass-high kpi-icon-bg" style="color: #3b82f6;"></i>
         </div>
     </div>
@@ -166,7 +237,7 @@ $pl_details = [
     <div class="dashboard-split">
         <div class="dashboard-card">
             <div class="card-header">
-                <h3><i class="ph ph-chart-line"></i> Cash Flow & Profit Trend (2026)</h3>
+                <h3><i class="ph ph-chart-line"></i> Cash Flow & Profit Trend (<?= $current_year ?>)</h3>
             </div>
             <div class="chart-wrapper">
                 <canvas id="cashFlowMixChart"></canvas>
@@ -175,7 +246,7 @@ $pl_details = [
 
         <div class="dashboard-card">
             <div class="card-header">
-                <h3><i class="ph ph-chart-pie-slice"></i> OpEx Breakdown</h3>
+                <h3><i class="ph ph-chart-pie-slice"></i> Expense Breakdown</h3>
             </div>
             <div class="chart-wrapper" style="min-height: 250px;">
                 <canvas id="expenseDoughnut"></canvas>
@@ -186,7 +257,7 @@ $pl_details = [
     <div class="dashboard-card">
         <div class="card-header">
             <h3><i class="ph ph-table"></i> Categorized P&L Statement (YTD)</h3>
-            <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Data aggregated from General Ledger</span>
+            <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Data aggregated from Live Ledgers</span>
         </div>
         <div class="table-responsive">
             <table class="pl-table" id="plTable">
@@ -201,35 +272,31 @@ $pl_details = [
                     <tr>
                         <td><strong>Gross Revenue (Sales & Services)</strong></td>
                         <td><span class="type-badge">Income</span></td>
-                        <td class="amt-col" style="color: var(--success); font-weight: 700;">₹<?= number_format($financials['revenue']) ?></td>
+                        <td class="amt-col" style="color: var(--success); font-weight: 700;">₹<?= number_format($financials['revenue'], 2) ?></td>
                     </tr>
                     
                     <tr><td colspan="3" style="background:#f8fafc; font-size:11px; font-weight:700; color:var(--text-muted);">COST OF GOODS SOLD (COGS)</td></tr>
-                    <?php foreach($pl_details as $row): if($row['type'] == 'COGS'): ?>
                     <tr>
-                        <td style="padding-left: 30px;"><i class="ph ph-arrow-elbow-down-right" style="color:#cbd5e1; margin-right:8px;"></i> <?= $row['category'] ?></td>
-                        <td><span class="type-badge"><?= $row['type'] ?></span></td>
-                        <td class="amt-col text-danger">₹<?= number_format($row['amount']) ?></td>
+                        <td style="padding-left: 30px;"><i class="ph ph-arrow-elbow-down-right" style="color:#cbd5e1; margin-right:8px;"></i> Vendor Payments (Purchase Orders)</td>
+                        <td><span class="type-badge">COGS</span></td>
+                        <td class="amt-col text-danger">₹<?= number_format($financials['cogs'], 2) ?></td>
                     </tr>
-                    <?php endif; endforeach; ?>
                     
                     <tr class="total-row">
                         <td colspan="2" style="text-align: right;">Gross Profit:</td>
-                        <td class="amt-col">₹<?= number_format($financials['gross_profit']) ?></td>
+                        <td class="amt-col">₹<?= number_format($financials['gross_profit'], 2) ?></td>
                     </tr>
 
                     <tr><td colspan="3" style="background:#f8fafc; font-size:11px; font-weight:700; color:var(--text-muted);">OPERATING EXPENSES (OpEx)</td></tr>
-                    <?php foreach($pl_details as $row): if($row['type'] == 'OpEx'): ?>
                     <tr>
-                        <td style="padding-left: 30px;"><i class="ph ph-arrow-elbow-down-right" style="color:#cbd5e1; margin-right:8px;"></i> <?= $row['category'] ?></td>
-                        <td><span class="type-badge"><?= $row['type'] ?></span></td>
-                        <td class="amt-col text-danger">₹<?= number_format($row['amount']) ?></td>
+                        <td style="padding-left: 30px;"><i class="ph ph-arrow-elbow-down-right" style="color:#cbd5e1; margin-right:8px;"></i> Payroll & Benefits (Salaries)</td>
+                        <td><span class="type-badge">OpEx</span></td>
+                        <td class="amt-col text-danger">₹<?= number_format($financials['opex'], 2) ?></td>
                     </tr>
-                    <?php endif; endforeach; ?>
 
                     <tr class="total-row" style="border-top: 2px solid var(--theme-color);">
                         <td colspan="2" style="text-align: right; color: var(--text-main);">NET PROFIT (Pre-Tax):</td>
-                        <td class="amt-col" style="color: var(--theme-color); font-size: 16px;">₹<?= number_format($financials['net_profit']) ?></td>
+                        <td class="amt-col" style="color: var(--theme-color); font-size: 16px;">₹<?= number_format($financials['net_profit'], 2) ?></td>
                     </tr>
                 </tbody>
             </table>
@@ -242,7 +309,6 @@ $pl_details = [
     // --- 1. MIXED CASH FLOW CHART (Bar + Line) ---
     const ctxMix = document.getElementById('cashFlowMixChart').getContext('2d');
     
-    // Calculate net profit array for the line chart overlay
     const incomeData = <?php echo json_encode($chart_revenue); ?>;
     const expenseData = <?php echo json_encode($chart_expenses); ?>;
     const profitData = incomeData.map((inc, index) => inc - expenseData[index]);
@@ -288,7 +354,7 @@ $pl_details = [
                 y: { 
                     beginAtZero: true, 
                     grid: { borderDash: [4, 4], color: '#e2e8f0' },
-                    ticks: { callback: function(value) { return '₹' + (value/100000) + 'L'; } }
+                    ticks: { callback: function(value) { return '₹' + (value/1000).toFixed(1) + 'K'; } } // Formats side axis
                 }
             },
             plugins: {
@@ -299,14 +365,18 @@ $pl_details = [
     });
 
     // --- 2. EXPENSE DOUGHNUT CHART ---
+    // Dynamically populated from the Live Database arrays
+    const cogsVal = <?= $financials['cogs'] ?>;
+    const opexVal = <?= $financials['opex'] ?>;
+    
     const ctxDoughnut = document.getElementById('expenseDoughnut').getContext('2d');
     new Chart(ctxDoughnut, {
         type: 'doughnut',
         data: {
-            labels: ['Payroll & Benefits', 'Software Subs', 'Office Rent', 'Marketing'],
+            labels: ['Vendor Payments (COGS)', 'Payroll & Benefits (OpEx)'],
             datasets: [{
-                data: [3500000, 1200000, 800000, 500000],
-                backgroundColor: ['#1b5a5a', '#3b82f6', '#f59e0b', '#8b5cf6'],
+                data: [cogsVal, opexVal],
+                backgroundColor: ['#f59e0b', '#1b5a5a'],
                 borderWidth: 0,
                 hoverOffset: 4
             }]
@@ -316,7 +386,8 @@ $pl_details = [
             maintainAspectRatio: false,
             cutout: '70%',
             plugins: {
-                legend: { position: 'right', labels: { usePointStyle: true, padding: 20, font: { size: 11 } } }
+                legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20, font: { size: 12 } } },
+                tooltip: { callbacks: { label: function(context) { return context.label + ': ₹' + context.raw.toLocaleString(); } } }
             }
         }
     });

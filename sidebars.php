@@ -171,7 +171,7 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts', 'Sales Manager', 'Sales Executive'],
+                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts', 'CFO', 'Sales Manager', 'Sales Executive'],
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
@@ -427,13 +427,13 @@ $sections = [
                 'name' => 'Invoices', 
                 'path' => $base . 'Accounts/new_invoice.php', 
                 'icon' => 'file-text', 
-                'allowed' => ['Accounts', 'CFO'] 
+                'allowed' => ['Accounts'] 
             ],
             [
                 'name' => 'Purchase Orders', 
                 'path' => $base . 'Accounts/purchase_order.php', 
                 'icon' => 'shopping-cart', 
-                'allowed' => ['Accounts', 'CFO'] 
+                'allowed' => ['Accounts'] 
             ],
             // --- GENERAL LEDGER (ACCOUNTS ROLE) ---
             [

@@ -25,48 +25,23 @@ $my_username = $_SESSION['username'] ?? 'User';
 // Role Check: Only certain roles can create groups
 $can_create_group = in_array($my_role, ['Manager', 'Team Lead', 'System Admin', 'HR', 'HR Executive']);
 
-// === PERFORMANCE FIX: Resolve Directory path ONCE instead of inside loops ===
-$profile_dir = file_exists('../assets/profiles/') ? '../assets/profiles/' : 'assets/profiles/';
+// === PERFORMANCE & BROKEN IMAGE FIX: Resolve Directory path ONCE ===
+$is_root = file_exists('include/db_connect.php');
+$profile_dir = $is_root ? 'assets/profiles/' : 'assets/profiles/';
 
 // =========================================================================================
-// ROLE-BASED ACCESS CONTROL (RBAC) FOR USER DIRECTORY & SEARCH
+// FETCH ALL COMPANY CONTACTS (Removed Restrictions to show everyone)
 // =========================================================================================
-$my_info_query = $conn->query("SELECT ep.reporting_to, ep.department, u.role FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = $my_id");
-$my_info = $my_info_query->fetch_assoc();
-$my_tl_id = (int)($my_info['reporting_to'] ?? 0);
-$my_dept = $conn->real_escape_string($my_info['department'] ?? '');
-$my_exact_role = $my_info['role'] ?? 'Employee';
-
-$see_all_roles = ['System Admin', 'HR', 'HR Executive'];
-$manager_roles = ['Manager', 'Sales Manager', 'IT Admin', 'CFO']; 
-
-if (in_array($my_exact_role, $see_all_roles)) {
-    // HR and Admins see everyone
-    $user_filter = "1=1"; 
-} elseif (in_array($my_exact_role, $manager_roles)) {
-    // Managers see everyone in their own department + HR
-    $user_filter = "(ep.department = '$my_dept' OR u.role IN ('HR', 'HR Executive', 'System Admin'))";
-} elseif ($my_exact_role === 'Team Lead') {
-    // TL sees: Their reportees, Managers in their dept, and HR
-    $user_filter = "(ep.reporting_to = $my_id OR (u.role IN ('Manager', 'Sales Manager', 'IT Admin', 'CFO') AND ep.department = '$my_dept') OR u.role IN ('HR', 'HR Executive', 'System Admin'))";
-} else {
-    // Employee sees: Their TL, their teammates (same TL), Managers in their dept, and HR
-    if ($my_tl_id > 0) {
-        $user_filter = "(ep.reporting_to = $my_tl_id OR u.id = $my_tl_id OR (u.role IN ('Manager', 'Sales Manager', 'IT Admin', 'CFO') AND ep.department = '$my_dept') OR u.role IN ('HR', 'HR Executive', 'System Admin'))";
-    } else {
-        $user_filter = "(ep.department = '$my_dept' OR u.role IN ('Manager', 'HR', 'System Admin', 'HR Executive'))";
-    }
-}
-
-// Fetch users for the meeting dropdown & People Directory based on RBAC
 $all_users = [];
-$res_users = $conn->query("SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as name, ep.profile_img FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id != $my_id AND ($user_filter)");
+$res_users = $conn->query("SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as name, ep.profile_img, ep.department FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id != $my_id ORDER BY name ASC");
 if ($res_users) {
     while($row = $res_users->fetch_assoc()) {
-        if(empty($row['profile_img']) || $row['profile_img'] == 'default_user.png') {
+        $img = $row['profile_img'];
+        if(empty($img) || $img == 'default_user.png') {
             $row['profile_img'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=random";
-        } elseif(!str_starts_with($row['profile_img'], 'http')) {
-            $row['profile_img'] = $profile_dir . $row['profile_img']; // FAST LOAD
+        } elseif(!str_starts_with($img, 'http')) {
+            $img_clean = str_replace(['../assets/profiles/', 'assets/profiles/'], '', $img);
+            $row['profile_img'] = $profile_dir . $img_clean;
         }
         $all_users[] = $row;
     }
@@ -103,7 +78,7 @@ if ($check_cal && $check_cal->num_rows == 0) {
     $conn->query("CREATE TABLE instant_meetings (id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(255), meet_link VARCHAR(100), created_by INT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
 }
 
-if (!isset($_SESSION['chat_db_checked_v8'])) {
+if (!isset($_SESSION['chat_db_checked_v10'])) {
     $conn->query("CREATE TABLE IF NOT EXISTS call_requests (id INT AUTO_INCREMENT PRIMARY KEY, conversation_id INT NOT NULL, caller_id INT NOT NULL, room_id VARCHAR(64) NOT NULL, call_type ENUM('audio','video') DEFAULT 'video', status ENUM('ringing','answered','declined','ended') DEFAULT 'ringing', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)");
     $conn->query("CREATE TABLE IF NOT EXISTS message_reads (message_id INT NOT NULL, user_id INT NOT NULL, read_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (message_id, user_id)) ENGINE=InnoDB");
     $conn->query("CREATE TABLE IF NOT EXISTS typing_status (conversation_id INT NOT NULL, user_id INT NOT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, PRIMARY KEY (conversation_id, user_id)) ENGINE=InnoDB");
@@ -113,7 +88,7 @@ if (!isset($_SESSION['chat_db_checked_v8'])) {
     $conn->query("ALTER TABLE chat_participants ADD COLUMN IF NOT EXISTS muted_until DATETIME NULL DEFAULT NULL");
     $conn->query("ALTER TABLE chat_participants ADD COLUMN IF NOT EXISTS hidden_at DATETIME NULL DEFAULT NULL");
     
-    $_SESSION['chat_db_checked_v8'] = true;
+    $_SESSION['chat_db_checked_v10'] = true;
 }
 
 // =========================================================================================
@@ -129,17 +104,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $term = "%" . ($_POST['term'] ?? '') . "%";
         $sql = "SELECT u.id, u.role, COALESCE(ep.full_name, u.username) as display_name, ep.profile_img 
                 FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id
-                WHERE (ep.full_name LIKE ? OR u.username LIKE ? OR u.role LIKE ?) AND u.id != ? AND ($user_filter) LIMIT 20";
+                WHERE (ep.full_name LIKE ? OR u.username LIKE ? OR u.role LIKE ?) AND u.id != ? LIMIT 20";
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("sssi", $term, $term, $term, $my_id);
         $stmt->execute();
         $res = $stmt->get_result();
         $users = [];
         while($row = $res->fetch_assoc()) { 
-            if(empty($row['profile_img']) || $row['profile_img'] == 'default_user.png') {
+            $img = $row['profile_img'];
+            if(empty($img) || $img == 'default_user.png') {
                 $row['profile_img'] = "https://ui-avatars.com/api/?name=".urlencode($row['display_name'])."&background=random";
-            } elseif(!str_starts_with($row['profile_img'], 'http')) {
-                $row['profile_img'] = $profile_dir . $row['profile_img'];
+            } elseif(!str_starts_with($img, 'http')) {
+                $img_clean = str_replace(['../assets/profiles/', 'assets/profiles/'], '', $img);
+                $row['profile_img'] = $profile_dir . $img_clean;
             }
             $users[] = $row; 
         }
@@ -197,14 +174,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $chats = [];
         while($row = $result->fetch_assoc()) {
             if ($row['type'] == 'group') {
-                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=1b5a5a&color=fff";
+                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=FF6B2B&color=fff";
             } else {
-                if(empty($row['avatar_db']) || $row['avatar_db'] == 'default_user.png') {
-                    $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=1b5a5a&color=fff";
-                } elseif(!str_starts_with($row['avatar_db'], 'http')) {
-                    $row['avatar'] = $profile_dir . $row['avatar_db'];
+                $img = $row['avatar_db'];
+                if(empty($img) || $img == 'default_user.png') {
+                    $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=FF6B2B&color=fff";
+                } elseif(!str_starts_with($img, 'http')) {
+                    $img_clean = str_replace(['../assets/profiles/', 'assets/profiles/'], '', $img);
+                    $row['avatar'] = $profile_dir . $img_clean;
                 } else {
-                    $row['avatar'] = $row['avatar_db'];
+                    $row['avatar'] = $img;
                 }
             }
             
@@ -268,14 +247,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $p_stmt = $conn->prepare("SELECT COALESCE(ep.full_name, u.username) as display_name, u.role, ep.profile_img FROM chat_participants cp JOIN users u ON cp.user_id = u.id LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE cp.conversation_id = ? AND cp.user_id != ? LIMIT 1");
                 $p_stmt->bind_param("ii", $conv_id, $my_id); $p_stmt->execute();
                 $partner = $p_stmt->get_result()->fetch_assoc() ?: ['display_name' => 'Unknown User', 'role' => '', 'profile_img' => ''];
-                if(empty($partner['profile_img']) || $partner['profile_img'] == 'default_user.png') {
+                $img = $partner['profile_img'];
+                if(empty($img) || $img == 'default_user.png') {
                     $partner['profile_img'] = "https://ui-avatars.com/api/?name=".urlencode($partner['display_name'])."&background=random";
-                } elseif(!str_starts_with($partner['profile_img'], 'http')) {
-                    $partner['profile_img'] = $profile_dir . $partner['profile_img'];
+                } elseif(!str_starts_with($img, 'http')) {
+                    $img_clean = str_replace(['../assets/profiles/', 'assets/profiles/'], '', $img);
+                    $partner['profile_img'] = $profile_dir . $img_clean;
                 }
                 $partner['is_group'] = false;
             } else {
-                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=1b5a5a&color=fff"];
+                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=FF6B2B&color=fff"];
             }
         }
 
@@ -296,10 +277,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $res = $stmt->get_result();
         $members = [];
         while($row = $res->fetch_assoc()) {
-            if(empty($row['profile_img']) || $row['profile_img'] == 'default_user.png') {
+            $img = $row['profile_img'];
+            if(empty($img) || $img == 'default_user.png') {
                 $row['profile_img'] = "https://ui-avatars.com/api/?name=".urlencode($row['display_name'])."&background=random";
-            } elseif(!str_starts_with($row['profile_img'], 'http')) {
-                $row['profile_img'] = $profile_dir . $row['profile_img'];
+            } elseif(!str_starts_with($img, 'http')) {
+                $img_clean = str_replace(['../assets/profiles/', 'assets/profiles/'], '', $img);
+                $row['profile_img'] = $profile_dir . $img_clean;
             }
             $members[] = $row;
         }
@@ -321,7 +304,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         echo json_encode(['status' => 'success']); exit;
     }
 
-    // 5. SEND MESSAGE (with staged file logic)
+    // 5. SEND MESSAGE (with explicit upload logic for staged files)
     if ($action === 'send_message') {
         $conv_id = (int)$_POST['conversation_id'];
         $msg_text = $_POST['message'] ?? '';
@@ -554,10 +537,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt->bind_param("ii", $my_id, $my_id); $stmt->execute();
         $row = $stmt->get_result()->fetch_assoc();
         if ($row) {
-            if (empty($row['caller_avatar']) || $row['caller_avatar'] == 'default_user.png') {
+            $img = $row['caller_avatar'];
+            if (empty($img) || $img == 'default_user.png') {
                 $row['caller_avatar'] = "https://ui-avatars.com/api/?name=" . urlencode($row['caller_name']) . "&background=random";
-            } elseif(!str_starts_with($row['caller_avatar'], 'http')) {
-                $row['caller_avatar'] = $profile_dir . $row['caller_avatar'];
+            } elseif(!str_starts_with($img, 'http')) {
+                $img_clean = str_replace(['../assets/profiles/', 'assets/profiles/'], '', $img);
+                $row['caller_avatar'] = $profile_dir . $img_clean;
             }
             $row['display_label'] = $row['conv_type'] === 'group' ? $row['group_name'] . ' – ' . $row['caller_name'] : $row['caller_name'];
             echo json_encode(['has_call' => true, 'call' => $row]);
@@ -603,16 +588,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <style>
         :root { 
-            --primary: #1b5a5a; /* Dark Teal */
-            --primary-hover: #134040;
-            --bg-light: #f5f5f5; 
+            --primary: #FF6B2B; /* LIGHTER ORANGE UPDATE */
+            --primary-hover: #E55A1F; 
+            --bg-light: #fdfdfd; 
             --border: #e0e0e0; 
             --text-dark: #242424; 
             --text-muted: #616161; 
-            --outgoing-bg: #eefcfd;
+            --outgoing-bg: #fff1ea; /* LIGHTER ORANGE FOR BUBBLES */
             --incoming-bg: #ffffff;
             --sidebar-bg: #ffffff;
-            --hover-bg: #fff5f0; 
+            --hover-bg: #fff5f0; /* LIGHTER ORANGE FOR HOVERS */
         }
         * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter', sans-serif; }
         body { background-color: var(--bg-light); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -621,7 +606,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .app-container { flex: 1; display:flex; height: 0; min-height: 0; background: var(--bg-light); position: relative;}
         
         /* SECONDARY SIDEBAR */
-        .sidebar-secondary-teams { width: 68px; background: #ebebeb; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 15; }
+        .sidebar-secondary-teams { width: 80px; background: #fffdfd; border-right: 1px solid var(--border); display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 15; }
         .nav-icon { width: 50px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: var(--text-muted); font-size: 0.75rem; border-radius: 6px; margin-bottom: 5px; transition: 0.2s; }
         .nav-icon i { font-size: 1.4rem; margin-bottom: 2px; }
         .nav-icon:hover { color: var(--primary); }
@@ -700,9 +685,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .tick-sent { color: #94a3b8; }
         
         /* Message Dropdowns */
-        .msg-menu-btn { position: absolute; top: 4px; right: 4px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; opacity: 0.3; transition: opacity 0.2s; padding: 2px 4px; border-radius: 4px;}
-        .msg-menu-btn:hover { background: rgba(0,0,0,0.05); }
-        .msg-wrapper:hover .msg-menu-btn { opacity: 1; }
+        .msg-menu-btn { position: absolute; top: 4px; right: 4px; background: transparent; border: none; color: var(--text-muted); cursor: pointer; opacity: 1; transition: opacity 0.2s; padding: 2px 4px; border-radius: 4px;}
+        .msg-menu-btn:hover { background: rgba(0,0,0,0.05); color: var(--text-dark); }
         .msg-dropdown { position: absolute; top: 25px; right: 10px; background: white; border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 50; display: none; overflow: hidden; min-width: 120px;}
         .msg-dropdown button { width: 100%; text-align: left; padding: 8px 12px; border: none; background: white; cursor: pointer; font-size: 0.85rem; transition: 0.2s;}
         .msg-dropdown button:hover { background: var(--hover-bg); }
@@ -779,7 +763,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .modal { background: white; border-radius: 8px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2);}
         
         .incoming-call-box { background: white; border-radius: 8px; padding: 30px; text-align: center; min-width: 320px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2); border: 1px solid var(--border); animation: pulse 2s infinite;}
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(27, 90, 90, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(27, 90, 90, 0); } 100% { box-shadow: 0 0 0 0 rgba(27, 90, 90, 0); } }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 107, 43, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(255, 107, 43, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 107, 43, 0); } }
         
         /* Edit Mode Bar */
         #editModeBar { display: none; background: var(--bg-light); padding: 8px 20px; align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
@@ -828,21 +812,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </aside>
 
         <aside class="sidebar" id="chatSidebar">
-            <div class="desktop-notif-banner" id="notifBanner">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <i class="ri-information-fill" style="color: var(--text-muted);"></i>
-                    <span>Stay in the know. Turn on desktop notifications.</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <button style="background: white; border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: var(--text-dark); font-weight: 500;">Turn on</button>
-                    <i class="ri-close-line" style="cursor: pointer; color: var(--text-muted);" onclick="document.getElementById('notifBanner').style.display='none'"></i>
-                </div>
-            </div>
+            
 
             <div class="sidebar-header">
                 <h2 style="font-weight:700; color:var(--text-dark); font-size: 1.4rem; letter-spacing: -0.5px;">Chat</h2>
                 <div style="display: flex; gap: 6px;">
-                    <button class="btn-icon-small" title="Filter"><i class="ri-menu-unfold-line"></i></button>
+                    
                     <button class="btn-icon-small" title="Meet" onclick="switchMainTab('meet_view', document.querySelectorAll('.nav-icon')[1])"><i class="ri-video-add-line"></i></button>
                     <?php if($can_create_group): ?>
                         <button class="btn-icon-small" title="New Chat" onclick="openGroupModal()"><i class="ri-edit-box-line"></i></button>
@@ -948,7 +923,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                                 <img src="<?= $u['profile_img'] ?>" class="avatar" loading="lazy" style="width: 50px; height: 50px;">
                                 <div>
                                     <div style="font-weight:600; font-size: 1.05rem; color: var(--text-dark);"><?= htmlspecialchars($u['name']) ?></div>
-                                    <div style="font-size:0.85rem; color:var(--text-muted);"><?= $u['role'] ?></div>
+                                    <div style="font-size:0.85rem; color:var(--text-muted);"><?= $u['role'] ?> <?= !empty($u['department']) ? '&bull; ' . $u['department'] : '' ?></div>
                                 </div>
                             </div>
                             <button class="people-btn" onclick="startChat(<?= $u['id'] ?>)" title="Message">
@@ -974,7 +949,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         
                         <div style="position:relative; display:inline-flex; align-items:center; cursor: pointer;" onclick="document.getElementById('calendarMonthPicker').showPicker()">
                             <span id="calendarMonthYear" style="font-weight: 600; font-size: 1.1rem; margin-right: 20px; pointer-events: none;">... <i class="ri-arrow-down-s-line" style="font-size: 0.9rem; color: var(--text-muted);"></i></span>
-                            <input type="month" id="calendarMonthPicker" onchange="changeCalendarMonth(this.value)" style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0; pointer-events:none; border:none; padding:0; margin:0;">
+                            <input type="month" id="calendarMonthPicker" onchange="changeCalendarMonth(this.value)" style="position:absolute; top:0; left:0; width:1px; height:1px; opacity:0; pointer-events:none; border:none; padding:0; margin:0;">
                         </div>
                     </div>
 
@@ -1697,9 +1672,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
             </div>
 
-            <div id="chatFilesContainer" style="display:none; flex-direction:column; flex:1; height:100%; align-items:center; justify-content:center; text-align:center; background:white;">
-                <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #eefcfd, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
-                    <i class="ri-folder-upload-fill" style="font-size: 5rem; color: var(--primary);"></i>
             <div id="chatFilesContainer" style="display:none; flex-direction:column; flex:1; height:100%; background:white; overflow-y:auto; padding:30px;">
                 <div id="filesEmptyState" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
                     <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #e3e5fa, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
@@ -1722,7 +1694,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             <div id="chatPhotosContainer" style="display:none; flex-direction:column; flex:1; height:100%; background:white; overflow-y:auto; padding:30px;">
                 <div id="photosEmptyState" style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; text-align:center;">
-                    <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #eefcfd, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
                     <div style="width: 140px; height: 140px; background: linear-gradient(135deg, #e3e5fa, #f5f5f5); border-radius: 24px; display:flex; align-items:center; justify-content:center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05);">
                         <i class="ri-image-2-fill" style="font-size: 5rem; color: var(--primary);"></i>
                     </div>
@@ -1839,8 +1810,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .then(data => {
             if (data.status === 'success') {
                 closeAddMemberModal();
-                loadGroupMembers(); 
-                fetchMessages(false); 
+                loadGroupMembers(); // refresh side list
+                fetchMessages(false); // refresh chat to show system message
             }
         });
     }
@@ -1973,6 +1944,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             let meetId = raw.replace(/^(audio|video):/i, '');
             let label = callType === 'audio' ? 'Voice Call' : 'Video Meeting';
             
+            // Allow joining scheduled meetings rendered as text messages
             innerMsg = `<div class="msg ${cls}" id="msg-content-${m.id}" style="text-align:center;">
                             <div style="background:rgba(0,0,0,0.05); padding:10px; border-radius:4px; margin-bottom:8px;">
                                 <i class="${callType==='audio'?'ri-phone-fill':'ri-vidicon-fill'}" style="font-size:1.5rem; color:var(--primary);"></i>
@@ -1996,6 +1968,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
 
         return `<div class="msg-wrapper ${cls}" id="msg-${m.id}" data-id="${m.id}">${innerMsg}</div>`;
+    }
+
+    function toggleMsgMenu(e, msgId) {
+        e.stopPropagation();
+        let drop = document.getElementById('msg-drop-' + msgId);
+        if (drop) {
+            let isVisible = drop.style.display === 'block';
+            document.querySelectorAll('.msg-dropdown').forEach(d => d.style.display = 'none'); // close others
+            drop.style.display = isVisible ? 'none' : 'block';
+        }
     }
 
     function fetchMessages(isInitialLoad = false) {
@@ -2049,6 +2031,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         box.insertAdjacentHTML('beforeend', buildMessageHTML(m));
                     }
                     
+                    // IF IMAGE, POPULATE PHOTOS TAB
                     if (m.message_type === 'image' && !m.is_deleted) {
                         addPhotoToGallery(m.attachment_path, m.id);
                     } else if (m.message_type === 'file' && !m.is_deleted) {
