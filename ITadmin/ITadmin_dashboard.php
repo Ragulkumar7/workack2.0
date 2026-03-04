@@ -603,47 +603,7 @@ $vendor_data_json = json_encode($vendor_data);
                         </div>
                     </div>
 
-                    <div class="col-span-1 lg:col-span-4">
-                        <div class="card bg-slate-800 border-slate-700 text-white relative overflow-hidden">
-                            <div class="absolute right-[-20px] bottom-[-20px] p-4 opacity-10 pointer-events-none">
-                                <i class="fas fa-server" style="font-size: 15rem;"></i>
-                            </div>
-                            
-                            <div class="card-body relative z-10 p-8 flex flex-col justify-center">
-                                <h3 class="font-bold text-teal-400 text-sm tracking-widest uppercase mb-2">System Health</h3>
-                                <h2 class="text-5xl font-black mb-2">99.98%</h2>
-                                <p class="text-xs text-slate-400 font-medium mb-8"><i class="fa-solid fa-circle-check text-green-400 mr-1"></i> All systems operational</p>
-                                
-                                <div class="space-y-6 w-full">
-                                    <div>
-                                        <div class="flex justify-between text-xs mb-2 font-bold text-slate-300 tracking-wider">
-                                            <span>SERVER LOAD</span>
-                                            <span>42%</span>
-                                        </div>
-                                        <div class="w-full bg-slate-700 rounded-full h-2">
-                                            <div class="bg-teal-400 h-2 rounded-full" style="width: 42%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between text-xs mb-2 font-bold text-slate-300 tracking-wider">
-                                            <span>MEMORY USAGE</span>
-                                            <span>68%</span>
-                                        </div>
-                                        <div class="w-full bg-slate-700 rounded-full h-2">
-                                            <div class="bg-yellow-400 h-2 rounded-full" style="width: 68%"></div>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between text-xs mb-2 font-bold text-slate-300 tracking-wider">
-                                            <span>STORAGE CAPACITY</span>
-                                            <span>85%</span>
-                                        </div>
-                                        <div class="w-full bg-slate-700 rounded-full h-2">
-                                            <div class="bg-red-400 h-2 rounded-full" style="width: 85%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                    
                         </div>
                     </div>
 

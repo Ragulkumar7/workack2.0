@@ -227,6 +227,13 @@ $sections = [
                 'icon' => 'receipt', // Lucide icon for expenses/receipts
                 'allowed' => ['Sales Executive']
             ],
+            // --- INVOICE INBOX (SALES EXECUTIVE ROLE) ---
+            [
+                'name' => 'Invoice Inbox', 
+                'path' => $base . 'sales_executive/invoice_inbox.php', 
+                'icon' => 'inbox', // Lucide icon for inbox
+                'allowed' => ['Sales Executive']
+            ],
              // NEW: STOCK MAINTENANCE BUTTON
             [
                 'name' => 'Stock Maintenance', 
