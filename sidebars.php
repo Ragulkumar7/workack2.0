@@ -427,13 +427,13 @@ $sections = [
                 'name' => 'Invoices', 
                 'path' => $base . 'Accounts/new_invoice.php', 
                 'icon' => 'file-text', 
-                'allowed' => ['Accounts', 'CFO'] 
+                'allowed' => ['Accounts'] 
             ],
             [
                 'name' => 'Purchase Orders', 
                 'path' => $base . 'Accounts/purchase_order.php', 
                 'icon' => 'shopping-cart', 
-                'allowed' => ['Accounts', 'CFO'] 
+                'allowed' => ['Accounts'] 
             ],
             // --- GENERAL LEDGER (ACCOUNTS ROLE) ---
             [
