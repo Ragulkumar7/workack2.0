@@ -15,8 +15,7 @@ $error_message = "";
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
     // Basic sanitization
     $user_input = trim($_POST['username']);
-    $pass_input = $_POST['password']; // We will ignore this for now!
-    $role_input = $_POST['role'];
+    $pass_input = $_POST['password'];
 
     // 2. MySQLi Prepared Statement - Fetch ONLY by username first
     $sql = "SELECT id, username, password, role FROM users WHERE username = ?";
@@ -28,67 +27,57 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
         
         if ($row = mysqli_fetch_assoc($result)) {
             
-            // ===============================================================
-            // DEVELOPER BYPASS: ANY PASSWORD WILL WORK NOW!
-            // I have changed the password check to "if (true)" so it skips verification.
-            // ===============================================================
-            if (true) { 
+            // Strict password verification using password_verify (assumes hashed passwords in DB)
+            if (password_verify($pass_input, $row['password'])) { 
                 
-                // 4. Verify if the selected role matches the DB role
-                if ($row['role'] === $role_input) {
-                    
-                    // Role is correct, set session variables
-                    $_SESSION['user_id'] = $row['id'];
-                    $_SESSION['username'] = $row['username'];
-                    $_SESSION['role'] = $row['role'];
+                // Role is fetched from DB, set session variables
+                $_SESSION['user_id'] = $row['id'];
+                $_SESSION['username'] = $row['username'];
+                $_SESSION['role'] = $row['role'];
 
-                    session_regenerate_id(true);
+                session_regenerate_id(true);
 
-                    // --- DYNAMIC REDIRECT BASED ON ROLE ---
-                    switch ($row['role']) {
-                        case 'Manager':
-                            header("Location: manager/manager_dashboard.php");
-                            break;
-                        case 'System Admin':
-                        case 'HR':
-                            header("Location: HR/hr_dashboard.php");
-                            break;
-                        case 'Team Lead':
-                            header("Location: TL/tl_dashboard.php");
-                            break;
-                        case 'HR Executive':
-                            header("Location: HR_executive/HR_executive_dashboard.php");
-                            break;
-                        case 'Employee':
-                            header("Location: employee/employee_dashboard.php");
-                            break;
-                        case 'Accounts':
-                            header("Location: Accounts/Accounts_dashboard.php");
-                            break;
-                        case 'Sales Manager':  
-                            header("Location: sales_manager/sales_dashboard.php");
-                            break;           
-                        case 'Sales Executive':
-                            header("Location: sales_executive/sales_executive_dashboard.php");
-                            break;
-                        case 'IT Admin':
-                            header("Location: ITadmin/ITadmin_dashboard.php");
-                            break;
-                        case 'IT Executive':
-                            header("Location: IT_Executive/ITExecutive_dashboard.php");
-                            break;
-                        case 'CFO':
-                            header("Location: CFO/cfo_dashboard.php");
-                            break;
-                        default:
-                            header("Location: employee/employee_dashboard.php");
-                            break;
-                    }
-                    exit();
-
-                } else {
-                    $error_message = "Role mismatch. Please select '" . $row['role'] . "' as your role.";
+                // --- DYNAMIC REDIRECT BASED ON ROLE ---
+                switch ($row['role']) {
+                    case 'Manager':
+                        header("Location: manager/manager_dashboard.php");
+                        break;
+                    case 'System Admin':
+                    case 'HR':
+                        header("Location: HR/hr_dashboard.php");
+                        break;
+                    case 'Team Lead':
+                        header("Location: TL/tl_dashboard.php");
+                        break;
+                    case 'HR Executive':
+                        header("Location: HR_executive/HR_executive_dashboard.php");
+                        break;
+                    case 'Employee':
+                        header("Location: employee/employee_dashboard.php");
+                        break;
+                    case 'Accounts':
+                        header("Location: Accounts/Accounts_dashboard.php");
+                        break;
+                    case 'Sales Manager':  
+                        header("Location: sales_manager/sales_dashboard.php");
+                        break;           
+                    case 'Sales Executive':
+                        header("Location: sales_executive/sales_executive_dashboard.php");
+                        break;
+                    case 'IT Admin':
+                        header("Location: ITadmin/ITadmin_dashboard.php");
+                        break;
+                    case 'IT Executive':
+                        header("Location: IT_Executive/ITExecutive_dashboard.php");
+                        break;
+                    case 'CFO':
+                        header("Location: CFO/cfo_dashboard.php");
+                        break;
+                    default:
+                        header("Location: employee/employee_dashboard.php");
+                        break;
                 }
+                exit();
 
             } else {
                 $error_message = "Invalid password. Please try again.";
@@ -202,23 +191,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                     <label>Password</label>
                     <input type="password" name="password" id="pass_in" placeholder="•••••" required>
                 </div>
-                <div class="group">
-                    <label>Operational Role</label>
-                    <select name="role" id="role_sel" onchange="updateEx()">
-                        <option value="System Admin">System Admin</option>
-                        <option value="HR">HR</option>
-                        <option value="HR Executive">HR Executive</option>
-                        <option value="Manager">Manager</option>
-                        <option value="Team Lead">Team Lead</option>
-                        <option value="Employee" selected>Employee</option>
-                        <option value="Accounts">Accounts</option>
-                        <option value="Sales Manager">Sales Manager</option>
-                        <option value="Sales Executive">Sales Executive</option>
-                        <option value="IT Admin">IT Admin</option>
-                        <option value="IT Executive">IT Executive</option>
-                        <option value="CFO">CFO</option>
-                    </select>
-                </div>
                 <button type="submit" name="auth_action" class="btn-primary">Sign In to Workack</button>
             </form>
         </div>
@@ -227,11 +199,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
 </div>
 
 <script>
-    function updateEx() {
-        const r = document.getElementById('role_sel').value.toLowerCase().replace(' ', '');
-        document.getElementById('user_in').placeholder = `e.g. ${r}@gmail.com`;
-    }
-
     const titleText = "Empowering Talent, \nSimplifying HR.";
     let charIndex = 0;
     const typewriter = document.getElementById('typewriter');
@@ -262,7 +229,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
 
     window.onload = () => { 
         typeEffect(); 
-        updateEx(); 
     };
 </script>
 </body>
