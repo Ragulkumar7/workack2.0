@@ -3,40 +3,48 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // 1. DATABASE CONNECTION
-$projectRoot = __DIR__; 
-$dbPath = $projectRoot . '/../include/db_connect.php';
+ $projectRoot = __DIR__; 
+ $dbPath = $projectRoot . '/../include/db_connect.php';
 if (file_exists($dbPath)) { require_once $dbPath; } 
 else { require_once $projectRoot . '/include/db_connect.php'; }
 
 if (!isset($conn) || $conn === null) { die("Database connection failed."); }
 
 // =========================================================================
-// AUTO-FIX SCHEMA: Ensure reject_reason columns exist safely
+// AUTO-FIX SCHEMA: Ensure reject_reason AND approver_designation exist
 // =========================================================================
-$tables_to_check = ['invoices', 'purchase_orders', 'employee_salary'];
+ $tables_to_check = ['invoices', 'purchase_orders', 'employee_salary'];
 foreach($tables_to_check as $tbl) {
+    // Add Reject Reason
     $check = mysqli_query($conn, "SHOW COLUMNS FROM `$tbl` LIKE 'reject_reason'");
     if($check && mysqli_num_rows($check) == 0) {
         mysqli_query($conn, "ALTER TABLE `$tbl` ADD COLUMN reject_reason TEXT DEFAULT NULL");
     }
+    // Add Approver Designation (Sync with Invoice Dispatch)
+    if ($tbl === 'invoices') {
+        $check_desig = mysqli_query($conn, "SHOW COLUMNS FROM `$tbl` LIKE 'approver_designation'");
+        if($check_desig && mysqli_num_rows($check_desig) == 0) {
+            mysqli_query($conn, "ALTER TABLE `$tbl` ADD COLUMN approver_designation VARCHAR(100) DEFAULT 'CFO' AFTER `status`");
+        }
+    }
 }
 
 // Company details for Print Templates
-$company_details = [
+ $company_details = [
     'name' => 'Neoera infotech',
     'address' => '9/96 h, post, village nagar, Kurumbapalayam SSKulam, coimbatore, Tamil Nadu 641107',
     'phone' => '+91 866 802 5451',
     'email' => 'Contact@neoerainfotech.com',
     'website' => 'www.neoerainfotech.com',
-    'logo' => '../assets/neoera.png' // Corrected Logo path
+    'logo' => '../assets/neoera.png' 
 ];
 
 // =========================================================================
 // ENTERPRISE SECURITY: Role-Based Access Control (RBAC)
 // =========================================================================
-$user_role = $_SESSION['role'] ?? ''; 
-$current_user_id = $_SESSION['user_id'] ?? 0;
-$can_approve = in_array($user_role, ['CFO', 'Admin', 'Super Admin', 'Management']);
+ $user_role = $_SESSION['role'] ?? ''; 
+ $current_user_id = $_SESSION['user_id'] ?? 0;
+ $can_approve = in_array($user_role, ['CFO', 'Admin', 'Super Admin', 'Management']);
 
 // =========================================================================
 // 2. BACKEND ACTION HANDLER (AJAX)
@@ -161,9 +169,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // =========================================================================
 
 // Pending Salaries
-$salary_requests = [];
-$resSalaries = mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status = 'Pending' AND s.is_deleted = 0 ORDER BY s.created_at DESC");
-$valSalaries = 0;
+ $salary_requests = [];
+ $resSalaries = mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status = 'Pending' AND s.is_deleted = 0 ORDER BY s.created_at DESC");
+ $valSalaries = 0;
 if ($resSalaries) {
     while($row = mysqli_fetch_assoc($resSalaries)) {
         $salary_requests[] = $row;
@@ -172,44 +180,53 @@ if ($resSalaries) {
 }
 
 // Pending General (POs & Invoices)
-$pendingPosCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM purchase_orders WHERE approval_status = 'Pending'"))['cnt'] ?? 0;
-$pendingInvsCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM invoices WHERE status = 'Pending Approval'"))['cnt'] ?? 0;
-$valPOs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM purchase_orders WHERE approval_status = 'Pending'"))['val'] ?? 0;
-$valInvs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status = 'Pending Approval'"))['val'] ?? 0;
+ $pendingPosCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM purchase_orders WHERE approval_status = 'Pending'"))['cnt'] ?? 0;
+ $pendingInvsCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM invoices WHERE status = 'Pending Approval'"))['cnt'] ?? 0;
+ $valPOs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM purchase_orders WHERE approval_status = 'Pending'"))['val'] ?? 0;
+ $valInvs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status = 'Pending Approval'"))['val'] ?? 0;
 
-$summary = [
+ $summary = [
     'pending_pos' => $pendingPosCount,
     'pending_invs' => $pendingInvsCount,
     'pending_salaries' => count($salary_requests),
     'total_pending_value' => $valPOs + $valInvs + $valSalaries
 ];
 
-$pending_requests = [];
-$resPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status = 'Pending' ORDER BY created_at DESC");
+ $pending_requests = [];
+ $resPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status = 'Pending' ORDER BY created_at DESC");
 if($resPOs) {
     while($row = mysqli_fetch_assoc($resPOs)) {
-        $pending_requests[] = ['id_db' => $row['id'], 'id' => $row['po_number'], 'type' => 'Purchase Order', 'vendor_client' => $row['vendor_name'], 'amount' => $row['grand_total'], 'date' => date('d-M-Y', strtotime($row['po_date']))];
+        $pending_requests[] = ['id_db' => $row['id'], 'id' => $row['po_number'], 'type' => 'Purchase Order', 'vendor_client' => $row['vendor_name'], 'amount' => $row['grand_total'], 'date' => date('d-M-Y', strtotime($row['po_date'])), 'assigned_to' => 'N/A'];
     }
 }
 
-$resInvs = @mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status = 'Pending Approval' ORDER BY i.created_at DESC");
+// UPDATED: Fetch assigned_to (approver_designation) for invoices
+ $resInvs = @mysqli_query($conn, "SELECT i.*, c.client_name, i.approver_designation FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status = 'Pending Approval' ORDER BY i.created_at DESC");
 if($resInvs) {
     while($row = mysqli_fetch_assoc($resInvs)) {
-        $pending_requests[] = ['id_db' => $row['id'], 'id' => $row['invoice_no'], 'type' => 'Invoice', 'vendor_client' => $row['client_name'], 'amount' => $row['grand_total'], 'date' => date('d-M-Y', strtotime($row['invoice_date']))];
+        $pending_requests[] = [
+            'id_db' => $row['id'], 
+            'id' => $row['invoice_no'], 
+            'type' => 'Invoice', 
+            'vendor_client' => $row['client_name'], 
+            'amount' => $row['grand_total'], 
+            'date' => date('d-M-Y', strtotime($row['invoice_date'])),
+            'assigned_to' => $row['approver_designation'] ?? 'CFO'
+        ];
     }
 }
 usort($pending_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
 // --- History 1: General Requests (POs & Invoices) ---
-$history_requests = [];
-$resHistoryPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 20");
+ $history_requests = [];
+ $resHistoryPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 20");
 if($resHistoryPOs) {
     while($row = mysqli_fetch_assoc($resHistoryPOs)) {
         $history_requests[] = ['id_db' => $row['id'], 'id' => $row['po_number'], 'type' => 'Purchase Order', 'vendor_client' => $row['vendor_name'], 'amount' => $row['grand_total'], 'status' => $row['approval_status'], 'date' => date('d-M-Y', strtotime($row['po_date'])), 'reason' => $row['reject_reason']];
     }
 }
 
-$resHistoryInvs = @mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status IN ('Approved', 'Rejected') ORDER BY i.created_at DESC LIMIT 20");
+ $resHistoryInvs = @mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status IN ('Approved', 'Rejected') ORDER BY i.created_at DESC LIMIT 20");
 if($resHistoryInvs) {
     while($row = mysqli_fetch_assoc($resHistoryInvs)) {
         $history_requests[] = ['id_db' => $row['id'], 'id' => $row['invoice_no'], 'type' => 'Invoice', 'vendor_client' => $row['client_name'], 'amount' => $row['grand_total'], 'status' => $row['status'], 'date' => date('d-M-Y', strtotime($row['invoice_date'])), 'reason' => $row['reject_reason']];
@@ -218,8 +235,8 @@ if($resHistoryInvs) {
 usort($history_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
 // --- History 2: Separated Salary History ---
-$history_salaries = [];
-$resHistorySalaries = @mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status IN ('Approved', 'Rejected') AND s.is_deleted = 0 ORDER BY s.approved_at DESC LIMIT 20");
+ $history_salaries = [];
+ $resHistorySalaries = @mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status IN ('Approved', 'Rejected') AND s.is_deleted = 0 ORDER BY s.approved_at DESC LIMIT 20");
 if($resHistorySalaries) {
     while($row = mysqli_fetch_assoc($resHistorySalaries)) {
         $history_salaries[] = ['id_db' => $row['id'], 'id' => 'PAY-' . str_pad($row['id'], 4, '0', STR_PAD_LEFT), 'type' => 'Salary', 'vendor_client' => trim($row['emp_name']) . ' (' . $row['month_fmt'] . ')', 'amount' => $row['net_salary'], 'status' => $row['approval_status'], 'date' => date('d-M-Y', strtotime($row['approved_at'] ?? $row['created_at'])), 'reason' => $row['reject_reason']];
@@ -274,6 +291,7 @@ include '../header.php';
         .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; border: 1px solid transparent;}
         .bg-approved { background: #dcfce7; color: #15803d; border-color: #bbf7d0;}
         .bg-rejected { background: #fee2e2; color: #b91c1c; border-color: #fecaca;}
+        .bg-pending { background: #fef9c3; color: #b45309; border-color: #fde047; }
         
         .action-btns { display: flex; gap: 8px; justify-content: flex-end; align-items: center;}
         .btn-sm { padding: 8px 12px; border-radius: 6px; border: none; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: 0.2s; }
@@ -391,10 +409,10 @@ include '../header.php';
             <div id="pending" class="tab-content active">
                 <div style="overflow-x: auto;">
                     <table class="data-table">
-                        <thead><tr><th>ID & Type</th><th>Vendor / Client</th><th>Date</th><th style="text-align: right;">Amount</th><th style="text-align: right;">Action</th></tr></thead>
+                        <thead><tr><th>ID & Type</th><th>Vendor / Client</th><th>Assigned To</th><th>Date</th><th style="text-align: right;">Amount</th><th style="text-align: right;">Action</th></tr></thead>
                         <tbody>
                             <?php if(empty($pending_requests)): ?>
-                                <tr><td colspan="5" style="text-align:center; padding:30px; color:var(--text-muted);">No pending requests found.</td></tr>
+                                <tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">No pending requests found.</td></tr>
                             <?php else: ?>
                                 <?php foreach($pending_requests as $req): 
                                     $icon = $req['type'] == 'Invoice' ? 'ph-file-text' : 'ph-shopping-cart';
@@ -405,14 +423,20 @@ include '../header.php';
                                         <div style="font-size:11px; color:var(--text-muted);"><?= $req['type'] ?></div>
                                     </td>
                                     <td><strong><?= htmlspecialchars($req['vendor_client']) ?></strong></td>
+                                    <td>
+                                        <!-- NEW: Show who it is assigned to -->
+                                        <span class="status-badge bg-pending" style="font-size:10px;">
+                                            <i class="ph ph-user-circle"></i> <?= htmlspecialchars($req['assigned_to']) ?>
+                                        </span>
+                                    </td>
                                     <td><?= $req['date'] ?></td>
                                     <td class="amount-col">₹<?= number_format($req['amount'], 2) ?></td>
                                     <td class="action-btns">
                                         <?php if($can_approve): ?>
                                             <?php if($req['type'] == 'Invoice'): ?>
-                                                <button class="btn-sm btn-view" onclick="viewInvoiceToApprove(<?= $req['id_db'] ?>)"><i class="ph ph-eye"></i> View to Decide</button>
+                                                <button class="btn-sm btn-view" onclick="viewInvoiceToApprove(<?= $req['id_db'] ?>)"><i class="ph ph-eye"></i> View</button>
                                             <?php else: ?>
-                                                <button class="btn-sm btn-view" onclick="viewPoToApprove(<?= $req['id_db'] ?>)"><i class="ph ph-eye"></i> View to Decide</button>
+                                                <button class="btn-sm btn-view" onclick="viewPoToApprove(<?= $req['id_db'] ?>)"><i class="ph ph-eye"></i> View</button>
                                             <?php endif; ?>
                                         <?php else: ?>
                                             <button class="btn-sm btn-disabled" disabled><i class="ph ph-lock"></i> Locked</button>
@@ -446,7 +470,7 @@ include '../header.php';
                                     <td class="amount-col">₹<?= number_format($sal['net_salary'], 2) ?></td>
                                     <td class="action-btns">
                                         <?php if($can_approve): ?>
-                                            <button class="btn-sm btn-view" onclick="viewSalaryToApprove(<?= $sal['id'] ?>)"><i class="ph ph-eye"></i> View to Decide</button>
+                                            <button class="btn-sm btn-view" onclick="viewSalaryToApprove(<?= $sal['id'] ?>)"><i class="ph ph-eye"></i> View</button>
                                         <?php else: ?>
                                             <button class="btn-sm btn-disabled" disabled><i class="ph ph-lock"></i> Locked</button>
                                         <?php endif; ?>
@@ -915,8 +939,8 @@ include '../header.php';
                         tbody.innerHTML += `<tr>
                             <td style="padding:10px; font-size:13px; border-bottom:1px solid #e2e8f0;">${it.item_description || it.description || 'Item'}</td>
                             <td style="padding:10px; font-size:13px; text-align:center; border-bottom:1px solid #e2e8f0;">${it.quantity || it.qty || 1}</td>
-                            <td style="padding:10px; font-size:13px; text-align:right; border-bottom:1px solid #e2e8f0;">₹${parseFloat(it.unit_price || it.rate || 0).toFixed(2)}</td>
-                            <td style="padding:10px; font-size:13px; text-align:right; font-weight:bold; border-bottom:1px solid #e2e8f0;">₹${parseFloat(it.total_price || it.line_total || it.amount || 0).toFixed(2)}</td>
+                            <td style="padding:10px; font-size:13px; text-align:right; border-bottom:1px solid #e2e8f0;">₹${parseFloat(it.rate || it.unit_price || 0).toFixed(2)}</td>
+                            <td style="padding:10px; font-size:13px; text-align:right; font-weight:bold; border-bottom:1px solid #e2e8f0;">₹${parseFloat(it.line_total || it.total_price || it.amount || 0).toFixed(2)}</td>
                         </tr>`;
                     });
                 } else {
