@@ -197,17 +197,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $chats = [];
         while($row = $result->fetch_assoc()) {
             if ($row['type'] == 'group') {
-<<<<<<< HEAD
                 $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=1b5a5a&color=fff";
             } else {
                 if(empty($row['avatar_db']) || $row['avatar_db'] == 'default_user.png') {
                     $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=1b5a5a&color=fff";
-=======
-                $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['group_name'])."&background=F14A00&color=fff";
-            } else {
-                if(empty($row['avatar_db']) || $row['avatar_db'] == 'default_user.png') {
-                    $row['avatar'] = "https://ui-avatars.com/api/?name=".urlencode($row['name'])."&background=F14A00&color=fff";
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
                 } elseif(!str_starts_with($row['avatar_db'], 'http')) {
                     $row['avatar'] = $profile_dir . $row['avatar_db'];
                 } else {
@@ -282,11 +275,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 $partner['is_group'] = false;
             } else {
-<<<<<<< HEAD
                 $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=1b5a5a&color=fff"];
-=======
-                $partner = ['display_name' => $conv_info['group_name'], 'role' => 'Group Chat', 'is_group' => true, 'profile_img' => "https://ui-avatars.com/api/?name=".urlencode($conv_info['group_name'])."&background=F14A00&color=fff"];
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
             }
         }
 
@@ -614,7 +603,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <style>
         :root { 
-<<<<<<< HEAD
             --primary: #1b5a5a; /* Dark Teal */
             --primary-hover: #134040;
             --bg-light: #f5f5f5; 
@@ -622,15 +610,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             --text-dark: #242424; 
             --text-muted: #616161; 
             --outgoing-bg: #eefcfd;
-=======
-            --primary: #F14A00; 
-            --primary-hover: #D84200; 
-            --bg-light: #fdfdfd; 
-            --border: #e0e0e0; 
-            --text-dark: #242424; 
-            --text-muted: #616161; 
-            --outgoing-bg: #ffebe0; /* LIGHTER ORANGE FOR BUBBLES */
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
             --incoming-bg: #ffffff;
             --sidebar-bg: #ffffff;
             --hover-bg: #fff5f0; /* LIGHTER ORANGE FOR HOVERS */
@@ -800,11 +779,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .modal { background: white; border-radius: 8px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2);}
         
         .incoming-call-box { background: white; border-radius: 8px; padding: 30px; text-align: center; min-width: 320px; box-shadow: 0 20px 40px -12px rgba(0,0,0,0.2); border: 1px solid var(--border); animation: pulse 2s infinite;}
-<<<<<<< HEAD
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(27, 90, 90, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(27, 90, 90, 0); } 100% { box-shadow: 0 0 0 0 rgba(27, 90, 90, 0); } }
-=======
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(241, 74, 0, 0.3); } 70% { box-shadow: 0 0 0 15px rgba(241, 74, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(241, 74, 0, 0); } }
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
         
         /* Edit Mode Bar */
         #editModeBar { display: none; background: var(--bg-light); padding: 8px 20px; align-items: center; justify-content: space-between; font-size: 0.85rem; color: var(--primary); z-index:10;}
@@ -853,20 +828,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </aside>
 
         <aside class="sidebar" id="chatSidebar">
-<<<<<<< HEAD
             
-=======
-            <div class="desktop-notif-banner" id="notifBanner">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <i class="ri-information-fill" style="color: var(--text-muted);"></i>
-                    <span>Stay in the know. Turn on desktop notifications.</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <button style="background: white; border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; color: var(--text-dark); font-weight: 500;">Turn on</button>
-                    <i class="ri-close-line" style="cursor: pointer; color: var(--text-muted);" onclick="document.getElementById('notifBanner').style.display='none'"></i>
-                </div>
-            </div>
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
 
             <div class="sidebar-header">
                 <h2 style="font-weight:700; color:var(--text-dark); font-size: 1.4rem; letter-spacing: -0.5px;">Chat</h2>
@@ -947,7 +909,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 </div>
 
                 <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-dark); margin-bottom: 15px;">Meeting links</h3>
-<<<<<<< HEAD
                 <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
                     <div style="display: flex; align-items: flex-start; gap: 15px;">
                         <i class="ri-link" style="font-size: 2rem; color: #1b5a5a;"></i>
@@ -955,11 +916,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             <p style="font-weight: 600; margin-bottom: 5px;">Quickly create, save, and share links with anyone.</p>
                             <a href="#" style="color: var(--primary); text-decoration: none; font-size: 0.9rem;">Learn more about meeting links</a>
                         </div>
-=======
-                <div id="instantMeetingsContainer">
-                    <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; margin-bottom: 30px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
-                        <p style="color: var(--text-muted);">No instant meeting links yet.</p>
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
                     </div>
                 </div>
 
@@ -968,7 +924,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     <a href="#" onclick="switchMainTab('calendar_view', document.querySelectorAll('.nav-icon')[3])" style="color: var(--text-dark); text-decoration: none; font-size: 0.9rem; display: flex; align-items: center; gap: 5px;"><i class="ri-calendar-line"></i> View in calendar</a>
                 </div>
                 
-<<<<<<< HEAD
                 <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; gap: 20px;">
                         <div style="text-align: center; border-right: 1px solid var(--border); padding-right: 20px;">
@@ -987,11 +942,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     </div>
                     <div style="width: 200px; height: 120px; background: #eefcfd; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
                         <i class="ri-calendar-event-fill" style="font-size: 3rem; color: var(--primary); opacity: 0.5;"></i>
-=======
-                <div id="scheduledMeetingsContainer">
-                    <div style="background: white; border: 1px solid var(--border); border-radius: 8px; padding: 25px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); display: flex; justify-content: space-between; align-items: center;">
-                        <p style="color: var(--text-muted);">No scheduled meetings yet.</p>
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
                     </div>
                 </div>
             </div>
