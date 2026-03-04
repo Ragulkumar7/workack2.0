@@ -264,26 +264,16 @@ if($r_announcements) {
     }
 }
 
-<<<<<<< HEAD
 // [BUG FIX]: Changed "created_at" to "start_date" as "created_at" does not exist in projects table
 $q_new_proj = "SELECT project_name, start_date as created_at FROM projects WHERE leader_id = $tl_user_id ORDER BY start_date DESC LIMIT 2";
-=======
-// Assigned Projects
-$q_new_proj = "SELECT project_name, created_at FROM projects WHERE leader_id = $tl_user_id ORDER BY created_at DESC LIMIT 2";
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
 $r_new_proj = mysqli_query($conn, $q_new_proj);
 if($r_new_proj) {
     while($np_row = mysqli_fetch_assoc($r_new_proj)) {
         $all_notifications[] = [
             'type' => 'project',
             'title' => 'New Project Assigned',
-<<<<<<< HEAD
             'message' => 'You are leading: ' . htmlspecialchars($row['project_name']),
             'time' => $row['created_at'] . ' 09:00:00', 'icon' => 'fa-briefcase',
-=======
-            'message' => 'You are leading: ' . htmlspecialchars($np_row['project_name']),
-            'time' => $np_row['created_at'], 'icon' => 'fa-briefcase',
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
             'color' => 'text-blue-600 bg-blue-100',
             'link' => 'tl_projects.php'
         ];
@@ -308,7 +298,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-<<<<<<< HEAD
         :root { --primary-teal: #1b5a5a; --bg-gray: #f8fafc; }
         body { font-family: 'Inter', sans-serif; background-color: var(--bg-gray); color: #1e293b; margin: 0; }
         #mainContent { margin-left: 95px; width: calc(100% - 95px); padding: 25px 35px; transition: all 0.3s ease; }
@@ -323,12 +312,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
         .btn-teal { background-color: var(--primary-teal); color: white; padding: 10px 16px; border-radius: 10px; font-weight: 600; transition: 0.3s; text-align: center; display: inline-block; width: 100%; }
         .btn-teal:hover { background-color: #134040; }
         .dashboard-container { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; align-items: stretch; }
-=======
-        body { background-color: #f1f5f9; font-family: 'Inter', sans-serif; color: #1e293b; }
-        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); transition: all 0.3s ease; height: 100%; display: flex; flex-direction: column; }
-        .card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
-        .card-body { padding: 1.5rem; flex-grow: 1; }
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
         .meeting-timeline { position: relative; }
         .meeting-timeline::before { content: ''; position: absolute; left: 80px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
         .meeting-row-wrapper { position: relative; margin-bottom: 1.5rem; }
@@ -361,16 +344,9 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 <h1 class="text-3xl font-bold text-slate-800 tracking-tight">TL Dashboard</h1>
                 <p class="text-slate-500 text-sm mt-1">Welcome back, <b><?php echo htmlspecialchars($tl_name); ?></b></p>
             </div>
-<<<<<<< HEAD
             <div class="flex items-center gap-4 bg-white px-4 py-2 rounded-xl border border-slate-200 shadow-sm">
                 <i class="fa-regular fa-calendar text-[#1b5a5a]"></i>
                 <span class="text-sm font-bold text-slate-600"><?php echo date('d M Y'); ?></span>
-=======
-            <div class="flex gap-3">
-                <div class="bg-white border border-gray-200 px-4 py-2 rounded-xl text-sm font-semibold text-slate-600 shadow-sm flex items-center gap-2">
-                    <i class="fa-regular fa-calendar"></i> <?php echo date("d M Y"); ?>
-                </div>
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
             </div>
         </div>
 
@@ -472,12 +448,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         <div class="grid grid-cols-3 gap-4 mb-4">
                             <div class="bg-[#eefcfd] p-3 rounded-xl text-center border border-[#1b5a5a]/20">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Earned</p>
-<<<<<<< HEAD
                                 <p class="text-2xl font-bold text-[#1b5a5a]"><?php echo $total_earned_leaves; ?></p>
-=======
-                                <p class="text-2xl font-bold text-teal-700"><?php echo $total_earned_leaves; ?></p>
-                                <p class="text-[8px] text-teal-600 mt-1 opacity-70">Since: <?php echo $display_join_month_year; ?></p>
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
                             </div>
                             <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
                                 <p class="text-[10px] text-gray-500 font-bold uppercase">Taken</p>
@@ -518,11 +489,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($tl_name); ?></h2>
-<<<<<<< HEAD
                         <p class="text-[#eefcfd] text-sm mb-3"><?php echo htmlspecialchars($tl_dept); ?> Lead</p>
-=======
-                        <p class="text-teal-200 text-sm mb-3"><?php echo htmlspecialchars($user_role); ?></p>
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
                         <span class="bg-white/20 text-white text-xs px-3 py-1 rounded-full font-bold">Verified Account</span>
                     </div>
                     <div class="card-body space-y-6">
@@ -671,7 +638,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         </div>
                         <div class="space-y-4 custom-scroll overflow-y-auto max-h-[350px] pr-2">
                             <?php if(!empty($active_projects)): ?>
-<<<<<<< HEAD
                                 <?php foreach($active_projects as $proj): ?>
                                 <div class="border border-gray-100 rounded-xl p-4 shadow-sm hover:border-[#1b5a5a]/30 transition bg-slate-50">
                                     <h4 class="font-bold text-sm text-slate-800 mb-2 truncate" title="<?php echo htmlspecialchars($proj['project_name']); ?>"><?php echo htmlspecialchars($proj['project_name']); ?></h4>
@@ -681,37 +647,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                     </div>
                                     <div class="w-full bg-gray-200 rounded-full h-1.5">
                                         <div class="bg-[#1b5a5a] h-1.5 rounded-full" style="width: <?php echo $proj['progress']; ?>%"></div>
-=======
-                                <?php foreach($active_projects as $proj): 
-                                    // DYNAMIC PROJECT PROGRESS CALCULATION
-                                    $pct = ($proj['total_tasks'] > 0) ? round(($proj['completed_tasks'] / $proj['total_tasks']) * 100) : 0;
-                                    
-                                    // Progress Bar Color Logic
-                                    $prog_color = 'bg-blue-500';
-                                    if($pct >= 100) { $prog_color = 'bg-emerald-500'; }
-                                    elseif($pct < 30) { $prog_color = 'bg-orange-500'; }
-                                ?>
-                                <div class="border border-gray-100 rounded-xl p-4 shadow-sm hover:border-teal-200 transition bg-slate-50">
-                                    <div class="flex justify-between items-start mb-1">
-                                        <h4 class="font-bold text-sm text-slate-800 mb-2 truncate pr-2 w-3/4" title="<?php echo htmlspecialchars($proj['project_name']); ?>">
-                                            <?php echo htmlspecialchars($proj['project_name']); ?>
-                                        </h4>
-                                        <?php if(!empty($proj['deadline'])): ?>
-                                            <span class="text-[9px] font-bold text-gray-400 bg-white border border-gray-200 px-2 py-1 rounded">
-                                                Due: <?php echo date("d M Y", strtotime($proj['deadline'])); ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                    
-                                    <div class="mt-2">
-                                        <div class="flex justify-between text-[9px] font-black text-gray-500 mb-1 uppercase tracking-widest">
-                                            <span>Progress (<?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?> Tasks Done)</span>
-                                            <span class="<?php echo str_replace('bg-', 'text-', $prog_color); ?>"><?php echo $pct; ?>%</span>
-                                        </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                                            <div class="<?php echo $prog_color; ?> h-1.5 rounded-full transition-all duration-500" style="width: <?php echo $pct; ?>%"></div>
-                                        </div>
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
@@ -775,7 +710,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 </div>
             </div>
 
-<<<<<<< HEAD
             <div class="col-span-12 lg:col-span-4">
                 <div class="card">
                     <div class="card-body">
@@ -824,9 +758,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             </div>
 
             <div class="col-span-12 lg:col-span-4">
-=======
-            <div class="col-span-12 lg:col-span-6">
->>>>>>> aafc7691bf23fb8e70ab8a53b3f2d23241fc47e1
                 <div class="card">
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-4">
