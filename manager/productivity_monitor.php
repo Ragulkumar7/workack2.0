@@ -266,7 +266,7 @@ $stmt->close();
                 <?php endforeach; ?>
             </select>
             <select class="filter-select" id="statusFilter" onchange="filterTable()">
-                <option value="all">All Statuses</option>
+                <option value="all">All Status</option>
                 <option value="Completed">Completed</option>
                 <option value="In Progress">In Progress</option>
                 <option value="Pending">Pending</option>

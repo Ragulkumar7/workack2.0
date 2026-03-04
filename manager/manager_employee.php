@@ -81,8 +81,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $stmt->execute();
             $stmt->close();
             
-            // Update profiles table
-            $stmt2 = $conn->prepare("UPDATE employee_profiles SET designation = 'Team Lead' WHERE user_id = ?");
+            // Update profiles table (Clearing department and reporting_to to prevent auto-team creation)
+            $stmt2 = $conn->prepare("UPDATE employee_profiles SET designation = 'Team Lead', department = NULL, reporting_to = NULL WHERE user_id = ?");
             $stmt2->bind_param("i", $emp_id);
             $stmt2->execute();
             $stmt2->close();
@@ -106,19 +106,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $stmt = $conn->prepare("INSERT INTO users (name, employee_id, username, email, password, role) VALUES (?, ?, ?, ?, ?, 'Team Lead')");
         $stmt->bind_param("sssss", $name, $emp_id_code, $username, $email, $password);
         
-        if ($stmt->execute()) {
-            $new_user_id = $stmt->insert_id;
-            
-            // Insert into employee_profiles table
-            $stmt2 = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, emp_id_code, designation) VALUES (?, ?, ?, 'Team Lead')");
-            $stmt2->bind_param("iss", $new_user_id, $name, $emp_id_code);
-            $stmt2->execute();
-            $stmt2->close();
+        try {
+            if ($stmt->execute()) {
+                $new_user_id = $stmt->insert_id;
+                
+                // Insert into employee_profiles table (EXPLICITLY setting department to NULL to prevent auto-team creation)
+                $stmt2 = $conn->prepare("INSERT INTO employee_profiles (user_id, full_name, emp_id_code, designation, department) VALUES (?, ?, ?, 'Team Lead', NULL)");
+                $stmt2->bind_param("iss", $new_user_id, $name, $emp_id_code);
+                $stmt2->execute();
+                $stmt2->close();
 
-            $_SESSION['toast'] = "New Team Lead created successfully!";
-            $_SESSION['toast_type'] = "success";
-        } else {
-            $_SESSION['toast'] = "Error creating Team Lead. Username/Email might already exist.";
+                $_SESSION['toast'] = "New Team Lead created successfully!";
+                $_SESSION['toast_type'] = "success";
+            } else {
+                $_SESSION['toast'] = "Error creating Team Lead. Username/Email might already exist.";
+                $_SESSION['toast_type'] = "error";
+            }
+        } catch (Exception $e) {
+            // This safely catches the duplicate entry fatal error and shows a popup instead of crashing
+            $_SESSION['toast'] = "Error: Employee ID ('$emp_id_code') or Username already exists. Please use a unique one.";
             $_SESSION['toast_type'] = "error";
         }
         $stmt->close();

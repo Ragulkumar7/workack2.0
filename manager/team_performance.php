@@ -96,7 +96,7 @@ if ($tl_result) {
             
             <div class="w-full md:w-auto">
                 <div class="relative w-full md:w-64">
-                    <input type="text" placeholder="Search employee..." class="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-200 shadow-sm">
+                    <input type="text" id="searchInput" onkeyup="filterTeamLeads()" placeholder="Search Team Lead..." class="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-200 shadow-sm">
                     <i class="fa-solid fa-search absolute left-3 top-3 text-slate-400 text-xs"></i>
                 </div>
             </div>
@@ -108,9 +108,10 @@ if ($tl_result) {
             </div>
         <?php else: ?>
             
+            <div id="tlContainer">
             <?php foreach ($team_leads as $tl): ?>
                 
-                <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">
+                <div class="tl-card bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden mb-8">
                     
                     <div class="bg-slate-800 p-5 flex justify-between items-center">
                         <div class="flex items-center gap-4">
@@ -125,7 +126,7 @@ if ($tl_result) {
                             ?>
                             <img src="<?php echo $tl_img_src; ?>" class="w-12 h-12 rounded-full border-2 border-white shadow-sm object-cover">
                             <div>
-                                <h2 class="font-bold text-white text-lg"><?php echo htmlspecialchars($tl['tl_name']); ?> <span class="text-xs font-normal text-slate-300 ml-2">(Team Lead)</span></h2>
+                                <h2 class="tl-name font-bold text-white text-lg"><?php echo htmlspecialchars($tl['tl_name']); ?> <span class="text-xs font-normal text-slate-300 ml-2">(Team Lead)</span></h2>
                                 <div class="text-sm text-slate-300"><?php echo htmlspecialchars(($tl['tl_role'] ?? 'Role N/A') . ' • ' . ($tl['tl_dept'] ?? 'Dept N/A')); ?></div>
                             </div>
                         </div>
@@ -234,6 +235,7 @@ if ($tl_result) {
                 </div>
                 
             <?php endforeach; ?>
+            </div>
         <?php endif; ?>
     </div>
 
@@ -299,6 +301,22 @@ if ($tl_result) {
     </div>
 
     <script>
+        // --- Search Filter Logic ---
+        function filterTeamLeads() {
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+            const tlCards = document.querySelectorAll('.tl-card');
+            
+            tlCards.forEach(card => {
+                const tlName = card.querySelector('.tl-name').innerText.toLowerCase();
+                
+                if (tlName.includes(searchInput)) {
+                    card.style.display = ''; // Show
+                } else {
+                    card.style.display = 'none'; // Hide
+                }
+            });
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             const modal = document.getElementById('perfModal');
             const closeBtn = document.getElementById('closeModalBtn');
