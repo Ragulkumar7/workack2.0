@@ -538,11 +538,13 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                     </div>
                 </div>
 
-                <div class="card flex-grow">
-                    <div class="p-6 flex flex-col h-full">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                            <h3 class="font-bold text-slate-800 text-lg">Recent Requests</h3>
-                            <span class="text-[9px] font-bold bg-orange-50 text-orange-600 px-2 py-1 rounded uppercase border border-orange-100">Action Needed</span>
+            <div class="xl:col-span-3 space-y-6">
+                <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm ring-1 ring-gray-100">
+                    <div class="bg-gradient-to-b from-teal-700 to-teal-800 p-6 flex flex-col items-center text-center relative">
+                        <div class="absolute top-4 right-4 flex gap-2">
+                            <a href="../settings.php" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
+                                <i class="fas fa-pencil-alt text-xs"></i>
+                            </a>
                         </div>
                         <div class="space-y-3 custom-scroll overflow-y-auto h-[350px] pr-2">
                             <?php if(!empty($all_notifications)): ?>
