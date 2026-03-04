@@ -114,10 +114,9 @@ $sections = [
                 'allowed' => ['System Admin', 'HR'],
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
+                    ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'HR/shift_swap_approval_hr.php', 'icon' => 'arrow-left-right'],
-                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
-                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
                     ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
                 ]
@@ -299,6 +298,13 @@ $sections = [
                 'path' => $base . 'performance_list.php', 
                 'icon' => 'trending-up', 
                 'allowed' => ['Team Lead'],
+            ],
+            // --- TL PERFORMANCE (TEAM LEAD ROLE) ---
+            [
+                'name' => 'Team Performance', 
+                'path' => $base . 'TL/tl_performance.php', 
+                'icon' => 'trending-up', // Lucide icon for performance
+                'allowed' => ['Team Lead']
             ],
             [
                 'name' => 'Performance', 
