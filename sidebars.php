@@ -171,7 +171,7 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts',"CFO" 'Sales Manager', 'Sales Executive'],
+                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts', 'CFO', 'Sales Manager', 'Sales Executive'],
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
