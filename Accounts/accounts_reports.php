@@ -19,37 +19,55 @@ if (!$can_view) {
     die("<div style='padding:50px;text-align:center;font-family:sans-serif;'><h2>Access Denied</h2><p>You do not have clearance to view Master Financial Reports.</p></div>");
 }
 
-// --- FILTER LOGIC ---
-$selected_year = isset($_GET['year']) ? (int)$_GET['year'] : (int)date('Y');
+// =========================================================================
+// DYNAMIC TIMEFRAME ENGINE
+// =========================================================================
+$filter = isset($_GET['filter']) ? $_GET['filter'] : 'this_year';
+$today = date('Y-m-d');
+
+if ($filter == 'this_week') {
+    $start_date = date('Y-m-d', strtotime('monday this week'));
+    $end_date = date('Y-m-d', strtotime('sunday this week'));
+    $filter_label = "This Week";
+} elseif ($filter == 'this_month') {
+    $start_date = date('Y-m-01');
+    $end_date = date('Y-m-t');
+    $filter_label = "This Month";
+} elseif ($filter == 'last_3_months') {
+    $start_date = date('Y-m-d', strtotime('-3 months'));
+    $end_date = $today;
+    $filter_label = "Last 3 Months";
+} elseif ($filter == 'last_6_months') {
+    $start_date = date('Y-m-d', strtotime('-6 months'));
+    $end_date = $today;
+    $filter_label = "Last 6 Months";
+} else { // this_year
+    $start_date = date('Y-01-01');
+    $end_date = date('Y-12-31');
+    $filter_label = "This Year (" . date('Y') . ")";
+}
 
 // =========================================================================
-// 2. ENTERPRISE KPI CALCULATIONS (YTD for Selected Year)
+// 2. ENTERPRISE KPI CALCULATIONS (Filtered by Timeframe)
 // =========================================================================
-$kpi = [
-    'total_income' => 0,
-    'total_expense' => 0,
-    'net_profit' => 0,
-    'pending_invoices' => 0, // Accounts Receivable
-    'active_employees' => 0,
-    'total_clients' => 0
-];
+$kpi = ['total_income' => 0, 'total_expense' => 0, 'net_profit' => 0, 'pending_invoices' => 0, 'active_employees' => 0, 'total_clients' => 0];
 
 // A. Total Income (Invoices)
-$inc_stmt = $conn->prepare("SELECT SUM(grand_total) as total FROM invoices WHERE YEAR(invoice_date) = ? AND status IN ('Paid', 'Approved', 'Credited', 'Partial')");
-$inc_stmt->bind_param("i", $selected_year);
+$inc_stmt = $conn->prepare("SELECT SUM(grand_total) as total FROM invoices WHERE invoice_date BETWEEN ? AND ? AND status IN ('Paid', 'Approved', 'Credited', 'Partial')");
+$inc_stmt->bind_param("ss", $start_date, $end_date);
 $inc_stmt->execute();
 $kpi['total_income'] = $inc_stmt->get_result()->fetch_assoc()['total'] ?? 0;
 $inc_stmt->close();
 
 // B. Total Expense (Purchase Orders + Salaries)
-$po_stmt = $conn->prepare("SELECT SUM(grand_total) as total FROM purchase_orders WHERE YEAR(po_date) = ? AND approval_status IN ('Approved', 'Paid', 'Credited')");
-$po_stmt->bind_param("i", $selected_year);
+$po_stmt = $conn->prepare("SELECT SUM(grand_total) as total FROM purchase_orders WHERE po_date BETWEEN ? AND ? AND approval_status IN ('Approved', 'Paid', 'Credited')");
+$po_stmt->bind_param("ss", $start_date, $end_date);
 $po_stmt->execute();
 $po_exp = $po_stmt->get_result()->fetch_assoc()['total'] ?? 0;
 $po_stmt->close();
 
-$sal_stmt = $conn->prepare("SELECT SUM(gross_salary) as total FROM employee_salary WHERE YEAR(salary_month) = ? AND approval_status IN ('Approved', 'Credited') AND is_deleted = 0");
-$sal_stmt->bind_param("i", $selected_year);
+$sal_stmt = $conn->prepare("SELECT SUM(gross_salary) as total FROM employee_salary WHERE salary_month BETWEEN ? AND ? AND approval_status IN ('Approved', 'Credited') AND is_deleted = 0");
+$sal_stmt->bind_param("ss", $start_date, $end_date);
 $sal_stmt->execute();
 $sal_exp = $sal_stmt->get_result()->fetch_assoc()['total'] ?? 0;
 $sal_stmt->close();
@@ -58,57 +76,93 @@ $kpi['total_expense'] = $po_exp + $sal_exp;
 $kpi['net_profit'] = $kpi['total_income'] - $kpi['total_expense'];
 
 // C. Accounts Receivable (Pending / Sent Invoices)
-$pend_stmt = $conn->prepare("SELECT SUM(grand_total) as total FROM invoices WHERE YEAR(invoice_date) = ? AND status IN ('Pending Approval', 'Sent', 'Draft', 'Overdue')");
-$pend_stmt->bind_param("i", $selected_year);
+$pend_stmt = $conn->prepare("SELECT SUM(grand_total) as total FROM invoices WHERE invoice_date BETWEEN ? AND ? AND status IN ('Pending Approval', 'Sent', 'Draft', 'Overdue')");
+$pend_stmt->bind_param("ss", $start_date, $end_date);
 $pend_stmt->execute();
 $kpi['pending_invoices'] = $pend_stmt->get_result()->fetch_assoc()['total'] ?? 0;
 $pend_stmt->close();
 
-// D. Database Counts
+// D. Database Counts (All Time)
 $kpi['active_employees'] = $conn->query("SELECT COUNT(*) as total FROM employee_onboarding WHERE status = 'Completed'")->fetch_assoc()['total'] ?? 0;
 $kpi['total_clients'] = $conn->query("SELECT COUNT(*) as total FROM clients")->fetch_assoc()['total'] ?? 0;
 
 
 // =========================================================================
-// 3. OPTIMIZED CHART DATA GENERATOR (Eliminates N+1 Query loop)
+// 3. SMART DYNAMIC CHART GENERATOR 
+// (Adapts between Day-by-Day plotting and Month-by-Month plotting)
 // =========================================================================
-$chart_income_data = array_fill(0, 12, 0);
-$chart_expense_data = array_fill(0, 12, 0);
+$chart_labels = [];
+$chart_income_data = [];
+$chart_expense_data = [];
 
-// Group Invoices by Month
-$chk_inc = $conn->prepare("SELECT MONTH(invoice_date) as m, SUM(grand_total) as val FROM invoices WHERE YEAR(invoice_date) = ? AND status IN ('Paid', 'Approved', 'Credited', 'Partial') GROUP BY MONTH(invoice_date)");
-$chk_inc->bind_param("i", $selected_year);
+// Determine structural grouping based on the length of the timeframe
+if ($filter == 'this_week' || $filter == 'this_month') {
+    // Short ranges plot Day-by-Day
+    $date_format_sql = '%d-%b'; // e.g. 05-Mar
+    $php_date_format = 'd-M';
+    $current = strtotime($start_date);
+    $end_time = strtotime($end_date);
+    while ($current <= $end_time) {
+        $lbl = date($php_date_format, $current);
+        $chart_labels[] = $lbl;
+        $chart_income_data[$lbl] = 0;
+        $chart_expense_data[$lbl] = 0;
+        $current = strtotime('+1 day', $current);
+    }
+} else {
+    // Long ranges plot Month-by-Month
+    $date_format_sql = '%b-%y'; // e.g. Mar-26
+    $php_date_format = 'M-y';
+    $current = strtotime(date('Y-m-01', strtotime($start_date)));
+    $end_time = strtotime(date('Y-m-t', strtotime($end_date)));
+    while ($current <= $end_time) {
+        $lbl = date($php_date_format, $current);
+        $chart_labels[] = $lbl;
+        $chart_income_data[$lbl] = 0;
+        $chart_expense_data[$lbl] = 0;
+        $current = strtotime('+1 month', $current);
+    }
+}
+
+// Map Income (Invoices)
+$chk_inc = $conn->prepare("SELECT DATE_FORMAT(invoice_date, '$date_format_sql') as lbl, SUM(grand_total) as val FROM invoices WHERE invoice_date BETWEEN ? AND ? AND status IN ('Paid', 'Approved', 'Credited', 'Partial') GROUP BY lbl");
+$chk_inc->bind_param("ss", $start_date, $end_date);
 $chk_inc->execute();
 $res_inc = $chk_inc->get_result();
-while ($row = $res_inc->fetch_assoc()) { $chart_income_data[$row['m'] - 1] = (float)$row['val']; }
+while ($row = $res_inc->fetch_assoc()) { if(isset($chart_income_data[$row['lbl']])) $chart_income_data[$row['lbl']] += (float)$row['val']; }
 $chk_inc->close();
 
-// Group POs by Month
-$chk_po = $conn->prepare("SELECT MONTH(po_date) as m, SUM(grand_total) as val FROM purchase_orders WHERE YEAR(po_date) = ? AND approval_status IN ('Approved', 'Paid', 'Credited') GROUP BY MONTH(po_date)");
-$chk_po->bind_param("i", $selected_year);
+// Map Expense (POs)
+$chk_po = $conn->prepare("SELECT DATE_FORMAT(po_date, '$date_format_sql') as lbl, SUM(grand_total) as val FROM purchase_orders WHERE po_date BETWEEN ? AND ? AND approval_status IN ('Approved', 'Paid', 'Credited') GROUP BY lbl");
+$chk_po->bind_param("ss", $start_date, $end_date);
 $chk_po->execute();
 $res_po = $chk_po->get_result();
-while ($row = $res_po->fetch_assoc()) { $chart_expense_data[$row['m'] - 1] += (float)$row['val']; }
+while ($row = $res_po->fetch_assoc()) { if(isset($chart_expense_data[$row['lbl']])) $chart_expense_data[$row['lbl']] += (float)$row['val']; }
 $chk_po->close();
 
-// Group Salaries by Month
-$chk_sal = $conn->prepare("SELECT MONTH(salary_month) as m, SUM(gross_salary) as val FROM employee_salary WHERE YEAR(salary_month) = ? AND approval_status IN ('Approved', 'Credited') AND is_deleted = 0 GROUP BY MONTH(salary_month)");
-$chk_sal->bind_param("i", $selected_year);
+// Map Expense (Salaries)
+$chk_sal = $conn->prepare("SELECT DATE_FORMAT(salary_month, '$date_format_sql') as lbl, SUM(gross_salary) as val FROM employee_salary WHERE salary_month BETWEEN ? AND ? AND approval_status IN ('Approved', 'Credited') AND is_deleted = 0 GROUP BY lbl");
+$chk_sal->bind_param("ss", $start_date, $end_date);
 $chk_sal->execute();
 $res_sal = $chk_sal->get_result();
-while ($row = $res_sal->fetch_assoc()) { $chart_expense_data[$row['m'] - 1] += (float)$row['val']; }
+while ($row = $res_sal->fetch_assoc()) { if(isset($chart_expense_data[$row['lbl']])) $chart_expense_data[$row['lbl']] += (float)$row['val']; }
 $chk_sal->close();
+
+// Package for Javascript
+$js_labels = json_encode(array_values($chart_labels));
+$js_income = json_encode(array_values($chart_income_data));
+$js_expense = json_encode(array_values($chart_expense_data));
 
 
 // =========================================================================
 // 4. FETCH REAL DATA FOR TABS
 // =========================================================================
-// Tab 1: Clients
+// Tab 1: Clients (Total Invoiced dynamically respects the timeframe, Account Balance is lifetime)
 $real_clients = [];
 $client_sql = "
     SELECT c.id, c.client_name, c.gst_number, c.mobile_number, c.payment_method, COALESCE(inv.total_invoiced, 0) as total_invoiced, (COALESCE(inv.total_invoiced, 0) - COALESCE(ldg.total_paid, 0)) as account_balance
     FROM clients c
-    LEFT JOIN (SELECT client_id, SUM(grand_total) as total_invoiced FROM invoices WHERE status NOT IN ('Draft', 'Rejected') GROUP BY client_id) inv ON c.id = inv.client_id
+    LEFT JOIN (SELECT client_id, SUM(grand_total) as total_invoiced FROM invoices WHERE status NOT IN ('Draft', 'Rejected') AND invoice_date BETWEEN '$start_date' AND '$end_date' GROUP BY client_id) inv ON c.id = inv.client_id
     LEFT JOIN (SELECT TRIM(LOWER(party_name)) as p_name, SUM(credit_amount) as total_paid FROM general_ledger WHERE credit_amount > 0 GROUP BY TRIM(LOWER(party_name))) ldg ON TRIM(LOWER(c.client_name)) = ldg.p_name
 ";
 $c_res = $conn->query($client_sql);
@@ -118,7 +172,7 @@ if ($c_res) {
     }
 }
 
-// Tab 2: Employees (Migrated to employee_onboarding and added Salary)
+// Tab 2: Employees 
 $real_employees = [];
 $emp_sql = "SELECT emp_id_code, CONCAT(first_name, ' ', IFNULL(last_name,'')) as full_name, department, designation, joining_date, salary, salary_type FROM employee_onboarding WHERE status = 'Completed'";
 $e_res = $conn->query($emp_sql);
@@ -136,25 +190,27 @@ if ($e_res) {
     }
 }
 
-// Tab 3: Purchase Orders
+// Tab 3: Purchase Orders (Restricted to Timeframe)
 $real_po = [];
-$po_sql = "SELECT po_number, vendor_name, po_date, grand_total, paid_amount, balance_amount FROM purchase_orders ORDER BY created_at DESC";
-$po_res = $conn->query($po_sql);
-if ($po_res) {
-    while ($row = $po_res->fetch_assoc()) {
-        $real_po[] = ['no' => $row['po_number'], 'vendor' => $row['vendor_name'], 'date' => date('d-M-Y', strtotime($row['po_date'])), 'total' => $row['grand_total'], 'paid' => $row['paid_amount'], 'balance' => $row['balance_amount']];
-    }
+$po_stmt = $conn->prepare("SELECT po_number, vendor_name, po_date, grand_total, paid_amount, balance_amount FROM purchase_orders WHERE po_date BETWEEN ? AND ? ORDER BY po_date DESC");
+$po_stmt->bind_param("ss", $start_date, $end_date);
+$po_stmt->execute();
+$po_res = $po_stmt->get_result();
+while ($row = $po_res->fetch_assoc()) {
+    $real_po[] = ['no' => $row['po_number'], 'vendor' => $row['vendor_name'], 'date' => date('d-M-Y', strtotime($row['po_date'])), 'total' => $row['grand_total'], 'paid' => $row['paid_amount'], 'balance' => $row['balance_amount']];
 }
+$po_stmt->close();
 
-// Tab 4: Invoices
+// Tab 4: Invoices (Restricted to Timeframe)
 $real_inv = [];
-$inv_sql = "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status FROM invoices i LEFT JOIN clients c ON i.client_id = c.id ORDER BY i.created_at DESC";
-$inv_res = $conn->query($inv_sql);
-if ($inv_res) {
-    while ($row = $inv_res->fetch_assoc()) {
-        $real_inv[] = ['no' => $row['invoice_no'], 'client' => $row['client_name'] ?? 'Unknown', 'date' => date('d-M-Y', strtotime($row['invoice_date'])), 'total' => $row['grand_total'], 'status' => $row['status']];
-    }
+$inv_stmt = $conn->prepare("SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status FROM invoices i LEFT JOIN clients c ON i.client_id = c.id WHERE i.invoice_date BETWEEN ? AND ? ORDER BY i.invoice_date DESC");
+$inv_stmt->bind_param("ss", $start_date, $end_date);
+$inv_stmt->execute();
+$inv_res = $inv_stmt->get_result();
+while ($row = $inv_res->fetch_assoc()) {
+    $real_inv[] = ['no' => $row['invoice_no'], 'client' => $row['client_name'] ?? 'Unknown', 'date' => date('d-M-Y', strtotime($row['invoice_date'])), 'total' => $row['grand_total'], 'status' => $row['status']];
 }
+$inv_stmt->close();
 
 include '../sidebars.php'; 
 include '../header.php';
@@ -204,11 +260,11 @@ include '../header.php';
         .charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 30px; }
         .chart-container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid var(--border-color); height: 360px; display: flex; flex-direction: column; overflow: hidden; }
         .canvas-wrapper { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; }
-        .chart-container h3 { margin: 0 0 15px 0; font-size: 16px; font-weight: 800; color: var(--text-main); display: flex; align-items: center; gap: 8px;}
+        .chart-container h3 { margin: 0 0 15px 0; font-size: 16px; font-weight: 800; color: var(--text-main); display: flex; align-items: center; justify-content: space-between;}
 
         /* Tables */
         .table-responsive { overflow-x: auto; width: 100%; }
-        table { width: 100%; border-collapse: collapse; min-width: 800px;} /* Increased min-width for the new column */
+        table { width: 100%; border-collapse: collapse; min-width: 800px;}
         th { text-align: left; padding: 14px 16px; background: #f8fafc; font-size: 11px; text-transform: uppercase; color: var(--text-muted); border-bottom: 1px solid var(--border-color); font-weight: 800;}
         td { padding: 14px 16px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #334155; }
         tr:hover td { background: #f8fafc; }
@@ -236,14 +292,12 @@ include '../header.php';
         </div>
         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
             <form method="GET" style="display: flex; gap: 10px; align-items: center;">
-                <select name="year" style="padding: 10px 15px; border: 1px solid #cbd5e1; border-radius: 8px; font-weight: 600; outline: none; cursor: pointer;">
-                    <?php 
-                        $curr_yr = date('Y');
-                        for($y = $curr_yr; $y >= 2023; $y--) {
-                            $sel = ($selected_year == $y) ? 'selected' : '';
-                            echo "<option value='$y' $sel>$y</option>";
-                        }
-                    ?>
+                <select name="filter" style="padding: 10px 15px; border: 1px solid #cbd5e1; border-radius: 8px; font-weight: 600; outline: none; cursor: pointer; color:#1e293b;">
+                    <option value="this_week" <?= $filter=='this_week'?'selected':'' ?>>This Week</option>
+                    <option value="this_month" <?= $filter=='this_month'?'selected':'' ?>>This Month</option>
+                    <option value="last_3_months" <?= $filter=='last_3_months'?'selected':'' ?>>Last 3 Months</option>
+                    <option value="last_6_months" <?= $filter=='last_6_months'?'selected':'' ?>>Last 6 Months</option>
+                    <option value="this_year" <?= $filter=='this_year'?'selected':'' ?>>This Year</option>
                 </select>
                 <button type="submit" style="background: var(--theme-color); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor:pointer;">Filter</button>
             </form>
@@ -254,40 +308,46 @@ include '../header.php';
     <div class="kpi-grid">
         <div class="kpi-card">
             <i class="ph-fill ph-trend-up kpi-icon" style="color: #059669;"></i>
-            <div class="kpi-title">Gross Revenue (Invoices)</div>
+            <div class="kpi-title">Gross Revenue (<?= $filter_label ?>)</div>
             <div class="kpi-val" style="color: #059669;">₹<?= number_format($kpi['total_income'], 2) ?></div>
         </div>
         <div class="kpi-card" style="border-left-color: #dc2626;">
             <i class="ph-fill ph-trend-down kpi-icon" style="color: #dc2626;"></i>
-            <div class="kpi-title">Total Expenses (PO + Payroll)</div>
+            <div class="kpi-title">Total Expenses (<?= $filter_label ?>)</div>
             <div class="kpi-val" style="color: #dc2626;">₹<?= number_format($kpi['total_expense'], 2) ?></div>
         </div>
         <div class="kpi-card" style="border-left-color: #3b82f6;">
             <i class="ph-fill ph-scales kpi-icon" style="color: #3b82f6;"></i>
-            <div class="kpi-title">Net Profit Margin</div>
+            <div class="kpi-title">Net Profit Margin (<?= $filter_label ?>)</div>
             <div class="kpi-val" style="color: <?= $kpi['net_profit'] >= 0 ? '#3b82f6' : '#dc2626' ?>;">₹<?= number_format($kpi['net_profit'], 2) ?></div>
         </div>
         <div class="kpi-card" style="border-left-color: #f59e0b;">
             <i class="ph-fill ph-hourglass-high kpi-icon" style="color: #f59e0b;"></i>
-            <div class="kpi-title">Accounts Recv. (Pending Inv)</div>
+            <div class="kpi-title">Pending Invoices (<?= $filter_label ?>)</div>
             <div class="kpi-val" style="color: #f59e0b;">₹<?= number_format($kpi['pending_invoices'], 2) ?></div>
         </div>
         <div class="kpi-card" style="border-left-color: #8b5cf6;">
             <i class="ph-fill ph-database kpi-icon" style="color: #8b5cf6;"></i>
-            <div class="kpi-title">Active Database</div>
+            <div class="kpi-title">Active Database (All Time)</div>
             <div class="kpi-val" style="font-size: 18px; margin-top: 8px; color: #6b7280;"><b><?= $kpi['total_clients'] ?></b> Clients | <b><?= $kpi['active_employees'] ?></b> Staff</div>
         </div>
     </div>
 
     <div class="charts-row">
         <div class="chart-container">
-            <h3><i class="ph-fill ph-chart-line-up" style="color:var(--theme-color)"></i> Income vs Expense Trend (<?= $selected_year ?>)</h3>
+            <h3>
+                <span><i class="ph-fill ph-chart-line-up" style="color:var(--theme-color)"></i> Income vs Expense Trend</span>
+                <span style="font-size:11px; background:#f1f5f9; padding:4px 10px; border-radius:20px; color:#64748b;"><?= $filter_label ?></span>
+            </h3>
             <div class="canvas-wrapper">
                 <canvas id="trendChart"></canvas>
             </div>
         </div>
         <div class="chart-container">
-            <h3><i class="ph-fill ph-chart-pie-slice" style="color:var(--theme-color)"></i> Invoice Status Overview</h3>
+            <h3>
+                <span><i class="ph-fill ph-chart-pie-slice" style="color:var(--theme-color)"></i> Invoice Status</span>
+                <span style="font-size:11px; background:#f1f5f9; padding:4px 10px; border-radius:20px; color:#64748b;"><?= $filter_label ?></span>
+            </h3>
             <div class="canvas-wrapper">
                 <canvas id="invChart"></canvas>
             </div>
@@ -316,8 +376,8 @@ include '../header.php';
                             <th>GST / Tax ID</th>
                             <th>Mobile Number</th>
                             <th>Payment Terms</th>
-                            <th style="text-align:right">Total Invoiced (₹)</th>
-                            <th style="text-align:right">Outstanding Balance (₹)</th>
+                            <th style="text-align:right">Invoiced (<?= $filter_label ?>)</th>
+                            <th style="text-align:right">Total Account Balance</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -331,8 +391,8 @@ include '../header.php';
                                 <td><span style="font-family: monospace; color:#475569;"><?= htmlspecialchars($c['gst']) ?></span></td>
                                 <td><?= htmlspecialchars($c['mob']) ?></td>
                                 <td><span style="background: #f8fafc; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; border: 1px solid #e2e8f0;"><?= htmlspecialchars($c['payment_method']) ?></span></td>
-                                <td class="amt-pos" style="text-align:right"><?= number_format($c['total'], 2) ?></td>
-                                <td style="text-align:right; font-weight: 800; color: <?= $c['balance'] > 0 ? '#dc2626' : '#1b5a5a' ?>;"><?= number_format($c['balance'], 2) ?></td>
+                                <td class="amt-pos" style="text-align:right">₹<?= number_format($c['total'], 2) ?></td>
+                                <td style="text-align:right; font-weight: 800; color: <?= $c['balance'] > 0 ? '#dc2626' : '#1b5a5a' ?>;">₹<?= number_format($c['balance'], 2) ?></td>
                             </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -383,7 +443,7 @@ include '../header.php';
 
         <div id="tab-po" class="tab-pane">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3 style="margin:0; font-size:16px; font-weight:800;">Purchase Order Ledger (COGS)</h3>
+                <h3 style="margin:0; font-size:16px; font-weight:800;">Purchase Order Ledger (<?= $filter_label ?>)</h3>
                 <button class="btn-export" style="background:#f1f5f9; color:#0f172a; box-shadow:none; border:1px solid #cbd5e1;" onclick="exportTable('tablePO', 'PO_Report')"><i class="ph-bold ph-download-simple"></i> Download List</button>
             </div>
             <div class="table-responsive">
@@ -391,16 +451,16 @@ include '../header.php';
                     <thead><tr><th>PO Number</th><th>Vendor</th><th>Date</th><th style="text-align:right">Total (₹)</th><th style="text-align:right">Paid (₹)</th><th style="text-align:right">Balance (₹)</th></tr></thead>
                     <tbody>
                         <?php if(empty($real_po)): ?>
-                            <tr><td colspan="6" style="text-align:center; padding: 30px; color:#94a3b8;">No purchase orders found.</td></tr>
+                            <tr><td colspan="6" style="text-align:center; padding: 30px; color:#94a3b8;">No purchase orders found in this timeframe.</td></tr>
                         <?php else: ?>
                             <?php foreach ($real_po as $p): ?>
                             <tr>
                                 <td><b style="color:var(--theme-color);"><?= htmlspecialchars($p['no']) ?></b></td>
                                 <td><?= htmlspecialchars($p['vendor']) ?></td>
                                 <td><?= $p['date'] ?></td>
-                                <td style="text-align:right; font-weight:700;"><?= number_format($p['total'], 2) ?></td>
-                                <td class="amt-pos" style="text-align:right"><?= number_format($p['paid'], 2) ?></td>
-                                <td class="amt-neg" style="text-align:right"><?= number_format($p['balance'], 2) ?></td>
+                                <td style="text-align:right; font-weight:700;">₹<?= number_format($p['total'], 2) ?></td>
+                                <td class="amt-pos" style="text-align:right">₹<?= number_format($p['paid'], 2) ?></td>
+                                <td class="amt-neg" style="text-align:right">₹<?= number_format($p['balance'], 2) ?></td>
                             </tr>
                             <?php endforeach; ?>
                         <?php endif; ?>
@@ -411,7 +471,7 @@ include '../header.php';
 
         <div id="tab-inv" class="tab-pane">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h3 style="margin:0; font-size:16px; font-weight:800;">Invoice Master Ledger</h3>
+                <h3 style="margin:0; font-size:16px; font-weight:800;">Invoice Ledger (<?= $filter_label ?>)</h3>
                 <button class="btn-export" style="background:#f1f5f9; color:#0f172a; box-shadow:none; border:1px solid #cbd5e1;" onclick="exportTable('tableInv', 'Invoice_Report')"><i class="ph-bold ph-download-simple"></i> Download List</button>
             </div>
             <div class="table-responsive">
@@ -419,7 +479,7 @@ include '../header.php';
                     <thead><tr><th>Invoice No</th><th>Client</th><th>Date</th><th style="text-align:right">Total Amount (₹)</th><th>Status</th></tr></thead>
                     <tbody>
                         <?php if(empty($real_inv)): ?>
-                            <tr><td colspan="5" style="text-align:center; padding: 30px; color:#94a3b8;">No invoices found.</td></tr>
+                            <tr><td colspan="5" style="text-align:center; padding: 30px; color:#94a3b8;">No invoices found in this timeframe.</td></tr>
                         <?php else: ?>
                             <?php foreach ($real_inv as $i): 
                                 $bg = 'st-pend';
@@ -432,7 +492,7 @@ include '../header.php';
                                 <td><b style="color:var(--theme-color);"><?= htmlspecialchars($i['no']) ?></b></td>
                                 <td style="font-weight:600; color:#0f172a;"><?= htmlspecialchars($i['client']) ?></td>
                                 <td><?= $i['date'] ?></td>
-                                <td class="amt-pos" style="text-align:right"><?= number_format($i['total'], 2) ?></td>
+                                <td class="amt-pos" style="text-align:right">₹<?= number_format($i['total'], 2) ?></td>
                                 <td><span class="status-badge <?= $bg ?>"><?= htmlspecialchars($i['status']) ?></span></td>
                             </tr>
                             <?php endforeach; ?>
@@ -458,11 +518,11 @@ include '../header.php';
     new Chart(trendCtx, {
         type: 'line',
         data: {
-            labels: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+            labels: <?= $js_labels ?>,
             datasets: [
                 {
                     label: 'Gross Income (₹)',
-                    data: <?= json_encode($chart_income_data) ?>,
+                    data: <?= $js_income ?>,
                     borderColor: '#059669',
                     backgroundColor: 'rgba(5, 150, 105, 0.15)',
                     borderWidth: 3,
@@ -471,7 +531,7 @@ include '../header.php';
                 },
                 {
                     label: 'Total Expense (₹)',
-                    data: <?= json_encode($chart_expense_data) ?>,
+                    data: <?= $js_expense ?>,
                     borderColor: '#dc2626',
                     backgroundColor: 'transparent',
                     borderWidth: 3,
