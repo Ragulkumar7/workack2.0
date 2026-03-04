@@ -137,7 +137,7 @@ sort($designations);
         .status-inactive { background: #fee2e2; color: #991b1b; }
 
         /* Terminate Button */
-        .btn-terminate { color: #ef4444; background: #fee2e2; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        .btn-terminate { color: #ef4444; background: #fee2e2; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 5px; text-decoration: none; }
         .btn-terminate:hover { background: #fca5a5; color: #991b1b; }
         
         .btn-edit { color: #3b82f6; background: #dbeafe; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; border: none; cursor: pointer; display: flex; align-items: center; gap: 5px; }
@@ -222,9 +222,17 @@ sort($designations);
 
                         <?php foreach($emps as $emp): 
                             $imgSrc = !empty($emp['profile_img']) ? $emp['profile_img'] : "https://ui-avatars.com/api/?name=".urlencode($emp['display_name'])."&background=random";
-                            // Ensure image path is correct
+                            
+                            // Check if it's NOT a UI avatar link
                             if (!filter_var($imgSrc, FILTER_VALIDATE_URL) && strpos($imgSrc, 'ui-avatars') === false) {
-                                $imgSrc = '../' . $imgSrc;
+                                $imgSrc = str_replace('../', '', $imgSrc);
+                                if (strpos($imgSrc, '/') === false) {
+                                    $imgSrc = 'assets/profiles/' . $imgSrc;
+                                }
+                                // Check if file actually exists on server; if not, fallback to UI Avatar
+                                if (!file_exists($imgSrc)) {
+                                    $imgSrc = "https://ui-avatars.com/api/?name=".urlencode($emp['display_name'])."&background=random";
+                                }
                             }
                         ?>
                         <tr class="emp-row <?= $safeDeptId ?>">
@@ -253,9 +261,9 @@ sort($designations);
                                     </button>
                                     
                                     <?php if($emp['status'] == 'Active'): ?>
-                                    <button class="btn-terminate" onclick="terminateEmployee(<?= intval($emp['id']) ?>, '<?= htmlspecialchars(addslashes($emp['display_name'])) ?>')">
+                                    <a href="employee_management.php?terminate_id=<?= intval($emp['id']) ?>" class="btn-terminate">
                                         <i data-lucide="user-x" style="width:14px;"></i> Terminate
-                                    </button>
+                                    </a>
                                     <?php else: ?>
                                     <button class="btn-terminate" style="background:#f1f5f9; color:#94a3b8; cursor:not-allowed;" disabled>
                                         Terminated
@@ -347,12 +355,6 @@ sort($designations);
             document.getElementById('editEmployeeModal').style.display = 'none'; 
         }
 
-        // Terminate Logic
-        function terminateEmployee(id, name) {
-            if (confirm(`CRITICAL ACTION:\nAre you sure you want to TERMINATE ${name}?\n\nThis will revoke their active status.`)) {
-                window.location.href = 'employee_management.php?terminate_id=' + id;
-            }
-        }
     </script>
 </body>
 </html>

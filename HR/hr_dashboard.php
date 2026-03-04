@@ -549,9 +549,9 @@ $total_jobs = $job_res ? $job_res->fetch_assoc()['total_jobs'] : 0;
                 <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm ring-1 ring-gray-100">
                     <div class="bg-gradient-to-b from-teal-700 to-teal-800 p-6 flex flex-col items-center text-center relative">
                         <div class="absolute top-4 right-4 flex gap-2">
-                            <button class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
+                            <a href="../settings.php" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
                                 <i class="fas fa-pencil-alt text-xs"></i>
-                            </button>
+                            </a>
                         </div>
                         <div class="relative mb-3 mt-2">
                             <img src="<?php echo $profile_img; ?>" class="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover bg-white">

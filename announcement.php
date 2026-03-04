@@ -26,6 +26,7 @@ function uploadFile($fileInput, $targetDir, $allowedTypes) {
     }
     return null;
 }
+
 // User oda role HR-a illana Manager-a nu check panni target set panrom
 if ($_SESSION['role'] == 'HR') {
     $target_audience = 'All Employees';
@@ -88,22 +89,25 @@ if (isset($_GET['delete_id'])) {
     exit();
 }
 
-// --- FETCH ANNOUNCEMENTS (With Creator Info) ---
+// --- FETCH ANNOUNCEMENTS (With Creator Info & Filter Logic) ---
 // We JOIN with the 'users' table to get the name of who posted it.
 $sql = "SELECT a.*, u.username as creator_name, u.role as creator_role 
         FROM announcements a
         LEFT JOIN users u ON a.created_by = u.id ";
 
 // Filter Logic:
-// 1. Admin, HR, CFO, HR Executive -> See ALL.
-// 2. Manager, Team Lead -> See ONLY what THEY created (to manage/edit).
+// 1. System Admin, HR, CFO, HR Executive can see ALL announcements to manage them.
+// 2. Other roles see only what they created OR what is targeted to 'All Employees' OR their specific role.
 if (in_array($logged_in_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
     $sql .= " ORDER BY a.is_pinned DESC, a.publish_date DESC";
-    $result = $conn->query($sql);
-} else {
-    $sql .= " WHERE a.created_by = ? ORDER BY a.is_pinned DESC, a.publish_date DESC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("i", $logged_in_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    // Show if they created it, OR target is 'All Employees', OR target is their specific role
+    $sql .= " WHERE a.created_by = ? OR a.target_audience = 'All Employees' OR a.target_audience = ? ORDER BY a.is_pinned DESC, a.publish_date DESC";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param("is", $logged_in_id, $logged_in_role);
     $stmt->execute();
     $result = $stmt->get_result();
 }
@@ -204,12 +208,14 @@ if (in_array($logged_in_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
                                     <button onclick="openViewModal(<?php echo htmlspecialchars(json_encode($row)); ?>)" class="p-2 text-slate-400 hover:text-teal-600 hover:bg-teal-50 rounded-full">
                                         <i class="fa-regular fa-eye"></i>
                                     </button>
+                                    <?php if(in_array($logged_in_role, ['System Admin', 'HR', 'CFO', 'HR Executive']) || $row['created_by'] == $logged_in_id): ?>
                                     <button onclick="openModal('announcementModal', 'edit', <?php echo htmlspecialchars(json_encode($row)); ?>)" class="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full">
                                         <i class="fa-regular fa-pen-to-square"></i>
                                     </button>
                                     <a href="announcement.php?delete_id=<?php echo $row['id']; ?>" onclick="return confirm('Are you sure?')" class="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-full">
                                         <i class="fa-regular fa-trash-can"></i>
                                     </a>
+                                    <?php endif; ?>
                                 </div>
                             </td>
                         </tr>
@@ -316,7 +322,7 @@ if (in_array($logged_in_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
                     <div class="flex justify-between items-start mb-4">
                         <div class="flex gap-2">
                             <span id="viewCategory" class="text-xs font-bold px-2 py-1 bg-slate-100 rounded"></span>
-                            <span id="viewAudience" class="text-xs font-bold px-2 py-1 bg-blue-50 text-blue-600 rounded"></span>
+                            <span id="viewAudience" class="text-xs font-bold px-2 py-1 bg-[#1b5a5a]/10 text-[#1b5a5a] rounded"></span>
                             <span id="viewPinned" class="hidden text-xs font-bold px-2 py-1 bg-rose-50 text-rose-600 rounded">Pinned</span>
                         </div>
                         <div class="text-right">
