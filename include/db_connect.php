@@ -17,7 +17,7 @@ if (!$conn) {
     } catch (mysqli_sql_exception $e) {
         error_log("Connection failed: " . $e->getMessage());
         die("<div style='padding: 2rem; text-align: center; font-family: sans-serif; color: #334155;'>
-                <h2 style='color: #ef4444;'>Database Connection Limit Reached</h        2>
+                <h2 style='color: #ef4444;'>Database Connection Limit Reached</h2>
                 <p>Hostinger strictly limits connections to 500 per hour. Please wait an hour for the limit to reset, or switch to a local XAMPP database for development.</p>
              </div>");
     }

@@ -302,7 +302,6 @@ $all_notifications = array_slice($all_notifications, 0, 10);
     <?php if (file_exists($headerPath)) include($headerPath); ?>
 
     <main id="mainContent">
-        <?php include $headerPath; ?>
 
         <div class="max-w-[1600px] mx-auto w-full">
             
@@ -322,19 +321,6 @@ $all_notifications = array_slice($all_notifications, 0, 10);
                     <div class="bg-teal-50 border border-teal-100 text-teal-700 px-4 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm">
                         <i class="fa-regular fa-calendar"></i> <?php echo date("d M Y"); ?>
                     </div>
-    <main id="mainContent" class="p-6 lg:p-8 min-h-screen">
-        
-        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4 mt-4">
-            <div>
-                <h1 class="text-3xl font-black text-slate-800 tracking-tight">Manager Dashboard</h1>
-                <p class="text-slate-500 text-sm mt-1">Welcome back, <b><?php echo htmlspecialchars($mgr_name); ?></b></p>
-            </div>
-            <div class="flex gap-2">
-                <button class="bg-white border border-gray-200 px-4 py-2.5 rounded-lg text-sm font-medium flex items-center gap-2 shadow-sm hover:bg-gray-50 transition">
-                    <i class="fa-solid fa-file-export text-gray-400"></i> Export
-                </button>
-                <div class="bg-teal-50 border border-teal-100 text-teal-700 px-4 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 shadow-sm">
-                    <i class="fa-regular fa-calendar"></i> <?php echo date("d M Y"); ?>
                 </div>
             </div>
         </div>

@@ -31,7 +31,7 @@ if ($_SESSION['role'] == 'HR') {
     $target_audience = 'All Employees';
 } else if ($_SESSION['role'] == 'Manager') {
     // Manager oda department-a target-a set panrom
-    $target_audience = $_SESSION['department']; 
+    $target_audience = $_SESSION['department'] ?? 'All'; 
 } else {
     $target_audience = 'All'; // Default
 }
@@ -127,7 +127,6 @@ if (in_array($logged_in_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
             width: calc(100% - 95px); 
             transition: all 0.3s ease; 
             min-height: 100vh; 
-            padding-top: 80px !important; 
         }
         #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
         

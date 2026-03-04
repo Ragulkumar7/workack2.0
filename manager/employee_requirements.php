@@ -109,7 +109,7 @@ $history_result = $h_stmt->get_result();
         if(file_exists($path_to_root . 'header.php')) include $path_to_root . 'header.php';
         ?>
 
-        <main class="p-8 w-full max-w-7xl mx-auto">
+        <main class="p-8 w-full">
             
             <div class="flex justify-between items-center mb-8">
                 <div>

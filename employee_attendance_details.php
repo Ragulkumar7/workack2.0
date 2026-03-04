@@ -392,7 +392,7 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                                         <td class="py-3 <?php echo $row['late'] != '-' ? 'text-red-500 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['late']; ?></td>
                                         <td class="py-3 <?php echo $row['overtime'] != '-' ? 'text-blue-600 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['overtime']; ?></td>
                                         <td class="text-center py-3">
-                                            <button class="btn btn-sm btn-outline-primary transition hover:bg-blue-600 hover:text-white" onclick='openReportModal(<?php echo json_encode($row); ?>)'>
+                                            <button class="btn btn-sm border border-[#1b5a5a] text-[#1b5a5a] transition hover:bg-[#1b5a5a] hover:text-white" onclick='openReportModal(<?php echo json_encode($row); ?>)'>
                                                 <i class="fa fa-chart-line"></i>
                                             </button>
                                         </td>

@@ -27,21 +27,6 @@ if (!is_dir(__DIR__ . '/' . $assetsBase)) {
 }
 
 // =========================================================================
-// 3. SILENT SCHEMA UPDATE (Fixes the "Unknown column" error automatically)
-// =========================================================================
-$conn->query("ALTER TABLE clients 
-    ADD COLUMN IF NOT EXISTS client_id VARCHAR(20) NULL AFTER id,
-    ADD COLUMN IF NOT EXISTS first_name VARCHAR(100) NULL,
-    ADD COLUMN IF NOT EXISTS last_name VARCHAR(100) NULL,
-    ADD COLUMN IF NOT EXISTS email VARCHAR(100) NULL,
-    ADD COLUMN IF NOT EXISTS phone VARCHAR(20) NULL,
-    ADD COLUMN IF NOT EXISTS company VARCHAR(150) NULL,
-    ADD COLUMN IF NOT EXISTS status ENUM('Active','Inactive') DEFAULT 'Active',
-    ADD COLUMN IF NOT EXISTS address TEXT NULL,
-    ADD COLUMN IF NOT EXISTS profile_img VARCHAR(255) NULL
-");
-
-// =========================================================================
 // 4. PROCESS AJAX REQUESTS (ADD, EDIT, DELETE)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -84,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         if ($stmt->execute()) {
             if(!empty($project_name)) {
                 $leader_id = $_SESSION['user_id']; 
-                $proj_stmt = $conn->prepare("INSERT INTO projects (project_name, client_name, leader_id, status, priority, start_date) VALUES (?, ?, ?, 'Active', 'Medium', CURDATE())");
+                $proj_stmt = $conn->prepare("INSERT INTO projects (project_name, client_name, leader_id, status, priority, start_date, deadline) VALUES (?, ?, ?, 'Active', 'Medium', CURDATE(), DATE_ADD(CURDATE(), INTERVAL 30 DAY))");
                 $proj_stmt->bind_param("ssi", $project_name, $company, $leader_id);
                 $proj_stmt->execute();
                 $proj_stmt->close();
@@ -173,6 +158,18 @@ $clients = [];
 $client_query = "SELECT * FROM clients ORDER BY id DESC";
 $client_result = $conn->query($client_query);
 
+// MICROSECOND PERFORMANCE OPTIMIZATION: Fetch ALL projects in 1 single query instead of a slow loop
+$projects_map = [];
+$proj_result = $conn->query("SELECT client_name, project_name, progress FROM projects ORDER BY id DESC");
+if ($proj_result) {
+    while($prow = $proj_result->fetch_assoc()) {
+        $cname = $prow['client_name'];
+        if (!empty($cname) && !isset($projects_map[$cname])) {
+            $projects_map[$cname] = $prow;
+        }
+    }
+}
+
 if ($client_result) {
     while($row = $client_result->fetch_assoc()) {
         
@@ -207,20 +204,16 @@ if ($client_result) {
         }
         $row['avatar'] = $imgSource;
 
-        // Fetch associated project
+        // Fetch associated project (Ultra-fast Array Lookup)
         $proj_name = "No Active Project";
         $proj_progress = 0;
-        if(!empty($row['company']) && $row['company'] !== 'N/A') {
-            $pq = $conn->prepare("SELECT project_name, progress FROM projects WHERE client_name = ? LIMIT 1");
-            $pq->bind_param("s", $row['company']);
-            $pq->execute();
-            $pres = $pq->get_result();
-            if($prow = $pres->fetch_assoc()) {
-                $proj_name = $prow['project_name'];
-                $proj_progress = $prow['progress'];
-            }
-            $pq->close();
+        
+        $comp = $row['company'];
+        if($comp !== 'N/A' && isset($projects_map[$comp])) {
+            $proj_name = $projects_map[$comp]['project_name'];
+            $proj_progress = $projects_map[$comp]['progress'];
         }
+        
         $row['project_name'] = $proj_name;
         $row['project_progress'] = $proj_progress;
 
