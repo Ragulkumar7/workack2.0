@@ -76,7 +76,7 @@ $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
 $regular_shift_hours = 9;
 
 // =========================================================================
-// FETCH REPORTING MANAGER (ALICE HR MANAGER)
+// FETCH REPORTING MANAGER
 // =========================================================================
 $mgr_name = "Alice";
 $mgr_phone = "+91 9876543210";
@@ -325,11 +325,12 @@ function safe_count($conn, $query) {
 }
 $cand_count = safe_count($conn, "SELECT COUNT(*) as cnt FROM candidates");
 
-// Pending Jobs Logic Fixed
+// --- FIXED: Pending Jobs Logic ---
+// Adjusted JOIN to use manager_id instead of requested_by
 $job_reqs = [];
-$q_jobs_pending = "SELECT hr.*, ep.full_name as requester_name 
+$q_jobs_pending = "SELECT hr.*, u.name as requester_name 
                    FROM hiring_requests hr 
-                   LEFT JOIN employee_profiles ep ON hr.requested_by = ep.user_id 
+                   LEFT JOIN users u ON hr.manager_id = u.id 
                    WHERE hr.status = 'Pending' LIMIT 4";
 $r_jobs_pending = mysqli_query($conn, $q_jobs_pending);
 if($r_jobs_pending) {
@@ -338,7 +339,7 @@ if($r_jobs_pending) {
     }
 }
 
-// Active Jobs (Approved/In Progress)
+// --- FIXED: Active Jobs Logic ---
 $jobs_cond = "WHERE hr.status IN ('Approved', 'In Progress')";
 $jobs_query = "SELECT hr.*, u.name as requested_by 
                FROM hiring_requests hr 
@@ -659,7 +660,7 @@ $all_notifications = array_slice($all_notifications, 0, 10);
                                         <p class="text-sm font-bold text-slate-800 truncate pr-2"><i class="fa-solid <?= $j_icon ?> mr-1 text-blue-500"></i> <?= htmlspecialchars($req['job_title']); ?></p>
                                         <span class="text-[9px] font-bold px-2 py-0.5 <?= $j_status_bg ?> rounded uppercase"><?= htmlspecialchars($req['status']) ?></span>
                                     </div>
-                                    <p class="text-[10px] text-gray-500 font-medium mb-2">Req by: <?= htmlspecialchars($req['requested_by']); ?> • <?= htmlspecialchars($req['department']); ?></p>
+                                    <p class="text-[10px] text-gray-500 font-medium mb-2">Req by: <?= htmlspecialchars($req['requested_by'] ?? 'Unknown'); ?> • <?= htmlspecialchars($req['department']); ?></p>
                                     <div class="flex items-center gap-2 text-xs font-bold text-slate-600">
                                         <i class="fa-solid fa-users text-gray-400"></i> Openings: <span class="text-blue-600"><?= $req['vacancy_count']; ?></span>
                                     </div>
@@ -894,4 +895,4 @@ $all_notifications = array_slice($all_notifications, 0, 10);
         });
     </script>
 </body>
-</html> 
+</html>
