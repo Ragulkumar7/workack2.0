@@ -35,7 +35,7 @@ if (isset($_GET['dismiss_ticket'])) {
 }
 
 // -------------------------------------------------------------------------
-// 2. FETCH HR EXECUTIVE PROFILE DATA
+// 2. FETCH HR PROFILE DATA
 // -------------------------------------------------------------------------
 $employee_name = "HR Executive";
 $employee_role = "Human Resources";
@@ -46,6 +46,7 @@ $joining_date = "Not Set";
 $experience_label = "Fresher";
 $profile_img = "https://ui-avatars.com/api/?name=HR+Executive&background=0d9488&color=fff&size=128&bold=true";
 $shift_timings = '09:00 AM - 06:00 PM';
+$reporting_id = 0;
 
 $sql_profile = "SELECT u.username, u.email as u_email, ep.* FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?";
 $stmt_p = $conn->prepare($sql_profile);
@@ -60,6 +61,9 @@ if ($row = $stmt_p->get_result()->fetch_assoc()) {
     $experience_label = $row['experience_label'] ?? 'Fresher';
     $shift_timings = $row['shift_timings'] ?? $shift_timings;
     
+    // Grab Manager ID for later
+    $reporting_id = !empty($row['manager_id']) ? $row['manager_id'] : ($row['reporting_to'] ?? 0);
+    
     $joining_date = $row['joining_date'] ? date("d M Y", strtotime($row['joining_date'])) : "Not Set";
     if (!empty($row['profile_img']) && $row['profile_img'] !== 'default_user.png') {
         $profile_img = str_starts_with($row['profile_img'], 'http') ? $row['profile_img'] : $path_to_root . 'assets/profiles/' . $row['profile_img'];
@@ -72,10 +76,31 @@ $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
 $regular_shift_hours = 9;
 
 // =========================================================================
+// FETCH REPORTING MANAGER DATA (RESTORED FIX)
+// =========================================================================
+$mgr_name = "System Admin";
+$mgr_phone = "Not Assigned";
+$mgr_email = "admin@company.com";
+$mgr_role = "ADMINISTRATOR";
+
+if ($reporting_id > 0) {
+    $hm_sql = "SELECT p.full_name, p.phone, u.email, u.role FROM employee_profiles p JOIN users u ON p.user_id = u.id WHERE p.user_id = ?";
+    $hm_stmt = $conn->prepare($hm_sql);
+    $hm_stmt->bind_param("i", $reporting_id);
+    $hm_stmt->execute();
+    $hm_res = $hm_stmt->get_result();
+    if ($hm_info = $hm_res->fetch_assoc()) {
+        $mgr_name = !empty($hm_info['full_name']) ? $hm_info['full_name'] : "Manager";
+        $mgr_phone = !empty($hm_info['phone']) ? $hm_info['phone'] : "Not Set";
+        $mgr_email = !empty($hm_info['email']) ? $hm_info['email'] : "Not Set";
+        $mgr_role = strtoupper($hm_info['role'] ?? 'MANAGER'); 
+    }
+    $hm_stmt->close();
+}
+
+// =========================================================================
 // 3. ADVANCED TIME TRACKER (TODAY'S HOURS) & AJAX ACTIONS
 // =========================================================================
-
-// DEFAULT INITIALIZATION (Prevents Undefined Variable Errors)
 $total_seconds_today = 0; 
 $break_seconds_today = 0; 
 $productive_seconds_today = 0; 
@@ -254,6 +279,9 @@ $pending_wfh = safe_count($conn, "SELECT COUNT(*) as cnt FROM wfh_requests WHERE
 
 $total_hr_actions = $pending_leaves + $pending_jobs + $pending_swaps + $pending_wfh;
 
+// CANDIDATE COUNT RESTORED
+$cand_count = safe_count($conn, "SELECT COUNT(*) as cnt FROM candidates");
+
 // Department Mapping for Graph
 $dept_counts_query = "SELECT department, COUNT(id) as count FROM employee_profiles WHERE department IS NOT NULL AND department != '' AND status='Active' GROUP BY department";
 $dept_counts_result = mysqli_query($conn, $dept_counts_query);
@@ -283,8 +311,93 @@ foreach($mapped_depts as $label => $data) {
 }
 
 // =========================================================================
-// 5. LATE LOGINS & LOP TRACKER (COMPANY WIDE)
+// 5. MONTHLY STATS & LATE HOURS
 // =========================================================================
+$stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
+$total_late_seconds = 0;
+
+$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND MONTH(date) = ? AND YEAR(date) = ?";
+$stat_stmt = $conn->prepare($stat_sql);
+$stat_stmt->bind_param("iii", $current_user_id, $current_month, $current_year);
+$stat_stmt->execute();
+$stat_res = $stat_stmt->get_result();
+
+while ($stat_row = $stat_res->fetch_assoc()) {
+    $st = $stat_row['status'];
+    if (stripos($st, 'WFH') !== false) { 
+        $stats_wfh++; 
+    } elseif (stripos($st, 'Absent') !== false) { 
+        $stats_absent++; 
+    } elseif (stripos($st, 'Sick') !== false) { 
+        $stats_sick++; 
+    } else {
+        if (!empty($stat_row['punch_in'])) {
+            $expected_start_ts = strtotime($stat_row['date'] . ' ' . $shift_start_str);
+            $actual_start_ts = strtotime($stat_row['punch_in']);
+            
+            if ($actual_start_ts > ($expected_start_ts + 60)) { 
+                $stats_late++; 
+                $total_late_seconds += ($actual_start_ts - $expected_start_ts);
+            } else { 
+                $stats_ontime++; 
+            }
+        } else { 
+            $stats_absent++; 
+        }
+    }
+}
+$stat_stmt->close();
+
+$late_hours = floor($total_late_seconds / 3600);
+$late_minutes = floor(($total_late_seconds % 3600) / 60);
+$late_time_str = $late_hours . 'h ' . $late_minutes . 'm';
+
+$current_month_leaves = 0;
+$curr_leave_sql = "SELECT leave_type, SUM(total_days) as days FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND MONTH(start_date) = ? AND YEAR(start_date) = ? GROUP BY leave_type";
+$curr_leave_stmt = $conn->prepare($curr_leave_sql);
+$curr_leave_stmt->bind_param("iii", $current_user_id, $current_month, $current_year);
+$curr_leave_stmt->execute();
+$curr_leave_res = $curr_leave_stmt->get_result();
+
+while ($cl_row = $curr_leave_res->fetch_assoc()) {
+    $current_month_leaves += floatval($cl_row['days']);
+    if (stripos($cl_row['leave_type'], 'Sick') !== false) {
+        $stats_sick += floatval($cl_row['days']);
+    } else {
+        $stats_absent += floatval($cl_row['days']); 
+    }
+}
+$curr_leave_stmt->close();
+
+// LEAVE BALANCE
+$base_leaves_per_month = 2;
+$raw_join_date = $joining_date !== "Not Set" ? $row['joining_date'] : date('Y-m-01');
+$calc_join_date = date('Y-m-d', strtotime($raw_join_date));
+$display_join_month_year = date('M Y', strtotime($raw_join_date));
+
+$d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
+$d2 = new DateTime('now'); $d2->modify('first day of this month');
+
+$months_worked = 0;
+if ($d2 >= $d1) {
+    $interval = $d1->diff($d2);
+    $months_worked = ($interval->y * 12) + $interval->m + 1; 
+}
+$total_earned_leaves = $months_worked * $base_leaves_per_month;
+
+$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
+$leave_stmt = $conn->prepare($leave_sql);
+$leave_stmt->bind_param("i", $current_user_id);
+$leave_stmt->execute();
+$leave_data = $leave_stmt->get_result()->fetch_assoc();
+$leaves_taken = floatval($leave_data['taken'] ?? 0);
+
+$leaves_remaining = $total_earned_leaves - $leaves_taken;
+$display_leaves_remaining = ($leaves_remaining < 0) ? 0 : $leaves_remaining; 
+$lop_days = ($leaves_remaining < 0) ? abs($leaves_remaining) : 0;
+
+
+// LATE LOGINS & LOP TRACKER (COMPANY WIDE)
 $late_list = [];
 $late_q = $conn->query("SELECT ep.full_name, ep.department, a.punch_in FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE a.date = '$today' AND a.status = 'Late' ORDER BY a.punch_in DESC LIMIT 20");
 if($late_q) { while($r = $late_q->fetch_assoc()) $late_list[] = $r; }
@@ -306,9 +419,9 @@ if ($lop_q) {
     }
 }
 
-// Active Jobs
+// Active Jobs (Crash Proof Sorting by ID)
 $jobs_cond = "WHERE hr.status IN ('Approved', 'In Progress')";
-$jobs_query = "SELECT hr.*, u.name as requested_by FROM hiring_requests hr LEFT JOIN users u ON hr.manager_id = u.id $jobs_cond ORDER BY hr.created_at DESC LIMIT 5";
+$jobs_query = "SELECT hr.*, u.name as requested_by FROM hiring_requests hr LEFT JOIN users u ON hr.manager_id = u.id $jobs_cond ORDER BY hr.id DESC LIMIT 5";
 $jobs_res = mysqli_query($conn, $jobs_query);
 
 // =========================================================================
@@ -316,40 +429,46 @@ $jobs_res = mysqli_query($conn, $jobs_query);
 // =========================================================================
 $all_notifications = [];
 
-$q_leaves_pend = "SELECT lr.*, ep.full_name FROM leave_requests lr JOIN employee_profiles ep ON lr.user_id = ep.user_id WHERE lr.status = 'Pending' ORDER BY lr.created_at DESC LIMIT 6";
+// LEAVES
+$q_leaves_pend = "SELECT lr.*, ep.full_name FROM leave_requests lr JOIN employee_profiles ep ON lr.user_id = ep.user_id WHERE lr.status = 'Pending' ORDER BY lr.id DESC LIMIT 6";
 $r_leaves_pend = mysqli_query($conn, $q_leaves_pend);
 if($r_leaves_pend) {
     while($row = mysqli_fetch_assoc($r_leaves_pend)) {
         $all_notifications[] = [
             'title' => 'Leave Request',
             'message' => htmlspecialchars($row['full_name']) . ' requested ' . htmlspecialchars($row['leave_type']) . '.',
-            'time' => $row['created_at'], 'icon' => 'fa-plane-departure', 'color' => 'text-rose-600 bg-rose-100',
+            'time' => $row['created_at'] ?? $row['start_date'] ?? date('Y-m-d H:i:s'), 
+            'icon' => 'fa-plane-departure', 'color' => 'text-rose-600 bg-rose-100',
             'link' => '../leave_approval.php'
         ];
     }
 }
 
-$q_swaps_pend = "SELECT sr.*, ep.full_name FROM shift_swap_requests sr JOIN employee_profiles ep ON sr.user_id = ep.user_id WHERE sr.hr_approval = 'Pending' ORDER BY sr.created_at DESC LIMIT 6";
+// SHIFT SWAPS
+$q_swaps_pend = "SELECT sr.*, ep.full_name FROM shift_swap_requests sr JOIN employee_profiles ep ON sr.user_id = ep.user_id WHERE sr.hr_approval = 'Pending' ORDER BY sr.id DESC LIMIT 6";
 $r_swaps_pend = mysqli_query($conn, $q_swaps_pend);
 if($r_swaps_pend) {
     while($row = mysqli_fetch_assoc($r_swaps_pend)) {
         $all_notifications[] = [
             'title' => 'Shift Swap Request',
             'message' => htmlspecialchars($row['full_name']) . ' requested a shift swap.',
-            'time' => $row['created_at'], 'icon' => 'fa-people-arrows', 'color' => 'text-blue-600 bg-blue-100',
+            'time' => $row['created_at'] ?? $row['request_date'] ?? date('Y-m-d H:i:s'), 
+            'icon' => 'fa-people-arrows', 'color' => 'text-blue-600 bg-blue-100',
             'link' => '../shift_swap_approval_hr.php'
         ];
     }
 }
 
-$q_wfh_pend = "SELECT wr.*, ep.full_name FROM wfh_requests wr JOIN employee_profiles ep ON wr.user_id = ep.user_id WHERE wr.status = 'Pending' ORDER BY wr.created_at DESC LIMIT 6";
+// WORK FROM HOME
+$q_wfh_pend = "SELECT wr.*, ep.full_name FROM wfh_requests wr JOIN employee_profiles ep ON wr.user_id = ep.user_id WHERE wr.status = 'Pending' ORDER BY wr.id DESC LIMIT 6";
 $r_wfh_pend = mysqli_query($conn, $q_wfh_pend);
 if($r_wfh_pend) {
     while($row = mysqli_fetch_assoc($r_wfh_pend)) {
         $all_notifications[] = [
             'title' => 'WFH Request',
             'message' => htmlspecialchars($row['full_name']) . ' requested Work From Home.',
-            'time' => $row['created_at'], 'icon' => 'fa-house-laptop', 'color' => 'text-indigo-600 bg-indigo-100',
+            'time' => $row['created_at'] ?? $row['start_date'] ?? date('Y-m-d H:i:s'), 
+            'icon' => 'fa-house-laptop', 'color' => 'text-indigo-600 bg-indigo-100',
             'link' => '../work_from_home.php'
         ];
     }
@@ -398,7 +517,6 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         #mainContent { margin-left: 90px; width: calc(100% - 90px); transition: all 0.3s; padding: 24px; box-sizing: border-box; max-width: 1600px; margin-right: auto;}
         @media (max-width: 1024px) {
             #mainContent { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px;}
-            .col-span-12, .lg\:col-span-4, .lg\:col-span-8 { grid-column: span 12 !important; }
         }
 
         /* Progress ring SVG */
@@ -450,106 +568,64 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         <div class="dashboard-container">
 
             <div class="flex flex-col gap-6 w-full"> 
+                <?php include '../attendance_card.php'; ?>
+
                 
-                <div class="card border-teal-200 shrink-0">
-                    <div class="p-6 flex flex-col items-center w-full" id="attendanceCardWrapper">
-                        <div class="w-full flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
-                            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-fingerprint text-teal-600"></i> Punch Action</h3>
-                            <span class="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded"><?php echo date("d M Y"); ?></span>
+             <div class="card border-blue-200 shrink-0">
+                    <div class="p-6 flex flex-col h-full">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-briefcase text-blue-500"></i> Active Jobs
+                            </h3>
+                            <a href="jobs.php" class="bg-blue-50 text-blue-600 border border-blue-100 px-3 py-1 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-100 transition">Manage</a>
                         </div>
-
-                        <div class="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl mb-6 flex justify-between items-center">
-                            <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 rounded bg-teal-100 flex items-center justify-center text-teal-600"><i class="fa-solid fa-clock"></i></div>
-                                <div><p class="text-[9px] font-bold text-gray-400 uppercase">Shift</p><p class="text-xs font-bold text-slate-700">General</p></div>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-[9px] font-bold text-gray-400 uppercase">Timings</p>
-                                <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($shift_timings); ?></p>
-                            </div>
-                        </div>
-
-                        <div class="relative w-40 h-40 mb-6">
-                            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 176 176">
-                                <circle cx="88" cy="88" r="78" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
-                                <?php 
-                                    $pct = min(1, max(0, $total_seconds_today) / 32400); 
-                                    $circumference = 490; 
-                                    $dashoffset = $circumference - ($pct * $circumference);
-                                    $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
+                        
+                        <div class="grid grid-cols-1 gap-3 custom-scroll overflow-y-auto max-h-[350px] pr-2 flex-grow">
+                            <?php if(!empty($jobs_res) && mysqli_num_rows($jobs_res) > 0): ?>
+                                <?php while($req = mysqli_fetch_assoc($jobs_res)): 
+                                    $j_dept = strtolower($req['department']);
+                                    $j_icon = 'fa-briefcase'; 
+                                    if(strpos($j_dept, 'dev') !== false || strpos($j_dept, 'eng') !== false) { $j_icon = 'fa-code'; }
+                                    elseif(strpos($j_dept, 'sale') !== false || strpos($j_dept, 'market') !== false) { $j_icon = 'fa-chart-line'; }
+                                    elseif(strpos($j_dept, 'hr') !== false || strpos($j_dept, 'human') !== false) { $j_icon = 'fa-users'; }
+                                    elseif(strpos($j_dept, 'acc') !== false || strpos($j_dept, 'fin') !== false) { $j_icon = 'fa-file-invoice-dollar'; }
+                                    
+                                    $j_status_bg = 'bg-gray-100 text-gray-600';
+                                    if ($req['status'] == 'Approved') $j_status_bg = 'bg-teal-100 text-teal-700 border border-teal-200';
+                                    if ($req['status'] == 'In Progress') $j_status_bg = 'bg-blue-100 text-blue-700 border border-blue-200';
                                 ?>
-                                <circle cx="88" cy="88" r="78" stroke="<?php echo $ringColor; ?>" stroke-width="12" fill="transparent" 
-                                    stroke-dasharray="490" stroke-dashoffset="<?php echo ($attendance_record_today && $attendance_record_today['punch_out']) ? '0' : max(0, $dashoffset); ?>" 
-                                    stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
-                            </svg>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider"><?php echo $is_on_break ? 'WORK PAUSED' : 'TOTAL WORK'; ?></p>
-                                <p class="text-2xl font-black <?php echo $is_on_break ? 'text-gray-400' : 'text-slate-800'; ?>" id="liveTimer" 
-                                    data-running="<?php echo ($attendance_record_today && !$attendance_record_today['punch_out'] && !$is_on_break) ? 'true' : 'false'; ?>"
-                                    data-total="<?php echo $total_seconds_today; ?>">
-                                    <?php echo $total_hours_today; ?>
-                                </p>
-                                <?php if ($is_on_break): ?>
-                                    <div class="mt-1 flex items-center justify-center gap-1.5 text-amber-500 font-bold text-sm bg-amber-50 px-2 py-0.5 rounded-full animate-pulse">
-                                        <i class="fa-solid fa-mug-hot text-[10px]"></i>
-                                        <span id="breakTimer" data-break-running="true" data-break-total="<?php echo $display_break_seconds; ?>"><?php echo $break_time_str; ?></span>
+                                <div class="p-3 bg-white border border-gray-100 rounded-xl hover:shadow-md hover:border-blue-200 transition">
+                                    <div class="flex justify-between items-start mb-1">
+                                        <p class="text-sm font-bold text-slate-800 truncate pr-2"><i class="fa-solid <?= $j_icon ?> mr-1 text-blue-500"></i> <?= htmlspecialchars($req['job_title']); ?></p>
+                                        <span class="text-[8px] font-bold px-2 py-0.5 <?= $j_status_bg ?> rounded uppercase shrink-0"><?= htmlspecialchars($req['status']) ?></span>
                                     </div>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-
-                        <div class="w-full">
-                            <?php if (!$attendance_record_today): ?>
-                                <button type="button" onclick="punchAction('punch_in')" id="btnPunchIn" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
-                                    <i class="fa-solid fa-right-to-bracket"></i> Punch In
-                                </button>
-                            <?php elseif (!$attendance_record_today['punch_out']): ?>
-                                <div class="grid grid-cols-2 gap-3 w-full">
-                                    <?php if ($is_on_break): ?>
-                                        <button type="button" onclick="punchAction('end_break')" id="btnEndBreak" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
-                                            <i class="fa-solid fa-play"></i> Resume
-                                        </button>
-                                    <?php else: ?>
-                                        <button type="button" onclick="punchAction('take_break')" id="btnBreak" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
-                                            <i class="fa-solid fa-mug-hot"></i> Break
-                                        </button>
-                                    <?php endif; ?>
-                                    <button type="button" onclick="punchAction('punch_out')" id="btnPunchOut" class="bg-red-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
-                                        <i class="fa-solid fa-right-from-bracket"></i> Out
-                                    </button>
+                                    <div class="flex items-center justify-between mt-2">
+                                        <p class="text-[10px] text-gray-500 font-medium truncate">By: <?= htmlspecialchars($req['requested_by'] ?? 'Unknown'); ?></p>
+                                        <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded border">
+                                            <i class="fa-solid fa-users text-gray-400"></i> <span class="text-blue-600"><?= $req['vacancy_count']; ?></span>
+                                        </div>
+                                    </div>
                                 </div>
+                                <?php endwhile; ?>
                             <?php else: ?>
-                                <button disabled class="w-full bg-slate-100 text-slate-400 font-bold py-3 rounded-xl cursor-not-allowed flex justify-center items-center gap-2 border border-slate-200">
-                                    <i class="fa-solid fa-check-circle text-emerald-500"></i> Shift Completed
-                                </button>
+                                <div class="text-center py-8 text-slate-400">
+                                    <i class="fa-solid fa-check-double text-3xl mb-2 text-emerald-400 opacity-80"></i>
+                                    <p class="text-sm font-medium">No active job requests.</p>
+                                </div>
                             <?php endif; ?>
                         </div>
-
-                        <?php if($attendance_record_today): ?>
-                        <div class="w-full mt-4 flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
-                            <p class="text-[10px] text-gray-500 flex items-center gap-1">
-                                <i class="fa-solid fa-fingerprint text-teal-600"></i> In: <span class="font-bold text-slate-700"><?php echo $display_punch_in; ?></span>
-                            </p>
-                            <?php if($delay_text != ""): ?>
-                                <span class="text-[9px] font-bold px-2 py-1 border rounded <?php echo $delay_class; ?>"><?php echo $delay_text; ?></span>
-                            <?php endif; ?>
-                        </div>
-                        <?php endif; ?>
                     </div>
                 </div>
-
-            <div class="xl:col-span-3 space-y-6">
-                <div class="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm ring-1 ring-gray-100">
-                    <div class="bg-gradient-to-b from-teal-700 to-teal-800 p-6 flex flex-col items-center text-center relative">
-                        <div class="absolute top-4 right-4 flex gap-2">
-                            <a href="../settings.php" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
-                                <i class="fas fa-pencil-alt text-xs"></i>
-                            </a>
+                    <div class="card flex flex-col flex-grow">
+                    <div class="p-6 flex flex-col h-full">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg">Action Center</h3>
+                            <span class="text-[10px] text-teal-600 font-bold bg-teal-50 px-2 py-1 rounded uppercase border border-teal-100">Live Requests</span>
                         </div>
-                        <div class="space-y-3 custom-scroll overflow-y-auto h-[350px] pr-2">
+                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[350px] pr-2">
                             <?php if(!empty($all_notifications)): ?>
                                 <?php foreach($all_notifications as $notif): ?>
-                                <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm bg-white">
                                     <div class="w-8 h-8 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-xs shrink-0">
                                         <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
                                     </div>
@@ -585,12 +661,32 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                 
                 <div class="card shrink-0">
                     <div class="p-6">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                            <h3 class="font-bold text-lg text-slate-800">Department Overview</h3>
-                            <span class="text-[10px] text-teal-700 bg-teal-50 px-2 py-1 rounded-lg font-bold border border-teal-100">Live</span>
+                        <div class="flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
+                            <span class="text-[10px] font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded uppercase"><?php echo date('M Y'); ?></span>
                         </div>
-                        <div class="w-full h-[220px] relative flex justify-center">
-                            <div id="deptDonutChart" class="w-full h-full"></div>
+                        <div class="flex flex-col xl:flex-row items-center justify-between gap-6">
+                            <div class="space-y-3.5 w-full pr-2">
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div><span class="text-xs text-gray-600 font-semibold">On Time</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_ontime; ?></span></div>
+                                
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="text-xs text-gray-600 font-semibold">Late</span></div>
+                                    <div class="text-right">
+                                        <span class="font-bold text-slate-800 text-sm block"><?php echo $stats_late; ?></span>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div><span class="text-xs text-gray-600 font-semibold">WFH</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_wfh; ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-red-500"></div><span class="text-xs text-gray-600 font-semibold">Absent</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_absent; ?></span></div>
+                                
+                                <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                                    <div class="flex items-center gap-2"><i class="fa-solid fa-plane-departure text-rose-400 text-xs"></i><span class="text-xs text-slate-800 font-bold uppercase">Leaves Taken</span></div>
+                                    <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs"><?php echo $current_month_leaves; ?> Days</span>
+                                </div>
+                            </div>
+                            <div class="relative flex-shrink-0 w-28 h-28 mx-auto">
+                                <div id="attendanceChart" class="w-full h-full"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -652,14 +748,24 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                                 </div>
                             </div>
                         </div>
-
+                    </div>
+                </div>
+                
+                <div class="card shrink-0 mt-auto">
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                            <h3 class="font-bold text-lg text-slate-800">Department Overview</h3>
+                            <span class="text-[10px] text-teal-700 bg-teal-50 px-2 py-1 rounded-lg font-bold border border-teal-100">Live</span>
+                        </div>
+                        <div class="w-full h-[220px] relative flex justify-center">
+                            <div id="deptDonutChart" class="w-full h-full"></div>
+                        </div>
                     </div>
                 </div>
 
             </div>
 
             <div class="flex flex-col gap-6 w-full"> 
-                
                 <div class="card overflow-hidden shadow-sm border-slate-200 shrink-0">
                     <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative">
                         <div class="relative shrink-0">
@@ -671,93 +777,93 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                             <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5"><?php echo htmlspecialchars($employee_role); ?></p>
                             <span class="inline-block mt-2 bg-white/20 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/10">Verified HR</span>
                         </div>
-                    </div>
-                </div>
-
-                <div class="card border-blue-200 shrink-0">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-5 border-b border-blue-100 pb-3">
-                            <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-stopwatch text-blue-500 text-lg"></i> My Time Tracker</h3>
-                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded border border-gray-100">Today</span>
-                        </div>
-                        
-                        <div class="grid grid-cols-2 gap-4 mb-5">
-                            <div>
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 block"></span> Productive</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_prod; ?></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center justify-end gap-1"><span class="w-2 h-2 rounded-full bg-amber-400 block"></span> Break</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_break; ?></p>
-                            </div>
-                            <div>
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500 block"></span> Overtime</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_ot; ?></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1">Total Hours</p>
-                                <p class="text-lg font-black text-blue-600"><?php echo $str_total; ?></p>
-                            </div>
-                        </div>
-
-                        <div class="w-full bg-slate-100 rounded-full h-3 flex overflow-hidden mb-5 border border-slate-200/60 shadow-inner">
-                            <div class="bg-emerald-500 h-full transition-all" style="width: <?php echo $pct_prod; ?>%" title="Productive"></div>
-                            <div class="bg-amber-400 h-full transition-all" style="width: <?php echo $pct_break; ?>%" title="Break"></div>
-                            <div class="bg-blue-500 h-full transition-all" style="width: <?php echo $pct_ot; ?>%" title="Overtime"></div>
-                        </div>
-                        
-                        <div class="pt-4 border-t border-gray-100">
-                            <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">Total Overtime This Month</p>
-                            <div class="flex items-center justify-between bg-orange-50 border border-orange-100 p-3 rounded-lg">
-                                <span class="text-lg font-black text-orange-600"><?php echo $overtime_this_month; ?> <span class="text-xs font-bold text-orange-500">Hrs</span></span>
-                                <span class="text-[8px] bg-white text-orange-500 border border-orange-200 px-2 py-0.5 rounded font-black uppercase tracking-wider shadow-sm">My Target</span>
-                            </div>
+                        <div class="absolute top-4 right-4 flex gap-2">
+                            <a href="../settings.php" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
+                                <i class="fas fa-pencil-alt text-xs"></i>
+                            </a>
                         </div>
                     </div>
+                    
+                    <div class="p-6 space-y-4">
+                        <div class="flex flex-col gap-3">
+                            <div class="flex items-center gap-4 border border-slate-100 p-3 rounded-xl bg-slate-50 hover:bg-white transition">
+                                <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                    <i class="fa-solid fa-phone text-base"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Phone Number</p>
+                                    <p class="text-sm font-bold text-slate-800 mt-0.5"><?php echo htmlspecialchars($employee_phone); ?></p>
+                                </div>
+                            </div>
+                            
+                            <div class="flex items-center gap-4 border border-slate-100 p-3 rounded-xl bg-slate-50 hover:bg-white transition">
+                                <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                    <i class="fa-solid fa-envelope text-base"></i>
+                                </div>
+                                <div class="min-w-0 w-full">
+                                    <p class="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Email Address</p>
+                                    <p class="text-sm font-bold text-slate-800 mt-0.5 truncate w-full" title="<?php echo htmlspecialchars($employee_email); ?>">
+                                        <?php echo htmlspecialchars($employee_email); ?>
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr class="border-dashed border-gray-200 my-2">
+                        
+                        <div class="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                            <p class="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-2">Reporting To</p>
+                            
+                            <div class="flex items-center justify-between mb-2 gap-2">
+                                <p class="text-sm font-bold text-indigo-900 break-words leading-tight">
+                                    <?php echo htmlspecialchars($mgr_name); ?> 
+                                </p>
+                                <span class="text-[8px] font-black text-white bg-indigo-500 px-2 py-0.5 rounded tracking-wider shadow-sm shrink-0"><?php echo htmlspecialchars($mgr_role); ?></span>
+                            </div>
+                            
+                            <div class="flex flex-col gap-1.5 mt-2">
+                                <div class="flex items-center gap-2 text-xs text-indigo-700 font-medium">
+                                    <i class="fa-solid fa-phone w-4 text-center opacity-70"></i> <?php echo htmlspecialchars($mgr_phone); ?>
+                                </div>
+                                <div class="flex items-center gap-2 text-xs text-indigo-700 font-medium break-all leading-tight">
+                                    <i class="fa-solid fa-envelope w-4 text-center opacity-70 mt-0.5"></i> <?php echo htmlspecialchars($mgr_email); ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
+                
+               
 
-                <div class="card border-blue-200 flex-grow">
+           
+
+                <div class="card flex flex-col shrink-0 mt-auto">
                     <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
-                                <i class="fa-solid fa-briefcase text-blue-500"></i> Active Jobs
-                            </h3>
-                            <a href="jobs.php" class="bg-blue-50 text-blue-600 border border-blue-100 px-3 py-1 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-100 transition">Manage</a>
+                            <h3 class="font-bold text-slate-800 text-lg">Recruitment Metrics</h3>
+                            <span class="text-[10px] text-gray-500 bg-gray-100 px-2 py-1 rounded font-bold border border-gray-200">This Month</span>
                         </div>
                         
-                        <div class="grid grid-cols-1 gap-3 custom-scroll overflow-y-auto max-h-[350px] pr-2 flex-grow">
-                            <?php if(!empty($jobs_res) && mysqli_num_rows($jobs_res) > 0): ?>
-                                <?php while($req = mysqli_fetch_assoc($jobs_res)): 
-                                    $j_dept = strtolower($req['department']);
-                                    $j_icon = 'fa-briefcase'; 
-                                    if(strpos($j_dept, 'dev') !== false || strpos($j_dept, 'eng') !== false) { $j_icon = 'fa-code'; }
-                                    elseif(strpos($j_dept, 'sale') !== false || strpos($j_dept, 'market') !== false) { $j_icon = 'fa-chart-line'; }
-                                    elseif(strpos($j_dept, 'hr') !== false || strpos($j_dept, 'human') !== false) { $j_icon = 'fa-users'; }
-                                    elseif(strpos($j_dept, 'acc') !== false || strpos($j_dept, 'fin') !== false) { $j_icon = 'fa-file-invoice-dollar'; }
-                                    
-                                    $j_status_bg = 'bg-gray-100 text-gray-600';
-                                    if ($req['status'] == 'Approved') $j_status_bg = 'bg-teal-100 text-teal-700 border border-teal-200';
-                                    if ($req['status'] == 'In Progress') $j_status_bg = 'bg-blue-100 text-blue-700 border border-blue-200';
-                                ?>
-                                <div class="p-3 bg-white border border-gray-100 rounded-xl hover:shadow-md hover:border-blue-200 transition">
-                                    <div class="flex justify-between items-start mb-1">
-                                        <p class="text-sm font-bold text-slate-800 truncate pr-2"><i class="fa-solid <?= $j_icon ?> mr-1 text-blue-500"></i> <?= htmlspecialchars($req['job_title']); ?></p>
-                                        <span class="text-[8px] font-bold px-2 py-0.5 <?= $j_status_bg ?> rounded uppercase shrink-0"><?= htmlspecialchars($req['status']) ?></span>
-                                    </div>
-                                    <div class="flex items-center justify-between mt-2">
-                                        <p class="text-[10px] text-gray-500 font-medium truncate">By: <?= htmlspecialchars($req['requested_by']); ?></p>
-                                        <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-600 bg-slate-50 px-2 py-0.5 rounded border">
-                                            <i class="fa-solid fa-users text-gray-400"></i> <span class="text-blue-600"><?= $req['vacancy_count']; ?></span>
-                                        </div>
-                                    </div>
+                        <div class="flex justify-around bg-slate-50 rounded-xl p-3 mb-4 border border-slate-100 shrink-0">
+                            <div class="text-center">
+                                <span class="text-[10px] text-gray-500 font-bold uppercase block mb-1">Offer Acceptance</span>
+                                <span class="text-lg font-black text-slate-800">74.4%</span>
+                            </div>
+                            <div class="w-px bg-gray-200 mx-2"></div>
+                            <div class="text-center">
+                                <span class="text-[10px] text-gray-500 font-bold uppercase block mb-1">Overall Hire Rate</span>
+                                <span class="text-lg font-black text-slate-800">12.7%</span>
+                            </div>
+                        </div>
+                        
+                        <div class="relative flex justify-center flex-grow items-center w-full min-h-[200px]">
+                            <div class="w-48 h-48 relative">
+                                <canvas id="gaugeChart"></canvas>
+                                <div class="absolute inset-0 flex flex-col items-center justify-center pt-8">
+                                    <p class="text-3xl font-black text-slate-800"><?= $cand_count ?></p>
+                                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Applications</p>
                                 </div>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <div class="text-center py-8 text-slate-400">
-                                    <i class="fa-solid fa-check-double text-3xl mb-2 text-emerald-400 opacity-80"></i>
-                                    <p class="text-sm font-medium">No active job requests.</p>
-                                </div>
-                            <?php endif; ?>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -894,6 +1000,31 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                 document.querySelector("#deptDonutChart").innerHTML = "<p class='text-center text-xs text-gray-400 mt-10'>No department data to display.</p>";
             }
         });
+        
+        // GAUGE CHART
+        const gaugeCtx = document.getElementById('gaugeChart')?.getContext('2d');
+        if (gaugeCtx) {
+            new Chart(gaugeCtx, {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [74.4, 25.6],
+                        backgroundColor: ['#0f766e', '#f1f5f9'],
+                        borderWidth: 0,
+                        circumference: 180,
+                        rotation: 270,
+                        borderRadius: 8,
+                        cutout: '80%'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                    layout: { padding: 0 }
+                }
+            });
+        }
     </script>
 </body>
 </html>
