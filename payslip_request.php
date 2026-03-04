@@ -23,7 +23,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 $current_user_id = $_SESSION['user_id'];
 
-// --- 2. SECURE FILE DOWNLOAD LOGIC (FIXED) ---
+// --- 2. SECURE FILE DOWNLOAD LOGIC ---
 if (isset($_GET['download_file'])) {
     // Extract just the filename to prevent directory traversal attacks
     $filename = basename(urldecode($_GET['download_file']));
@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_request'])) {
     }
 }
 
-// --- 4. FETCH REQUEST HISTORY ---
+// --- 4. FETCH REQUEST HISTORY (Supports Multiple Files) ---
 $requests = [];
 $query = "SELECT * FROM payslip_requests WHERE user_id = ? ORDER BY requested_date DESC";
 $stmt = $conn->prepare($query);
@@ -85,14 +85,25 @@ $result = $stmt->get_result();
 
 while ($row = $result->fetch_assoc()) {
     $reply_text = $row['accounts_reply'];
-    $file_url = null;
+    $files = [];
     
-    // Check if the reply contains the attached file path
-    if ($row['status'] === 'Sent' && strpos($reply_text, 'Payslip Attached:') !== false) {
-        $parts = explode('Payslip Attached: ', $reply_text);
-        if (isset($parts[1])) {
-            $file_url = trim($parts[1]); 
-            $reply_text = "Your payslip is ready.";
+    if ($row['status'] === 'Sent') {
+        // Handle new JSON array format of multiple files
+        if (!empty($row['attached_file'])) {
+            $decoded = json_decode($row['attached_file'], true);
+            if (is_array($decoded)) {
+                $files = $decoded;
+            } else {
+                $files = [$row['attached_file']];
+            }
+        } 
+        // Legacy fallback just in case old records exist
+        elseif (strpos($reply_text, 'Payslip Attached:') !== false) {
+            $parts = explode('Payslip Attached: ', $reply_text);
+            if (isset($parts[1])) {
+                $files = [trim($parts[1])];
+                $reply_text = trim($parts[0]);
+            }
         }
     }
 
@@ -102,8 +113,8 @@ while ($row = $result->fetch_assoc()) {
         'period' => date('M Y', strtotime($row['from_date'])),
         'priority' => $row['priority'],
         'status' => $row['status'],
-        'reply' => $reply_text,
-        'file_url' => $file_url
+        'reply' => empty($reply_text) ? 'Request processed successfully.' : $reply_text,
+        'files' => $files
     ];
 }
 ?>
@@ -148,6 +159,17 @@ while ($row = $result->fetch_assoc()) {
         .status-Rejected { background: #fee2e2; color: #b91c1c; border-color: #fca5a5; }
         
         .fade-out { opacity: 0; transition: opacity 0.5s ease-out; }
+
+        /* Modal Styles */
+        .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); display: none; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(4px); }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
+        .modal-content { background: white; border-radius: 16px; width: 100%; max-width: 500px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); max-height: 90vh; display: flex; flex-direction: column; }
+        
+        /* Custom Scrollbar */
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 8px;}
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body>
@@ -160,7 +182,7 @@ while ($row = $result->fetch_assoc()) {
         <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4">
             <div>
                 <h1 class="text-2xl md:text-3xl font-extrabold text-slate-800 tracking-tight">My Payslip Requests</h1>
-                <p class="text-sm text-slate-500 mt-2 font-medium">Track your requested salary slips and download generated PDFs.</p>
+                <p class="text-sm text-slate-500 mt-2 font-medium">Track your requested salary slips and securely download generated PDFs.</p>
             </div>
             <button onclick="openModal('requestModal')" class="bg-primary hover:bg-primaryHover text-white px-6 py-3 rounded-xl text-sm font-bold shadow-lg shadow-primary/20 transition-all flex items-center gap-2 w-full md:w-auto justify-center">
                 <i class="ph-bold ph-plus"></i> New Request
@@ -199,19 +221,19 @@ while ($row = $result->fetch_assoc()) {
                         <?php else: foreach($requests as $req): ?>
                         <tr class="hover:bg-slate-50/50 transition-colors">
                             <td class="px-6 py-5">
-                                <div class="font-bold text-slate-800 text-base"><?php echo $req['id']; ?></div>
+                                <div class="font-bold text-slate-800 text-base"><?php echo htmlspecialchars($req['id']); ?></div>
                                 <div class="text-[11px] text-slate-400 font-medium uppercase tracking-tight mt-1">Submitted: <?php echo $req['date']; ?></div>
                             </td>
                             <td class="px-6 py-5 text-center font-bold text-slate-600">
                                 <?php echo $req['period']; ?>
                             </td>
                             <td class="px-6 py-5 text-center">
-                                <span class="badge badge-<?php echo $req['priority']; ?>"><?php echo $req['priority']; ?></span>
+                                <span class="badge badge-<?php echo htmlspecialchars($req['priority']); ?>"><?php echo htmlspecialchars($req['priority']); ?></span>
                             </td>
                             <td class="px-6 py-5 text-center">
                                 <?php 
                                     $s = $req['status'];
-                                    $s_class = str_replace(' ', '\ ', $s); // Handle spaces for CSS class
+                                    $s_class = str_replace(' ', '\ ', $s); 
                                     if($s == 'Pending') echo '<span class="badge status-Pending">Processing</span>';
                                     elseif($s == 'Pending CFO Approval') echo '<span class="badge status-Pending\ CFO\ Approval">Awaiting Approval</span>';
                                     elseif($s == 'Approved') echo '<span class="badge status-Approved">Authorized</span>';
@@ -223,12 +245,19 @@ while ($row = $result->fetch_assoc()) {
                                 <?php echo htmlspecialchars($req['reply'] ?: 'Awaiting review from accounts...'); ?>
                             </td>
                             <td class="px-6 py-5 text-right">
-                                <?php if($req['file_url']): ?>
-                                    <a href="?download_file=<?php echo urlencode($req['file_url']); ?>" class="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all shadow-sm">
-                                        <i class="ph-bold ph-download-simple text-lg"></i> Download PDF
-                                    </a>
+                                <?php if(!empty($req['files'])): ?>
+                                    <?php if(count($req['files']) == 1): ?>
+                                        <a href="?download_file=<?php echo urlencode($req['files'][0]); ?>" class="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all shadow-sm">
+                                            <i class="ph-bold ph-download-simple text-lg"></i> Download PDF
+                                        </a>
+                                    <?php else: ?>
+                                        <?php $filesJson = htmlspecialchars(json_encode($req['files']), ENT_QUOTES, 'UTF-8'); ?>
+                                        <button onclick="viewAttachments(<?= $filesJson ?>)" class="inline-flex items-center gap-2 bg-indigo-50 text-indigo-700 border border-indigo-200 px-4 py-2.5 rounded-lg text-xs font-bold hover:bg-indigo-600 hover:text-white hover:border-indigo-600 transition-all shadow-sm">
+                                            <i class="ph-bold ph-files text-lg"></i> View Slips (<?= count($req['files']) ?>)
+                                        </button>
+                                    <?php endif; ?>
                                 <?php elseif($s == 'Approved'): ?>
-                                    <span class="text-xs font-bold text-teal-600 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-100">Generating PDF...</span>
+                                    <span class="text-xs font-bold text-teal-600 bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-100">Processing...</span>
                                 <?php else: ?>
                                     <span class="text-xs text-slate-400 font-medium">—</span>
                                 <?php endif; ?>
@@ -241,7 +270,7 @@ while ($row = $result->fetch_assoc()) {
         </div>
     </main>
 
-    <div id="requestModal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+    <div id="requestModal" class="hidden modal-overlay">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all">
             <div class="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                 <h3 class="font-extrabold text-lg text-slate-800 flex items-center gap-2"><i class="ph-fill ph-file-plus text-primary"></i> Request Payslip</h3>
@@ -284,9 +313,31 @@ while ($row = $result->fetch_assoc()) {
         </div>
     </div>
 
+    <div class="modal-overlay" id="viewAttachmentsModal">
+        <div class="modal-content">
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-2xl flex-shrink-0">
+                <div class="flex items-center gap-3">
+                    <div class="bg-indigo-100 p-2.5 rounded-xl text-indigo-700"><i class="ph-fill ph-files text-2xl"></i></div>
+                    <h3 class="text-lg font-black text-slate-800">Your Requested Payslips</h3>
+                </div>
+                <button onclick="closeAttachmentsModal()" class="text-slate-400 hover:text-red-500 text-xl transition-colors"><i class="ph-bold ph-x"></i></button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto custom-scroll flex-grow">
+                <div id="attachmentsList" class="flex flex-col gap-3">
+                    </div>
+            </div>
+            
+            <div class="p-4 border-t border-slate-100 bg-slate-50 flex justify-end rounded-b-2xl flex-shrink-0">
+                <button onclick="closeAttachmentsModal()" class="px-5 py-2.5 text-sm font-bold text-slate-600 bg-slate-200 hover:bg-slate-300 rounded-xl transition">Close Viewer</button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
-        function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+        // Request Form Modal logic
+        function openModal(id) { document.getElementById(id).classList.remove('hidden'); document.getElementById(id).classList.add('active'); }
+        function closeModal(id) { document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('active'); }
 
         // Fade Out Alert Logic
         window.onload = function() {
@@ -294,12 +345,43 @@ while ($row = $result->fetch_assoc()) {
             if (successAlert) {
                 setTimeout(() => {
                     successAlert.classList.add('fade-out');
-                    setTimeout(() => {
-                        successAlert.style.display = 'none';
-                    }, 500); 
+                    setTimeout(() => { successAlert.style.display = 'none'; }, 500); 
                 }, 4000); 
             }
         };
+
+        // Multi-Attachment Viewer Modal Logic
+        function viewAttachments(filesArray) {
+            const list = document.getElementById('attachmentsList');
+            list.innerHTML = '';
+            
+            filesArray.forEach((filePath, index) => {
+                // Extract clean filename
+                let displayFileName = filePath.split('/').pop();
+                // We encode the path and pass it to our PHP download handler
+                let downloadUrl = "?download_file=" + encodeURIComponent(filePath);
+                
+                list.innerHTML += `
+                    <a href="${downloadUrl}" class="flex items-center gap-4 p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-400 hover:shadow-md transition-all group">
+                        <div class="bg-indigo-50 p-3 rounded-lg text-indigo-500 group-hover:bg-indigo-100 transition-colors">
+                            <i class="ph-fill ph-file-pdf text-2xl"></i>
+                        </div>
+                        <div class="flex-1 overflow-hidden">
+                            <h4 class="text-sm font-bold text-slate-800 truncate">Payslip Document ${index + 1}</h4>
+                            <p class="text-xs font-medium text-slate-500 truncate mt-0.5">${displayFileName}</p>
+                        </div>
+                        <div class="text-indigo-600 font-bold text-xs bg-indigo-50 px-3 py-1.5 rounded-lg flex items-center gap-1 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                            Download <i class="ph-bold ph-download-simple"></i>
+                        </div>
+                    </a>
+                `;
+            });
+            
+            document.getElementById('viewAttachmentsModal').classList.add('active');
+        }
+        function closeAttachmentsModal() {
+            document.getElementById('viewAttachmentsModal').classList.remove('active');
+        }
     </script>
 </body>
 </html>

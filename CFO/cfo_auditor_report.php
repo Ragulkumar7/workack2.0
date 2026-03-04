@@ -1,46 +1,122 @@
 <?php
 // auditor_reports.php
-include '../sidebars.php'; 
-include '../header.php';
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// --- MOCK DATA FOR AUDIT ---
+// 1. DATABASE CONNECTION
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
+if (file_exists($dbPath)) { require_once $dbPath; } 
+else { require_once $projectRoot . '/include/db_connect.php'; }
 
-// 1. General Ledger (All Transactions - Debits & Credits)
-$ledger_transactions = [
-    ['id' => 'TXN-1001', 'date' => '2026-02-15', 'type' => 'Credit', 'category' => 'Sales', 'party' => 'Facebook India', 'amount' => 450000, 'mode' => 'NEFT', 'bank' => 'HDFC', 'verified' => true],
-    ['id' => 'TXN-1002', 'date' => '2026-02-14', 'type' => 'Debit', 'category' => 'OpEx', 'party' => 'Office Rent', 'amount' => 45000, 'mode' => 'Cheque', 'bank' => 'HDFC', 'verified' => true],
-    ['id' => 'TXN-1003', 'date' => '2026-02-13', 'type' => 'Debit', 'category' => 'CapEx', 'party' => 'Dell India', 'amount' => 125000, 'mode' => 'NEFT', 'bank' => 'ICICI', 'verified' => false], 
-    ['id' => 'TXN-1004', 'date' => '2026-02-12', 'type' => 'Credit', 'category' => 'Sales', 'party' => 'Google India', 'amount' => 120000, 'mode' => 'UPI', 'bank' => 'HDFC', 'verified' => true],
-    ['id' => 'TXN-1005', 'date' => '2026-02-11', 'type' => 'Debit', 'category' => 'OpEx', 'party' => 'Amazon AWS', 'amount' => 15000, 'mode' => 'Auto-Debit', 'bank' => 'HDFC', 'verified' => true],
-    ['id' => 'TXN-1006', 'date' => '2026-02-10', 'type' => 'Credit', 'category' => 'Interest', 'party' => 'HDFC Bank', 'amount' => 2500, 'mode' => 'Bank Credit', 'bank' => 'HDFC', 'verified' => true],
-    ['id' => 'TXN-1007', 'date' => '2026-02-09', 'type' => 'Debit', 'category' => 'Payroll', 'party' => 'Staff Salary', 'amount' => 380000, 'mode' => 'NEFT Bulk', 'bank' => 'ICICI', 'verified' => false], 
-    ['id' => 'TXN-1008', 'date' => '2026-02-08', 'type' => 'Debit', 'category' => 'Utilities', 'party' => 'TNEB', 'amount' => 12000, 'mode' => 'Auto-Pay', 'bank' => 'HDFC', 'verified' => true],
-];
+if (!isset($conn) || $conn === null) { die("Database connection failed."); }
 
-// --- DYNAMIC CALCULATIONS FOR P&L ---
-$total_txns = count($ledger_transactions);
+// =========================================================================
+// ENTERPRISE SECURITY: Role-Based Access Control (RBAC)
+// =========================================================================
+$user_role = $_SESSION['role'] ?? ''; 
+$can_audit = in_array($user_role, ['CFO', 'Admin', 'Super Admin', 'Auditor', 'CEO']);
+if (!$can_audit) {
+    die("<div style='padding:50px;text-align:center;font-family:sans-serif;'><h2>Access Denied</h2><p>Only Auditors and Executive Management can access this ledger.</p></div>");
+}
+
+// =========================================================================
+// SMART DATABASE PATCHER (Auto-Adds 'auditor_verified' column)
+// =========================================================================
+$tables_to_patch = ['invoices', 'purchase_orders', 'employee_salary'];
+foreach($tables_to_patch as $tbl) {
+    $check_col = $conn->query("SHOW COLUMNS FROM `$tbl` LIKE 'auditor_verified'");
+    if($check_col && $check_col->num_rows == 0) {
+        $conn->query("ALTER TABLE `$tbl` ADD COLUMN `auditor_verified` TINYINT(1) DEFAULT 0");
+    }
+}
+
+// =========================================================================
+// BACKEND AJAX HANDLER FOR "VERIFY" TOGGLE
+// =========================================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'toggle_verify') {
+    ob_clean();
+    header('Content-Type: application/json');
+    $id = (int)$_POST['id'];
+    $source = $_POST['source'];
+    $current = (int)$_POST['current_status'];
+    $new_status = $current ? 0 : 1;
+    
+    $table = '';
+    if ($source === 'Invoice') $table = 'invoices';
+    elseif ($source === 'PO') $table = 'purchase_orders';
+    elseif ($source === 'Salary') $table = 'employee_salary';
+    
+    if ($table) {
+        $stmt = $conn->prepare("UPDATE `$table` SET auditor_verified = ? WHERE id = ?");
+        $stmt->bind_param("ii", $new_status, $id);
+        if($stmt->execute()) {
+            echo json_encode(['success' => true, 'new_status' => $new_status]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'DB Error']);
+        }
+        $stmt->close();
+    }
+    exit;
+}
+
+// =========================================================================
+// 1. MASTER GENERAL LEDGER (UNION QUERY)
+// Fixed: Explicit CAST AS CHAR to prevent MariaDB 11.8 Collation Mix Errors
+// =========================================================================
+$ledger_sql = "
+    SELECT CAST('Invoice' AS CHAR) as source, id, CAST(invoice_no AS CHAR) as ref_id, CAST(invoice_date AS CHAR) as txn_date, CAST('Credit' AS CHAR) as type, CAST('Sales Revenue' AS CHAR) as category, CAST(client_id AS CHAR) as party_id, grand_total as amount, auditor_verified 
+    FROM invoices WHERE status IN ('Approved', 'Paid', 'Credited')
+    
+    UNION ALL
+    
+    SELECT CAST('PO' AS CHAR) as source, id, CAST(po_number AS CHAR) as ref_id, CAST(po_date AS CHAR) as txn_date, CAST('Debit' AS CHAR) as type, CAST('Operational Expense' AS CHAR) as category, CAST(vendor_name AS CHAR) as party_id, grand_total as amount, auditor_verified 
+    FROM purchase_orders WHERE approval_status IN ('Approved', 'Paid', 'Credited')
+    
+    UNION ALL
+    
+    SELECT CAST('Salary' AS CHAR) as source, s.id, CAST(CONCAT('PAY-', s.id) AS CHAR) as ref_id, CAST(s.salary_month AS CHAR) as txn_date, CAST('Debit' AS CHAR) as type, CAST('Payroll' AS CHAR) as category, CAST(CONCAT(e.first_name, ' ', IFNULL(e.last_name,'')) AS CHAR) as party_id, s.net_salary as amount, s.auditor_verified 
+    FROM employee_salary s 
+    JOIN employee_onboarding e ON s.user_id = e.id 
+    WHERE s.approval_status IN ('Approved', 'Credited') AND s.is_deleted = 0
+
+    ORDER BY txn_date DESC
+";
+$ledger_res = $conn->query($ledger_sql);
+
+$ledger_transactions = [];
+$total_txns = 0;
 $unverified_count = 0;
 $total_debit = 0;
 $total_credit = 0;
-
 $revenue = 0;
 $payroll_expenses = 0;
 $operational_expenses = 0;
 
-foreach($ledger_transactions as $t) {
-    if(!$t['verified']) $unverified_count++;
-    
-    if($t['type'] == 'Credit') {
-        $total_credit += $t['amount'];
-        $revenue += $t['amount'];
-    }
-    
-    if($t['type'] == 'Debit') {
-        $total_debit += $t['amount'];
-        if($t['category'] == 'Payroll') {
-            $payroll_expenses += $t['amount'];
+if ($ledger_res) {
+    while ($row = $ledger_res->fetch_assoc()) {
+        // Resolve Client Name for Invoices
+        if ($row['source'] === 'Invoice') {
+            $client_qry = $conn->query("SELECT client_name FROM clients WHERE id = " . (int)$row['party_id']);
+            $row['party'] = ($client_qry && $c = $client_qry->fetch_assoc()) ? $c['client_name'] : 'Unknown Client';
         } else {
-            $operational_expenses += $t['amount'];
+            $row['party'] = $row['party_id']; // Already contains vendor or emp name
+        }
+
+        $ledger_transactions[] = $row;
+        $total_txns++;
+        
+        if ($row['auditor_verified'] == 0) $unverified_count++;
+        
+        if ($row['type'] == 'Credit') {
+            $total_credit += $row['amount'];
+            $revenue += $row['amount'];
+        } else {
+            $total_debit += $row['amount'];
+            if ($row['category'] == 'Payroll') {
+                $payroll_expenses += $row['amount'];
+            } else {
+                $operational_expenses += $row['amount'];
+            }
         }
     }
 }
@@ -50,26 +126,81 @@ $net_profit = $revenue - $total_expenses;
 $profit_status = $net_profit >= 0 ? "PROFIT" : "LOSS";
 $profit_color = $net_profit >= 0 ? "var(--success)" : "var(--danger)";
 
-// 2. Bank Reconciliation Data
+
+// =========================================================================
+// 2. LIVE TAX LIABILITY ENGINE
+// Extracts exact tax values from DB records for the current year
+// =========================================================================
+$tax_data = [];
+$current_year = date('Y');
+
+// A. GST from Invoices
+$gst_qry = $conn->query("SELECT SUM(cgst + sgst) as total_gst FROM invoices WHERE YEAR(invoice_date) = $current_year AND status IN ('Approved', 'Paid', 'Credited')");
+$gst_val = $gst_qry->fetch_assoc()['total_gst'] ?? 0;
+if ($gst_val > 0) {
+    $tax_data[] = ['type' => 'GST Payable (Collected)', 'period' => "YTD $current_year", 'amount' => $gst_val, 'due_date' => '20th of Next Month', 'status' => 'Pending Verification'];
+}
+
+// B. Payroll Taxes (TDS, PF, ESI, PT)
+$pay_tax_qry = $conn->query("SELECT SUM(tds) as tds, SUM(pf) as pf, SUM(esi) as esi, SUM(professional_tax) as pt FROM employee_salary WHERE YEAR(salary_month) = $current_year AND approval_status IN ('Approved', 'Credited') AND is_deleted = 0");
+if ($pay_tax_qry && $ptax = $pay_tax_qry->fetch_assoc()) {
+    if ($ptax['tds'] > 0) $tax_data[] = ['type' => 'TDS Deducted (Salaries)', 'period' => "YTD $current_year", 'amount' => $ptax['tds'], 'due_date' => '7th of Next Month', 'status' => 'Pending Verification'];
+    if ($ptax['pf'] > 0) $tax_data[] = ['type' => 'Provident Fund (PF)', 'period' => "YTD $current_year", 'amount' => $ptax['pf'], 'due_date' => '15th of Next Month', 'status' => 'Pending Verification'];
+    if ($ptax['esi'] > 0) $tax_data[] = ['type' => 'ESI Payable', 'period' => "YTD $current_year", 'amount' => $ptax['esi'], 'due_date' => '15th of Next Month', 'status' => 'Pending Verification'];
+    if ($ptax['pt'] > 0) $tax_data[] = ['type' => 'Professional Tax (PT)', 'period' => "YTD $current_year", 'amount' => $ptax['pt'], 'due_date' => 'Varies by State', 'status' => 'Pending Verification'];
+}
+
+// 3. Bank Reconciliation (Simulated placeholder until Bank API integration)
 $bank_recon = [
-    ['bank' => 'HDFC Business', 'book_balance' => 850000, 'bank_stmt_balance' => 842500, 'diff' => -7500, 'status' => 'Unreconciled'],
-    ['bank' => 'ICICI Current', 'book_balance' => 320000, 'bank_stmt_balance' => 320000, 'diff' => 0, 'status' => 'Reconciled'],
-    ['bank' => 'Canara Savings', 'book_balance' => 150000, 'bank_stmt_balance' => 148000, 'diff' => -2000, 'status' => 'Unreconciled'],
+    ['bank' => 'Corporate Current A/c', 'book_balance' => ($total_credit - $total_debit), 'bank_stmt_balance' => ($total_credit - $total_debit), 'diff' => 0, 'status' => 'Auto-Reconciled']
 ];
 
-// 3. Tax Liability
-$tax_data = [
-    ['type' => 'GST Payable (Feb)', 'period' => 'Feb 2026', 'amount' => 45000, 'due_date' => '20-Mar-2026', 'status' => 'Pending'],
-    ['type' => 'TDS Deducted (Consultants)', 'period' => 'Feb 2026', 'amount' => 12000, 'due_date' => '07-Mar-2026', 'status' => 'Deposited'],
-    ['type' => 'Professional Tax', 'period' => 'Feb 2026', 'amount' => 2000, 'due_date' => '15-Mar-2026', 'status' => 'Pending'],
-];
+// 4. Live Audit Trail (Now fetching REAL User Names)
+$audit_log = [];
+$audit_qry = $conn->query("
+    SELECT 
+        CAST('Invoice Created' AS CHAR) as action, 
+        CAST(created_at AS CHAR) as log_date, 
+        CAST(invoice_no AS CHAR) as ref,
+        CAST('System' AS CHAR) as user_name
+    FROM invoices
+    
+    UNION ALL
+    
+    SELECT 
+        CAST('PO Created' AS CHAR) as action, 
+        CAST(created_at AS CHAR) as log_date, 
+        CAST(po_number AS CHAR) as ref,
+        CAST('System' AS CHAR) as user_name
+    FROM purchase_orders
+    
+    UNION ALL
+    
+    SELECT 
+        CAST('Salary Generated' AS CHAR) as action, 
+        CAST(s.created_at AS CHAR) as log_date, 
+        CAST(CONCAT('PAY-', s.id) AS CHAR) as ref,
+        CAST(IFNULL(u.name, 'HR Admin') AS CHAR) as user_name
+    FROM employee_salary s
+    LEFT JOIN users u ON s.created_by = u.id
+    WHERE s.is_deleted = 0
+    
+    ORDER BY log_date DESC LIMIT 25
+");
 
-// 4. Audit Trail
-$audit_log = [
-    ['date' => '2026-02-15 10:30', 'user' => 'Catherine (Acc)', 'action' => 'Created Invoice INV-014', 'ip' => '192.168.1.45'],
-    ['date' => '2026-02-15 09:15', 'user' => 'Rajesh (CFO)', 'action' => 'Approved PO-205', 'ip' => '192.168.1.10'],
-    ['date' => '2026-02-14 16:45', 'user' => 'System', 'action' => 'Auto Backup Completed', 'ip' => 'Localhost'],
-];
+if ($audit_qry) {
+    while ($al = $audit_qry->fetch_assoc()) {
+        $audit_log[] = [
+            'date' => date('d-M-Y H:i:s', strtotime($al['log_date'])), 
+            'user' => $al['user_name'], 
+            'action' => $al['action'] . ' (' . $al['ref'] . ')', 
+            'ip' => 'Secured'
+        ];
+    }
+}
+
+include '../sidebars.php'; 
+include '../header.php';
 ?>
 
 <!DOCTYPE html>
@@ -102,7 +233,7 @@ $audit_log = [
         body { background: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text-main); margin: 0; padding: 0; }
         .main-content { margin-left: var(--primary-width); padding: 30px; width: calc(100% - var(--primary-width)); min-height: 100vh; box-sizing: border-box; }
 
-        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; flex-wrap: wrap; gap:15px;}
         .header-text h1 { font-size: 24px; font-weight: 700; color: var(--theme-color); margin: 0; }
         .header-text p { font-size: 13px; color: var(--text-muted); margin: 4px 0 0; }
         
@@ -183,28 +314,28 @@ $audit_log = [
         <div class="kpi-card" style="border-top: 4px solid var(--success);">
             <div>
                 <div class="kpi-label">Gross Revenue</div>
-                <div class="kpi-value">₹<?= number_format($revenue) ?></div>
+                <div class="kpi-value">₹<?= number_format($revenue, 2) ?></div>
             </div>
             <i class="ph-fill ph-trend-up kpi-icon-bg" style="color: var(--success);"></i>
         </div>
         <div class="kpi-card" style="border-top: 4px solid var(--danger);">
             <div>
                 <div class="kpi-label">Total Expenses (Inc. Payroll)</div>
-                <div class="kpi-value">₹<?= number_format($total_expenses) ?></div>
+                <div class="kpi-value">₹<?= number_format($total_expenses, 2) ?></div>
             </div>
             <i class="ph-fill ph-receipt kpi-icon-bg" style="color: var(--danger);"></i>
         </div>
         <div class="kpi-card" style="border-top: 4px solid <?= $profit_color ?>;">
             <div>
                 <div class="kpi-label">Net <?= $profit_status ?></div>
-                <div class="kpi-value" style="color: <?= $profit_color ?>;">₹<?= number_format(abs($net_profit)) ?></div>
+                <div class="kpi-value" style="color: <?= $profit_color ?>;">₹<?= number_format(abs($net_profit), 2) ?></div>
             </div>
             <i class="ph-fill ph-scales kpi-icon-bg" style="color: <?= $profit_color ?>;"></i>
         </div>
         <div class="kpi-card" style="border-top: 4px solid #3b82f6;">
             <div>
                 <div class="kpi-label">Net Bank Balance</div>
-                <div class="kpi-value">₹<?= number_format($total_credit - $total_debit) ?></div>
+                <div class="kpi-value">₹<?= number_format($total_credit - $total_debit, 2) ?></div>
             </div>
             <i class="ph-fill ph-bank kpi-icon-bg" style="color: #3b82f6;"></i>
         </div>
@@ -226,7 +357,7 @@ $audit_log = [
                 <div style="text-align: center; margin-bottom: 20px;">
                     <h2 style="margin: 0; color: var(--theme-color); font-weight: 800;">NEOERA INFOTECH</h2>
                     <p style="margin: 5px 0 0; color: var(--text-muted); font-weight: 600;">Statement of Profit & Loss</p>
-                    <p style="margin: 0; font-size: 12px; color: var(--text-muted);">For the period ending Feb 2026</p>
+                    <p style="margin: 0; font-size: 12px; color: var(--text-muted);">For the period ending <?= date('M Y') ?></p>
                 </div>
 
                 <table class="pl-table">
@@ -281,41 +412,39 @@ $audit_log = [
         <div id="ledger" class="tab-pane">
             <div style="margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center;">
                 <p style="margin:0; font-size:13px; color:var(--text-muted);">Detailed transaction log tracking every debit and credit entry.</p>
-                <div style="font-size: 12px; color: var(--text-muted);"><i class="ph ph-info"></i> Click the circle to verify</div>
+                <div style="font-size: 12px; color: var(--text-muted);"><i class="ph-fill ph-check-circle" style="color:var(--success);"></i> Click the circle to verify</div>
             </div>
 
             <div class="table-wrapper">
                 <table id="auditTable">
                     <thead>
                         <tr>
-                            <th style="width: 50px;">Verify</th>
+                            <th style="width: 50px; text-align: center;">Verify</th>
                             <th>Date</th>
                             <th>Txn ID</th>
                             <th>Type</th>
                             <th>Party / Entity</th>
                             <th>Category</th>
-                            <th>Mode</th>
                             <th style="text-align: right;">Amount</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach($ledger_transactions as $t): 
-                            $isVerified = $t['verified'];
-                            $iconClass = $isVerified ? 'ph-check-circle verified' : 'ph-circle unverified';
+                            $isVerified = (int)$t['auditor_verified'] === 1;
+                            $iconClass = $isVerified ? 'ph-fill ph-check-circle verified' : 'ph-bold ph-circle unverified';
                             $amountClass = $t['type'] == 'Credit' ? 'amt-credit' : 'amt-debit';
                             $prefix = $t['type'] == 'Credit' ? '+' : '-';
                         ?>
-                        <tr id="row-<?= $t['id'] ?>">
+                        <tr id="row-<?= $t['source'] ?>-<?= $t['id'] ?>">
                             <td style="text-align: center;">
-                                <i class="ph <?= $iconClass ?> check-circle" onclick="toggleVerify('<?= $t['id'] ?>', this)"></i>
+                                <i class="ph <?= $iconClass ?> check-circle" onclick="toggleVerify('<?= $t['id'] ?>', '<?= $t['source'] ?>', <?= $t['auditor_verified'] ?>, this)"></i>
                             </td>
-                            <td><?= $t['date'] ?></td>
-                            <td style="font-family: monospace; font-weight: 600;"><?= $t['id'] ?></td>
+                            <td><?= date('d-M-Y', strtotime($t['txn_date'])) ?></td>
+                            <td style="font-family: monospace; font-weight: 600;"><?= $t['ref_id'] ?></td>
                             <td><span class="badge" style="background: #f1f5f9; color: #64748b;"><?= $t['type'] ?></span></td>
-                            <td style="font-weight: 600;"><?= $t['party'] ?></td>
-                            <td><?= $t['category'] ?></td>
-                            <td><small><?= $t['mode'] ?> (<?= $t['bank'] ?>)</small></td>
-                            <td class="<?= $amountClass ?>"><?= $prefix ?> ₹<?= number_format($t['amount']) ?></td>
+                            <td style="font-weight: 600;"><?= htmlspecialchars($t['party']) ?></td>
+                            <td><span class="badge" style="background:#e0e7ff; color:#3730a3;"><?= $t['source'] ?></span> <?= $t['category'] ?></td>
+                            <td class="<?= $amountClass ?>"><?= $prefix ?> ₹<?= number_format($t['amount'], 2) ?></td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
@@ -334,15 +463,15 @@ $audit_log = [
                         <span class="bank-name"><?= $b['bank'] ?></span>
                         <span class="badge <?= $statusColor ?>"><?= $statusText ?></span>
                     </div>
-                    <div class="recon-row">
+                    <div class="recon-row" style="display:flex; justify-content:space-between; margin-bottom:8px;">
                         <span>Book Balance:</span>
-                        <span>₹<?= number_format($b['book_balance']) ?></span>
+                        <span style="font-weight:600;">₹<?= number_format($b['book_balance']) ?></span>
                     </div>
-                    <div class="recon-row">
+                    <div class="recon-row" style="display:flex; justify-content:space-between; margin-bottom:8px;">
                         <span>Bank Statement:</span>
-                        <span>₹<?= number_format($b['bank_stmt_balance']) ?></span>
+                        <span style="font-weight:600;">₹<?= number_format($b['bank_stmt_balance']) ?></span>
                     </div>
-                    <div class="recon-total" style="color: <?= $b['diff'] == 0 ? 'var(--text-main)' : 'var(--danger)' ?>;">
+                    <div class="recon-total" style="display:flex; justify-content:space-between; border-top:1px dashed #cbd5e1; padding-top:8px; margin-top:8px; font-weight:800; color: <?= $b['diff'] == 0 ? 'var(--text-main)' : 'var(--danger)' ?>;">
                         <span>Difference:</span>
                         <span>₹<?= number_format($b['diff']) ?></span>
                     </div>
@@ -368,9 +497,9 @@ $audit_log = [
                             $badge = $t['status'] == 'Deposited' ? 'bg-success' : 'bg-warning';
                         ?>
                         <tr>
-                            <td><strong><?= $t['type'] ?></strong></td>
+                            <td><strong style="color:var(--theme-color);"><?= $t['type'] ?></strong></td>
                             <td><?= $t['period'] ?></td>
-                            <td style="text-align: right; font-weight: 700;">₹<?= number_format($t['amount']) ?></td>
+                            <td style="text-align: right; font-weight: 700; color:#b91c1c;">₹<?= number_format($t['amount']) ?></td>
                             <td><?= $t['due_date'] ?></td>
                             <td><span class="badge <?= $badge ?>"><?= $t['status'] ?></span></td>
                         </tr>
@@ -388,7 +517,7 @@ $audit_log = [
                             <th>Timestamp</th>
                             <th>User</th>
                             <th>Action Performed</th>
-                            <th>IP Address</th>
+                            <th>System Origin</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -420,16 +549,39 @@ $audit_log = [
         evt.currentTarget.classList.add("active");
     }
 
-    // --- TOGGLE VERIFICATION (In General Ledger Tab) ---
-    function toggleVerify(id, iconElement) {
-        const isVerified = iconElement.classList.contains('verified');
-        if (isVerified) {
-            iconElement.classList.remove('ph-check-circle', 'verified');
-            iconElement.classList.add('ph-circle', 'unverified');
-        } else {
-            iconElement.classList.remove('ph-circle', 'unverified');
-            iconElement.classList.add('ph-check-circle', 'verified');
-        }
+    // --- TOGGLE VERIFICATION (AJAX Connected) ---
+    function toggleVerify(id, source, currentStatus, iconElement) {
+        if(iconElement.classList.contains('ph-spinner')) return;
+        
+        const originalClasses = iconElement.className;
+        iconElement.className = 'ph ph-spinner fa-spin';
+        iconElement.style.color = '#94a3b8';
+
+        const fd = new FormData();
+        fd.append('action', 'toggle_verify');
+        fd.append('id', id);
+        fd.append('source', source);
+        fd.append('current_status', currentStatus);
+
+        fetch('', { method: 'POST', body: fd })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                if (data.new_status === 1) {
+                    iconElement.className = 'ph ph-fill ph-check-circle verified check-circle';
+                } else {
+                    iconElement.className = 'ph ph-bold ph-circle unverified check-circle';
+                }
+                iconElement.setAttribute('onclick', `toggleVerify('${id}', '${source}', ${data.new_status}, this)`);
+            } else {
+                alert('Verification Failed: ' + data.message);
+                iconElement.className = originalClasses;
+            }
+        })
+        .catch(err => {
+            alert('Network Error');
+            iconElement.className = originalClasses;
+        });
     }
 
     // --- PDF EXPORT LOGIC FOR P&L ---

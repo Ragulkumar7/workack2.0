@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
     
-    // --- APPROVE / REJECT LOGIC ---
+    // --- APPROVE / REJECT LOGIC (Invoices & POs) ---
     if ($_POST['action'] === 'Approve' || $_POST['action'] === 'Reject') {
         $id = intval($_POST['id']);
         $type = $_POST['type'] ?? '';
@@ -74,13 +74,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
+    // --- APPROVE / REJECT LOGIC (Salaries) ---
     if ($_POST['action'] === 'ApproveSalary' || $_POST['action'] === 'RejectSalary') {
         $id = intval($_POST['id']);
         $newStatus = ($_POST['action'] === 'ApproveSalary') ? 'Approved' : 'Rejected';
         $reason = mysqli_real_escape_string($conn, $_POST['reason'] ?? '');
         $approved_at = date('Y-m-d H:i:s');
         
-        $stmt = $conn->prepare("UPDATE employee_salary SET approval_status = ?, reject_reason = ?, approved_by = ?, approved_at = ? WHERE id = ?");
+        $stmt = $conn->prepare("UPDATE employee_salary SET approval_status = ?, reject_reason = ?, approved_by = ?, approved_at = ? WHERE id = ? AND is_deleted = 0");
         $stmt->bind_param("ssisi", $newStatus, $reason, $current_user_id, $approved_at, $id);
         
         if ($stmt->execute()) {
@@ -124,7 +125,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         
         $items = [];
         if($po) {
-            // Defensively fetch depending on which table structure exists
             $check_new = mysqli_query($conn, "SHOW TABLES LIKE 'po_line_items'");
             if(mysqli_num_rows($check_new) > 0) {
                 $items_res = @mysqli_query($conn, "SELECT * FROM po_line_items WHERE po_number = '".$po['po_number']."'");
@@ -141,10 +141,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     if ($_POST['action'] === 'fetch_salary_details') {
         $sal_id = intval($_POST['id']);
-        $sal_res = mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.id = $sal_id");
-        $salary = mysqli_fetch_assoc($sal_res);
+        $stmt = $conn->prepare("SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.id = ? AND s.is_deleted = 0");
+        $stmt->bind_param("i", $sal_id);
+        $stmt->execute();
+        $salary = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
         
-        echo json_encode(['status' => 'success', 'salary' => $salary]);
+        if($salary) {
+            echo json_encode(['status' => 'success', 'salary' => $salary]);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Salary record not found or was deleted.']);
+        }
         exit;
     }
 }
@@ -155,7 +162,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 // Pending Salaries
 $salary_requests = [];
-$resSalaries = mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status = 'Pending' ORDER BY s.created_at DESC");
+$resSalaries = mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status = 'Pending' AND s.is_deleted = 0 ORDER BY s.created_at DESC");
 $valSalaries = 0;
 if ($resSalaries) {
     while($row = mysqli_fetch_assoc($resSalaries)) {
@@ -193,7 +200,7 @@ if($resInvs) {
 }
 usort($pending_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
-// Request History (Approved & Rejected)
+// --- History 1: General Requests (POs & Invoices) ---
 $history_requests = [];
 $resHistoryPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 20");
 if($resHistoryPOs) {
@@ -208,14 +215,16 @@ if($resHistoryInvs) {
         $history_requests[] = ['id_db' => $row['id'], 'id' => $row['invoice_no'], 'type' => 'Invoice', 'vendor_client' => $row['client_name'], 'amount' => $row['grand_total'], 'status' => $row['status'], 'date' => date('d-M-Y', strtotime($row['invoice_date'])), 'reason' => $row['reject_reason']];
     }
 }
+usort($history_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
-$resHistorySalaries = @mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status IN ('Approved', 'Rejected') ORDER BY s.approved_at DESC LIMIT 20");
+// --- History 2: Separated Salary History ---
+$history_salaries = [];
+$resHistorySalaries = @mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status IN ('Approved', 'Rejected') AND s.is_deleted = 0 ORDER BY s.approved_at DESC LIMIT 20");
 if($resHistorySalaries) {
     while($row = mysqli_fetch_assoc($resHistorySalaries)) {
-        $history_requests[] = ['id_db' => $row['id'], 'id' => 'PAY-' . str_pad($row['id'], 4, '0', STR_PAD_LEFT), 'type' => 'Salary', 'vendor_client' => trim($row['emp_name']) . ' (' . $row['month_fmt'] . ')', 'amount' => $row['net_salary'], 'status' => $row['approval_status'], 'date' => date('d-M-Y', strtotime($row['approved_at'] ?? $row['created_at'])), 'reason' => $row['reject_reason']];
+        $history_salaries[] = ['id_db' => $row['id'], 'id' => 'PAY-' . str_pad($row['id'], 4, '0', STR_PAD_LEFT), 'type' => 'Salary', 'vendor_client' => trim($row['emp_name']) . ' (' . $row['month_fmt'] . ')', 'amount' => $row['net_salary'], 'status' => $row['approval_status'], 'date' => date('d-M-Y', strtotime($row['approved_at'] ?? $row['created_at'])), 'reason' => $row['reject_reason']];
     }
 }
-usort($history_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
 if(ob_get_length()) ob_clean();
 include '../sidebars.php'; 
@@ -276,7 +285,9 @@ include '../header.php';
         .btn-reject { background: var(--danger); color: white; }
         .btn-disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
         
-        /* Modals */
+        /* Modals & Popups Overrides */
+        .swal2-container { z-index: 9999 !important; } /* Force SweetAlert to always be on top */
+        
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(3px);}
         .modal-overlay.active { display: flex; }
         .modal-content { background: white; width: 100%; max-width: 700px; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); overflow: hidden; display: flex; flex-direction: column; max-height: 90vh;}
@@ -298,10 +309,8 @@ include '../header.php';
             @page { size: A4; margin: 15mm; }
             body { background: #fff !important; margin: 0; padding: 0; height: auto !important; overflow: visible !important;}
             
-            /* Hide ALL UI elements natively by default to prevent blank pages */
             body > * { display: none !important; }
             
-            /* Show ONLY the specific print container triggered */
             body > .active-print {
                 display: block !important;
                 position: relative !important;
@@ -312,7 +321,6 @@ include '../header.php';
             }
             .active-print * { visibility: visible; }
 
-            /* Print Structure Elements */
             .active-print .p-header { display: flex; justify-content: space-between; border-bottom: 2px solid #000; padding-bottom: 20px; margin-bottom: 30px; }
             .active-print .p-logo { max-height: 65px; }
             .active-print .p-title { font-size: 34px; font-weight: 900; letter-spacing: 1px; color: #000; margin-bottom: 12px;}
@@ -373,7 +381,10 @@ include '../header.php';
                     <i class="ph ph-money"></i> Employee Salaries <?php if(count($salary_requests)>0) echo '<span class="tab-badge" style="background:#f59e0b;">'.count($salary_requests).'</span>'; ?>
                 </button>
                 <button class="tab-btn" onclick="switchTab(event, 'history')">
-                    <i class="ph ph-clock-counter-clockwise"></i> Request History
+                    <i class="ph ph-clock-counter-clockwise"></i> Invoice/PO History
+                </button>
+                <button class="tab-btn" onclick="switchTab(event, 'salary_history')">
+                    <i class="ph ph-clock-counter-clockwise"></i> Salary History
                 </button>
             </div>
 
@@ -463,7 +474,6 @@ include '../header.php';
                                     
                                     $icon = 'ph-file-text';
                                     if ($hist['type'] == 'Purchase Order') $icon = 'ph-shopping-cart';
-                                    if ($hist['type'] == 'Salary') $icon = 'ph-money';
                                 ?>
                                 <tr>
                                     <td>
@@ -480,18 +490,14 @@ include '../header.php';
                                                 <button class="btn-sm btn-view" onclick="viewInvoiceToApprove(<?= $hist['id_db'] ?>, true)" title="View Details"><i class="ph-bold ph-eye"></i></button>
                                             <?php elseif($hist['type'] == 'Purchase Order'): ?>
                                                 <button class="btn-sm btn-view" onclick="viewPoToApprove(<?= $hist['id_db'] ?>, true)" title="View Details"><i class="ph-bold ph-eye"></i></button>
-                                            <?php elseif($hist['type'] == 'Salary'): ?>
-                                                <button class="btn-sm btn-view" onclick="viewSalaryToApprove(<?= $hist['id_db'] ?>, true)" title="View Details"><i class="ph-bold ph-eye"></i></button>
                                             <?php endif; ?>
 
                                             <?php if($isApproved && $hist['type'] == 'Invoice'): ?>
                                                 <button class="btn-sm btn-print" onclick="prepareAndPrint('<?= $hist['id_db'] ?>')" title="Print Invoice"><i class="ph-bold ph-printer"></i></button>
                                             <?php elseif($isApproved && $hist['type'] == 'Purchase Order'): ?>
                                                 <button class="btn-sm btn-print" onclick="prepareAndPrintPO('<?= $hist['id_db'] ?>')" title="Print PO"><i class="ph-bold ph-printer"></i></button>
-                                            <?php elseif($isApproved && $hist['type'] == 'Salary'): ?>
-                                                <button class="btn-sm btn-print" onclick="window.location.href='../Accounts/api/generate_payslip.php?id=<?= $hist['id_db'] ?>'" title="View Payslip"><i class="ph-bold ph-file-pdf"></i></button>
                                             <?php elseif(!$isApproved): ?>
-                                                <button class="btn-sm" style="background:#fee2e2; color:#b91c1c; border: 1px solid #fecaca;" onclick="showReason('<?= htmlspecialchars(addslashes($hist['reason']), ENT_QUOTES) ?>')" title="View Reason"><i class="ph-bold ph-info"></i></button>
+                                                <button class="btn-sm" style="background:#fee2e2; color:#b91c1c; border: 1px solid #fecaca;" onclick="showReason('<?= htmlspecialchars(addslashes($hist['reason'] ?? ''), ENT_QUOTES) ?>')" title="View Reason"><i class="ph-bold ph-info"></i></button>
                                             <?php else: ?>
                                                 <div style="width: 32px; height: 32px; visibility: hidden;"></div>
                                             <?php endif; ?>
@@ -504,9 +510,53 @@ include '../header.php';
                     </table>
                 </div>
             </div>
+
+            <div id="salary_history" class="tab-content">
+                <div style="overflow-x: auto;">
+                    <table class="data-table">
+                        <thead><tr><th>Salary ID</th><th>Employee Details</th><th>Date Approved</th><th style="text-align: right;">Net Amount</th><th>Status</th><th style="text-align: right;">Actions</th></tr></thead>
+                        <tbody>
+                            <?php if(empty($history_salaries)): ?>
+                                <tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">No salary history available.</td></tr>
+                            <?php else: ?>
+                                <?php foreach($history_salaries as $hist): 
+                                    $isApproved = ($hist['status'] == 'Approved');
+                                    $badge = $isApproved ? 'bg-approved' : 'bg-rejected';
+                                    $statusIcon = $isApproved ? '<i class="ph-bold ph-check"></i>' : '<i class="ph-bold ph-x"></i>';
+                                ?>
+                                <tr>
+                                    <td>
+                                        <span class="req-id"><i class="ph ph-money"></i> <?= $hist['id'] ?></span>
+                                        <div style="font-size:11px; color:var(--text-muted);"><?= $hist['type'] ?></div>
+                                    </td>
+                                    <td><?= htmlspecialchars($hist['vendor_client']) ?></td>
+                                    <td><?= $hist['date'] ?></td>
+                                    <td class="amount-col">₹<?= number_format($hist['amount'], 2) ?></td>
+                                    <td><span class="status-badge <?= $badge ?>"><?= $statusIcon ?> <?= $hist['status'] ?></span></td>
+                                    <td>
+                                        <div class="action-btns" style="justify-content: flex-end;">
+                                            <button class="btn-sm btn-view" onclick="viewSalaryToApprove(<?= $hist['id_db'] ?>, true)" title="View Details"><i class="ph-bold ph-eye"></i></button>
+
+                                            <?php if($isApproved): ?>
+                                                <button class="btn-sm btn-print" onclick="window.location.href='../Accounts/api/generate_payslip.php?id=<?= $hist['id_db'] ?>'" title="View Payslip"><i class="ph-bold ph-file-pdf"></i></button>
+                                            <?php else: ?>
+                                                <button class="btn-sm" style="background:#fee2e2; color:#b91c1c; border: 1px solid #fecaca;" onclick="showReason('<?= htmlspecialchars(addslashes($hist['reason'] ?? ''), ENT_QUOTES) ?>')" title="View Reason"><i class="ph-bold ph-info"></i></button>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
         </div>
     </main>
-</div> <div class="modal-overlay" id="viewInvoiceModal">
+</div> 
+
+<div class="modal-overlay" id="viewInvoiceModal">
     <div class="modal-content">
         <div class="modal-header"><h3>Review Invoice: <span id="v_inv_no" style="color: #64748b;"></span></h3><i class="ph-bold ph-x close-modal" onclick="closeModal('viewInvoiceModal')"></i></div>
         <div class="modal-body">
@@ -608,7 +658,7 @@ include '../header.php';
     </div>
 </div>
 
-<div class="modal-overlay" id="rejectModal" style="z-index: 2500;">
+<div class="modal-overlay" id="rejectModal">
     <div class="modal-content" style="max-width: 400px;">
         <div class="modal-header" style="background: #fee2e2;">
             <h3 style="color: #b91c1c; margin:0;"><i class="ph-fill ph-warning-circle"></i> Reason for Rejection</h3>
@@ -678,39 +728,27 @@ include '../header.php';
         <table class="p-totals">
             <tr>
                 <td>Sub Total</td>
-                <td style="width: 150px;">
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_sub">0.00</span></div>
-                </td>
+                <td style="width: 150px;"><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_sub">0.00</span></div></td>
             </tr>
             <tr id="tr_p_inv_disc">
                 <td>Discount</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_disc">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_disc">0.00</span></div></td>
             </tr>
             <tr id="tr_p_inv_cgst">
                 <td>CGST</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_cgst">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_cgst">0.00</span></div></td>
             </tr>
             <tr id="tr_p_inv_sgst">
                 <td>SGST</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_sgst">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_sgst">0.00</span></div></td>
             </tr>
             <tr id="tr_p_inv_roff">
                 <td>Round Off</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_roff">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_roff">0.00</span></div></td>
             </tr>
             <tr class="p-grand">
                 <td>TOTAL</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_grand">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_inv_grand">0.00</span></div></td>
             </tr>
         </table>
     </div>
@@ -769,27 +807,19 @@ include '../header.php';
         <table class="p-totals">
             <tr>
                 <td>Sub Total</td>
-                <td style="width: 150px;">
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_sub">0.00</span></div>
-                </td>
+                <td style="width: 150px;"><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_sub">0.00</span></div></td>
             </tr>
             <tr id="tr_po_tax">
                 <td>Tax Amount</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_tax">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_tax">0.00</span></div></td>
             </tr>
             <tr id="tr_po_freight">
                 <td>Freight Charges</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_freight">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_freight">0.00</span></div></td>
             </tr>
             <tr class="p-grand">
                 <td>GRAND TOTAL</td>
-                <td>
-                    <div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_grand">0.00</span></div>
-                </td>
+                <td><div style="display:flex; justify-content:space-between;"><span>₹</span> <span id="p_po_grand">0.00</span></div></td>
             </tr>
         </table>
     </div>
@@ -913,12 +943,20 @@ include '../header.php';
         fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
             if(data.status === 'success') {
                 const sal = data.salary;
+                
+                const basic = parseFloat(sal.basic || 0);
+                const gross = parseFloat(sal.gross_salary || 0);
+                const net = parseFloat(sal.net_salary || 0);
+                
+                const totalAllowances = gross - basic;
+                const totalDeductions = gross - net;
+
                 document.getElementById('v_sal_emp').innerText = sal.emp_name + " (" + (sal.emp_code||'') + ")";
                 document.getElementById('v_sal_month').innerText = sal.month_fmt;
-                document.getElementById('v_sal_basic').innerText = parseFloat(sal.basic_salary).toFixed(2);
-                document.getElementById('v_sal_allow').innerText = '+ ' + parseFloat(sal.allowances).toFixed(2);
-                document.getElementById('v_sal_deduct').innerText = '- ' + parseFloat(sal.deductions).toFixed(2);
-                document.getElementById('v_sal_net').innerText = parseFloat(sal.net_salary).toFixed(2);
+                document.getElementById('v_sal_basic').innerText = basic.toFixed(2);
+                document.getElementById('v_sal_allow').innerText = '+ ' + totalAllowances.toFixed(2);
+                document.getElementById('v_sal_deduct').innerText = '- ' + totalDeductions.toFixed(2);
+                document.getElementById('v_sal_net').innerText = net.toFixed(2);
                 
                 const rejectBox = document.getElementById('v_sal_reject_reason_box');
                 if (sal.approval_status === 'Rejected' && sal.reject_reason) {
@@ -930,12 +968,17 @@ include '../header.php';
                 footer.style.display = (isHistory || sal.approval_status !== 'Pending') ? 'none' : 'flex';
 
                 document.getElementById('viewSalaryModal').classList.add('active');
+            } else {
+                Swal.fire('Error', data.message || 'Could not fetch record', 'error');
             }
         });
     }
 
     // --- APPROVAL / REJECTION EXECUTION ---
     function executeApprove(type) {
+        // Automatically close any open review modals to prevent overlay clashing with SweetAlert
+        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
+
         let action = (type === 'Salary') ? 'ApproveSalary' : 'Approve';
         Swal.fire({
             title: `Approve ${type}?`,
