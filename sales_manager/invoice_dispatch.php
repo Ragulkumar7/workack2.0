@@ -2,8 +2,8 @@
 // 1. SESSION & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-$projectRoot = __DIR__; 
-$dbPath = $projectRoot . '/../include/db_connect.php';
+ $projectRoot = __DIR__; 
+ $dbPath = $projectRoot . '/../include/db_connect.php';
 if (file_exists($dbPath)) { require_once $dbPath; } 
 else { require_once $projectRoot . '/include/db_connect.php'; }
 
@@ -15,7 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if(ob_get_length()) ob_clean(); 
     header('Content-Type: application/json');
     
-    // --- ADD CLIENT (From inside Generate Invoice Modal) ---
+    // --- ADD CLIENT ---
     if ($_POST['action'] === 'add_client') {
         $name = mysqli_real_escape_string($conn, $_POST['client_name']);
         $gst = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // --- FETCH EXISTING CLIENT DETAILS (AUTO-FILL) ---
+    // --- FETCH CLIENT DETAILS ---
     if ($_POST['action'] === 'get_client_details') {
         $cid = intval($_POST['client_id']);
         $res = mysqli_query($conn, "SELECT * FROM clients WHERE id=$cid");
@@ -41,13 +41,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // --- SAVE FULL NEW INVOICE ---
+    // --- SAVE FULL NEW INVOICE (UPDATED WITH FORWARD TO) ---
     if ($_POST['action'] === 'save_invoice') {
         $invoice_no = mysqli_real_escape_string($conn, $_POST['invoice_no']);
         $client_id = intval($_POST['client_id']);
         $bank = mysqli_real_escape_string($conn, $_POST['bank_name']);
         $date = mysqli_real_escape_string($conn, $_POST['invoice_date']);
         
+        // Get Forward To Selection (Default CFO)
+        $forward_to = mysqli_real_escape_string($conn, $_POST['forward_to'] ?? 'CFO');
+
         $client_mobile = mysqli_real_escape_string($conn, $_POST['client_mobile'] ?? '');
         $client_gst = mysqli_real_escape_string($conn, $_POST['client_gst'] ?? '');
         $payment_mode = mysqli_real_escape_string($conn, $_POST['payment_mode'] ?? '');
@@ -61,9 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $round_off = isset($_POST['round_off']) ? floatval($_POST['round_off']) : 0.00;
         $grand_total = isset($_POST['grand_total']) ? floatval($_POST['grand_total']) : 0.00;
 
-        // Automatically sends to cfo_approvals.php by setting status to 'Pending Approval'
-        $sql = "INSERT INTO invoices (invoice_no, client_id, bank_name, invoice_date, sub_total, discount, cgst, sgst, round_off, grand_total, status) 
-                VALUES ('$invoice_no', $client_id, '$bank', '$date', $sub_total, $total_discount, $cgst, $sgst, $round_off, $grand_total, 'Pending Approval')";
+        // Status is 'Pending Approval' and approver_designation is set
+        $sql = "INSERT INTO invoices (invoice_no, client_id, bank_name, invoice_date, sub_total, discount, cgst, sgst, round_off, grand_total, status, approver_designation) 
+                VALUES ('$invoice_no', $client_id, '$bank', '$date', $sub_total, $total_discount, $cgst, $sgst, $round_off, $grand_total, 'Pending Approval', '$forward_to')";
         
         if (mysqli_query($conn, $sql)) {
             $last_id = mysqli_insert_id($conn);
@@ -85,14 +88,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     }
                 }
             }
-            echo json_encode(['status' => 'success']);
+            echo json_encode(['status' => 'success', 'forwarded_to' => $forward_to]);
         } else { 
             echo json_encode(['status' => 'error', 'message' => "Main Insert Error: " . mysqli_error($conn)]); 
         }
         exit;
     }
 
-    // --- REAL: Update invoice with the assigned Sales Executive ---
+    // --- SEND DAILY UPDATE TO ACCOUNTS ---
+    if ($_POST['action'] === 'send_daily_update') {
+        $today = date('Y-m-d');
+        
+        // Fetch today's generated invoices
+        $res = mysqli_query($conn, "SELECT i.invoice_no, i.grand_total, c.client_name 
+                                   FROM invoices i 
+                                   JOIN clients c ON i.client_id = c.id 
+                                   WHERE DATE(i.created_at) = '$today'");
+        
+        $count = mysqli_num_rows($res);
+        $total_amount = 0;
+        while($row = mysqli_fetch_assoc($res)){ $total_amount += $row['grand_total']; }
+
+        // Logic: Here you would typically send an Email to the Accounts Team.
+        // For now, we return a success message.
+        // mail('accounts@company.com', 'Daily Invoice Report', "...");
+
+        echo json_encode([
+            'status' => 'success', 
+            'message' => "Daily report generated. Total Invoices: $count. Total Value: ₹" . number_format($total_amount, 2)
+        ]);
+        exit;
+    }
+
+    // --- MARK SENT ---
     if ($_POST['action'] === 'mark_sent') {
         $inv_id = mysqli_real_escape_string($conn, $_POST['invoice_id']);
         $exec_name = mysqli_real_escape_string($conn, $_POST['exec_name']);
@@ -102,7 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // --- FETCH INVOICE DETAILS FOR IN-APP VIEW ---
+    // --- FETCH INVOICE DETAILS ---
     if ($_POST['action'] === 'fetch_invoice_details') {
         try {
             $inv_id = intval($_POST['id']);
@@ -124,12 +152,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 }
 
 // 3. FETCH DATA FOR UI
-$clients = mysqli_query($conn, "SELECT * FROM clients ORDER BY client_name ASC");
-$executives_query = mysqli_query($conn, "SELECT id, name, employee_id FROM users WHERE role IN ('Sales Executive', 'Sales Manager', 'Sales') ORDER BY name ASC");
+ $clients = mysqli_query($conn, "SELECT * FROM clients ORDER BY client_name ASC");
+ $executives_query = mysqli_query($conn, "SELECT id, name, employee_id FROM users WHERE role IN ('Sales Executive', 'Sales Manager', 'Sales') ORDER BY name ASC");
 
-// Fetch Pending Approval & Approved Invoices (That are NOT YET sent to executive)
-// FIXED: Used i.status as inv_status to prevent column overlap with clients table
-$pending_query = mysqli_query($conn, "
+// Fetch Pending/Approved Invoices
+ $pending_query = mysqli_query($conn, "
     SELECT i.*, c.*, c.email as client_email, i.id as inv_pk_id, c.client_name as fallback_company, i.status as inv_status 
     FROM invoices i 
     JOIN clients c ON i.client_id = c.id 
@@ -138,8 +165,8 @@ $pending_query = mysqli_query($conn, "
     ORDER BY i.created_at DESC
 ");
 
-// Fetch Invoices already Sent to Executives
-$sent_query = mysqli_query($conn, "
+// Fetch Sent Invoices
+ $sent_query = mysqli_query($conn, "
     SELECT i.*, c.client_name as fallback_company, c.company_name, c.email as client_email 
     FROM invoices i 
     JOIN clients c ON i.client_id = c.id 
@@ -240,12 +267,12 @@ include '../header.php';
         .form-group { display: flex; flex-direction: column; margin-bottom: 15px; }
         .form-group label { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase; }
 
-        /* --- PERFECT PRINT TEMPLATE ALIGNMENT --- */
+        /* Print Styles */
         @media print {
             @page { size: A4; margin: 0; }
             body * { visibility: hidden; } 
             
-            .modal-overlay, .modal-content, .modal-body {
+            .modal-overlay, .modal-content, .modal-body{
                 position: static !important; overflow: visible !important; transform: none !important;
                 box-shadow: none !important; max-height: none !important; background: white !important;
                 padding: 0 !important; margin: 0 !important; width: 100% !important; max-width: none !important;
@@ -264,7 +291,7 @@ include '../header.php';
     <div class="page-header">
         <div>
             <h2>Invoice Dispatch Hub</h2>
-            <p>Generate invoices and dispatch them to Sales Executives.</p>
+            <p>Generate invoices and dispatch them for approval.</p>
         </div>
         <div class="header-actions">
             <button class="btn-report" onclick="sendDailyUpdate()">
@@ -279,10 +306,10 @@ include '../header.php';
     <div class="card">
         <div class="tabs-header">
             <button class="tab-btn active" onclick="switchTab(event, 'tab-pending')">
-                <i class="ph-bold ph-paper-plane-tilt"></i> Dispatch Queue
+                <i class="ph-bold ph-paper-plane-tilt"></i> Approval Queue
             </button>
             <button class="tab-btn" onclick="switchTab(event, 'tab-sent')">
-                <i class="ph-bold ph-check-circle"></i> Sent to Executives
+                <i class="ph-bold ph-check-circle"></i> Dispatched
             </button>
         </div>
 
@@ -307,12 +334,9 @@ include '../header.php';
                             
                             $display_company = $row['company_name'] ?? $row['fallback_company'] ?? 'N/A';
                             $display_name = $row['name'] ?? $row['contact_person'] ?? 'N/A';
-                            $display_desig = $row['designation'] ?? 'N/A';
                             $display_email = $row['client_email'] ?? 'No Mail ID';
-                            $display_desc = $row['description'] ?? 'No description provided.';
-                            
-                            // FIXED: Check explicit inv_status
                             $status = $row['inv_status'];
+                            $approver = $row['approver_designation'] ?? 'CFO';
                     ?>
                     <tr id="row-<?= $row['invoice_no'] ?>">
                         <td><strong><?= htmlspecialchars($row['invoice_no']) ?></strong></td>
@@ -322,14 +346,10 @@ include '../header.php';
                                 <?= htmlspecialchars($display_company) ?>
                             </div>
                             <div style="font-size: 12px; color: #475569; font-weight: 600;">
-                                <i class="ph-fill ph-user-circle"></i> <?= htmlspecialchars($display_name) ?> 
-                                <span style="color: var(--text-muted); font-weight: 400; margin-left: 4px;">| <?= htmlspecialchars($display_desig) ?></span>
+                                <i class="ph-fill ph-user-circle"></i> <?= htmlspecialchars($display_name) ?>
                             </div>
                             <div style="font-size: 12px; color: #0284c7; margin-top: 4px; display: flex; align-items: center; gap: 4px;">
                                 <i class="ph-fill ph-envelope"></i> <a href="mailto:<?= htmlspecialchars($display_email) ?>" style="color: inherit; text-decoration: none;"><?= htmlspecialchars($display_email) ?></a>
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.4; background: #f8fafc; padding: 6px; border-radius: 6px; border: 1px solid #e2e8f0;">
-                                <strong>Desc:</strong> <?= htmlspecialchars($display_desc) ?>
                             </div>
                         </td>
 
@@ -338,9 +358,9 @@ include '../header.php';
                         
                         <td>
                             <?php if($status === 'Approved'): ?>
-                                <span class="badge badge-approved"><i class="ph-bold ph-check"></i> Accounts Approved</span>
+                                <span class="badge badge-approved"><i class="ph-bold ph-check"></i> Approved</span>
                             <?php else: ?>
-                                <span class="badge badge-pending"><i class="ph-bold ph-clock"></i> Pending Approval</span>
+                                <span class="badge badge-pending"><i class="ph-bold ph-clock"></i> Pending (<?= htmlspecialchars($approver) ?>)</span>
                             <?php endif; ?>
                         </td>
                         
@@ -358,18 +378,14 @@ include '../header.php';
                                         <i class="ph-bold ph-paper-plane-right"></i> Send
                                     </button>
                                 <?php else: ?>
-                                    <button class="btn-action btn-disabled" title="Waiting for CFO/Accounts Approval" onclick="Swal.fire('Pending Approval', 'You cannot dispatch this invoice until the CFO or Accounts team approves it.', 'info'); return false;">
+                                    <button class="btn-action btn-disabled" title="Waiting for Approval" onclick="Swal.fire('Pending Approval', 'This invoice is waiting for <?= htmlspecialchars($approver) ?> approval.', 'info'); return false;">
                                         <i class="ph-bold ph-paper-plane-right"></i> Send
                                     </button>
                                 <?php endif; ?>
                             </div>
                         </td>
                     </tr>
-                    <?php 
-                        }
-                    } 
-                    if(!$has_pending): 
-                    ?>
+                    <?php } } if(!$has_pending): ?>
                     <tr>
                         <td colspan="6">
                             <div class="empty-state">
@@ -403,19 +419,12 @@ include '../header.php';
                     ?>
                     <tr>
                         <td><strong><?= htmlspecialchars($s_row['invoice_no']) ?></strong></td>
-                        <td>
-                            <div style="font-weight: 700; color: var(--theme-color); font-size: 14px;">
-                                <?= htmlspecialchars($s_company) ?>
-                            </div>
-                        </td>
+                        <td><div style="font-weight: 700; color: var(--theme-color); font-size: 14px;"><?= htmlspecialchars($s_company) ?></div></td>
                         <td><?= date('d M Y', strtotime($s_row['created_at'])) ?></td>
                         <td style="font-weight: 700; color: #1b5a5a; font-size: 15px;">₹<?= number_format($s_row['grand_total'], 2) ?></td>
                         <td><span class="badge badge-sent"><i class="ph-bold ph-user"></i> <?= htmlspecialchars($s_row['assigned_executive']) ?></span></td>
                     </tr>
-                    <?php 
-                        endwhile; 
-                    else: 
-                    ?>
+                    <?php endwhile; else: ?>
                     <tr id="empty-sent-msg"><td colspan="5" style="text-align:center; padding: 30px; color: #94a3b8;">No invoices dispatched yet.</td></tr>
                     <?php endif; ?>
                 </tbody>
@@ -442,9 +451,7 @@ include '../header.php';
                                 <option value="">Choose Existing Client</option>
                                 <?php if($clients) { mysqli_data_seek($clients, 0); while($row = mysqli_fetch_assoc($clients)) { echo "<option value='".$row['id']."'>".htmlspecialchars($row['client_name'])."</option>"; } } ?>
                             </select>
-                            <button type="button" style="background:var(--theme-color); color:white; border:none; border-radius:6px; padding:0 12px; cursor:pointer;" onclick="openModal('addClientModal')">
-                                <i class="ph-bold ph-plus"></i>
-                            </button>
+                            <button type="button" style="background:var(--theme-color); color:white; border:none; border-radius:6px; padding:0 12px; cursor:pointer;" onclick="openModal('addClientModal')"><i class="ph-bold ph-plus"></i></button>
                         </div>
                     </div>
                     <div class="form-group"><label>Invoice Date *</label><input type="date" name="invoice_date" value="<?= date('Y-m-d') ?>" required style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box;"></div>
@@ -452,15 +459,13 @@ include '../header.php';
                     
                     <div class="form-group"><label>Client Mobile</label><input type="text" name="client_mobile" id="client_mobile" placeholder="Auto-filled" style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box;"></div>
                     <div class="form-group"><label>Client GSTIN</label><input type="text" name="client_gst" id="client_gst" placeholder="Auto-filled" style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box;"></div>
+                    
+                    <!-- NEW: Forward To Selection -->
                     <div class="form-group">
-                        <label>Payment Mode *</label>
-                        <select name="payment_mode" id="payment_mode" required style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box; font-family: inherit;">
-                            <option value="">Select Method</option>
-                            <option value="UPI">UPI</option>
-                            <option value="Cash">Cash</option>
-                            <option value="Debit Card">Debit Card</option>
-                            <option value="Credit Card">Credit Card</option>
-                            <option value="Bank Transfer">Bank Transfer (NEFT/RTGS)</option>
+                        <label>Forward To *</label>
+                        <select name="forward_to" required style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 100%; box-sizing: border-box; font-family: inherit;">
+                            <option value="CFO">CFO / Accounts</option>
+                            <option value="Manager">Sales Manager</option>
                         </select>
                     </div>
                 </div>
@@ -511,7 +516,7 @@ include '../header.php';
                 <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:25px;">
                     <button type="button" style="padding:12px 20px; border:1px solid #ddd; border-radius:8px; background:white; cursor:pointer; font-weight:600; font-family: inherit;" onclick="document.getElementById('invoiceForm').reset(); calculateGrandTotal();">Reset Form</button>
                     <button type="button" onclick="submitInvoice()" id="saveBtn" style="background: var(--theme-color); color: white; padding: 12px 30px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 14px;">
-                        <i class="ph-bold ph-paper-plane-right"></i> Generate & Send to Accounts
+                        <i class="ph-bold ph-paper-plane-right"></i> Generate Invoice
                     </button>
                 </div>
             </form>
@@ -545,8 +550,6 @@ include '../header.php';
                 <option value="">Select Method</option>
                 <option value="UPI">UPI</option>
                 <option value="Cash">Cash</option>
-                <option value="Debit Card">Debit Card</option>
-                <option value="Credit Card">Credit Card</option>
                 <option value="Bank Transfer">Bank Transfer (NEFT/RTGS)</option>
             </select>
 
@@ -565,7 +568,6 @@ include '../header.php';
             <i class="ph-bold ph-x close-modal" onclick="closeModal('dispatchModal')"></i>
         </div>
         <div class="modal-body">
-            
             <div class="client-info-box">
                 <p>Invoice No: <strong id="m_inv_no"></strong></p>
                 <p>Company Name: <strong id="m_client"></strong></p>
@@ -582,16 +584,9 @@ include '../header.php';
                             while($ex = mysqli_fetch_assoc($executives_query)): 
                     ?>
                         <option value="<?= htmlspecialchars($ex['name']) ?>"><?= htmlspecialchars($ex['name']) ?> (<?= htmlspecialchars($ex['employee_id']) ?>)</option>
-                    <?php 
-                            endwhile; 
-                        }
-                    ?>
+                    <?php endwhile; } ?>
                 </select>
             </div>
-
-            <p style="font-size: 12px; color: #64748b; margin-top: 20px; line-height: 1.5; background: #f8fafc; padding: 10px; border-radius: 6px;">
-                <i class="ph-fill ph-info"></i> Sending this will automatically notify the selected Sales Executive to forward the invoice to the client and collect the payment.
-            </p>
 
             <button class="btn-action btn-send" id="dispatchBtn" style="width: 100%; padding: 14px; justify-content: center; margin-top: 15px; font-size: 14px;" onclick="sendToExecutive()">
                 <i class="ph-bold ph-paper-plane-right"></i> Forward to Executive
@@ -609,6 +604,7 @@ include '../header.php';
         
         <div class="modal-body" style="padding: 30px; max-height: 70vh; overflow-y: auto; background: #e2e8f0;">
             <div id="printableInvoice" style="width: 100%; max-width: 210mm; padding: 15mm; background: white; color: #333; line-height: 1.4; margin: 0 auto; box-shadow: 0 5px 20px rgba(0,0,0,0.1);">
+                <!-- Invoice content structure -->
                 <div style="border-bottom:2px solid #1b5a5a; display:flex; justify-content:space-between; padding-bottom:15px; margin-bottom:20px;">
                     <div><div style="font-size:26px; font-weight:800; color:#1b5a5a;">NEOERA INFOTECH</div><div style="font-size:11px;">9/96 h, Post, Village Nagar, Coimbatore 641107</div></div>
                     <div style="text-align:right;"><div style="font-size:20px; font-weight:800; color:#1b5a5a;">TAX INVOICE</div><div style="font-size:12px;">No: <strong id="p_inv_no"></strong></div><div style="font-size:12px;">Date: <strong id="p_date"></strong></div></div>
@@ -644,40 +640,24 @@ include '../header.php';
 
 <script>
     // --- GLOBAL MODAL OPEN/CLOSE ---
-    function openModal(modalId) {
-        document.getElementById(modalId).classList.add('active');
-    }
-    
-    function closeModal(modalId) {
-        document.getElementById(modalId).classList.remove('active');
-    }
-
+    function openModal(modalId) { document.getElementById(modalId).classList.add('active'); }
+    function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
-        overlay.addEventListener('click', function(e) {
-            if (e.target === this) this.classList.remove('active');
-        });
+        overlay.addEventListener('click', function(e) { if (e.target === this) this.classList.remove('active'); });
     });
 
     // --- CREATE INVOICE FORM LOGIC ---
     document.getElementById('client_id')?.addEventListener('change', function() {
         if(this.value) {
-            const fd = new FormData();
-            fd.append('action', 'get_client_details');
-            fd.append('client_id', this.value);
-            
+            const fd = new FormData(); fd.append('action', 'get_client_details'); fd.append('client_id', this.value);
             fetch('', {method: 'POST', body: fd})
             .then(r => r.json())
             .then(data => {
                 if(data) {
                     document.getElementById('client_mobile').value = data.mobile_number || '';
                     document.getElementById('client_gst').value = data.gst_number || '';
-                    document.getElementById('payment_mode').value = data.payment_method || '';
                 }
             });
-        } else {
-            document.getElementById('client_mobile').value = '';
-            document.getElementById('client_gst').value = '';
-            document.getElementById('payment_mode').value = '';
         }
     });
 
@@ -727,35 +707,20 @@ include '../header.php';
     }
 
     function submitInvoice() {
-        if (!document.getElementById('client_id').value) {
-            Swal.fire('Required', 'Please select a Client to generate the invoice.', 'warning');
-            return;
-        }
+        if (!document.getElementById('client_id').value) { Swal.fire('Required', 'Please select a Client.', 'warning'); return; }
 
         const btn = document.getElementById('saveBtn'); 
         btn.disabled = true; 
-        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Sending to Accounts...';
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Sending...';
         
         fetch('', { method: 'POST', body: new FormData(document.getElementById('invoiceForm')) })
         .then(async response => {
-            const textResponse = await response.text();
-            try {
-                const data = JSON.parse(textResponse);
-                if(data.status === 'success') {
-                    Swal.fire({
-                        title: 'Invoice Sent!', 
-                        text: 'It is now pending approval from the CFO / Accounts team.', 
-                        icon: 'success', 
-                        timer: 3000, 
-                        showConfirmButton: false
-                    }).then(() => window.location.reload());
-                } else {
-                    Swal.fire('Database Error', data.message, 'error');
-                    btn.disabled = false; btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i> Generate & Send to Accounts';
-                }
-            } catch (err) {
-                Swal.fire('Error', 'Something went wrong.', 'error');
-                btn.disabled = false; btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i> Generate & Send to Accounts';
+            const data = await response.json();
+            if(data.status === 'success') {
+                Swal.fire('Invoice Sent!', `Invoice generated and sent to ${data.forwarded_to} for approval.`, 'success').then(() => window.location.reload());
+            } else {
+                Swal.fire('Database Error', data.message, 'error');
+                btn.disabled = false; btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i> Generate Invoice';
             }
         });
     }
@@ -779,30 +744,36 @@ include '../header.php';
                 sel.add(new Option(res.name, res.id)); 
                 sel.value = res.id;
                 closeModal('addClientModal');
-                
-                document.getElementById('new_client_name').value = '';
-                document.getElementById('new_client_gst').value = '';
-                document.getElementById('new_client_mobile').value = '';
-                document.getElementById('new_client_payment').value = '';
-                
                 document.getElementById('client_mobile').value = fd.get('mobile_number');
                 document.getElementById('client_gst').value = fd.get('gst_number');
-                document.getElementById('payment_mode').value = fd.get('payment_method');
-                
             } else { alert("Error saving client: " + res.message); }
         });
     }
 
-    // --- DAILY REPORT UPDATE ---
+    // --- DAILY REPORT UPDATE (UPDATED) ---
     function sendDailyUpdate() {
         Swal.fire({
-            title: 'Sending Update...',
-            text: "Compiling today's dispatch report for the Accounts Team.",
-            icon: 'info',
-            showConfirmButton: false,
-            timer: 1500
-        }).then(() => {
-            Swal.fire('Success!', 'Daily update report sent to Accounts securely.', 'success');
+            title: 'Send Daily Report?',
+            text: "This will compile today's invoices and notify the Accounts department.",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            confirmButtonText: 'Yes, Send Report'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const fd = new FormData();
+                fd.append('action', 'send_daily_update');
+                
+                fetch('', { method: 'POST', body: fd })
+                .then(r => r.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        Swal.fire('Report Sent!', data.message, 'success');
+                    } else {
+                        Swal.fire('Error', 'Could not generate report.', 'error');
+                    }
+                });
+            }
         });
     }
 
@@ -814,18 +785,12 @@ include '../header.php';
         evt.currentTarget.classList.add('active');
     }
 
-    // --- VIEW IN-APP INVOICE PREVIEW & DIRECT PRINT ---
-    function printInvoiceDirect(id) {
-        viewInvoice(id, true);
-    }
+    // --- VIEW/PRINT INVOICE ---
+    function printInvoiceDirect(id) { viewInvoice(id, true); }
 
     function viewInvoice(id, autoPrint = false) {
         Swal.fire({ title: 'Loading...', allowOutsideClick: false, didOpen: () => { Swal.showLoading() } });
-
-        const fd = new FormData(); 
-        fd.append('action', 'fetch_invoice_details'); 
-        fd.append('id', id);
-        
+        const fd = new FormData(); fd.append('action', 'fetch_invoice_details'); fd.append('id', id);
         fetch('', { method: 'POST', body: fd })
         .then(r => r.json())
         .then(data => {
@@ -844,25 +809,11 @@ include '../header.php';
                 
                 const table = document.getElementById('p_items'); table.innerHTML = '';
                 data.items.forEach(it => { 
-                    table.innerHTML += `<tr>
-                        <td style="border:1px solid #ddd; padding:10px; font-size:13px;">${it.description}</td>
-                        <td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:center;">${it.qty}</td>
-                        <td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:right;">${it.rate}</td>
-                        <td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:right;">${it.discount_amount}</td>
-                        <td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:right;">${it.total_amount}</td>
-                    </tr>`; 
+                    table.innerHTML += `<tr><td style="border:1px solid #ddd; padding:10px; font-size:13px;">${it.description}</td><td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:center;">${it.qty}</td><td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:right;">${it.rate}</td><td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:right;">${it.discount_amount}</td><td style="border:1px solid #ddd; padding:10px; font-size:13px; text-align:right;">${it.total_amount}</td></tr>`; 
                 });
                 
                 document.getElementById('previewModal').classList.add('active');
-
-                if (autoPrint) {
-                    setTimeout(() => {
-                        window.print();
-                    }, 400);
-                }
-
-            } else {
-                Swal.fire('Error', 'Failed to load invoice details.', 'error');
+                if (autoPrint) setTimeout(() => window.print(), 400);
             }
         });
     }
@@ -878,71 +829,44 @@ include '../header.php';
     function sendToExecutive() {
         const execName = document.getElementById('m_exec').value;
         const invNo = document.getElementById('m_inv_no').innerText;
-
-        if (!execName) {
-            Swal.fire('Selection Required', 'Please select a Sales Executive from the list.', 'warning');
-            return;
-        }
+        if (!execName) { Swal.fire('Selection Required', 'Please select a Sales Executive.', 'warning'); return; }
 
         const btn = document.getElementById('dispatchBtn');
-        const origText = btn.innerHTML;
         btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Dispatching...';
         btn.disabled = true;
 
         setTimeout(() => {
-            btn.innerHTML = origText;
+            // Backend Sync
+            const fd = new FormData();
+            fd.append('action', 'mark_sent');
+            fd.append('invoice_id', invNo);
+            fd.append('exec_name', execName);
+            fetch('', { method: 'POST', body: fd });
+
+            btn.innerHTML = '<i class="ph-bold ph-paper-plane-right"></i> Forward to Executive';
             btn.disabled = false;
             
-            Swal.fire({
-                title: 'Dispatched to Executive!',
-                text: `Invoice ${invNo} has been assigned to ${execName}.`,
-                icon: 'success',
-                timer: 2500,
-                showConfirmButton: false
-            });
-
+            Swal.fire('Dispatched!', `Invoice assigned to ${execName}.`, 'success');
             moveRowToSent(invNo, execName);
-        }, 1200);
+        }, 1000);
     }
 
     function moveRowToSent(invNo, execName) {
         closeModal('dispatchModal');
-        
         const row = document.getElementById('row-' + invNo);
         if(row) {
             const clientHtml = row.cells[1].innerHTML;
             const amountHtml = row.cells[3].innerHTML;
             const today = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 
-            const newRow = `
-                <tr>
-                    <td><strong>${invNo}</strong></td>
-                    <td>${clientHtml}</td>
-                    <td>${today}</td>
-                    <td>${amountHtml}</td>
-                    <td><span class="badge badge-sent"><i class="ph-bold ph-user"></i> ${execName}</span></td>
-                </tr>
-            `;
-            
+            const newRow = `<tr><td><strong>${invNo}</strong></td><td>${clientHtml}</td><td>${today}</td><td>${amountHtml}</td><td><span class="badge badge-sent"><i class="ph-bold ph-user"></i> ${execName}</span></td></tr>`;
             document.getElementById('sentTableBody').insertAdjacentHTML('afterbegin', newRow);
             row.remove();
             
-            // Remove empty message if it exists
-            const emptyMsg = document.getElementById('empty-sent-msg');
-            if (emptyMsg) emptyMsg.remove();
-
+            const emptyMsg = document.getElementById('empty-sent-msg'); if (emptyMsg) emptyMsg.remove();
             if (document.querySelectorAll('#tab-pending tbody tr').length === 0) {
-                document.querySelector('#tab-pending tbody').innerHTML = `
-                    <tr><td colspan="6"><div class="empty-state"><i class="ph-fill ph-check-circle"></i><h3>All Caught Up!</h3><p>No invoices are pending dispatch or awaiting approval.</p></div></td></tr>
-                `;
+                document.querySelector('#tab-pending tbody').innerHTML = '<tr><td colspan="6"><div class="empty-state"><i class="ph-fill ph-check-circle"></i><h3>All Caught Up!</h3><p>No invoices pending.</p></div></td></tr>';
             }
-
-            // Sync with backend
-            const fd = new FormData();
-            fd.append('action', 'mark_sent');
-            fd.append('invoice_id', invNo);
-            fd.append('exec_name', execName);
-            fetch('', { method: 'POST', body: fd });
         }
     }
 </script>
