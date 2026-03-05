@@ -422,7 +422,7 @@ if($r_new_proj) {
             'message' => 'You are leading: ' . htmlspecialchars($np_row['project_name']),
             'time' => date('Y-m-d H:i:s'), 'icon' => 'fa-briefcase',
             'color' => 'text-blue-600 bg-blue-100',
-            'link' => 'tl_projects.php'
+            'link' => 'task_tl.php'
         ];
     }
 }
@@ -456,10 +456,10 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             transition: all 0.3s ease; 
             display: flex; 
             flex-direction: column; 
-            height: 100%; /* Forces cards in the same grid row to stretch to equal height */
+            height: fit-content; /* THIS LINE PREVENTS CARDS FROM STRETCHING VERTICALLY */
         }
         .card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1;}
-        .card-body { padding: 1.5rem; flex-grow: 1; display: flex; flex-direction: column;}
+        .card-body { padding: 1.25rem; flex-grow: 1; display: flex; flex-direction: column;} 
         
         .meeting-timeline { position: relative; }
         .meeting-timeline::before { content: ''; position: absolute; left: 80px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
@@ -501,7 +501,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
         .scroll-area {
             flex-grow: 1;
             overflow-y: auto;
-            min-height: 0; /* Important for flex-child scrolling */
+            min-height: 0; 
         }
     </style>
 </head>
@@ -532,7 +532,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
                 <div class="card">
                     <div class="card-body">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Team Attendance</h3>
                             <a href="attendance_tl.php" class="text-[10px] text-teal-600 font-bold bg-teal-50 px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
                         </div>
@@ -550,7 +550,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                 <span class="text-[10px] font-bold text-red-500 uppercase tracking-widest">Absent</span>
                             </div>
                         </div>
-                        <div class="mt-6 shrink-0">
+                        <div class="mt-4 shrink-0">
                             <div class="flex justify-between text-xs font-bold text-slate-600 mb-1">
                                 <span>Team Strength: <?php echo $total_team; ?></span>
                                 <span><?php echo $team_att_pct; ?>%</span>
@@ -560,8 +560,8 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             </div>
                         </div>
                         
-                        <div class="mt-6 pt-4 border-t border-dashed border-gray-200 flex flex-col min-h-0 flex-grow">
-                            <div class="flex justify-between items-center mb-3 shrink-0">
+                        <div class="mt-4 pt-3 border-t border-dashed border-gray-200 flex flex-col min-h-0 flex-grow">
+                            <div class="flex justify-between items-center mb-2 shrink-0">
                                 <h3 class="font-bold text-slate-800 text-sm">My Team</h3>
                                 <a href="team_member.php" class="text-[9px] bg-slate-100 text-slate-600 font-bold px-2 py-1 rounded uppercase hover:bg-slate-200 transition">View List</a>
                             </div>
@@ -604,62 +604,18 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="card-body flex flex-col">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                            <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
-                            <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
-                        </div>
-                        <div class="space-y-3 custom-scroll scroll-area pr-2">
-                            <?php if(!empty($all_notifications)): ?>
-                                <?php foreach($all_notifications as $notif): ?>
-                                <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
-                                    <div class="w-8 h-8 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-xs shrink-0">
-                                        <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex justify-between items-start">
-                                            <p class="text-sm font-bold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
-                                            <p class="text-[9px] text-gray-400 mt-1 shrink-0"><?php echo date("d M Y", strtotime($notif['time'])); ?></p>
-                                        </div>
-                                        <p class="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-snug"><?php echo htmlspecialchars($notif['message']); ?></p>
-                                        
-                                        <div class="mt-2 text-right">
-                                            <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
-                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
-                                                    <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
-                                                </a>
-                                            <?php else: ?>
-                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-3 py-1.5 rounded-full hover:bg-slate-100 transition shadow-sm">
-                                                    View Details <i class="fa-solid fa-arrow-right ml-1"></i>
-                                                </a>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <div class="text-center py-10 text-slate-400">
-                                    <i class="fa-regular fa-bell-slash text-4xl mb-3 opacity-80"></i>
-                                    <p class='text-sm font-medium text-slate-500'>No recent updates.</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
             </div>
 
             <div class="flex flex-col gap-6">
                 
                 <div class="card">
                     <div class="card-body">
-                        <div class="flex justify-between items-center mb-6 border-b border-gray-100 pb-3 shrink-0">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">My Attendance Stats</h3>
                             <span class="text-[10px] font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded uppercase"><?php echo date('M Y'); ?></span>
                         </div>
-                        <div class="flex flex-col xl:flex-row items-center justify-between gap-6 shrink-0">
-                            <div class="space-y-3.5 w-full pr-2">
+                        <div class="flex flex-col xl:flex-row items-center gap-4 shrink-0">
+                            <div class="space-y-3 w-full pr-2">
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div><span class="text-xs text-gray-600 font-semibold">On Time</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_ontime; ?></span></div>
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="text-xs text-gray-600 font-semibold">Late</span></div>
@@ -683,51 +639,50 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 </div>
 
                 <div class="card">
-                    <div class="card-body flex flex-col justify-between">
-                        <div>
-                            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                                <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                                <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
+                    <div class="card-body flex flex-col gap-3">
+                        <div class="flex justify-between items-center border-b border-gray-100 pb-2">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
+                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
+                                <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
+                                <p class="text-xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
                             </div>
-                            <div class="grid grid-cols-3 gap-3 mb-4">
-                                <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
-                                    <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
-                                    <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
-                                </div>
-                                <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
-                                    <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
-                                    <p class="text-2xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
-                                </div>
-                                <div class="bg-green-50 p-3 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden">
-                                    <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
-                                    <p class="text-2xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
-                                        <?php echo $display_leaves_remaining; ?>
-                                    </p>
-                                </div>
+                            <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
+                                <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
+                                <p class="text-xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
                             </div>
-                            
-                            <?php if($leaves_remaining < 0): ?>
-                                <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4 flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                                    <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
-                                </div>
-                            <?php endif; ?>
-
-                            <div class="space-y-2 mt-2">
-                                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Recent Leave Policy</p>
-                                <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
-                                    <span class="text-[10px] font-bold text-slate-600">Monthly Accrual</span>
-                                    <span class="text-[10px] font-black text-teal-600">+2.0 Days</span>
-                                </div>
-                                <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
-                                    <span class="text-[10px] font-bold text-slate-600">Sick Leave Cap</span>
-                                    <span class="text-[10px] font-black text-slate-700">12 Days/Year</span>
-                                </div>
+                            <div class="bg-green-50 p-3 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden">
+                                <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
+                                <p class="text-xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
+                                    <?php echo $display_leaves_remaining; ?>
+                                </p>
                             </div>
                         </div>
-                        <div class="mt-6">
-                            <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm">
-                                <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
+                        
+                        <?php if($leaves_remaining < 0): ?>
+                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2 flex items-center gap-3">
+                                <div class="w-6 h-6 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0 text-[10px]"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                                <p class="text-[11px] font-semibold text-rose-700 leading-tight">Limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
+                            </div>
+                        <?php endif; ?>
+
+                        <div class="space-y-1.5">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recent Leave Policy</p>
+                            <div class="flex items-center justify-between p-1.5 bg-slate-50 rounded-lg border border-slate-100">
+                                <span class="text-[10px] font-bold text-slate-600">Monthly Accrual</span>
+                                <span class="text-[10px] font-black text-teal-600">+2.0 Days</span>
+                            </div>
+                            <div class="flex items-center justify-between p-1.5 bg-slate-50 rounded-lg border border-slate-100">
+                                <span class="text-[10px] font-bold text-slate-600">Sick Leave Cap</span>
+                                <span class="text-[10px] font-black text-slate-700">12 Days/Year</span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2 rounded-lg text-center transition shadow-sm shadow-teal-200/50 text-xs">
+                                <i class="fa-solid fa-plus mr-1"></i> APPLY FOR LEAVE
                             </a>
                         </div>
                     </div>
@@ -735,9 +690,9 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
                 <div class="card">
                     <div class="card-body">
-                        <h3 class="font-bold text-slate-800 text-lg mb-2 shrink-0">Project Tasks Priority</h3>
-                        <div id="priorityDonutChart" class="flex justify-center my-4 shrink-0"></div>
-                        <div class="flex justify-around mt-2 border-t pt-4 border-slate-100 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg mb-1 shrink-0">Project Tasks Priority</h3>
+                        <div id="priorityDonutChart" class="flex justify-center my-2 shrink-0"></div>
+                        <div class="flex justify-around mt-0 border-t pt-2 border-slate-100 shrink-0">
                             <div class="text-center"><span class="block text-red-500 font-black text-lg"><?php echo $high_tasks; ?></span><span class="text-[9px] font-black text-slate-400 uppercase">High</span></div>
                             <div class="text-center"><span class="block text-amber-500 font-black text-lg"><?php echo $med_tasks; ?></span><span class="text-[9px] font-black text-slate-400 uppercase">Medium</span></div>
                             <div class="text-center"><span class="block text-emerald-500 font-black text-lg"><?php echo $low_tasks; ?></span><span class="text-[9px] font-black text-slate-400 uppercase">Low</span></div>
@@ -750,79 +705,70 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             <div class="flex flex-col gap-6">
                 
                 <div class="card overflow-hidden shadow-sm border-slate-200">
-                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative shrink-0">
+                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-5 flex items-center gap-4 relative shrink-0">
                         <div class="relative shrink-0">
-                            <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white shadow-lg object-cover bg-white">
-                            <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 border-2 border-white rounded-full"></div>
+                            <img src="<?php echo $profile_img; ?>" class="w-14 h-14 rounded-full border-2 border-white shadow-lg object-cover bg-white">
+                            <div class="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <div class="min-w-0 text-white">
-                            <h2 class="font-black text-xl truncate tracking-tight"><?php echo htmlspecialchars($tl_name); ?></h2>
-                            <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5 opacity-90"><?php echo htmlspecialchars($user_role); ?></p>
+                            <h2 class="font-black text-lg truncate tracking-tight"><?php echo htmlspecialchars($tl_name); ?></h2>
+                            <p class="text-teal-100 text-[9px] font-bold uppercase tracking-widest truncate mt-0.5 opacity-90"><?php echo htmlspecialchars($user_role); ?></p>
                         </div>
                     </div>
                     
-                    <div class="p-4 bg-white border-b border-gray-100 shrink-0">
-                         <div class="flex flex-col gap-2">
-                            <div class="flex items-center gap-3">
-                                <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
-                                    <i class="fa-solid fa-phone text-teal-600 text-xs"></i>
+                    <div class="p-3 bg-white border-b border-gray-100 shrink-0">
+                         <div class="flex flex-col gap-1.5">
+                            <div class="flex items-center gap-2">
+                                <div class="w-6 h-6 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-phone text-teal-600 text-[10px]"></i>
                                 </div>
-                                <p class="text-xs font-bold text-slate-700 truncate"><?php echo htmlspecialchars($tl_phone); ?></p>
+                                <p class="text-[11px] font-bold text-slate-700 truncate"><?php echo htmlspecialchars($tl_phone); ?></p>
                             </div>
-                            <div class="flex items-center gap-3">
-                                <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
-                                    <i class="fa-solid fa-envelope text-teal-600 text-xs"></i>
+                            <div class="flex items-center gap-2">
+                                <div class="w-6 h-6 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-envelope text-teal-600 text-[10px]"></i>
                                 </div>
-                                <p class="text-xs font-bold text-slate-700 truncate" title="<?php echo htmlspecialchars($tl_email); ?>">
+                                <p class="text-[11px] font-bold text-slate-700 truncate" title="<?php echo htmlspecialchars($tl_email); ?>">
                                     <?php echo htmlspecialchars($tl_email); ?>
                                 </p>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="p-4 bg-slate-50 flex-grow space-y-4">
-                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <div class="p-3 bg-slate-50 flex-grow space-y-3">
+                        <div class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                            <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
                                 <i class="fa-solid fa-user-shield text-purple-500"></i> Reporting Manager
                             </p>
                             <div class="flex justify-between items-center">
                                 <div class="min-w-0">
-                                    <p class="text-sm font-black text-slate-800 truncate"><?php echo htmlspecialchars($tl_manager_name); ?></p>
-                                    <p class="text-[10px] text-slate-500 font-medium mt-0.5 truncate">
-                                        <i class="fa-solid fa-envelope text-[9px] mr-1"></i> <?php echo htmlspecialchars($tl_manager_email); ?>
+                                    <p class="text-xs font-black text-slate-800 truncate"><?php echo htmlspecialchars($tl_manager_name); ?></p>
+                                    <p class="text-[9px] text-slate-500 font-medium mt-0.5 truncate">
+                                        <i class="fa-solid fa-envelope text-[8px] mr-1"></i> <?php echo htmlspecialchars($tl_manager_email); ?>
                                     </p>
                                 </div>
-                                <a href="tel:<?php echo $tl_manager_phone; ?>" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-teal-600 hover:text-white transition-colors flex-shrink-0">
-                                    <i class="fa-solid fa-phone text-xs"></i>
+                                <a href="tel:<?php echo $tl_manager_phone; ?>" class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-teal-600 hover:text-white transition-colors flex-shrink-0">
+                                    <i class="fa-solid fa-phone text-[10px]"></i>
                                 </a>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-3">
-                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
-                                <p class="text-[9px] text-gray-400 font-black uppercase tracking-tighter">Experience</p>
-                                <p class="text-xs font-black text-slate-700 mt-1"><?php echo htmlspecialchars($tl_exp); ?></p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="bg-white p-2 rounded-xl border border-slate-200 text-center shadow-sm">
+                                <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Experience</p>
+                                <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_exp); ?></p>
                             </div>
-                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
-                                <p class="text-[9px] text-gray-400 font-black uppercase tracking-tighter">Department</p>
-                                <p class="text-xs font-black text-slate-700 mt-1"><?php echo htmlspecialchars($tl_dept); ?></p>
+                            <div class="bg-white p-2 rounded-xl border border-slate-200 text-center shadow-sm">
+                                <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Department</p>
+                                <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_dept); ?></p>
                             </div>
                         </div>
 
-                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-                            <p class="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Company Journey</p>
+                        <div class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
+                            <p class="text-[8px] text-gray-400 font-black uppercase tracking-widest mb-1">Company Journey</p>
                             <div class="flex justify-between items-center">
-                                <p class="text-xs font-black text-slate-700">Joined On</p>
-                                <span class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded-lg"><?php echo $joining_date_display; ?></span>
-                            </div>
-                        </div>
-
-                        <div>
-                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Core Expertise</p>
-                            <div class="flex flex-wrap gap-1.5">
-                                <span class="px-2 py-1 bg-teal-100 text-teal-700 text-[9px] font-bold rounded-md border border-teal-200">Leadership</span>
-                                <span class="px-2 py-1 bg-blue-100 text-blue-700 text-[9px] font-bold rounded-md border border-blue-200">Project Mgmt</span>
-                                <span class="px-2 py-1 bg-slate-200 text-slate-700 text-[9px] font-bold rounded-md border border-slate-300">Strategy</span>
+                                <p class="text-[11px] font-black text-slate-700">Joined On</p>
+                                <span class="text-[9px] font-bold text-teal-600 bg-teal-50 px-1.5 py-0.5 rounded-lg"><?php echo $joining_date_display; ?></span>
                             </div>
                         </div>
 
@@ -830,17 +776,17 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         $emergency = json_decode($tl_emergency_contacts, true);
                         if (!empty($emergency)): 
                             $primary = $emergency[0]; ?>
-                            <div class="p-3 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between mt-auto shadow-sm">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-500 shadow-inner">
-                                        <i class="fa-solid fa-heart-pulse text-xs"></i>
+                            <div class="p-2.5 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between mt-auto shadow-sm">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-6 h-6 rounded-lg bg-rose-100 flex items-center justify-center text-rose-500 shadow-inner">
+                                        <i class="fa-solid fa-heart-pulse text-[10px]"></i>
                                     </div>
                                     <div>
-                                        <span class="text-[9px] font-black text-rose-700 uppercase block tracking-tight">Emergency</span>
-                                        <p class="text-xs font-black text-slate-800"><?php echo htmlspecialchars($primary['name']); ?></p>
+                                        <span class="text-[8px] font-black text-rose-700 uppercase block tracking-tight">Emergency</span>
+                                        <p class="text-[11px] font-black text-slate-800"><?php echo htmlspecialchars($primary['name']); ?></p>
                                     </div>
                                 </div>
-                                <p class="text-[10px] font-black text-rose-600"><?php echo htmlspecialchars($primary['phone']); ?></p>
+                                <p class="text-[9px] font-black text-rose-600"><?php echo htmlspecialchars($primary['phone']); ?></p>
                             </div>
                         <?php endif; ?>
                     </div>
@@ -853,44 +799,44 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-slate-50 px-1.5 py-0.5 rounded border border-gray-100">Today</span>
                         </div>
                         
-                        <div class="grid grid-cols-2 gap-3 mb-4 shrink-0">
+                        <div class="grid grid-cols-2 gap-2 mb-3 shrink-0">
                             <div class="bg-white p-2 rounded-lg border border-slate-100">
                                 <p class="text-[8px] text-gray-500 font-bold uppercase tracking-widest mb-0.5 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 block"></span> Productive</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_prod; ?></p>
+                                <p class="text-sm font-black text-slate-800"><?php echo $str_prod; ?></p>
                             </div>
                             <div class="bg-white p-2 rounded-lg border border-slate-100 text-right">
                                 <p class="text-[8px] text-gray-500 font-bold uppercase tracking-widest mb-0.5 flex items-center justify-end gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-400 block"></span> Break</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_break; ?></p>
+                                <p class="text-sm font-black text-slate-800"><?php echo $str_break; ?></p>
                             </div>
                         </div>
 
-                        <div class="flex-grow space-y-3 mb-4">
-                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Work Log</p>
-                            <div class="relative pl-4 border-l-2 border-slate-100 space-y-4">
+                        <div class="flex-grow space-y-2 mb-3">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Work Log</p>
+                            <div class="relative pl-3 border-l-2 border-slate-100 space-y-3">
                                 <div class="relative">
-                                    <div class="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white"></div>
-                                    <p class="text-[11px] font-bold text-slate-700">Punch In</p>
-                                    <p class="text-[9px] text-slate-400"><?php echo $display_punch_in; ?></p>
+                                    <div class="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-emerald-500 border border-white"></div>
+                                    <p class="text-[10px] font-bold text-slate-700">Punch In</p>
+                                    <p class="text-[8px] text-slate-400"><?php echo $display_punch_in; ?></p>
                                 </div>
                                 <div class="relative">
-                                    <div class="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-500 border-2 border-white"></div>
-                                    <p class="text-[11px] font-bold text-slate-700">Current Session</p>
-                                    <p class="text-[9px] text-slate-400">Ongoing Activity</p>
+                                    <div class="absolute -left-[17px] top-1 w-2 h-2 rounded-full bg-blue-500 border border-white"></div>
+                                    <p class="text-[10px] font-bold text-slate-700">Current Session</p>
+                                    <p class="text-[8px] text-slate-400">Ongoing Activity</p>
                                 </div>
                             </div>
                         </div>
 
                         <div class="mt-auto">
-                            <div class="w-full bg-slate-100 rounded-full h-2 flex overflow-hidden mb-3 border border-slate-200/60 shadow-inner">
+                            <div class="w-full bg-slate-100 rounded-full h-1.5 flex overflow-hidden mb-2 border border-slate-200/60 shadow-inner">
                                 <div class="bg-emerald-500 h-full transition-all" style="width: <?php echo $pct_prod; ?>%" title="Productive"></div>
                                 <div class="bg-amber-400 h-full transition-all" style="width: <?php echo $pct_break; ?>%" title="Break"></div>
                                 <div class="bg-blue-500 h-full transition-all" style="width: <?php echo $pct_ot; ?>%" title="Overtime"></div>
                             </div>
                             
-                            <div class="pt-2 border-t border-gray-100">
-                                <div class="flex items-center justify-between bg-orange-50 border border-orange-100 px-3 py-2 rounded-lg">
-                                    <p class="text-[9px] text-orange-600 font-bold uppercase tracking-widest">OT This Month</p>
-                                    <span class="text-sm font-black text-orange-600"><?php echo $overtime_this_month; ?> <span class="text-[10px] font-bold text-orange-500">Hrs</span></span>
+                            <div class="pt-1 border-t border-gray-100">
+                                <div class="flex items-center justify-between bg-orange-50 border border-orange-100 px-2.5 py-1.5 rounded-lg mt-1">
+                                    <p class="text-[8px] text-orange-600 font-bold uppercase tracking-widest">OT This Month</p>
+                                    <span class="text-xs font-black text-orange-600"><?php echo $overtime_this_month; ?> <span class="text-[9px] font-bold text-orange-500">Hrs</span></span>
                                 </div>
                             </div>
                         </div>
@@ -898,12 +844,12 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 </div>
 
                 <div class="card">
-                    <div class="card-body flex flex-col min-h-[250px]">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                    <div class="card-body flex flex-col">
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">My Managed Projects</h3>
-                            <a href="tl_projects.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
+                            <a href="tl_projects.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
                         </div>
-                        <div class="space-y-4 custom-scroll scroll-area pr-2">
+                        <div class="space-y-2.5 custom-scroll scroll-area pr-2">
                             <?php if(!empty($active_projects)): ?>
                                 <?php foreach($active_projects as $proj): 
                                     $pct = ($proj['total_tasks'] > 0) ? round(($proj['completed_tasks'] / $proj['total_tasks']) * 100) : 0;
@@ -911,33 +857,32 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                     if($pct >= 100) { $prog_color = 'bg-emerald-500'; }
                                     elseif($pct < 30) { $prog_color = 'bg-orange-500'; }
                                 ?>
-                                <div class="border border-gray-100 rounded-xl p-4 shadow-sm hover:border-teal-200 transition bg-slate-50">
+                                <div class="border border-gray-100 rounded-xl p-3 shadow-sm hover:border-teal-200 transition bg-slate-50">
                                     <div class="flex justify-between items-start mb-1">
-                                        <h4 class="font-bold text-sm text-slate-800 mb-2 truncate pr-2 w-3/4" title="<?php echo htmlspecialchars($proj['project_name']); ?>">
+                                        <h4 class="font-bold text-xs text-slate-800 mb-1 truncate pr-2 w-3/4" title="<?php echo htmlspecialchars($proj['project_name']); ?>">
                                             <?php echo htmlspecialchars($proj['project_name']); ?>
                                         </h4>
                                         <?php if(!empty($proj['deadline'])): ?>
-                                            <span class="text-[9px] font-bold text-gray-400 bg-white border border-gray-200 px-2 py-1 rounded shadow-sm">
+                                            <span class="text-[8px] font-bold text-gray-400 bg-white border border-gray-200 px-1.5 py-0.5 rounded shadow-sm">
                                                 Due: <?php echo date("d M Y", strtotime($proj['deadline'])); ?>
                                             </span>
                                         <?php endif; ?>
                                     </div>
                                     
-                                    <div class="mt-2">
-                                        <div class="flex justify-between text-[9px] font-black text-gray-500 mb-1 uppercase tracking-widest">
-                                            <span>Progress (<?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?> Tasks)</span>
+                                    <div class="mt-1.5">
+                                        <div class="flex justify-between text-[8px] font-black text-gray-500 mb-1 uppercase tracking-widest">
+                                            <span>Progress (<?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?>)</span>
                                             <span class="<?php echo str_replace('bg-', 'text-', $prog_color); ?>"><?php echo $pct; ?>%</span>
                                         </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                                            <div class="<?php echo $prog_color; ?> h-1.5 rounded-full transition-all duration-500" style="width: <?php echo $pct; ?>%"></div>
+                                        <div class="w-full bg-gray-200 rounded-full h-1 overflow-hidden">
+                                            <div class="<?php echo $prog_color; ?> h-1 rounded-full transition-all duration-500" style="width: <?php echo $pct; ?>%"></div>
                                         </div>
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
                             <?php else: ?>
-                                <div class="text-center py-6 text-slate-400 flex flex-col items-center justify-center h-full">
-                                    <i class="fa-solid fa-layer-group text-3xl mb-2 opacity-50"></i>
-                                    <p class="text-sm">No active projects assigned.</p>
+                                <div class="text-center py-4 text-slate-400">
+                                    <p class="text-xs font-medium">No active projects assigned.</p>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -946,35 +891,79 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
             </div>
         </div>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 mb-10">
+        
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 mb-10">
             
             <div class="card">
-                <div class="card-body h-[350px] flex flex-col">
-                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg">My Personal Tasks</h3>
-                        <a href="task_tl.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">Tasks Board</a>
+                <div class="card-body h-[350px] flex flex-col gap-2">
+                    <div class="flex justify-between items-center border-b border-gray-100 pb-2 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
+                        <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
                     </div>
-                    <div class="space-y-3 custom-scroll scroll-area pr-2">
+                    <div class="space-y-2 custom-scroll scroll-area pr-2 mt-1">
+                        <?php if(!empty($all_notifications)): ?>
+                            <?php foreach($all_notifications as $notif): ?>
+                            <div class="flex gap-3 items-start border border-gray-100 p-2.5 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                <div class="w-7 h-7 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-[10px] shrink-0">
+                                    <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex justify-between items-start">
+                                        <p class="text-xs font-bold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
+                                        <p class="text-[8px] text-gray-400 mt-1 shrink-0"><?php echo date("d M Y", strtotime($notif['time'])); ?></p>
+                                    </div>
+                                    <p class="text-[10px] text-gray-500 mt-0.5 line-clamp-2 leading-snug"><?php echo htmlspecialchars($notif['message']); ?></p>
+                                    
+                                    <div class="mt-1.5 text-right">
+                                        <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
+                                            <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-2 py-1 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
+                                                <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
+                                            </a>
+                                        <?php else: ?>
+                                            <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-2 py-1 rounded-full hover:bg-slate-100 transition shadow-sm">
+                                                View Details <i class="fa-solid fa-arrow-right ml-1"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="text-center py-6 text-slate-400">
+                                <i class="fa-regular fa-bell-slash text-3xl mb-2 opacity-80"></i>
+                                <p class='text-xs font-medium text-slate-500'>No recent updates.</p>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body h-[350px] flex flex-col">
+                    <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg">My Personal Tasks</h3>
+                        <a href="task_tl.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">Tasks Board</a>
+                    </div>
+                    <div class="space-y-2 custom-scroll scroll-area pr-2 mt-1">
                         <?php if(mysqli_num_rows($tasks_result) > 0) {
                             while($task = mysqli_fetch_assoc($tasks_result)): 
                                 $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
                                 $icon_class = ($task['status'] == 'completed') ? 'fa-solid fa-circle-check text-emerald-500' : 'fa-regular fa-circle text-teal-600';
                         ?>
-                        <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
-                            <div class="flex items-center gap-3">
-                                <i class="<?php echo $icon_class; ?>"></i>
+                        <div class="flex items-center justify-between p-2.5 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
+                            <div class="flex items-center gap-2.5">
+                                <i class="<?php echo $icon_class; ?> text-sm"></i>
                                 <div>
-                                    <span class="text-sm font-medium text-slate-700 block truncate max-w-[200px] lg:max-w-[300px]" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
+                                    <span class="text-[13px] font-medium text-slate-700 block truncate max-w-[200px] lg:max-w-[300px]" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
                                 </div>
                             </div>
                             <div class="flex flex-col items-end gap-1">
-                                <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
+                                <span class="text-[8px] font-bold px-1.5 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
                             </div>
                         </div>
                         <?php endwhile; } else { ?>
-                            <div class="text-center py-6 text-slate-400 flex flex-col items-center justify-center h-full">
-                                <i class="fa-solid fa-clipboard-check text-3xl mb-2 opacity-50"></i>
-                                <p class="text-sm">No personal tasks found.</p>
+                            <div class="text-center py-4 text-slate-400">
+                                <p class="text-xs font-medium">No personal tasks found.</p>
                             </div>
                         <?php } ?>
                     </div>
@@ -983,28 +972,28 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
             <div class="card">
                 <div class="card-body h-[350px] flex flex-col">
-                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                    <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
                         <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
-                        <button class="text-[10px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
+                        <button class="text-[9px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
                     </div>
-                    <div class="meeting-timeline space-y-6 pt-2 custom-scroll scroll-area pr-2">
+                    <div class="meeting-timeline space-y-4 pt-1 custom-scroll scroll-area pr-2 mt-2">
                         <?php if($meet_result && mysqli_num_rows($meet_result) > 0) {
                             while($meet = mysqli_fetch_assoc($meet_result)): 
                                 $dot_color = ($meet['type_color']=='orange') ? 'bg-orange-500' : (($meet['type_color']=='teal') ? 'bg-teal-500' : 'bg-yellow-500');
                         ?>
                         <div class="meeting-row-wrapper">
                             <div class="meeting-dot <?php echo $dot_color; ?>"></div>
-                            <div class="meeting-flex-container">
+                            <div class="meeting-flex-container gap-4">
                                 <div class="meeting-time-label">
                                     <?php echo date("h:i A", strtotime($meet['meeting_time'])); ?>
                                 </div>
-                                <div class="meeting-content-box shadow-sm">
-                                    <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
-                                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1"><?php echo htmlspecialchars($meet['department']); ?></p>
+                                <div class="meeting-content-box shadow-sm py-2 px-3">
+                                    <p class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
+                                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department']); ?></p>
                                 </div>
                             </div>
                         </div>
-                        <?php endwhile; } else { echo "<div class='text-center py-6 text-slate-400 flex flex-col items-center justify-center h-full'><i class='fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50'></i><p class='text-sm'>No meetings scheduled today.</p></div>"; } ?>
+                        <?php endwhile; } else { echo "<div class='text-center py-4 text-slate-400'><p class='text-xs font-medium'>No meetings scheduled today.</p></div>"; } ?>
                     </div>
                 </div>
             </div>
@@ -1092,15 +1081,15 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 new ApexCharts(attendanceChartEl, attOptions).render();
             }
 
-            // Task Priority Chart
+            // Task Priority Chart (Decreased Height)
             var prioOptions = {
                 series: [<?php echo $high_tasks; ?>, <?php echo $med_tasks; ?>, <?php echo $low_tasks; ?>],
                 labels: ['High', 'Medium', 'Low'],
-                chart: { type: 'donut', height: 180 },
+                chart: { type: 'donut', height: 150 },
                 colors: ['#ef4444', '#f59e0b', '#10b981'],
                 legend: { show: false },
                 dataLabels: { enabled: false },
-                plotOptions: { pie: { donut: { size: '70%', labels: { show: true, name: {show: false}, value: { fontSize: '24px', fontWeight: 900, color: '#1e293b' }, total: { show: true, showAlways: true, label: 'Tasks', color: '#64748b' } } } } }
+                plotOptions: { pie: { donut: { size: '70%', labels: { show: true, name: {show: false}, value: { fontSize: '20px', fontWeight: 900, color: '#1e293b' }, total: { show: true, showAlways: true, label: 'Tasks', color: '#64748b' } } } } }
             };
             var priorityDonutChartEl = document.querySelector("#priorityDonutChart");
             if (priorityDonutChartEl) {

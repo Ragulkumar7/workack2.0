@@ -297,7 +297,6 @@ $total_team = $res_team['total'] ?? 0;
 $res_p = $conn->query("SELECT COUNT(*) as cnt FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE (ep.manager_id = $mgr_user_id OR ep.reporting_to = $mgr_user_id) AND a.date = '$today' AND (a.status='On Time' OR a.status='WFH' OR a.status='Late')")->fetch_assoc();
 $team_present = $res_p['cnt'] ?? 0;
 
-// ERROR FIXED: $team_late added safely
 $res_l = $conn->query("SELECT COUNT(*) as cnt FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE (ep.manager_id = $mgr_user_id OR ep.reporting_to = $mgr_user_id) AND a.date = '$today' AND a.status='Late'")->fetch_assoc();
 $team_late = $res_l['cnt'] ?? 0;
 
@@ -314,21 +313,6 @@ $res_nli = $stmt_nli->get_result();
 while($r = $res_nli->fetch_assoc()) { $not_logged_in[] = $r; }
 $stmt_nli->close();
 
-// =========================================================================
-// ACTION NEEDED (Approvals)
-// =========================================================================
-$action_requests = [];
-$q_swaps = "SELECT ssr.id, ep.full_name, ssr.request_date, 'Shift Swap' as req_type 
-            FROM shift_swap_requests ssr JOIN employee_profiles ep ON ssr.user_id = ep.user_id 
-            WHERE ssr.tl_approval = 'Approved' AND ssr.manager_approval = 'Pending' LIMIT 4";
-$r_swaps = mysqli_query($conn, $q_swaps);
-if($r_swaps) { while($r = mysqli_fetch_assoc($r_swaps)) { $action_requests[] = $r; } }
-
-$q_mleaves = "SELECT lr.id, ep.full_name, lr.start_date as request_date, 'Leave' as req_type 
-              FROM leave_requests lr JOIN employee_profiles ep ON lr.user_id = ep.user_id 
-              WHERE (ep.manager_id = $mgr_user_id OR ep.reporting_to = $mgr_user_id) AND lr.status = 'Pending' LIMIT 4";
-$r_mleaves = mysqli_query($conn, $q_mleaves);
-if($r_mleaves) { while($r = mysqli_fetch_assoc($r_mleaves)) { $action_requests[] = $r; } }
 
 // =========================================================================
 // TL PROJECTS DYNAMIC PROGRESS 
@@ -337,11 +321,8 @@ $active_projects = [];
 $q_tl_proj = "SELECT p.id as project_id, p.project_name, p.status, p.deadline, ep.full_name as tl_name, ep.profile_img,
               (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id) as total_tasks,
               (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id AND pt.status = 'Completed') as completed_tasks
-              FROM projects p 
-              JOIN employee_profiles ep ON p.leader_id = ep.user_id 
-              WHERE p.created_by = ? AND p.status != 'Completed' 
-              ORDER BY p.id DESC LIMIT 4";
-
+              FROM projects p JOIN employee_profiles ep ON p.leader_id = ep.user_id 
+              WHERE p.created_by = ? AND p.status != 'Completed' ORDER BY p.id DESC LIMIT 4";
 $stmt_tlp = $conn->prepare($q_tl_proj);
 if ($stmt_tlp) {
     $stmt_tlp->bind_param("i", $mgr_user_id);
@@ -355,11 +336,11 @@ if ($stmt_tlp) {
 }
 
 // =========================================================================
-// UNIFIED NOTIFICATIONS (Using real created_at for correct Sorting)
+// UNIFIED NOTIFICATIONS
 // =========================================================================
 $all_notifications = [];
 
-$q_tickets = "SELECT id, ticket_code, subject, created_at FROM tickets WHERE user_id = $mgr_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY id DESC LIMIT 3";
+$q_tickets = "SELECT id, ticket_code, subject FROM tickets WHERE user_id = $mgr_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY id DESC LIMIT 3";
 $r_tickets = mysqli_query($conn, $q_tickets);
 if($r_tickets) {
     while($row = mysqli_fetch_assoc($r_tickets)) {
@@ -367,14 +348,14 @@ if($r_tickets) {
             'type' => 'ticket', 'id' => $row['id'],
             'title' => 'Ticket Solved: #' . ($row['ticket_code'] ?? $row['id']),
             'message' => 'IT Team resolved: ' . htmlspecialchars($row['subject']),
-            'time' => $row['created_at'] ?? date('Y-m-d H:i:s'),
+            'time' => date('Y-m-d H:i:s'),
             'icon' => 'fa-check-double', 'color' => 'text-emerald-600 bg-emerald-100',
             'link' => '?dismiss_ticket=' . $row['id']
         ];
     }
 }
 
-$q_leaves = "SELECT leave_type, status, created_at FROM leave_requests WHERE user_id = $mgr_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 3";
+$q_leaves = "SELECT leave_type, status FROM leave_requests WHERE user_id = $mgr_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 3";
 $r_leaves = mysqli_query($conn, $q_leaves);
 if($r_leaves) {
     while($row = mysqli_fetch_assoc($r_leaves)) {
@@ -384,14 +365,14 @@ if($r_leaves) {
             'type' => 'leave',
             'title' => 'Leave ' . $row['status'],
             'message' => 'Your ' . htmlspecialchars($row['leave_type']) . ' request was ' . strtolower($row['status']) . '.',
-            'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
+            'time' => date('Y-m-d H:i:s'), 
             'icon' => $icon, 'color' => $color,
             'link' => '../employee/leave_request.php'
         ];
     }
 }
 
-$q_swaps = "SELECT status, created_at FROM shift_swap_requests WHERE user_id = $mgr_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 2";
+$q_swaps = "SELECT status FROM shift_swap_requests WHERE user_id = $mgr_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 2";
 $r_swaps = mysqli_query($conn, $q_swaps);
 if($r_swaps) {
     while($row = mysqli_fetch_assoc($r_swaps)) {
@@ -401,14 +382,14 @@ if($r_swaps) {
             'type' => 'swap',
             'title' => 'Shift Swap ' . $row['status'],
             'message' => 'Your shift swap request was ' . strtolower($row['status']) . '.',
-            'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
+            'time' => date('Y-m-d H:i:s'), 
             'icon' => $icon, 'color' => $color,
             'link' => '../employee/shift_swap_request.php'
         ];
     }
 }
 
-$q_announcements = "SELECT id, title, message, created_at FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 5"; 
+$q_announcements = "SELECT id, title, message FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 5"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
     while($row = mysqli_fetch_assoc($r_announcements)) {
@@ -416,31 +397,21 @@ if($r_announcements) {
             'type' => 'announcement',
             'title' => 'Announcement: ' . htmlspecialchars($row['title']),
             'message' => htmlspecialchars(substr($row['message'], 0, 50)) . '...',
-            'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
+            'time' => date('Y-m-d H:i:s'), 
             'icon' => 'fa-bullhorn', 'color' => 'text-orange-600 bg-orange-100',
             'link' => '../view_announcements.php'
         ];
     }
 }
 
-// Sort newest to oldest
-usort($all_notifications, function($a, $b) { 
-    return strtotime($b['time']) - strtotime($a['time']); 
-});
+usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
 $all_notifications = array_slice($all_notifications, 0, 6); 
 
-
-// =========================================================================
-// TEAM TASKS PROGRESS (Split view)
-// =========================================================================
-$task_sql = "SELECT pt.task_title as title, pt.priority, pt.status, pt.assigned_to as assignee_name 
-             FROM project_tasks pt
-             JOIN projects p ON pt.project_id = p.id
-             WHERE p.created_by = $mgr_user_id 
-             ORDER BY pt.id DESC LIMIT 15";
+// TASKS & MEETINGS
+$task_sql = "SELECT * FROM personal_taskboard WHERE user_id = $mgr_user_id ORDER BY id DESC LIMIT 5";
 $tasks_result = mysqli_query($conn, $task_sql);
+$pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskboard WHERE user_id = $mgr_user_id AND status != 'completed'")->fetch_assoc()['cnt'] ?? 0;
 
-// Meetings
 $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 5");
 
 ?>
@@ -457,7 +428,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
     <style>
         body { background-color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b; overflow-x: hidden; }
         
-        /* Removed height:100% to let cards naturally size */
         .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; transition: transform 0.3s ease, box-shadow 0.3s ease; }
         .card:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1; transform: translateY(-2px); }
         
@@ -475,12 +445,12 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
         .meeting-time-label { width: 68px; text-align: right; flex-shrink: 0; font-weight: 700; font-size: 12px; color: #64748b; padding-top: 4px; }
         .meeting-content-box { background-color: #f8fafc; padding: 12px; border-radius: 0.75rem; border: 1px solid #f1f5f9; flex-grow: 1; }
 
-        /* EXACT 3-COLUMN FLEX GRID */
+        /* PERFECT 3-COLUMN FLEX GRID */
         .dashboard-container { 
             display: grid; 
             grid-template-columns: repeat(1, minmax(0, 1fr)); 
             gap: 1.5rem; 
-            align-items: flex-start; /* Ensures cards wrap naturally */
+            align-items: stretch; /* Forces all columns to be equal height, removing bottom white space */
         }
         @media (min-width: 1024px) {
             .dashboard-container {
@@ -531,9 +501,9 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 <div><p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Absent Today</p><p class="stat-badge text-red-500"><?php echo $team_absent; ?></p></div>
                 <div class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-lg"><i class="fa-solid fa-user-xmark"></i></div>
             </div>
-            <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between hover:shadow-md transition">
-                <div><p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">Pending Actions</p><p class="stat-badge text-orange-500"><?php echo count($action_requests); ?></p></div>
-                <div class="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-lg"><i class="fa-solid fa-clipboard-list"></i></div>
+            <div class="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between cursor-pointer hover:shadow-md transition" onclick="window.location.href='task_manager.php'">
+                <div><p class="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1">My Pending Tasks</p><p class="stat-badge text-orange-500"><?php echo $pending_tasks_count; ?></p></div>
+                <div class="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-lg"><i class="fa-solid fa-list-check"></i></div>
             </div>
         </div>
 
@@ -543,13 +513,13 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 
                 <?php include '../attendance_card.php'; ?>
 
-                <div class="card">
-                    <div class="p-6 flex flex-col">
+                <div class="card flex-grow">
+                    <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
                             <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
                         </div>
-                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[300px] pr-2">
+                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[350px] pr-2">
                             <?php if(!empty($all_notifications)): ?>
                                 <?php foreach($all_notifications as $notif): ?>
                                 <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
@@ -562,6 +532,18 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                             <p class="text-[9px] text-gray-400 mt-1 shrink-0"><?php echo date("d M Y", strtotime($notif['time'])); ?></p>
                                         </div>
                                         <p class="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-snug"><?php echo htmlspecialchars($notif['message']); ?></p>
+                                        
+                                        <div class="mt-2 text-right">
+                                            <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
+                                                    <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
+                                                </a>
+                                            <?php else: ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-3 py-1.5 rounded-full hover:bg-slate-100 transition shadow-sm">
+                                                    View Details <i class="fa-solid fa-arrow-right ml-1"></i>
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
                                     </div>
                                 </div>
                                 <?php endforeach; ?>
@@ -575,45 +557,11 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card border-orange-200">
-                    <div class="p-6 flex flex-col">
-                        <div class="flex justify-between items-center mb-4 border-b border-orange-100 pb-3 shrink-0">
-                            <h3 class="font-bold text-slate-800 text-lg">Action Needed</h3>
-                            <span class="bg-orange-100 text-orange-700 text-[10px] px-2 py-1 rounded font-bold uppercase border border-orange-200">Approvals</span>
-                        </div>
-                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[240px] pr-2">
-                            <?php if(!empty($action_requests)): ?>
-                                <?php foreach($action_requests as $req): 
-                                    $icon = $req['req_type'] == 'Leave' ? 'fa-plane-departure text-rose-500' : 'fa-people-arrows text-blue-500';
-                                    $bg = $req['req_type'] == 'Leave' ? 'bg-rose-50 border-rose-100' : 'bg-blue-50 border-blue-100';
-                                    $link = $req['req_type'] == 'Leave' ? '../employee/leave_request.php' : 'shift_swap_approval_manager.php';
-                                ?>
-                                <div class="p-3 rounded-lg border <?php echo $bg; ?> flex items-center justify-between transition hover:shadow-md">
-                                    <div class="flex items-center gap-3">
-                                        <i class="fa-solid <?php echo $icon; ?> text-lg w-5 text-center"></i>
-                                        <div>
-                                            <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($req['full_name']); ?></p>
-                                            <p class="text-[10px] text-slate-500 font-medium"><?php echo $req['req_type']; ?> Request</p>
-                                        </div>
-                                    </div>
-                                    <a href="<?php echo $link; ?>" class="text-[10px] bg-white border px-2 py-1 rounded font-bold text-slate-600 hover:bg-slate-100 transition shadow-sm">Review</a>
-                                </div>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <div class="flex flex-col items-center justify-center py-6 text-slate-400">
-                                    <i class="fa-solid fa-mug-hot text-3xl mb-2 opacity-50"></i>
-                                    <p class="text-sm font-medium">No pending approvals!</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
             </div>
 
             <div class="flex flex-col gap-6 w-full">
                 
-                <div class="card">
+                <div class="card shrink-0">
                     <div class="p-6">
                         <div class="flex justify-between items-center mb-6 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">My Attendance Stats</h3>
@@ -643,52 +591,49 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card shrink-0">
                     <div class="p-6">
-                        <div>
-                            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                                <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                                <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
-                            </div>
-                            <div class="grid grid-cols-3 gap-3 mb-4">
-                                <div class="bg-teal-50 p-4 rounded-xl text-center border border-teal-100 flex flex-col justify-center">
-                                    <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
-                                    <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
-                                    <p class="text-[8px] text-teal-600/70 mt-1 font-semibold truncate">Since: <?php echo $display_join_month_year; ?></p>
-                                </div>
-                                <div class="bg-blue-50 p-4 rounded-xl text-center border border-blue-100 flex flex-col justify-center">
-                                    <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
-                                    <p class="text-2xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
-                                    <p class="text-[8px] text-blue-600/70 mt-1 font-semibold truncate">Approved Only</p>
-                                </div>
-                                <div class="bg-green-50 p-4 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden flex flex-col justify-center">
-                                    <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
-                                    <p class="text-3xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
-                                        <?php echo $display_leaves_remaining; ?>
-                                    </p>
-                                    <?php if($leaves_remaining < 0): ?>
-                                        <div class="absolute bottom-0 left-0 right-0 h-1.5 bg-rose-500"></div>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                            
-                            <?php if($leaves_remaining < 0): ?>
-                                <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4 flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                                    <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
-                                </div>
-                            <?php endif; ?>
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
+                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
                         </div>
-                        <div class="mt-2">
-                            <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm">
-                                <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
-                            </a>
+                        <div class="grid grid-cols-3 gap-3 mb-4">
+                            <div class="bg-teal-50 p-4 rounded-xl text-center border border-teal-100 flex flex-col justify-center">
+                                <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
+                                <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
+                                <p class="text-[8px] text-teal-600/70 mt-1 font-semibold truncate">Since: <?php echo $display_join_month_year; ?></p>
+                            </div>
+                            <div class="bg-blue-50 p-4 rounded-xl text-center border border-blue-100 flex flex-col justify-center">
+                                <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
+                                <p class="text-2xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
+                                <p class="text-[8px] text-blue-600/70 mt-1 font-semibold truncate">Approved Only</p>
+                            </div>
+                            <div class="bg-green-50 p-4 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden flex flex-col justify-center">
+                                <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
+                                <p class="text-3xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
+                                    <?php echo $display_leaves_remaining; ?>
+                                </p>
+                                <?php if($leaves_remaining < 0): ?>
+                                    <div class="absolute bottom-0 left-0 right-0 h-1.5 bg-rose-500"></div>
+                                <?php endif; ?>
+                            </div>
                         </div>
+                        
+                        <?php if($leaves_remaining < 0): ?>
+                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4 flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                                <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
+                            </div>
+                        <?php endif; ?>
+
+                        <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm mt-2">
+                            <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
+                        </a>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="p-6 flex flex-col">
+                <div class="card flex-grow">
+                    <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">Team Attendance</h3>
                             <a href="manager_employee.php" class="text-[9px] bg-slate-100 text-slate-600 font-bold px-2 py-1 rounded uppercase hover:bg-slate-200 transition">View List</a>
@@ -828,13 +773,13 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="p-6 flex flex-col">
+                <div class="card flex-grow">
+                    <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">TL Projects</h3>
                             <a href="manager_projects.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition border border-teal-200">Manage</a>
                         </div>
-                        <div class="space-y-4 custom-scroll overflow-y-auto max-h-[300px] pr-2">
+                        <div class="space-y-4 custom-scroll overflow-y-auto max-h-[350px] pr-2">
                             <?php if(!empty($active_projects)): ?>
                                 <?php foreach($active_projects as $proj): 
                                     $p_status = $proj['status'];
@@ -892,35 +837,30 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             <div class="card h-[350px]">
                 <div class="p-6 h-full flex flex-col">
                     <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg">Team Tasks Progress</h3>
-                        <a href="manager_projects.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
+                        <h3 class="font-bold text-slate-800 text-lg">My Personal Tasks</h3>
+                        <a href="task_manager.php" class="text-[10px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">Tasks Board</a>
                     </div>
                     <div class="space-y-3 custom-scroll overflow-y-auto flex-grow pr-2">
                         <?php if(mysqli_num_rows($tasks_result) > 0) {
                             while($task = mysqli_fetch_assoc($tasks_result)): 
-                                $status = $task['status'];
-                                if($status == 'Completed') { $badge_bg = 'bg-emerald-100 text-emerald-700'; $icon_class = 'fa-solid fa-circle-check text-emerald-500'; }
-                                elseif($status == 'In Progress') { $badge_bg = 'bg-blue-100 text-blue-700'; $icon_class = 'fa-solid fa-spinner text-blue-500'; }
-                                else { $badge_bg = 'bg-orange-100 text-orange-700'; $icon_class = 'fa-regular fa-circle text-orange-500'; }
-                                
-                                $assignee = !empty($task['assigned_to']) ? htmlspecialchars($task['assigned_to']) : 'Unassigned';
+                                $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
+                                $icon_class = ($task['status'] == 'completed') ? 'fa-solid fa-circle-check text-emerald-500' : 'fa-regular fa-circle text-teal-600';
                         ?>
                         <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
                             <div class="flex items-center gap-3 min-w-0">
                                 <i class="<?php echo $icon_class; ?> shrink-0"></i>
                                 <div class="min-w-0">
-                                    <span class="text-sm font-bold text-slate-700 block truncate" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
-                                    <span class="text-[10px] text-slate-500 font-medium block mt-0.5 truncate">To: <?php echo $assignee; ?></span>
+                                    <span class="text-sm font-medium text-slate-700 block truncate max-w-[200px] lg:max-w-[300px]" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
                                 </div>
                             </div>
                             <div class="flex flex-col items-end gap-1 shrink-0 ml-2">
-                                <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?> uppercase tracking-wider"><?php echo $status; ?></span>
+                                <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
                             </div>
                         </div>
                         <?php endwhile; } else { ?>
                             <div class="flex flex-col items-center justify-center h-full text-slate-400">
                                 <i class="fa-solid fa-clipboard-check text-3xl mb-2 opacity-50"></i>
-                                <p class="text-sm">No team tasks assigned.</p>
+                                <p class="text-sm mt-2">No personal tasks found.</p>
                             </div>
                         <?php } ?>
                     </div>
@@ -953,7 +893,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         <?php endwhile; } else { ?>
                             <div class="flex flex-col items-center justify-center h-full text-slate-400">
                                 <i class="fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50"></i>
-                                <p class="text-sm">No meetings scheduled today.</p>
+                                <p class="text-sm mt-2">No meetings scheduled today.</p>
                             </div>
                         <?php } ?>
                     </div>

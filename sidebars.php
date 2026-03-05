@@ -141,6 +141,7 @@ $sections = [
                 'allowed' => ['Manager'],
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
+                    ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Timesheets', 'path' => $base . 'manager/timesheets_manager.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'manager/shift_swap_approval_manager.php', 'icon' => 'replace'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
