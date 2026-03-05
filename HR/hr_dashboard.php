@@ -732,7 +732,7 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                                 </div>
                             </div>
 
-                            <div class="flex flex-col h-[180px] border border-rose-100 rounded-xl overflow-hidden shrink-0 mt-auto">
+                            <div class="flex flex-col h-[250px] border border-rose-100 rounded-xl overflow-hidden shrink-0 mt-12">
                                 <div class="bg-rose-50 p-2 flex justify-between items-center border-b border-rose-100 shrink-0">
                                     <h4 class="text-[9px] font-black text-rose-700 uppercase tracking-widest">LOP Limit Cross</h4>
                                     <span class="text-[9px] font-bold text-rose-600 bg-white px-2 py-0.5 rounded border border-rose-200"><?= count($lop_list) ?></span>

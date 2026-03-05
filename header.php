@@ -1,25 +1,25 @@
 <?php
-// 1. Start Session (if not already started)
+// 1. Start Session & Set Timezone
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 date_default_timezone_set('Asia/Kolkata');
 
-// --- 2. AJAX HANDLER FOR NOTIFICATIONS (Must run before any HTML output) ---
+// --- 2. AJAX HANDLER FOR NOTIFICATIONS ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['header_action']) && $_POST['header_action'] === 'mark_notifications_read') {
     if (isset($conn) && isset($_SESSION['user_id'])) {
-        ob_clean(); // Prevent whitespace corruption in JSON response
+        ob_clean(); // Prevent HTML corruption in JSON response
         header('Content-Type: application/json');
         
         $uid = (int)$_SESSION['user_id'];
         $u_role = $_SESSION['role'] ?? '';
         
-        // A. Mark direct personal notifications as read
+        // Mark personal notifications as read
         $conn->query("UPDATE notifications SET is_read = 1 WHERE user_id = $uid AND is_read = 0");
         
-        // B. Mark role-based broadcast notifications as read for THIS specific user
+        // Mark role-based broadcast notifications as read for THIS specific user
         $role_notifs = $conn->query("
             SELECT n.id FROM notifications n
             LEFT JOIN notification_reads nr ON n.id = nr.notif_id AND nr.user_id = $uid
-            WHERE (n.target_role = '$u_role' OR n.target_role = 'All' OR n.target_role = 'All Employees') AND nr.notif_id IS NULL
+            WHERE (n.target_role = '$u_role' OR n.target_role LIKE '%All%') AND nr.notif_id IS NULL
         ");
         
         if ($role_notifs && $role_notifs->num_rows > 0) {
@@ -34,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['header_action']) && $
     }
 }
 
-// --- 3. IMPROVED DYNAMIC PATH ---
+// --- 3. DYNAMIC PATH ---
 $script_path = $_SERVER['SCRIPT_NAME']; 
 $path_parts = explode('/', trim($script_path, '/'));
 $folder_depth = count($path_parts) - 2; 
@@ -46,13 +46,13 @@ $user_email      = $_SESSION['username'] ?? 'Guest';
 $user_role       = $_SESSION['role'] ?? 'User';
 $display_name    = ucfirst(explode('@', $user_email)[0]); 
 
-// --- 5. SMART UNIFIED NOTIFICATION SYSTEM & AUTO-SYNC ---
+// --- 5. ENTERPRISE AUTO-SYNC & UNIFIED NOTIFICATION ENGINE ---
 $unread_count = 0;
 $notifications = [];
 
 if (isset($conn) && $current_user_id > 0) {
     
-    // A. Ensure 'notifications' table is fully structured for Enterprise use
+    // A. Ensure Master Notification Tables Exist
     $check_table = $conn->query("SHOW TABLES LIKE 'notifications'");
     if ($check_table && $check_table->num_rows == 0) {
         $conn->query("CREATE TABLE `notifications` (
@@ -67,21 +67,16 @@ if (isset($conn) && $current_user_id > 0) {
             `source_type` varchar(50) DEFAULT 'system',
             `source_id` int(11) DEFAULT NULL,
             `created_at` timestamp DEFAULT current_timestamp(),
-            PRIMARY KEY (`id`),
-            KEY `user_id` (`user_id`),
-            KEY `target_role` (`target_role`)
+            PRIMARY KEY (`id`), KEY `user_id` (`user_id`), KEY `target_role` (`target_role`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
     } else {
         // Smart Patch existing table
         $conn->query("ALTER TABLE `notifications` MODIFY COLUMN `user_id` int(11) NULL DEFAULT NULL");
         $check_role = $conn->query("SHOW COLUMNS FROM `notifications` LIKE 'target_role'");
         if ($check_role && $check_role->num_rows == 0) $conn->query("ALTER TABLE `notifications` ADD COLUMN `target_role` varchar(50) DEFAULT NULL AFTER `user_id`");
-        $check_read = $conn->query("SHOW COLUMNS FROM `notifications` LIKE 'is_read'");
-        if ($check_read && $check_read->num_rows == 0) $conn->query("ALTER TABLE `notifications` ADD COLUMN `is_read` tinyint(1) DEFAULT 0");
         $check_src = $conn->query("SHOW COLUMNS FROM `notifications` LIKE 'source_type'");
         if ($check_src && $check_src->num_rows == 0) {
-            $conn->query("ALTER TABLE `notifications` ADD COLUMN `source_type` varchar(50) DEFAULT 'system'");
-            $conn->query("ALTER TABLE `notifications` ADD COLUMN `source_id` int(11) DEFAULT NULL");
+            $conn->query("ALTER TABLE `notifications` ADD COLUMN `source_type` varchar(50) DEFAULT 'system', ADD COLUMN `source_id` int(11) DEFAULT NULL");
         }
     }
 
@@ -91,58 +86,76 @@ if (isset($conn) && $current_user_id > 0) {
     }
 
     // =========================================================================
-    // B. BACKGROUND SYNC ENGINE
-    // Automatically pulls new Announcements & Tasks into the master Notifications feed
+    // B. BACKGROUND SYNC ENGINE (MAPPED TO ALL DATABASE ROLES)
     // =========================================================================
-    
-    // Sync New Announcements
-    $ann_link = $base_path . 'view_announcements.php';
-    $conn->query("
-        INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at)
-        SELECT target_audience, CONCAT('Broadcast: ', title), SUBSTRING(message, 1, 65), 'announcement', '$ann_link', 'announcement', id, created_at 
-        FROM announcements a 
-        WHERE is_archived = 0 AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_type = 'announcement' AND n.source_id = a.id)
-    ");
-
-    // Sync New Tasks (if table exists)
-    $check_tasks = $conn->query("SHOW TABLES LIKE 'team_tasks'");
-    if ($check_tasks && $check_tasks->num_rows > 0) {
-        $conn->query("
-            INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at)
-            SELECT assigned_to, CONCAT('New Task: ', task_title), CONCAT('Due: ', deadline), 'task', '#', 'task', id, created_at 
-            FROM team_tasks t 
-            WHERE status != 'Completed' AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_type = 'task' AND n.source_id = t.id)
-        ");
+    function syncSafe($conn, $table, $sql) {
+        $chk = $conn->query("SHOW TABLES LIKE '$table'");
+        if($chk && $chk->num_rows > 0) @$conn->query($sql); 
     }
 
+    // 1. Announcements (To Target Role or All)
+    syncSafe($conn, 'announcements', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT target_audience, CONCAT('Broadcast: ', title), SUBSTRING(message, 1, 65), 'announcement', '../view_announcements.php', 'ann', id, created_at FROM announcements WHERE is_archived = 0 AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'ann')");
+
+    // 2. Personal Tasks (To specific Employee)
+    syncSafe($conn, 'personal_taskboard', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, CONCAT('Task: ', title), CONCAT('Priority: ', priority), 'task', '../my_tasks.php', 'task', id, created_at FROM personal_taskboard WHERE status != 'completed' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'task')");
+
+    // 3. Sales Expenses (Alerting Sales Manager)
+    syncSafe($conn, 'sales_expenses', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Sales Manager', 'New Expense Request', CONCAT(executive_name, ' submitted an expense for ', expense_name), 'warning', '../sales_manager/manage_expenses.php', 'exp_mgr', id, created_at FROM sales_expenses WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'exp_mgr')");
+
+    // 4. WFH Requests (Alerting HR)
+    syncSafe($conn, 'wfh_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', 'New WFH Request', CONCAT(employee_name, ' requested WFH.'), 'info', '../HR/wfh_approvals.php', 'wfh_hr', id, applied_date FROM wfh_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'wfh_hr')");
+
+    // 5. Purchase Orders (Alerting CFO)
+    syncSafe($conn, 'purchase_orders', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'CFO', 'Pending PO Approval', CONCAT('PO #', po_number, ' requires your approval.'), 'warning', '../CFO/manage_po.php', 'po_cfo', id, created_at FROM purchase_orders WHERE approval_status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'po_cfo')");
+
+    // 6. Payslip Requests (Alerting Accounts)
+    syncSafe($conn, 'payslip_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Accounts', 'New Payslip Request', CONCAT('Req ID: ', request_id, ' needs processing.'), 'info', '../Accounts/payslip_management.php', 'pay_acc', id, requested_date FROM payslip_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'pay_acc')");
+
+    // 7. Payslip Requests (Alerting CFO)
+    syncSafe($conn, 'payslip_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'CFO', 'Payslip Needs Approval', CONCAT('Req ID: ', request_id, ' sent by Accounts.'), 'warning', '../CFO/payslip_management.php', 'pay_cfo', id, requested_date FROM payslip_requests WHERE status = 'Pending CFO Approval' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'pay_cfo')");
+
+    // 8. Hiring Requests (Alerting HR)
+    syncSafe($conn, 'hiring_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', 'New Hiring Request', CONCAT('Job: ', job_title, ' for ', department), 'info', '../HR/jobs.php', 'hire_hr', id, created_at FROM hiring_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'hire_hr')");
+
+    // 9. Leave Requests (Alerting HR / Managers)
+    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', 'New Leave Request', CONCAT('A new ', leave_type, ' request requires approval.'), 'warning', '../HR/leave_approval.php', 'lv_hr', id, created_at FROM leave_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_hr')");
+
+    // 10. Leave Responses (Alerting specific Employee)
+    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, CONCAT('Leave ', status), CONCAT('Your ', leave_type, ' was ', status), IF(status='Approved', 'success', 'danger'), '../leave_request.php', 'lv_emp', id, created_at FROM leave_requests WHERE status IN ('Approved', 'Rejected') AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_emp')");
+
+    // 11. IT Tickets (Alerting IT Admin)
+    syncSafe($conn, 'tickets', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'IT Admin', 'New IT Ticket', CONCAT('Subject: ', subject), 'danger', '../ITadmin/manage_tickets.php', 'tkt_it', id, created_at FROM tickets WHERE status = 'Open' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'tkt_it')");
+
 
     // =========================================================================
-    // C. FETCH UNREAD COUNT & FEED (Now 100% Accurate)
+    // C. FETCH UNREAD COUNT & FEED (Tailored precisely to the logged-in User)
     // =========================================================================
     
-    // Fetch Unread Count (Combines Personal + Unread Role Broadcasts)
+    // Group roles safely 
+    $target_roles = ["'$user_role'", "'All'", "'All Employees'"];
+    $user_role_lower = strtolower($user_role);
+    if (strpos($user_role_lower, 'hr') !== false) { $target_roles[] = "'HR'"; $target_roles[] = "'HR Executive'"; }
+    if (strpos($user_role_lower, 'admin') !== false) { $target_roles[] = "'Admin'"; $target_roles[] = "'System Admin'"; }
+    if (strpos($user_role_lower, 'manager') !== false && strpos($user_role_lower, 'sales') === false) { $target_roles[] = "'Manager'"; }
+    $role_in = implode(",", array_unique($target_roles));
+
+    // Fetch Unread Count 
     $cnt_query = "
         SELECT COUNT(*) as cnt 
         FROM notifications n
         LEFT JOIN notification_reads nr ON n.id = nr.notif_id AND nr.user_id = $current_user_id
-        WHERE (
-            (n.user_id = $current_user_id AND n.is_read = 0) 
-            OR 
-            ((n.target_role = '$user_role' OR n.target_role = 'All' OR n.target_role = 'All Employees') AND nr.notif_id IS NULL)
-        )
+        WHERE ((n.user_id = $current_user_id AND n.is_read = 0) OR (n.target_role IN ($role_in) AND nr.notif_id IS NULL))
     ";
     $cnt_res = $conn->query($cnt_query);
     if ($cnt_res) $unread_count = (int)$cnt_res->fetch_assoc()['cnt'];
 
-    // Fetch Recent Notifications
+    // Fetch Feed Timeline
     $notif_query = "
-        SELECT n.*, 
-               IF(n.user_id = $current_user_id, n.is_read, IF(nr.notif_id IS NOT NULL, 1, 0)) as actual_read_status
+        SELECT n.*, IF(n.user_id = $current_user_id, n.is_read, IF(nr.notif_id IS NOT NULL, 1, 0)) as actual_read_status
         FROM notifications n
         LEFT JOIN notification_reads nr ON n.id = nr.notif_id AND nr.user_id = $current_user_id
-        WHERE (n.user_id = $current_user_id OR n.target_role = '$user_role' OR n.target_role = 'All' OR n.target_role = 'All Employees')
-        ORDER BY n.created_at DESC 
-        LIMIT 10
+        WHERE (n.user_id = $current_user_id OR n.target_role IN ($role_in))
+        ORDER BY n.created_at DESC LIMIT 15
     ";
     $notif_res = $conn->query($notif_query);
     if ($notif_res) {
@@ -152,21 +165,13 @@ if (isset($conn) && $current_user_id > 0) {
     }
 }
 
-// Helper function for "Time Ago" format
+// Helper function for "Time Ago" format (Matches Image Style)
 if (!function_exists('time_elapsed_string')) {
     function time_elapsed_string($datetime, $full = false) {
-        $now = new DateTime;
-        $ago = new DateTime($datetime);
-        $diff = $now->diff($ago);
-        
-        $diff->w = floor($diff->d / 7);
-        $diff->d -= $diff->w * 7;
-        
+        $now = new DateTime; $ago = new DateTime($datetime); $diff = $now->diff($ago);
+        $diff->w = floor($diff->d / 7); $diff->d -= $diff->w * 7;
         $string = array('y' => 'year', 'm' => 'month', 'w' => 'week', 'd' => 'day', 'h' => 'hr', 'i' => 'min', 's' => 'sec');
-        foreach ($string as $k => &$v) {
-            if ($diff->$k) { $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? 's' : ''); } 
-            else { unset($string[$k]); }
-        }
+        foreach ($string as $k => &$v) { if ($diff->$k) { $v = $diff->$k . ' ' . $v . ($diff->$k > 1 ? 's' : ''); } else { unset($string[$k]); } }
         if (!$full) $string = array_slice($string, 0, 1);
         return $string ? implode(', ', $string) . ' ago' : 'just now';
     }
@@ -179,28 +184,15 @@ if (!function_exists('time_elapsed_string')) {
 <style>
     /* --- HEADER STYLING (FIXED TOP) --- */
     #mainHeader {
-        position: fixed;
-        top: 0;
-        right: 0;
-        left: 95px; 
-        width: calc(100% - 95px); 
-        height: 64px;
-        background-color: #ffffff;
-        border-bottom: 1px solid #e5e7eb;
-        z-index: 50; 
-        transition: left 0.3s ease, width 0.3s ease; 
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        padding: 0 24px;
-        box-sizing: border-box;
+        position: fixed; top: 0; right: 0; left: 95px; width: calc(100% - 95px); 
+        height: 64px; background-color: #ffffff; border-bottom: 1px solid #e5e7eb;
+        z-index: 50; transition: left 0.3s ease, width 0.3s ease; 
+        display: flex; align-items: center; justify-content: flex-end;
+        padding: 0 24px; box-sizing: border-box;
     }
 
     /* --- DYNAMIC SHIFTING (When Sidebar Opens) --- */
-    #mainHeader.main-shifted {
-        left: 315px; 
-        width: calc(100% - 315px); 
-    }
+    #mainHeader.main-shifted { left: 315px; width: calc(100% - 315px); }
 
     /* Notification Pulse Animation */
     @keyframes pulse-ring {
@@ -211,7 +203,7 @@ if (!function_exists('time_elapsed_string')) {
     .pulse-dot { animation: pulse-ring 2s infinite; }
 
     /* Custom Scrollbar for Notifications */
-    .custom-scroll::-webkit-scrollbar { width: 4px; }
+    .custom-scroll::-webkit-scrollbar { width: 6px; }
     .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
     .custom-scroll::-webkit-scrollbar-track { background: transparent; }
 
@@ -225,8 +217,8 @@ if (!function_exists('time_elapsed_string')) {
 <header id="mainHeader">
   <div class="flex items-center gap-3">
     
-    <a href="<?php echo $base_path; ?>settings.php" class="hidden md:inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-all mr-1">
-      <i data-lucide="user" class="w-4 h-4"></i>
+    <a href="<?php echo $base_path; ?>settings.php" class="hidden md:inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition-all mr-2">
+      <i data-lucide="user" class="w-4 h-4 text-gray-500"></i>
       <span>View Profile</span>
     </a>
 
@@ -238,57 +230,65 @@ if (!function_exists('time_elapsed_string')) {
       <button id="notifBtn" class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors relative">
         <i data-lucide="bell" class="w-5 h-5"></i>
         <?php if($unread_count > 0): ?>
-            <span id="notifBadge" class="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full pulse-dot" title="<?php echo $unread_count; ?> new notifications"></span>
+            <span id="notifBadge" class="absolute top-1 right-1.5 w-2 h-2 bg-red-500 rounded-full pulse-dot" title="<?php echo $unread_count; ?> new notifications"></span>
         <?php endif; ?>
       </button>
 
-      <div id="notifDropdown" class="hidden absolute right-0 mt-3 w-80 bg-white border border-gray-100 rounded-xl shadow-2xl z-50 overflow-hidden">
-        <div class="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/80 backdrop-blur-sm">
-          <h3 class="font-bold text-gray-800 text-sm flex items-center gap-2">
-              Notifications <?php echo $unread_count > 0 ? "<span class='bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-[10px]'>$unread_count New</span>" : ""; ?>
+      <div id="notifDropdown" class="hidden absolute right-0 mt-3 w-[360px] bg-white border border-gray-100 rounded-2xl shadow-xl z-50 overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-white">
+          <h3 class="font-bold text-slate-800 text-[15px]">
+              Notifications
           </h3>
           <?php if($unread_count > 0): ?>
-              <button onclick="markNotificationsRead()" class="text-[11px] text-teal-600 hover:text-teal-800 font-bold transition-colors" id="markReadBtn">Mark all read</button>
+              <button onclick="markNotificationsRead()" class="text-[11px] text-blue-600 hover:text-blue-800 font-semibold transition-colors" id="markReadBtn">Mark all read</button>
           <?php endif; ?>
         </div>
         
-        <div class="max-h-[380px] overflow-y-auto custom-scroll bg-white" id="notifList">
+        <div class="max-h-[400px] overflow-y-auto custom-scroll bg-white" id="notifList">
             <?php if (empty($notifications)): ?>
                 <div class="p-8 text-center text-gray-400 flex flex-col items-center">
                     <div class="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3">
-                        <i data-lucide="bell-off" class="w-6 h-6 opacity-50"></i>
+                        <i data-lucide="bell-off" class="w-5 h-5 opacity-50"></i>
                     </div>
-                    <p class="text-xs font-bold text-gray-500">You're all caught up!</p>
-                    <p class="text-[10px] text-gray-400 mt-1">No new alerts or tasks to display.</p>
+                    <p class="text-sm font-bold text-gray-500">You're all caught up!</p>
+                    <p class="text-xs text-gray-400 mt-1">No new alerts to display.</p>
                 </div>
             <?php else: ?>
                 <?php foreach ($notifications as $notif): 
-                    // Dynamic styling based on notification origin type
+                    // STYLING TO MATCH THE IMAGE (Purple Megaphone for Announcements)
                     $type = strtolower($notif['type']);
-                    $bg = 'bg-blue-100'; $text = 'text-blue-600'; $icon = 'bell';
                     
-                    if (strpos($type, 'alert') !== false || strpos($type, 'danger') !== false) { $bg = 'bg-red-100'; $text = 'text-red-600'; $icon = 'alert-circle'; }
-                    elseif (strpos($type, 'success') !== false || strpos($type, 'salary') !== false || strpos($type, 'approved') !== false) { $bg = 'bg-emerald-100'; $text = 'text-emerald-600'; $icon = 'check-circle'; }
-                    elseif (strpos($type, 'warning') !== false || strpos($type, 'leave') !== false) { $bg = 'bg-orange-100'; $text = 'text-orange-600'; $icon = 'clock'; }
-                    elseif ($type == 'announcement') { $bg = 'bg-purple-100'; $text = 'text-purple-600'; $icon = 'megaphone'; }
-                    elseif ($type == 'task') { $bg = 'bg-indigo-100'; $text = 'text-indigo-600'; $icon = 'clipboard-list'; }
+                    // Default Icon Style
+                    $bg = 'bg-blue-50'; $text = 'text-blue-500'; $icon = 'bell';
+                    
+                    if (strpos($type, 'alert') !== false || strpos($type, 'danger') !== false) { 
+                        $bg = 'bg-red-50'; $text = 'text-red-500'; $icon = 'alert-circle'; 
+                    }
+                    elseif (strpos($type, 'success') !== false || strpos($type, 'salary') !== false || strpos($type, 'approved') !== false) { 
+                        $bg = 'bg-emerald-50'; $text = 'text-emerald-500'; $icon = 'check-circle'; 
+                    }
+                    elseif (strpos($type, 'warning') !== false || strpos($type, 'leave') !== false) { 
+                        $bg = 'bg-orange-50'; $text = 'text-orange-500'; $icon = 'clock'; 
+                    }
+                    elseif ($type == 'announcement') { 
+                        // EXACT MATCH TO IMAGE: Light purple background, purple outline megaphone
+                        $bg = 'bg-[#f5efff]'; $text = 'text-[#b08df8]'; $icon = 'megaphone'; 
+                    }
+                    elseif ($type == 'task') { 
+                        $bg = 'bg-indigo-50'; $text = 'text-indigo-500'; $icon = 'clipboard-list'; 
+                    }
                     
                     // Unread styling logic
-                    $is_read_styling = $notif['actual_read_status'] == 1 ? 'opacity-70 hover:opacity-100' : 'bg-blue-50/30 border-l-2 border-blue-500';
+                    $is_read_styling = $notif['actual_read_status'] == 1 ? 'opacity-80' : 'bg-slate-50/50';
                 ?>
-                <a href="<?php echo htmlspecialchars($notif['link'] ?? '#'); ?>" class="p-4 flex gap-3 hover:bg-gray-50 border-b border-gray-50 transition-all <?php echo $is_read_styling; ?>">
-                    <div class="w-9 h-9 shrink-0 <?php echo $bg; ?> rounded-full flex items-center justify-center <?php echo $text; ?>">
-                        <i data-lucide="<?php echo $icon; ?>" class="w-4 h-4"></i>
+                <a href="<?php echo htmlspecialchars($notif['link'] ?? '#'); ?>" class="flex gap-4 items-start p-5 border-b border-gray-100 hover:bg-gray-50 transition-colors <?php echo $is_read_styling; ?>">
+                    <div class="w-10 h-10 shrink-0 <?php echo $bg; ?> rounded-full flex items-center justify-center <?php echo $text; ?>">
+                        <i data-lucide="<?php echo $icon; ?>" class="w-5 h-5"></i>
                     </div>
-                    <div class="flex-1 min-w-0">
-                      <p class="text-xs text-gray-700 leading-snug">
-                          <?php if(!empty($notif['target_role'])): ?>
-                              <span class="text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded mr-1 font-bold uppercase tracking-wider"><?= htmlspecialchars($notif['target_role']) ?></span>
-                          <?php endif; ?>
-                          <span class="font-bold text-gray-900"><?php echo htmlspecialchars($notif['title']); ?></span> 
-                          <span class="block mt-0.5 text-gray-500 truncate"><?php echo htmlspecialchars($notif['message']); ?></span>
-                      </p>
-                      <span class="text-[9px] text-gray-400 mt-1.5 block font-bold uppercase tracking-widest"><?php echo time_elapsed_string($notif['created_at']); ?></span>
+                    <div class="flex-1 min-w-0 pt-0.5">
+                      <p class="text-sm font-bold text-slate-700 leading-snug truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
+                      <p class="text-[13px] text-gray-500 mt-1 line-clamp-2 leading-relaxed"><?php echo htmlspecialchars($notif['message']); ?></p>
+                      <p class="text-[11px] text-gray-400 mt-2 font-medium"><?php echo time_elapsed_string($notif['created_at']); ?></p>
                     </div>
                 </a>
                 <?php endforeach; ?>
@@ -297,17 +297,17 @@ if (!function_exists('time_elapsed_string')) {
       </div>
     </div>
 
-    <div class="relative pl-2 border-l border-gray-200 ml-2">
+    <div class="relative pl-3 ml-1">
       <button id="profileBtn" class="flex items-center gap-2 focus:outline-none">
-        <div class="w-9 h-9 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-sm uppercase shadow-sm ring-2 ring-transparent hover:ring-slate-100 transition-all relative">
+        <div class="w-9 h-9 rounded-full bg-[#1e293b] text-white flex items-center justify-center font-bold text-sm shadow-sm relative">
             <?php echo substr($display_name, 0, 1); ?>
-            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></span>
+            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#22c55e] border-2 border-white rounded-full"></span>
         </div>
       </button>
 
       <div id="profileDropdown" class="hidden absolute right-0 mt-3 w-56 bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
         <div class="p-4 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
-          <div class="w-10 h-10 rounded-full bg-slate-800 text-white flex items-center justify-center font-bold text-sm uppercase">
+          <div class="w-10 h-10 rounded-full bg-[#1e293b] text-white flex items-center justify-center font-bold text-sm uppercase">
             <?php echo substr($display_name, 0, 1); ?>
           </div>
           <div class="overflow-hidden">
@@ -387,8 +387,8 @@ if (!function_exists('time_elapsed_string')) {
               // Remove unread styling from list
               const items = document.querySelectorAll('#notifList a');
               items.forEach(item => {
-                  item.classList.remove('bg-blue-50/30', 'border-l-2', 'border-blue-500');
-                  item.classList.add('opacity-70', 'hover:opacity-100');
+                  item.classList.remove('bg-slate-50/50');
+                  item.classList.add('opacity-80');
               });
           }
       }).catch(err => console.log('Notification update failed.', err));
