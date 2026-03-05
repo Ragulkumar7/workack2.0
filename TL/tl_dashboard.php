@@ -422,7 +422,7 @@ if($r_new_proj) {
             'message' => 'You are leading: ' . htmlspecialchars($np_row['project_name']),
             'time' => date('Y-m-d H:i:s'), 'icon' => 'fa-briefcase',
             'color' => 'text-blue-600 bg-blue-100',
-            'link' => 'tl_projects.php'
+            'link' => 'task_tl.php'
         ];
     }
 }
