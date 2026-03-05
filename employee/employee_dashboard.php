@@ -92,47 +92,12 @@ if ($manager_id > 0) {
 }
 
 // =========================================================================
-// 3. ADVANCED TIME TRACKER (TODAY'S HOURS) & AJAX ACTIONS
+// 3. ADVANCED TIME TRACKER (TODAY'S HOURS) - FOR RIGHT SIDE CARD
 // =========================================================================
 $total_seconds_today = 0; $break_seconds_today = 0; $productive_seconds_today = 0; $overtime_seconds_today = 0;
 $display_break_seconds = 0; $today_punch_in = null; $attendance_record_today = null;
 $is_on_break = false; $display_punch_in = "--:--"; $delay_text = ""; $delay_class = "";
 $total_hours_today = "00:00:00"; $break_time_str = "00:00:00";
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $response = ['status' => 'error', 'message' => 'Unknown action'];
-    $now = date('Y-m-d H:i:s');
-    if ($_POST['action'] === 'punch_in') {
-        $status = (date('H:i') > '09:30') ? 'Late' : 'On Time';
-        $stmt = $conn->prepare("INSERT INTO attendance (user_id, date, punch_in, status) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("isss", $current_user_id, $today, $now, $status);
-        if ($stmt->execute()) $response = ['status' => 'success'];
-        $stmt->close();
-    } elseif ($_POST['action'] === 'punch_out') {
-        $att_rec = $conn->query("SELECT id, punch_in FROM attendance WHERE user_id = $current_user_id AND date = '$today'")->fetch_assoc();
-        $break_sec = 0;
-        $br_q = $conn->query("SELECT * FROM attendance_breaks WHERE attendance_id = " . $att_rec['id']);
-        while($br = $br_q->fetch_assoc()){ if($br['break_end']) $break_sec += strtotime($br['break_end']) - strtotime($br['break_start']); }
-        $prod_hours = max(0, (time() - strtotime($att_rec['punch_in'])) - $break_sec) / 3600;
-        $stmt = $conn->prepare("UPDATE attendance SET punch_out = ?, production_hours = ? WHERE user_id = ? AND date = ?");
-        $stmt->bind_param("sdis", $now, $prod_hours, $current_user_id, $today);
-        if ($stmt->execute()) $response = ['status' => 'success'];
-    } elseif ($_POST['action'] === 'take_break') {
-        $att_rec = $conn->query("SELECT id FROM attendance WHERE user_id = $current_user_id AND date = '$today'")->fetch_assoc();
-        $stmt = $conn->prepare("INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)");
-        $stmt->bind_param("is", $att_rec['id'], $now);
-        if($stmt->execute()) {
-            $conn->query("UPDATE attendance SET break_time = '1' WHERE id = " . $att_rec['id']);
-            $response = ['status' => 'success'];
-        }
-    } elseif ($_POST['action'] === 'end_break') {
-        $att_rec = $conn->query("SELECT id FROM attendance WHERE user_id = $current_user_id AND date = '$today'")->fetch_assoc();
-        $stmt = $conn->prepare("UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL");
-        $stmt->bind_param("si", $now, $att_rec['id']);
-        if($stmt->execute()) $response = ['status' => 'success'];
-    }
-    echo json_encode($response); exit; 
-}
 
 $today_sql = "SELECT id, punch_in, punch_out, break_time FROM attendance WHERE user_id = ? AND date = ?";
 $today_stmt = $conn->prepare($today_sql);
@@ -306,7 +271,7 @@ $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskbo
 $all_notifications = [];
 
 // 1. IT Tickets (Resolved/Closed) -> Mark as Viewed
-$q_tickets = "SELECT id, ticket_code, subject, updated_at FROM tickets WHERE user_id = $current_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY updated_at DESC LIMIT 3";
+$q_tickets = "SELECT id, ticket_code, subject FROM tickets WHERE user_id = $current_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY id DESC LIMIT 3";
 $r_tickets = mysqli_query($conn, $q_tickets);
 if($r_tickets) {
     while($row = mysqli_fetch_assoc($r_tickets)) {
@@ -315,7 +280,7 @@ if($r_tickets) {
             'id' => $row['id'],
             'title' => 'Ticket Solved: #' . ($row['ticket_code'] ?? $row['id']),
             'message' => 'IT Team resolved: ' . htmlspecialchars($row['subject']),
-            'time' => $row['updated_at'] ?? date('Y-m-d H:i:s'),
+            'time' => date('Y-m-d H:i:s'), // Fallback to current time safely
             'icon' => 'fa-check-double', 'color' => 'text-emerald-600 bg-emerald-100',
             'link' => '?dismiss_ticket=' . $row['id']
         ];
@@ -323,7 +288,7 @@ if($r_tickets) {
 }
 
 // 2. My Leave Updates -> View Details
-$q_leaves = "SELECT leave_type, status, updated_at FROM leave_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY updated_at DESC LIMIT 3";
+$q_leaves = "SELECT leave_type, status FROM leave_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 3";
 $r_leaves = mysqli_query($conn, $q_leaves);
 if($r_leaves) {
     while($row = mysqli_fetch_assoc($r_leaves)) {
@@ -333,7 +298,7 @@ if($r_leaves) {
             'type' => 'leave',
             'title' => 'Leave ' . $row['status'],
             'message' => 'Your ' . htmlspecialchars($row['leave_type']) . ' request was ' . strtolower($row['status']) . '.',
-            'time' => $row['updated_at'] ?? date('Y-m-d H:i:s'), 
+            'time' => date('Y-m-d H:i:s'), 
             'icon' => $icon, 'color' => $color,
             'link' => 'leave_request.php'
         ];
@@ -341,7 +306,7 @@ if($r_leaves) {
 }
 
 // 3. My Shift Swap Updates -> View Details
-$q_swaps = "SELECT status, updated_at FROM shift_swap_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY updated_at DESC LIMIT 2";
+$q_swaps = "SELECT status FROM shift_swap_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 2";
 $r_swaps = mysqli_query($conn, $q_swaps);
 if($r_swaps) {
     while($row = mysqli_fetch_assoc($r_swaps)) {
@@ -351,7 +316,7 @@ if($r_swaps) {
             'type' => 'swap',
             'title' => 'Shift Swap ' . $row['status'],
             'message' => 'Your shift swap request was ' . strtolower($row['status']) . '.',
-            'time' => $row['updated_at'] ?? date('Y-m-d H:i:s'), 
+            'time' => date('Y-m-d H:i:s'), 
             'icon' => $icon, 'color' => $color,
             'link' => 'shift_swap_request.php'
         ];
@@ -359,7 +324,7 @@ if($r_swaps) {
 }
 
 // 4. Announcements -> View Details
-$q_announcements = "SELECT * FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY created_at DESC LIMIT 5"; 
+$q_announcements = "SELECT * FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 5"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
     while($row = mysqli_fetch_assoc($r_announcements)) {
@@ -367,7 +332,7 @@ if($r_announcements) {
             'type' => 'announcement',
             'title' => 'Announcement: ' . htmlspecialchars($row['title']),
             'message' => htmlspecialchars(substr($row['message'], 0, 50)) . '...',
-            'time' => $row['created_at'], 
+            'time' => date('Y-m-d H:i:s'), 
             'icon' => 'fa-bullhorn', 'color' => 'text-orange-600 bg-orange-100',
             'link' => '../view_announcements.php'
         ];
@@ -472,92 +437,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
 
             <div class="flex flex-col gap-6 w-full"> 
                 
-                <div class="card border-teal-200 shrink-0">
-                    <div class="p-6 flex flex-col items-center w-full" id="attendanceCardWrapper">
-                        <div class="w-full flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
-                            <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-fingerprint text-teal-600"></i> Punch Action</h3>
-                            <span class="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded"><?php echo date("d M Y"); ?></span>
-                        </div>
-
-                        <div class="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl mb-6 flex justify-between items-center">
-                            <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 rounded bg-teal-100 flex items-center justify-center text-teal-600"><i class="fa-solid fa-clock"></i></div>
-                                <div><p class="text-[9px] font-bold text-gray-400 uppercase">Shift</p><p class="text-xs font-bold text-slate-700">General</p></div>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-[9px] font-bold text-gray-400 uppercase">Timings</p>
-                                <p class="text-xs font-bold text-slate-700"><?php echo htmlspecialchars($shift_timings); ?></p>
-                            </div>
-                        </div>
-
-                        <div class="relative w-40 h-40 mb-6">
-                            <svg class="w-full h-full transform -rotate-90" viewBox="0 0 176 176">
-                                <circle cx="88" cy="88" r="78" stroke="#f1f5f9" stroke-width="12" fill="transparent"></circle>
-                                <?php 
-                                    $pct = min(1, max(0, $total_seconds_today) / 32400); 
-                                    $circumference = 490; 
-                                    $dashoffset = $circumference - ($pct * $circumference);
-                                    $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
-                                ?>
-                                <circle cx="88" cy="88" r="78" stroke="<?php echo $ringColor; ?>" stroke-width="12" fill="transparent" 
-                                    stroke-dasharray="490" stroke-dashoffset="<?php echo ($attendance_record_today && $attendance_record_today['punch_out']) ? '0' : max(0, $dashoffset); ?>" 
-                                    stroke-linecap="round" class="progress-ring-circle" id="progressRing"></circle>
-                            </svg>
-                            <div class="absolute inset-0 flex flex-col items-center justify-center">
-                                <p class="text-[10px] text-gray-400 font-bold uppercase tracking-wider"><?php echo $is_on_break ? 'WORK PAUSED' : 'TOTAL WORK'; ?></p>
-                                <p class="text-2xl font-black <?php echo $is_on_break ? 'text-gray-400' : 'text-slate-800'; ?>" id="liveTimer" 
-                                    data-running="<?php echo ($attendance_record_today && !$attendance_record_today['punch_out'] && !$is_on_break) ? 'true' : 'false'; ?>"
-                                    data-total="<?php echo $total_seconds_today; ?>">
-                                    <?php echo $total_hours_today; ?>
-                                </p>
-                                <?php if ($is_on_break): ?>
-                                    <div class="mt-1 flex items-center justify-center gap-1.5 text-amber-500 font-bold text-sm bg-amber-50 px-2 py-0.5 rounded-full animate-pulse">
-                                        <i class="fa-solid fa-mug-hot text-[10px]"></i>
-                                        <span id="breakTimer" data-break-running="true" data-break-total="<?php echo $display_break_seconds; ?>"><?php echo $break_time_str; ?></span>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-
-                        <div class="w-full">
-                            <?php if (!$attendance_record_today): ?>
-                                <button type="button" onclick="punchAction('punch_in')" id="btnPunchIn" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center gap-2">
-                                    <i class="fa-solid fa-right-to-bracket"></i> Punch In
-                                </button>
-                            <?php elseif (!$attendance_record_today['punch_out']): ?>
-                                <div class="grid grid-cols-2 gap-3 w-full">
-                                    <?php if ($is_on_break): ?>
-                                        <button type="button" onclick="punchAction('end_break')" id="btnEndBreak" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
-                                            <i class="fa-solid fa-play"></i> Resume
-                                        </button>
-                                    <?php else: ?>
-                                        <button type="button" onclick="punchAction('take_break')" id="btnBreak" class="bg-amber-500 hover:bg-amber-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
-                                            <i class="fa-solid fa-mug-hot"></i> Break
-                                        </button>
-                                    <?php endif; ?>
-                                    <button type="button" onclick="punchAction('punch_out')" id="btnPunchOut" class="bg-red-500 hover:bg-rose-600 text-white font-bold py-3 rounded-xl shadow-md transition flex justify-center items-center gap-2">
-                                        <i class="fa-solid fa-right-from-bracket"></i> Out
-                                    </button>
-                                </div>
-                            <?php else: ?>
-                                <button disabled class="w-full bg-slate-100 text-slate-400 font-bold py-3 rounded-xl cursor-not-allowed flex justify-center items-center gap-2 border border-slate-200">
-                                    <i class="fa-solid fa-check-circle text-emerald-500"></i> Shift Completed
-                                </button>
-                            <?php endif; ?>
-                        </div>
-
-                        <?php if($attendance_record_today): ?>
-                        <div class="w-full mt-4 flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-100">
-                            <p class="text-[10px] text-gray-500 flex items-center gap-1">
-                                <i class="fa-solid fa-fingerprint text-teal-600"></i> In: <span class="font-bold text-slate-700"><?php echo $display_punch_in; ?></span>
-                            </p>
-                            <?php if($delay_text != ""): ?>
-                                <span class="text-[9px] font-bold px-2 py-1 border rounded <?php echo $delay_class; ?>"><?php echo $delay_text; ?></span>
-                            <?php endif; ?>
-                        </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
+                <?php include '../attendance_card.php'; ?>
 
                 <div class="card flex-grow">
                     <div class="p-6 flex flex-col h-full">
@@ -809,87 +689,6 @@ $all_notifications = array_slice($all_notifications, 0, 6);
     <script>
         lucide.createIcons();
 
-        // LIVE TIMER FOR ATTENDANCE
-        document.addEventListener('DOMContentLoaded', function() {
-            const timerElement = document.getElementById('liveTimer');
-            const progressRing = document.getElementById('progressRing');
-            const breakTimerElement = document.getElementById('breakTimer');
-
-            if(!timerElement) return;
-
-            const isWorkRunning = timerElement.getAttribute('data-running') === 'true';
-            const isBreakRunning = breakTimerElement ? breakTimerElement.getAttribute('data-break-running') === 'true' : false;
-            
-            let workTotalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-            let breakTotalSeconds = breakTimerElement ? (parseInt(breakTimerElement.getAttribute('data-break-total')) || 0) : 0;
-            const startTime = new Date().getTime(); 
-
-            function formatTime(totalSecs) {
-                const h = Math.floor(totalSecs / 3600);
-                const m = Math.floor((totalSecs % 3600) / 60);
-                const s = totalSecs % 60;
-                return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'); 
-            }
-
-            function updateTimer() {
-                const now = new Date().getTime();
-                const diffSeconds = Math.floor((now - startTime) / 1000);
-                
-                if (isWorkRunning) {
-                    const currentWork = workTotalSeconds + diffSeconds;
-                    timerElement.innerText = formatTime(currentWork);
-                    const progress = Math.min(currentWork / 32400, 1);
-                    if(progressRing) progressRing.style.strokeDashoffset = 490 - (progress * 490);
-                }
-
-                if (isBreakRunning && breakTimerElement) {
-                    const currentBreak = breakTotalSeconds + diffSeconds;
-                    breakTimerElement.innerText = formatTime(currentBreak);
-                }
-            }
-
-            if (isWorkRunning || isBreakRunning) {
-                setInterval(updateTimer, 1000);
-                updateTimer();
-            }
-        });
-
-        // AJAX ACTION HANDLERS
-        function punchAction(action) {
-            let btnId = '';
-            if(action === 'punch_in') btnId = 'btnPunchIn';
-            else if(action === 'punch_out') btnId = 'btnPunchOut';
-            else if(action === 'take_break') btnId = 'btnBreak';
-            else if(action === 'end_break') btnId = 'btnEndBreak';
-            
-            const btn = document.getElementById(btnId);
-            if(btn) {
-                btn.disabled = true;
-                btn.innerHTML = '<span class="spinner"></span>';
-            }
-
-            const formData = new FormData();
-            formData.append('action', action);
-
-            fetch(window.location.href, {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if(data.status === 'success') {
-                    window.location.reload(); 
-                } else {
-                    alert('Error: ' + data.message);
-                    if(btn) window.location.reload(); 
-                }
-            })
-            .catch(error => {
-                alert('Network Error occurred.');
-                if(btn) window.location.reload();
-            });
-        }
-
         // CHARTS LOGIC
         document.addEventListener('DOMContentLoaded', function () {
             
@@ -926,4 +725,4 @@ $all_notifications = array_slice($all_notifications, 0, 6);
         });
     </script>
 </body>
-</html> 
+</html>
