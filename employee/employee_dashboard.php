@@ -926,4 +926,4 @@ $all_notifications = array_slice($all_notifications, 0, 6);
         });
     </script>
 </body>
-</html>
+</html> 
