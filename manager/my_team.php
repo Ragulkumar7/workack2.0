@@ -204,7 +204,7 @@ while ($row = $result->fetch_assoc()) {
                             <?php while ($row = $result->fetch_assoc()): 
                                 // Handle Image Path
                                 $img = !empty($row['profile_img']) ? $row['profile_img'] : "https://ui-avatars.com/api/?name=" . urlencode($row['full_name']) . "&background=random";
-                                if (!filter_var($img, FILTER_VALIDATE_URL)) { $img = '../' . $img; }
+                                if (!filter_var($img, FILTER_VALIDATE_URL)) { $img = '../assets/profiles/' . $img; }
                                 
                                 // --- PREPARE DATA FOR MODAL ---
                                 $modal_data = json_encode([

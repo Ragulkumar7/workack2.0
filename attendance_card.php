@@ -44,7 +44,7 @@ $is_on_break = false;
 $total_break_seconds = 0;
 $break_start_ts = 0;
 
-$tea_break_seconds = 0;
+$break_seconds = 0;
 $lunch_break_seconds = 0;
 $active_break_type = 'General';
 
@@ -140,7 +140,7 @@ if ($attendance_record) {
         if ($b_row['break_end']) {
             $dur = strtotime($b_row['break_end']) - strtotime($b_row['break_start']);
             $total_break_seconds += $dur;
-            if ($type === 'Tea') $tea_break_seconds += $dur;
+            if ($type === 'Break') $break_seconds += $dur;
             elseif ($type === 'Lunch') $lunch_break_seconds += $dur;
         } else {
             $is_on_break = true;
@@ -149,7 +149,7 @@ if ($attendance_record) {
             
             $live_dur = time() - $break_start_ts;
             $total_break_seconds += $live_dur;
-            if ($type === 'Tea') $tea_break_seconds += $live_dur;
+            if ($type === 'Break') $break_seconds += $live_dur;
             elseif ($type === 'Lunch') $lunch_break_seconds += $live_dur;
         }
     }
@@ -179,7 +179,7 @@ if ($attendance_record) {
             $delay_class = "text-emerald-600 bg-emerald-50 border-emerald-200";
         } else {
             $delay_text = "On Time";
-            $delay_class = "text-teal-600 bg-teal-50 border-teal-200";
+            $delay_class = "text-Breakl-600 bg-Breakl-50 border-Breakl-200";
         }
     }
 
@@ -248,7 +248,7 @@ if (!$is_ajax_request):
 
         <div class="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl mb-6 flex justify-between items-center shadow-sm">
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded bg-teal-100 flex items-center justify-center text-teal-600">
+                <div class="w-8 h-8 rounded bg-Breakl-100 flex items-center justify-center text-Breakl-600">
                     <i class="fa-solid fa-clock"></i>
                 </div>
                 <div>
@@ -305,9 +305,9 @@ if (!$is_ajax_request):
 
         <div class="w-full flex gap-4 mb-6">
             <div class="break-card">
-                <p class="text-[10px] text-amber-600 font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-mug-hot mr-1"></i> Tea Break</p>
+                <p class="text-[10px] text-amber-600 font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-mug-hot mr-1"></i> Break</p>
                 <p class="text-lg font-black text-slate-800">
-                    <span id="teaTimer" data-seconds="<?php echo $tea_break_seconds; ?>"><?php echo formatMinsSecs($tea_break_seconds); ?></span> 
+                    <span id="BreakTimer" data-seconds="<?php echo $break_seconds; ?>"><?php echo formatMinsSecs($break_seconds); ?></span> 
                     <span class="text-[9px] text-gray-400 font-bold ml-0.5">MINS</span>
                 </p>
             </div>
@@ -343,8 +343,8 @@ if (!$is_ajax_request):
                 </div>
 
                 <div class="absolute inset-0 bg-white z-10 hidden flex gap-2 w-full h-full items-center" id="breakOptions">
-                    <button type="button" onclick="submitAttendanceAction('take_break', 'Tea')" class="bg-[#fef3c7] hover:bg-[#fde68a] text-[#d97706] border border-[#fcd34d] font-bold py-2 px-3 rounded-lg shadow-sm transition flex-1 flex justify-center items-center gap-1.5 text-sm">
-                        <i class="fa-solid fa-mug-hot text-xs"></i> Tea
+                    <button type="button" onclick="submitAttendanceAction('take_break', 'Break')" class="bg-[#fef3c7] hover:bg-[#fde68a] text-[#d97706] border border-[#fcd34d] font-bold py-2 px-3 rounded-lg shadow-sm transition flex-1 flex justify-center items-center gap-1.5 text-sm">
+                        <i class="fa-solid fa-mug-hot text-xs"></i> Break
                     </button>
                     <button type="button" onclick="submitAttendanceAction('take_break', 'Lunch')" class="bg-[#ffedd5] hover:bg-[#fed7aa] text-[#ea580c] border border-[#fdba74] font-bold py-2 px-3 rounded-lg shadow-sm transition flex-1 flex justify-center items-center gap-1.5 text-sm">
                         <i class="fa-solid fa-utensils text-xs"></i> Lunch
@@ -364,7 +364,7 @@ if (!$is_ajax_request):
         <?php if($attendance_record): ?>
         <div class="w-full mt-6 flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
             <p class="text-xs text-gray-500 flex items-center gap-1.5">
-                <i class="fa-solid fa-fingerprint text-teal-600"></i> Punched In: <span class="font-black text-slate-800"><?php echo $display_punch_in; ?></span>
+                <i class="fa-solid fa-fingerprint text-Breakl-600"></i> Punched In: <span class="font-black text-slate-800"><?php echo $display_punch_in; ?></span>
             </p>
             <?php if($delay_text != ""): ?>
                 <span class="text-[10px] font-bold px-2 py-1.5 border rounded-lg <?php echo $delay_class; ?> tracking-wide"><?php echo $delay_text; ?></span>
@@ -396,7 +396,7 @@ if (!$is_ajax_request):
         const progressRing = document.getElementById('progressRing');
         const breakTimerElement = document.getElementById('breakTimer');
         
-        const teaEl = document.getElementById('teaTimer');
+        const BreakEl = document.getElementById('BreakTimer');
         const lunchEl = document.getElementById('lunchTimer');
 
         if (!timerElement) return;
@@ -408,7 +408,7 @@ if (!$is_ajax_request):
         const workTotalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
         const breakTotalSeconds = breakTimerElement ? (parseInt(breakTimerElement.getAttribute('data-break-total')) || 0) : 0;
         
-        const teaTotal = teaEl ? (parseInt(teaEl.getAttribute('data-seconds')) || 0) : 0;
+        const BreakTotal = BreakEl ? (parseInt(BreakEl.getAttribute('data-seconds')) || 0) : 0;
         const lunchTotal = lunchEl ? (parseInt(lunchEl.getAttribute('data-seconds')) || 0) : 0;
 
         const startTime = new Date().getTime(); 
@@ -442,8 +442,8 @@ if (!$is_ajax_request):
                 breakTimerElement.innerText = formatTime(currentBreak);
                 
                 // Live tick specific break counters
-                if (activeBreakType === 'Tea' && teaEl) {
-                    teaEl.innerText = formatMinsSecs(teaTotal + diffSeconds);
+                if (activeBreakType === 'Break' && BreakEl) {
+                    BreakEl.innerText = formatMinsSecs(BreakTotal + diffSeconds);
                 } else if (activeBreakType === 'Lunch' && lunchEl) {
                     lunchEl.innerText = formatMinsSecs(lunchTotal + diffSeconds);
                 }
@@ -464,7 +464,7 @@ if (!$is_ajax_request):
 
         const btnContainer = document.getElementById('attendanceActionButtons');
         if(btnContainer) {
-            btnContainer.innerHTML = '<div class="w-full flex justify-center py-4 bg-slate-50 rounded-xl border border-slate-100"><span class="spinner w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></span></div>';
+            btnContainer.innerHTML = '<div class="w-full flex justify-center py-4 bg-slate-50 rounded-xl border border-slate-100"><span class="spinner w-8 h-8 border-4 border-Breakl-500 border-t-transparent rounded-full animate-spin"></span></div>';
         }
 
         // Post directly to the current dashboard URL safely

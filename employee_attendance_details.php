@@ -5,12 +5,11 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // --- ROBUST DATABASE CONNECTION ---
-$dbPath = './include/db_connect.php';
-if (file_exists($dbPath)) {
-    require_once $dbPath;
-} else {
-    die("Error: db_connect.php not found at " . htmlspecialchars($dbPath));
+$dbPath = '../include/db_connect.php';
+if (!file_exists($dbPath)) {
+    $dbPath = './include/db_connect.php';
 }
+require_once $dbPath;
 
 // Check Login
 if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) { 
@@ -22,12 +21,13 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) {
 $view_user_id = isset($_GET['id']) ? intval($_GET['id']) : (isset($_SESSION['user_id']) ? $_SESSION['user_id'] : $_SESSION['id']);
 
 // A. Fetch Employee Profile Data
-$sql_profile = "SELECT full_name, emp_id_code, designation, joining_date, shift_timings FROM employee_profiles WHERE user_id = ?";
+$sql_profile = "SELECT full_name, emp_id_code, designation, joining_date, shift_timings, profile_img FROM employee_profiles WHERE user_id = ?";
 $stmt = $conn->prepare($sql_profile);
 $stmt->bind_param("i", $view_user_id);
 $stmt->execute();
 $profile_result = $stmt->get_result();
 $profile_data = $profile_result->fetch_assoc();
+$stmt->close();
 
 $employeeName = $profile_data['full_name'] ?? "Unknown Employee";
 $employeeID   = $profile_data['emp_id_code'] ?? "EMP-0000";
@@ -35,13 +35,20 @@ $designation  = $profile_data['designation'] ?? "Staff";
 $joining_date = $profile_data['joining_date'] ?? date('Y-m-01');
 $shift_timings = $profile_data['shift_timings'] ?? '09:00 AM - 06:00 PM';
 
+$profile_img = $profile_data['profile_img'] ?? '';
+if(empty($profile_img) || $profile_img === 'default_user.png') {
+    $profile_img = "https://ui-avatars.com/api/?name=".urlencode($employeeName)."&background=0d9488&color=fff&bold=true";
+} elseif (!str_starts_with($profile_img, 'http') && strpos($profile_img, 'assets/profiles/') === false) {
+    $profile_img = '../assets/profiles/' . $profile_img;
+}
+
 // =========================================================================================
 // FILTER LOGIC (Daily, Monthly, Range)
 // =========================================================================================
-$filter_type = isset($_GET['filter_type']) ? $_GET['filter_type'] : 'daily';
+$filter_type = isset($_GET['filter_type']) ? $_GET['filter_type'] : 'monthly';
 
 // Default Values
-$filter_date  = isset($_GET['filter_date']) && !empty($_GET['filter_date']) ? $_GET['filter_date'] : date('Y-m-d'); // Default: Today
+$filter_date  = isset($_GET['filter_date']) && !empty($_GET['filter_date']) ? $_GET['filter_date'] : date('Y-m-d'); 
 $filter_month = isset($_GET['filter_month']) && !empty($_GET['filter_month']) ? $_GET['filter_month'] : date('Y-m');
 $from_date    = isset($_GET['from_date']) && !empty($_GET['from_date']) ? $_GET['from_date'] : date('Y-m-01');
 $to_date      = isset($_GET['to_date']) && !empty($_GET['to_date']) ? $_GET['to_date'] : date('Y-m-d');
@@ -54,7 +61,6 @@ if ($filter_type === 'daily') {
     $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND DATE_FORMAT(date, '%Y-%m') = ? ORDER BY date DESC";
     $currentDisplay = date('F Y', strtotime($filter_month . '-01'));
 } elseif ($filter_type === 'range') {
-    // Swap dates if from_date is greater than to_date
     if (strtotime($to_date) < strtotime($from_date)) {
         $temp = $from_date; $from_date = $to_date; $to_date = $temp;
     }
@@ -79,145 +85,103 @@ $late_days = 0;
 $total_overtime = 0;
 $days_count = 0;
 
-$sum_work = 0;
-$sum_break = 0;
-$sum_overtime = 0;
-
 $stmt->execute();
 $result = $stmt->get_result();
 
 // --- LATE LOGIC PREP ---
-// Extracts start time from shift_timings (e.g., "09:00 AM")
 $time_parts = explode('-', $shift_timings);
 $shift_start_str = trim($time_parts[0]);
 
 while ($row = $result->fetch_assoc()) {
     $days_count++;
-    $prod = floatval($row['production_hours']);
-    $total_production += $prod;
+    
+    // Accurate break fetching directly from the breaks table
+    $b_q = $conn->query("SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as t_break FROM attendance_breaks WHERE attendance_id = " . $row['id'] . " AND break_end IS NOT NULL");
+    $b_sec = $b_q->fetch_assoc()['t_break'] ?? 0;
+    
+    if ($b_sec == 0 && !empty($row['break_time'])) {
+        $b_sec = intval($row['break_time']) * 60;
+    }
+    $break_min = floor($b_sec / 60);
 
+    // Calculate exact production based on punch records if missing
+    $prod = floatval($row['production_hours']);
+    if ($prod == 0 && !empty($row['punch_in']) && !empty($row['punch_out'])) {
+        $in = strtotime($row['punch_in']);
+        $out = strtotime($row['punch_out']);
+        $prod = max(0, (($out - $in) - $b_sec) / 3600);
+    }
+    
+    $total_production += $prod;
     $overtime = ($prod > 9) ? ($prod - 9) : 0;
     $total_overtime += $overtime;
 
-    // --- BREAK CALCULATION & DATABASE UPDATE LOGIC ---
-    $break_min = 0;
-    $daily_break_hours = 0;
-    
-    // Default to the database value if it exists and is valid
-    if (!empty($row['break_time'])) {
-        $break_min = intval($row['break_time']);
-        $daily_break_hours = $break_min / 60;
-    } 
-    // Fallback: If break_time is empty, try to calculate it if both punch in/out exist
-    elseif ($row['punch_in'] && $row['punch_out']) {
-        $in = strtotime($row['punch_in']);
-        $out = strtotime($row['punch_out']);
-        $total_duration = ($out - $in) / 3600; 
-        
-        $daily_break_hours = $total_duration - $prod;
-        if($daily_break_hours < 0) $daily_break_hours = 0;
-        
-        $break_min = round($daily_break_hours * 60);
-
-        // Update DB with the calculated break time
-        $update_sql = "UPDATE attendance SET break_time = ? WHERE id = ?";
-        $update_stmt = $conn->prepare($update_sql);
-        $update_stmt->bind_param("si", $break_min, $row['id']);
-        $update_stmt->execute();
-        $update_stmt->close();
-    }
-
-    $sum_work += ($prod - $overtime);
-    $sum_overtime += $overtime;
-    $sum_break += $daily_break_hours;
-
     // --- LATE CALCULATION LOGIC ---
     $late_msg = "-";
-    if ($row['punch_in'] && $row['status'] != 'Absent') {
+    $is_late = false;
+    if (!empty($row['punch_in']) && stripos($row['status'], 'Absent') === false) {
         $shift_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
         $punch_in_ts = strtotime($row['punch_in']);
 
-        if ($punch_in_ts > $shift_start_ts) {
-            $delay_diff = $punch_in_ts - $shift_start_ts;
-            $delay_mins = round($delay_diff / 60);
-            
-            if ($delay_mins > 0) {
-                // If it's more than 60 mins, format as Hrs & Mins
-                if ($delay_mins >= 60) {
-                    $delay_hrs = floor($delay_mins / 60);
-                    $rem_mins = $delay_mins % 60;
-                    $late_msg = $delay_hrs . "h " . $rem_mins . "m late";
-                } else {
-                    $late_msg = $delay_mins . " mins late";
-                }
-                $late_days++;
-                
-                // Ensure status is marked as Late if not already (Optional, depends on your preference)
-                if($row['status'] == 'On Time') {
-                    $row['status'] = 'Late';
-                    // Optionally update DB here if you want it to persist
-                }
+        if ($punch_in_ts > ($shift_start_ts + 60)) { // 1 min grace
+            $delay_mins = round(($punch_in_ts - $shift_start_ts) / 60);
+            if ($delay_mins >= 60) {
+                $late_msg = floor($delay_mins / 60) . "h " . ($delay_mins % 60) . "m";
+            } else {
+                $late_msg = $delay_mins . " mins";
             }
+            $late_days++;
+            $is_late = true;
         }
     }
 
-    // --- PRODUCTION HOURS VALIDATION ---
-    $prod_class = "font-bold text-slate-800";
-    if ($row['status'] != 'Absent' && $row['punch_out']) {
-        if ($prod < 8) {
-            $prod_class = "font-bold text-red-500"; // Red if less than 8 hours
-        }
+    // Dynamic UI Styling
+    $status_raw = $row['status'];
+    $pillClass = 'bg-slate-100 text-slate-600 border-slate-200';
+    if(stripos($status_raw, 'Time') !== false) $pillClass = 'bg-emerald-50 text-emerald-600 border-emerald-200';
+    if(stripos($status_raw, 'Late') !== false || $is_late) { 
+        $pillClass = 'bg-amber-50 text-amber-600 border-amber-200'; 
+        $status_raw = 'Late'; 
     }
+    if(stripos($status_raw, 'Absent') !== false) $pillClass = 'bg-rose-50 text-rose-600 border-rose-200';
+    if(stripos($status_raw, 'WFH') !== false) $pillClass = 'bg-blue-50 text-blue-600 border-blue-200';
+
+    $prod_class = ($prod > 0 && $prod < 8) ? "text-rose-500 font-bold" : "text-slate-700 font-bold";
 
     $attendanceRecords[] = [
         "date" => date('d M Y', strtotime($row['date'])),
-        "checkin" => $row['punch_in'] ? date('h:i A', strtotime($row['punch_in'])) : "-",
-        "status" => ($row['status'] == 'Absent') ? 'Absent' : $row['status'],
-        "status_raw" => $row['status'],
-        "checkout" => $row['punch_out'] ? date('h:i A', strtotime($row['punch_out'])) : "-",
-        "break" => ($break_min > 0) ? $break_min . " Min" : "-",
+        "checkin" => !empty($row['punch_in']) ? date('h:i A', strtotime($row['punch_in'])) : "-",
+        "checkout" => !empty($row['punch_out']) ? date('h:i A', strtotime($row['punch_out'])) : "-",
+        "status" => $status_raw,
+        "status_class" => $pillClass,
+        "break" => ($break_min > 0) ? $break_min . " m" : "-",
         "late" => $late_msg,
-        "overtime" => ($overtime > 0) ? number_format($overtime, 2) . " Hrs" : "-",
-        "production" => number_format($prod, 2) . " Hrs",
-        "prod_class" => $prod_class,
-        "color" => ($row['status'] == 'Absent') ? "red" : "green"
+        "overtime" => ($overtime > 0) ? number_format($overtime, 2) . " h" : "-",
+        "production" => number_format($prod, 2) . " h",
+        "prod_class" => $prod_class
     ];
 }
+$stmt->close();
 
 // C. Calculate Final Averages
 $avg_production = ($days_count > 0) ? number_format($total_production / $days_count, 1) : 0;
 
 // =========================================================================================
-// D. LEAVE CARRY-FORWARD LOGIC (Overall Calculation)
+// D. LEAVE CARRY-FORWARD LOGIC
 // =========================================================================================
 $base_leaves_per_month = 2;
-
-// Calculate Total Months Worked from Joining Date to Current Date
-$d1 = new DateTime($joining_date);
-$d1->modify('first day of this month'); 
-$d2 = new DateTime('now');
-$d2->modify('first day of this month');
-
-$months_worked = 0;
-if ($d2 >= $d1) {
-    $interval = $d1->diff($d2);
-    $months_worked = ($interval->y * 12) + $interval->m + 1; // +1 to include the current month
-}
-
-// Total Earned Leaves Since Joining
+$d1 = new DateTime($joining_date); $d1->modify('first day of this month'); 
+$d2 = new DateTime('now'); $d2->modify('first day of this month');
+$months_worked = ($d2 >= $d1) ? (($d1->diff($d2)->y * 12) + $d1->diff($d2)->m + 1) : 0;
 $total_earned_leaves = $months_worked * $base_leaves_per_month;
 
-// Fetch Total Leaves Taken by Employee EVER (Approved Only)
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
 $leave_stmt->bind_param("i", $view_user_id);
 $leave_stmt->execute();
-$leave_res = $leave_stmt->get_result();
-$leave_data = $leave_res->fetch_assoc();
-
-$total_leaves_taken = $leave_data['taken'] ?? 0;
-$leave_balance = $total_earned_leaves - $total_leaves_taken;
-if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
+$leaves_taken = floatval($leave_stmt->get_result()->fetch_assoc()['taken'] ?? 0);
+$leave_balance = max(0, $total_earned_leaves - $leaves_taken);
+$leave_stmt->close();
 
 ?>
 
@@ -228,182 +192,207 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Attendance - <?php echo htmlspecialchars($employeeName); ?></title>
     
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
-        :root { --primary-orange: #ff5e3a; --bg-gray: #f8f9fa; --border-color: #edf2f7; }
-        body { background-color: var(--bg-gray); font-family: 'Inter', sans-serif; font-size: 13px; color: #333; overflow-x: hidden; }
-        #mainContent { margin-left: 95px; padding: 25px 35px; transition: all 0.3s ease; min-height: 100vh; }
-        @media (max-width: 768px) { #mainContent { margin-left: 0 !important; padding: 15px; } }
-        .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); margin-bottom: 24px; background: #fff; }
-        .status-pill { padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .bg-present { background: #dcfce7; color: #166534; }
-        .bg-absent { background: #fee2e2; color: #991b1b; }
-        .bg-late { background: #fef08a; color: #b45309; } /* Adjusted Late Color for better visibility */
-        .modal-backdrop-custom { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; color: #1e293b; overflow-x: hidden; }
         
-        /* Custom styling for date inputs to look clean */
+        #mainContent {
+            margin-left: 95px; width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            padding: 24px; min-height: 100vh;
+        }
+        #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
+
+        .card { background: white; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
+        /* Modals */
+        .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+        .modal-overlay.active { display: flex; }
+        
+        /* Clean Inputs */
         input[type="date"]::-webkit-calendar-picker-indicator, input[type="month"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; transition: 0.2s; }
         input[type="date"]::-webkit-calendar-picker-indicator:hover, input[type="month"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
+
+        @media (max-width: 1024px) {
+            #mainContent { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px; }
+        }
     </style>
 </head>
-<body class="bg-slate-50">
+<body>
 
-    <?php include('./sidebars.php'); ?>
+    <?php 
+        $sidebars_path = '../sidebars.php';
+        if(!file_exists($sidebars_path)) $sidebars_path = './sidebars.php';
+        include($sidebars_path); 
+
+        $header_path = '../header.php';
+        if(!file_exists($header_path)) $header_path = './header.php';
+        include($header_path); 
+    ?>
 
     <main id="mainContent">
-        <?php include('./header.php'); ?>
-
+        
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
-                <h1 class="text-2xl font-bold text-slate-800"> Attendance Details</h1>
-                <nav class="flex text-slate-500 text-xs mt-1 gap-2">
-                    <a href="#" class="hover:text-orange-500">Attendance</a>
+                <h1 class="text-2xl lg:text-3xl font-black text-slate-800 tracking-tight">Attendance Record</h1>
+                <nav class="flex text-slate-500 text-xs mt-1.5 gap-2 font-medium">
+                    <a href="admin_attendance.php" class="hover:text-teal-600 transition">Attendance</a>
                     <span>/</span>
-                    <a href="#" class="hover:text-orange-500">Admin Panel</a>
-                    <span>/</span>
-                    <span class="text-slate-800 font-semibold"><?php echo htmlspecialchars($employeeName); ?></span>
+                    <span class="text-slate-800 font-bold"><?php echo htmlspecialchars($employeeName); ?></span>
                 </nav>
             </div>
+            <button onclick="window.history.back()" class="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition flex items-center gap-2">
+                <i class="fa-solid fa-arrow-left"></i> Back to Roster
+            </button>
         </div>
 
-        <div class="grid grid-cols-12 gap-6 mb-8">
-            <div class="col-span-12 lg:col-span-3 card p-6 text-center shadow-md h-fit">
-                <div class="flex justify-end mb-2">
-                    <span class="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-1 rounded">MANAGEMENT VIEW</span>
-                </div>
-                <div class="w-24 h-24 rounded-full border-4 border-orange-500 p-1 mx-auto mb-4 relative">
-                    <img src="https://ui-avatars.com/api/?name=<?php echo urlencode($employeeName); ?>&background=random" class="rounded-full w-full h-full object-cover">
-                    <div class="absolute bottom-1 right-1 w-5 h-5 bg-emerald-500 border-2 border-white rounded-full"></div>
-                </div>
-                <h2 class="text-lg font-bold text-slate-800"><?php echo htmlspecialchars($employeeName); ?></h2>
-                <p class="text-slate-500 text-xs mb-6"><?php echo htmlspecialchars($designation); ?> (<?php echo htmlspecialchars($employeeID); ?>)</p>
-                
-                <div class="bg-teal-50 border border-teal-100 rounded-xl p-4 mt-2 text-left">
-                    <div class="flex items-center justify-between mb-2">
-                        <p class="text-teal-700 text-xs font-bold uppercase tracking-wider">Leave Balance</p>
-                        <i class="fa-solid fa-umbrella-beach text-teal-500"></i>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+            
+            <div class="lg:col-span-1 flex flex-col gap-6">
+                <div class="card p-6 text-center flex flex-col items-center">
+                    <div class="w-full flex justify-end mb-2">
+                        <span class="bg-indigo-50 text-indigo-600 border border-indigo-100 text-[9px] font-black px-2 py-0.5 rounded tracking-widest uppercase">Admin View</span>
                     </div>
-                    <div class="flex items-end gap-2">
-                        <span class="text-3xl font-black text-teal-800"><?php echo $leave_balance; ?></span>
-                        <span class="text-xs text-teal-600 font-medium mb-1">Available</span>
+                    <div class="w-24 h-24 rounded-full border-4 border-slate-50 p-1 mb-4 relative shadow-sm">
+                        <img src="<?php echo $profile_img; ?>" class="rounded-full w-full h-full object-cover">
+                        <div class="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
                     </div>
-                    <p class="text-[9px] text-teal-600 mt-2 opacity-80">(Total accrued minus total taken)</p>
-                </div>
+                    <h2 class="text-lg font-black text-slate-800 leading-tight"><?php echo htmlspecialchars($employeeName); ?></h2>
+                    <p class="text-slate-500 text-xs font-medium mt-1"><?php echo htmlspecialchars($designation); ?> • <?php echo htmlspecialchars($employeeID); ?></p>
+                    
+                    <div class="w-full bg-teal-50 border border-teal-100 rounded-xl p-4 mt-6 text-left relative overflow-hidden">
+                        <i class="fa-solid fa-umbrella-beach text-teal-500/20 text-6xl absolute -right-2 -bottom-2"></i>
+                        <p class="text-teal-700 text-[10px] font-black uppercase tracking-widest mb-1 relative z-10">Leave Balance</p>
+                        <div class="flex items-baseline gap-1.5 relative z-10">
+                            <span class="text-3xl font-black text-teal-800"><?php echo $leave_balance; ?></span>
+                            <span class="text-xs text-teal-600 font-bold mb-1">Days Left</span>
+                        </div>
+                    </div>
 
-                <div class="bg-slate-50 rounded-xl p-3 mt-4 border border-slate-100">
-                    <p class="text-slate-400 text-[10px] uppercase font-bold tracking-wider mb-1">Total Production (Selected Period)</p>
-                    <p class="text-xl font-bold text-slate-800"><?php echo number_format($total_production, 2); ?> Hrs</p>
+                    <div class="w-full bg-slate-50 rounded-xl p-4 mt-4 border border-slate-100 text-left">
+                        <p class="text-slate-500 text-[10px] uppercase font-black tracking-widest mb-1">Total Production</p>
+                        <div class="flex items-baseline gap-1.5">
+                            <span class="text-2xl font-black text-slate-800"><?php echo number_format($total_production, 1); ?></span>
+                            <span class="text-xs text-slate-500 font-bold mb-0.5">Hours</span>
+                        </div>
+                        <p class="text-[9px] text-slate-400 font-medium mt-1">Based on selected filter period</p>
+                    </div>
                 </div>
             </div>
 
-            <div class="col-span-12 lg:col-span-9">
+            <div class="lg:col-span-3 flex flex-col gap-6">
                 
-                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-                    <div class="card p-4 border-l-4 border-orange-500">
-                        <p class="text-slate-400 text-xs font-bold uppercase">Avg. Production</p>
-                        <h3 class="text-2xl font-bold"><?php echo $avg_production; ?> <small class="text-slate-400 font-normal">Hrs</small></h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="card p-5 border-b-4 border-b-blue-500 hover:shadow-md transition">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-stopwatch text-blue-500 mr-1"></i> Avg. Daily</p>
+                        <h3 class="text-2xl font-black text-slate-800"><?php echo $avg_production; ?> <span class="text-sm font-bold text-slate-400">Hrs</span></h3>
                     </div>
-                    <div class="card p-4 border-l-4 border-blue-500">
-                        <p class="text-slate-400 text-xs font-bold uppercase">Late Logins</p>
-                        <h3 class="text-2xl font-bold"><?php echo sprintf("%02d", $late_days); ?> <small class="text-slate-400 font-normal">Days</small></h3>
+                    <div class="card p-5 border-b-4 border-b-amber-500 hover:shadow-md transition">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-clock-rotate-left text-amber-500 mr-1"></i> Late Days</p>
+                        <h3 class="text-2xl font-black text-slate-800"><?php echo sprintf("%02d", $late_days); ?> <span class="text-sm font-bold text-slate-400">Days</span></h3>
                     </div>
-                    <div class="card p-4 border-l-4 border-emerald-500">
-                        <p class="text-slate-400 text-xs font-bold uppercase">Days Present</p>
-                        <h3 class="text-2xl font-bold"><?php echo $days_count; ?> <small class="text-slate-400 font-normal">Days</small></h3>
+                    <div class="card p-5 border-b-4 border-b-emerald-500 hover:shadow-md transition">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-calendar-check text-emerald-500 mr-1"></i> Present</p>
+                        <h3 class="text-2xl font-black text-slate-800"><?php echo sprintf("%02d", $days_count); ?> <span class="text-sm font-bold text-slate-400">Days</span></h3>
                     </div>
-                    <div class="card p-4 border-l-4 border-purple-500">
-                        <p class="text-slate-400 text-xs font-bold uppercase">Overtime</p>
-                        <h3 class="text-2xl font-bold"><?php echo number_format($total_overtime, 1); ?> <small class="text-slate-400 font-normal">Hrs</small></h3>
+                    <div class="card p-5 border-b-4 border-b-purple-500 hover:shadow-md transition">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-bolt text-purple-500 mr-1"></i> Overtime</p>
+                        <h3 class="text-2xl font-black text-slate-800"><?php echo number_format($total_overtime, 1); ?> <span class="text-sm font-bold text-slate-400">Hrs</span></h3>
                     </div>
                 </div>
 
-                <div class="card shadow-sm">
-                    <div class="p-4 border-b flex flex-col xl:flex-row justify-between items-center gap-4 bg-white rounded-t-xl">
+                <div class="card flex flex-col flex-grow">
+                    
+                    <div class="p-5 border-b border-slate-100 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 bg-white rounded-t-2xl shrink-0">
                         <div class="flex items-center gap-3">
-                            <h3 class="text-lg font-bold text-slate-800 whitespace-nowrap">Attendance History</h3>
-                            <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-semibold border border-slate-200"><?php echo $currentDisplay; ?></span>
+                            <h3 class="text-lg font-black text-slate-800">Timesheet History</h3>
+                            <span class="bg-slate-100 text-slate-600 px-3 py-1 rounded-md text-[10px] font-black tracking-widest uppercase border border-slate-200"><?php echo $currentDisplay; ?></span>
                         </div>
                         
-                        <form action="" method="GET" class="flex flex-col sm:flex-row items-center gap-2 w-full xl:w-auto" id="filterForm">
+                        <form action="" method="GET" class="flex flex-col sm:flex-row items-center gap-3 w-full xl:w-auto" id="filterForm">
                             <input type="hidden" name="id" value="<?php echo $view_user_id; ?>">
                             
-                            <select name="filter_type" id="filterType" class="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-700 outline-none w-full sm:w-auto font-medium" onchange="toggleFilterInputs()">
-                                <option value="daily" <?php echo $filter_type == 'daily' ? 'selected' : ''; ?>>Single Date</option>
+                            <select name="filter_type" id="filterType" class="border border-slate-200 rounded-xl px-4 py-2.5 text-sm bg-slate-50 text-slate-700 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 w-full sm:w-auto font-semibold transition" onchange="toggleFilterInputs()">
                                 <option value="monthly" <?php echo $filter_type == 'monthly' ? 'selected' : ''; ?>>Month Wise</option>
+                                <option value="daily" <?php echo $filter_type == 'daily' ? 'selected' : ''; ?>>Specific Date</option>
                                 <option value="range" <?php echo $filter_type == 'range' ? 'selected' : ''; ?>>Custom Range</option>
                             </select>
 
-                            <div id="inputDaily" class="<?php echo $filter_type == 'daily' ? 'block' : 'hidden'; ?> w-full sm:w-auto">
-                                <input type="date" name="filter_date" value="<?php echo $filter_date; ?>" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 font-medium">
-                            </div>
-
                             <div id="inputMonthly" class="<?php echo $filter_type == 'monthly' ? 'block' : 'hidden'; ?> w-full sm:w-auto">
-                                <input type="month" name="filter_month" value="<?php echo $filter_month; ?>" class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none text-slate-700 font-medium">
+                                <input type="month" name="filter_month" value="<?php echo $filter_month; ?>" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-teal-500 text-slate-700 font-semibold bg-slate-50 transition">
                             </div>
 
-                            <div id="inputRange" class="<?php echo $filter_type == 'range' ? 'flex' : 'hidden'; ?> items-center gap-2 w-full sm:w-auto">
-                                <input type="date" name="from_date" value="<?php echo $from_date; ?>" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm outline-none text-slate-700 font-medium" title="From Date">
-                                <span class="text-slate-400 text-xs font-bold">TO</span>
-                                <input type="date" name="to_date" value="<?php echo $to_date; ?>" class="w-full border border-slate-200 rounded-lg px-2 py-2 text-sm outline-none text-slate-700 font-medium" title="To Date">
+                            <div id="inputDaily" class="<?php echo $filter_type == 'daily' ? 'block' : 'hidden'; ?> w-full sm:w-auto">
+                                <input type="date" name="filter_date" value="<?php echo $filter_date; ?>" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-teal-500 text-slate-700 font-semibold bg-slate-50 transition">
                             </div>
 
-                            <button type="submit" class="bg-[#1b5a5a] text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-[#134040] transition w-full sm:w-auto whitespace-nowrap">
-                                <i class="fa-solid fa-filter mr-1"></i> Apply
+                            <div id="inputRange" class="<?php echo $filter_type == 'range' ? 'flex' : 'hidden'; ?> items-center gap-2 w-full sm:w-auto bg-slate-50 p-1 rounded-xl border border-slate-200">
+                                <input type="date" name="from_date" value="<?php echo $from_date; ?>" class="w-full bg-transparent border-none rounded-lg px-2 py-1.5 text-sm outline-none text-slate-700 font-semibold" title="From Date">
+                                <span class="text-slate-400 text-[10px] font-black uppercase px-1">TO</span>
+                                <input type="date" name="to_date" value="<?php echo $to_date; ?>" class="w-full bg-transparent border-none rounded-lg px-2 py-1.5 text-sm outline-none text-slate-700 font-semibold" title="To Date">
+                            </div>
+
+                            <button type="submit" class="bg-slate-800 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md hover:bg-slate-900 transition-colors w-full sm:w-auto flex justify-center items-center gap-2">
+                                <i class="fa-solid fa-sliders"></i> Filter
                             </button>
                         </form>
                     </div>
                     
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead class="bg-slate-50">
+                    <div class="overflow-x-auto custom-scroll">
+                        <table class="w-full text-left whitespace-nowrap text-sm">
+                            <thead class="bg-slate-50 border-b border-slate-100">
                                 <tr>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Date</th>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Check In</th>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Check Out</th>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Status</th>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Break Time</th>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Production</th>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Late</th>
-                                    <th class="text-xs text-slate-500 font-bold uppercase py-3">Overtime</th>
-                                    <th class="text-center text-xs text-slate-500 font-bold uppercase py-3">Action</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Punch In</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Punch Out</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Break</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Production</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Late By</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">OT</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Action</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
                                 <?php if (!empty($attendanceRecords)): ?>
-                                    <?php foreach ($attendanceRecords as $row): ?>
-                                    <tr class="hover:bg-slate-50 transition">
-                                        <td class="font-medium text-slate-700 py-3"><?php echo $row['date']; ?></td>
-                                        <td class="py-3"><?php echo $row['checkin']; ?></td>
-                                        <td class="py-3"><?php echo $row['checkout']; ?></td>
-                                        <td class="py-3">
-                                            <?php 
-                                            $pillClass = 'bg-present';
-                                            if($row['status'] == 'Absent') $pillClass = 'bg-absent';
-                                            if($row['status_raw'] == 'Late') $pillClass = 'bg-late';
-                                            ?>
-                                            <span class="status-pill <?php echo $pillClass; ?>"><?php echo $row['status']; ?></span>
+                                    <?php foreach ($attendanceRecords as $row): 
+                                        $json_data = htmlspecialchars(json_encode($row), ENT_QUOTES, 'UTF-8');
+                                    ?>
+                                    <tr class="hover:bg-slate-50/50 transition-colors">
+                                        <td class="px-6 py-4 font-bold text-slate-700"><?php echo $row['date']; ?></td>
+                                        <td class="px-6 py-4 font-medium text-slate-600"><?php echo $row['checkin']; ?></td>
+                                        <td class="px-6 py-4 font-medium text-slate-600"><?php echo $row['checkout']; ?></td>
+                                        <td class="px-6 py-4">
+                                            <span class="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border <?php echo $row['status_class']; ?>">
+                                                <?php echo htmlspecialchars($row['status']); ?>
+                                            </span>
                                         </td>
-                                        <td class="py-3"><span class="text-amber-600 font-semibold"><?php echo $row['break']; ?></span></td>
-                                        <td class="py-3"><span class="<?php echo $row['prod_class']; ?>"><?php echo $row['production']; ?></span></td>
-                                        <td class="py-3 <?php echo $row['late'] != '-' ? 'text-red-500 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['late']; ?></td>
-                                        <td class="py-3 <?php echo $row['overtime'] != '-' ? 'text-blue-600 font-semibold' : 'text-slate-400'; ?>"><?php echo $row['overtime']; ?></td>
-                                        <td class="text-center py-3">
-                                            <button class="btn btn-sm border border-[#1b5a5a] text-[#1b5a5a] transition hover:bg-[#1b5a5a] hover:text-white" onclick='openReportModal(<?php echo json_encode($row); ?>)'>
-                                                <i class="fa fa-chart-line"></i>
+                                        <td class="px-6 py-4 text-amber-600 font-bold"><?php echo $row['break']; ?></td>
+                                        <td class="px-6 py-4 <?php echo $row['prod_class']; ?>"><?php echo $row['production']; ?></td>
+                                        <td class="px-6 py-4 font-bold <?php echo $row['late'] != '-' ? 'text-rose-500' : 'text-slate-300'; ?>"><?php echo $row['late']; ?></td>
+                                        <td class="px-6 py-4 font-bold <?php echo $row['overtime'] != '-' ? 'text-blue-500' : 'text-slate-300'; ?>"><?php echo $row['overtime']; ?></td>
+                                        <td class="px-6 py-4 text-center">
+                                            <button onclick="openReportModal(<?php echo $json_data; ?>)" class="text-slate-400 hover:text-teal-600 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-200 p-2 rounded-lg transition-all shadow-sm">
+                                                <i class="fa-solid fa-expand"></i>
                                             </button>
                                         </td>
                                     </tr>
                                     <?php endforeach; ?>
                                 <?php else: ?>
                                     <tr>
-                                        <td colspan="9" class="text-center py-12">
+                                        <td colspan="9" class="text-center py-16">
                                             <div class="flex flex-col items-center justify-center text-slate-400">
-                                                <i class="fa-regular fa-folder-open text-4xl mb-3 opacity-50"></i>
-                                                <p class="font-medium text-sm">No attendance records found for the selected filter.</p>
+                                                <div class="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-3 border border-slate-100">
+                                                    <i class="fa-regular fa-calendar-xmark text-2xl text-slate-300"></i>
+                                                </div>
+                                                <p class="font-bold text-slate-500">No Records Found</p>
+                                                <p class="text-xs mt-1">There is no attendance data for the selected period.</p>
                                             </div>
                                         </td>
                                     </tr>
@@ -412,57 +401,123 @@ if($leave_balance < 0) $leave_balance = 0; // Prevent negative display
                         </table>
                     </div>
                 </div>
+
             </div>
         </div>
     </main>
 
-    <div id="reportDetailModal" class="fixed inset-0 modal-backdrop-custom z-[9999] hidden items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden">
-            <div class="p-6 border-b flex justify-between items-center bg-slate-900 text-white">
-                <h2 class="text-xl font-bold">Daily Breakdown Details</h2>
-                <button onclick="closeReportModal()" class="text-white/70 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button>
-            </div>
-            <div class="p-8">
-                <div class="grid grid-cols-4 gap-4 mb-8 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <div><p class="text-slate-400 text-[10px] uppercase font-bold">Date</p><p class="font-bold" id="detDate"></p></div>
-                    <div><p class="text-slate-400 text-[10px] uppercase font-bold">Punch In</p><p class="font-bold" id="detIn"></p></div>
-                    <div><p class="text-slate-400 text-[10px] uppercase font-bold">Punch Out</p><p class="font-bold" id="detOut"></p></div>
-                    <div><p class="text-slate-400 text-[10px] uppercase font-bold">Status</p><p class="font-bold" id="detStatus"></p></div>
+    <div id="reportDetailModal" class="modal-overlay">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform scale-95 transition-transform duration-300" id="modalBox">
+            
+            <div class="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-800 text-white">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-teal-400">
+                        <i class="fa-solid fa-calendar-day text-lg"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-black tracking-tight" id="detDate">Date</h2>
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Daily Breakdown Summary</p>
+                    </div>
                 </div>
-                <div class="mt-4 flex justify-end">
-                    <button class="btn btn-dark btn-sm px-4 rounded-lg shadow-sm" onclick="closeReportModal()">Close View</button>
+                <button onclick="closeReportModal()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-rose-500 flex items-center justify-center text-white transition-colors">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="p-6 bg-slate-50/50">
+                
+                <div class="flex justify-between items-center mb-6">
+                    <span class="text-xs font-bold text-slate-500 uppercase tracking-widest">Final Status</span>
+                    <span id="detStatus" class="px-3 py-1 rounded-md text-[11px] font-black uppercase tracking-wider border"></span>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+                        <div class="w-10 h-10 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                            <i class="fa-solid fa-right-to-bracket"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Punch In</p>
+                            <p class="font-bold text-slate-800 text-base" id="detIn">--:--</p>
+                        </div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+                        <div class="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center text-rose-600 shrink-0">
+                            <i class="fa-solid fa-right-from-bracket"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-0.5">Punch Out</p>
+                            <p class="font-bold text-slate-800 text-base" id="detOut">--:--</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
+                        <p class="text-[9px] text-emerald-600 font-black uppercase tracking-widest mb-1">Production</p>
+                        <p class="font-black text-slate-800 text-lg" id="detProd">-</p>
+                    </div>
+                    <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
+                        <p class="text-[9px] text-amber-600 font-black uppercase tracking-widest mb-1">Break Time</p>
+                        <p class="font-black text-slate-800 text-lg" id="detBreak">-</p>
+                    </div>
+                    <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
+                        <p class="text-[9px] text-purple-600 font-black uppercase tracking-widest mb-1">Overtime</p>
+                        <p class="font-black text-slate-800 text-lg" id="detOT">-</p>
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end">
+                    <button class="bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold py-2.5 px-6 rounded-xl transition shadow-md" onclick="closeReportModal()">Close Window</button>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
-        // Toggle Filter Inputs Script
+        lucide.createIcons();
+
+        // Dynamic Filter Form Logic
         function toggleFilterInputs() {
             const type = document.getElementById('filterType').value;
             
             document.getElementById('inputDaily').className = (type === 'daily') ? 'block w-full sm:w-auto' : 'hidden';
             document.getElementById('inputMonthly').className = (type === 'monthly') ? 'block w-full sm:w-auto' : 'hidden';
-            document.getElementById('inputRange').className = (type === 'range') ? 'flex items-center gap-2 w-full sm:w-auto' : 'hidden';
+            document.getElementById('inputRange').className = (type === 'range') ? 'flex items-center gap-2 w-full sm:w-auto bg-slate-50 p-1 rounded-xl border border-slate-200' : 'hidden';
         }
         
-        // Initialize state on page load
         document.addEventListener('DOMContentLoaded', toggleFilterInputs);
 
-        // Modal Logic
+        // Advanced Modal Logic
         const reportModal = document.getElementById('reportDetailModal');
+        const modalBox = document.getElementById('modalBox');
+
         function openReportModal(data) {
             document.getElementById('detDate').innerText = data.date;
             document.getElementById('detIn').innerText = data.checkin;
             document.getElementById('detOut').innerText = data.checkout;
-            document.getElementById('detStatus').innerText = data.status;
+            document.getElementById('detProd').innerText = data.production;
+            document.getElementById('detBreak').innerText = data.break;
+            document.getElementById('detOT').innerText = data.overtime;
+            
+            const statusEl = document.getElementById('detStatus');
+            statusEl.innerText = data.status;
+            statusEl.className = `px-3 py-1 rounded-md text-[11px] font-black uppercase tracking-wider border ${data.status_class}`;
+
             reportModal.classList.remove('hidden');
             reportModal.classList.add('flex');
+            setTimeout(() => { modalBox.classList.remove('scale-95'); modalBox.classList.add('scale-100'); }, 10);
         }
+
         function closeReportModal() {
-            reportModal.classList.add('hidden');
-            reportModal.classList.remove('flex');
+            modalBox.classList.remove('scale-100');
+            modalBox.classList.add('scale-95');
+            setTimeout(() => { 
+                reportModal.classList.add('hidden');
+                reportModal.classList.remove('flex');
+            }, 200);
         }
+
         window.onclick = function(event) {
             if (event.target == reportModal) closeReportModal();
         }

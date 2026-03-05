@@ -12,8 +12,11 @@ $path_to_root = '../';
 if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
 $tl_id = $_SESSION['user_id'];
 
-// --- HANDLE FORM SUBMISSION (Create Multiple Sub-Tasks) ---
+// --- HANDLE FORM SUBMISSION (Secure AJAX Implementation) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] == 'add_task') {
+    ob_clean(); // Prevent any HTML from breaking the JSON response
+    header('Content-Type: application/json');
+
     $project_id = (int)$_POST['project_id']; 
     
     // Get the JSON string and decode it
@@ -35,10 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $stmt->execute();
         }
         $stmt->close();
-        echo "<script>alert('All tasks successfully assigned to your team!'); window.location.href='task_tl.php';</script>";
+        
+        // Return Success JSON
+        echo json_encode(['status' => 'success', 'message' => 'All tasks successfully assigned to your team!']);
         exit();
     } else {
-        echo "<script>alert('Error: No tasks were found in the queue.'); window.location.href='task_tl.php';</script>";
+        // Return Error JSON
+        echo json_encode(['status' => 'error', 'message' => 'Error: No tasks were found in the queue.']);
         exit();
     }
 }
@@ -96,11 +102,18 @@ $tasks_result = $t_stmt->get_result();
         .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
         .modal-overlay.active { display: flex; }
         .modal-box { background: white; width: 700px; max-width: 100%; border-radius: 12px; padding: 24px; max-height: 90vh; overflow-y: auto; }
-        .form-input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box; margin-bottom: 10px; }
+        .form-input { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; box-sizing: border-box; margin-bottom: 10px; outline: none; transition: 0.2s; }
+        .form-input:focus { border-color: var(--primary); }
         .preview-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         
         .badge-priority { padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
         .badge-status { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-block; }
+
+        /* Modern Toast Notification CSS */
+        #toast { visibility: hidden; min-width: 250px; background-color: #333; color: #fff; text-align: center; border-radius: 8px; padding: 14px 20px; position: fixed; z-index: 10000; left: 50%; bottom: 30px; transform: translateX(-50%); opacity: 0; transition: opacity 0.4s, bottom 0.4s; font-size: 14px; font-weight: 600; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+        #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
+        #toast.success { background-color: #0f766e; } /* Matches Primary Theme */
+        #toast.error { background-color: #ef4444; }
     </style>
 </head>
 <body>
@@ -126,9 +139,11 @@ $tasks_result = $t_stmt->get_result();
         <div class="projects-grid">
             <?php while($proj = $projects_result->fetch_assoc()): ?>
             <div class="project-card">
-                <h3 style="font-size: 16px; font-weight:700;"><?= htmlspecialchars($proj['project_name']) ?></h3>
-                <p style="font-size: 13px; color: #64748b;"><?= htmlspecialchars($proj['description'] ?? 'No description') ?></p>
-                <div style="font-size: 12px; margin-top: 10px; font-weight:600;">Deadline: <?= date('d M Y', strtotime($proj['deadline'])) ?></div>
+                <h3 style="font-size: 16px; font-weight:700; margin: 0 0 8px 0; color: #0f172a;"><?= htmlspecialchars($proj['project_name']) ?></h3>
+                <p style="font-size: 13px; color: #64748b; margin: 0; line-height: 1.5;"><?= htmlspecialchars($proj['description'] ?? 'No description') ?></p>
+                <div style="font-size: 12px; margin-top: 16px; font-weight:600; color: #334155; display: flex; align-items: center; gap: 6px;">
+                    <i data-lucide="calendar" style="width: 14px; color: #0f766e;"></i> Deadline: <?= date('d M Y', strtotime($proj['deadline'])) ?>
+                </div>
             </div>
             <?php endwhile; ?>
         </div>
@@ -204,7 +219,7 @@ $tasks_result = $t_stmt->get_result();
                             </tr>
                             <?php endwhile; ?>
                         <?php else: ?>
-                            <tr><td colspan="7" style="text-align: center; padding: 30px; color: #64748b;">No tasks created by you yet.</td></tr>
+                            <tr><td colspan="7" style="text-align: center; padding: 40px; color: #64748b; font-weight: 500;">No tasks created by you yet.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -214,13 +229,14 @@ $tasks_result = $t_stmt->get_result();
 
     <div id="taskModal" class="modal-overlay">
         <div class="modal-box">
-            <h3 style="font-weight: 700; margin-bottom: 20px;">Split Tasks to Employees</h3>
-            <form id="multiTaskForm" method="POST" action="task_tl.php">
+            <h3 style="font-weight: 800; margin-top: 0; margin-bottom: 20px; font-size: 20px; color: #0f172a;">Split Tasks to Employees</h3>
+            
+            <form id="multiTaskForm">
                 <input type="hidden" name="action" value="add_task">
                 <input type="hidden" id="tasksData" name="tasks_data">
 
                 <div class="input-group" style="margin-bottom: 20px;">
-                    <label style="display:block; font-size:13px; font-weight:600; margin-bottom:5px;">Select Master Project</label>
+                    <label style="display:block; font-size:13px; font-weight:600; margin-bottom:6px; color: #334155;">Select Master Project</label>
                     <select id="m_proj_id" name="project_id" class="form-input" required>
                         <option value="">-- Choose Project --</option>
                         <?php 
@@ -231,45 +247,47 @@ $tasks_result = $t_stmt->get_result();
                     </select>
                 </div>
 
-                <div style="background: #f1f5f9; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
-                    <p style="font-size: 11px; font-weight: 800; color: #475569; margin-bottom: 10px; text-transform: uppercase;">1. Define Sub-Task Details</p>
+                <div style="background: #f8fafc; padding: 20px; border-radius: 10px; margin-bottom: 24px; border: 1px solid #e2e8f0;">
+                    <p style="font-size: 11px; font-weight: 800; color: #0f766e; margin-top: 0; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">1. Define Sub-Task Details</p>
+                    
                     <input type="text" id="m_title" placeholder="Sub-Task Title (e.g. Login Page)" class="form-input">
                     <textarea id="m_desc" placeholder="Specific Instructions for Assignee..." class="form-input" rows="2"></textarea>
                     
-                    <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                    <div style="display: flex; gap: 12px; margin-bottom: 12px;">
                         <div style="flex: 2;">
-                            <label style="font-size:11px; font-weight:600;">Assignee Name</label>
+                            <label style="font-size:11px; font-weight:600; color: #475569; display: block; margin-bottom: 4px;">Assignee Name</label>
                             <input type="text" id="m_assignee" class="form-input" list="empList" placeholder="Select Employee">
                         </div>
                         <div style="flex: 1;">
-                            <label style="font-size:11px; font-weight:600;">Due Date</label>
+                            <label style="font-size:11px; font-weight:600; color: #475569; display: block; margin-bottom: 4px;">Due Date</label>
                             <input type="date" id="m_date" class="form-input">
                         </div>
                         <div style="flex: 1;">
-                            <label style="font-size:11px; font-weight:600;">Priority</label>
+                            <label style="font-size:11px; font-weight:600; color: #475569; display: block; margin-bottom: 4px;">Priority</label>
                             <select id="m_priority" class="form-input">
                                 <option>High</option><option selected>Medium</option><option>Low</option>
                             </select>
                         </div>
                     </div>
-                    <button type="button" class="btn" onclick="addToQueue()" style="width: 100%; background: #0f766e;">+ Add Task to Assignment List</button>
+                    <button type="button" class="btn" onclick="addToQueue()" style="width: 100%; background: #e0f2fe; color: #0284c7; border: 1px dashed #bae6fd; font-weight: 700;">+ Add Task to Queue</button>
                 </div>
 
-                <div id="queuePreview" style="margin-top: 20px; border-top: 2px solid #f1f5f9; padding-top: 15px;">
-                    <p style="color: #94a3b8; font-size: 12px; text-align: center;">Assignment list is empty. Add sub-tasks above.</p>
+                <div id="queuePreview" style="margin-top: 20px; border-top: 2px solid #f1f5f9; padding-top: 20px;">
+                    <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 10px 0;">Queue is empty. Add sub-tasks above.</p>
                 </div>
 
-                <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 25px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
-                    <button type="button" class="btn" style="background:#fff; color:#475569; border:1px solid #ccc;" onclick="closeModal('taskModal')">Cancel</button>
+                <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 25px; border-top: 1px solid #e2e8f0; padding-top: 20px;">
+                    <button type="button" class="btn" style="background:#fff; color:#475569; border:1px solid #cbd5e1;" onclick="closeModal('taskModal')">Cancel</button>
                     <button type="submit" class="btn" id="submitBtn" disabled>Finalize & Assign All Tasks</button>
                 </div>
             </form>
         </div>
     </div>
 
+    <div id="toast"></div>
+
     <datalist id="empList">
         <?php 
-        // Fetch only employees assigned to this TL
         $e_stmt = $conn->prepare("SELECT full_name FROM employee_profiles WHERE reporting_to = ?");
         $e_stmt->bind_param("i", $tl_id);
         $e_stmt->execute();
@@ -292,6 +310,20 @@ $tasks_result = $t_stmt->get_result();
             document.getElementById(id).classList.remove('active'); 
             taskQueue = []; 
             renderQueue(); 
+            
+            // Reset main form inputs
+            document.getElementById('m_proj_id').value = '';
+            document.getElementById('m_title').value = '';
+            document.getElementById('m_desc').value = '';
+            document.getElementById('m_assignee').value = '';
+            document.getElementById('m_date').value = '';
+        }
+
+        function showToast(message, type) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "show " + type;
+            setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
         }
 
         function addToQueue() {
@@ -302,7 +334,7 @@ $tasks_result = $t_stmt->get_result();
             const priority = document.getElementById('m_priority').value;
 
             if(!title || !assignee || !date) { 
-                alert("Please fill Sub-Task Title, Assignee, and Due Date."); 
+                showToast("Please fill out the Task Title, Assignee, and Due Date.", "error"); 
                 return; 
             }
 
@@ -327,28 +359,78 @@ $tasks_result = $t_stmt->get_result();
             const submitBtn = document.getElementById('submitBtn');
 
             if (taskQueue.length === 0) {
-                container.innerHTML = '<p style="color: #94a3b8; font-size: 12px; text-align: center;">Assignment list is empty. Add sub-tasks above.</p>';
+                container.innerHTML = '<p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 10px 0;">Queue is empty. Add sub-tasks above.</p>';
                 submitBtn.disabled = true;
                 hiddenInput.value = "";
                 return;
             }
 
             submitBtn.disabled = false;
-            // Update the hidden input with JSON string
             hiddenInput.value = JSON.stringify(taskQueue);
 
-            container.innerHTML = '<p style="font-size: 11px; font-weight: 800; color: #475569; margin-bottom: 10px; text-transform: uppercase;">2. Assignment List Preview</p>' + 
+            container.innerHTML = '<p style="font-size: 11px; font-weight: 800; color: #0f766e; margin-top: 0; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">2. Assignment List Preview</p>' + 
                 taskQueue.map((t, i) => `
                 <div class="preview-item">
                     <div>
-                        <div style="font-weight:700; font-size:13px; color: #0f172a;">${t.title}</div>
-                        <div style="font-size:11px; color:#64748b;"><b>To:</b> ${t.assignees} | <b>Due:</b> ${t.due_date} | <b>Prio:</b> ${t.priority}</div>
+                        <div style="font-weight:700; font-size:14px; color: #0f172a; margin-bottom: 3px;">${t.title}</div>
+                        <div style="font-size:12px; color:#64748b;"><b>To:</b> <span style="color:#0f766e;">${t.assignees}</span> | <b>Due:</b> ${t.due_date} | <b>Priority:</b> ${t.priority}</div>
                     </div>
-                    <button type="button" onclick="removeFromQueue(${i})" style="color:#ef4444; border:none; background:none; cursor:pointer;"><i data-lucide="trash-2" style="width:16px;"></i></button>
+                    <button type="button" onclick="removeFromQueue(${i})" style="color:#ef4444; border:none; background:none; cursor:pointer; padding: 5px; border-radius: 4px;" title="Remove">
+                        <i data-lucide="trash-2" style="width:18px;"></i>
+                    </button>
                 </div>
             `).join('');
+            
             lucide.createIcons();
         }
+
+        // Handle Form Submission smoothly via AJAX
+        document.getElementById('multiTaskForm').addEventListener('submit', function(e) {
+            e.preventDefault(); // Prevent standard page reload
+
+            const projectId = document.getElementById('m_proj_id').value;
+            if (!projectId) {
+                showToast("Please select a Master Project.", "error");
+                return;
+            }
+
+            if (taskQueue.length === 0) {
+                showToast("Please add at least one task to the queue.", "error");
+                return;
+            }
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerText = 'Assigning...'; // Visual feedback
+
+            const fd = new FormData(this);
+
+            fetch(window.location.href, {
+                method: 'POST',
+                body: fd
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast(data.message, 'success');
+                    closeModal('taskModal');
+                    // Smooth reload to show newly added tasks on the board
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1200); 
+                } else {
+                    showToast(data.message, 'error');
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = 'Finalize & Assign All Tasks';
+                }
+            })
+            .catch(err => {
+                console.error("Error:", err);
+                showToast('Network error occurred.', 'error');
+                submitBtn.disabled = false;
+                submitBtn.innerText = 'Finalize & Assign All Tasks';
+            });
+        });
     </script>
 </body>
 </html>

@@ -40,11 +40,33 @@ $path_parts = explode('/', trim($script_path, '/'));
 $folder_depth = count($path_parts) - 2; 
 $base_path = ($folder_depth > 0) ? str_repeat('../', $folder_depth) : './';
 
-// --- 4. GET LOGGED-IN USER DATA ---
+// --- 4. GET LOGGED-IN USER DATA & PROFILE IMAGE ---
 $current_user_id = $_SESSION['user_id'] ?? 0;
 $user_email      = $_SESSION['username'] ?? 'Guest';
 $user_role       = $_SESSION['role'] ?? 'User';
 $display_name    = ucfirst(explode('@', $user_email)[0]); 
+$full_name       = $display_name;
+
+// Default Avatar
+$profile_img = "https://ui-avatars.com/api/?name=" . urlencode($display_name) . "&background=1e293b&color=fff&bold=true";
+
+// Fetch actual Profile Image from DB
+if (isset($conn) && $current_user_id > 0) {
+    $p_sql = "SELECT full_name, profile_img FROM employee_profiles WHERE user_id = $current_user_id";
+    $p_res = $conn->query($p_sql);
+    if ($p_res && $p_row = $p_res->fetch_assoc()) {
+        if (!empty($p_row['full_name'])) {
+            $full_name = $p_row['full_name'];
+            $display_name = explode(' ', trim($full_name))[0]; // First name only for header
+        }
+        if (!empty($p_row['profile_img']) && $p_row['profile_img'] !== 'default_user.png') {
+            $profile_img = (strpos($p_row['profile_img'], 'http') === 0) ? $p_row['profile_img'] : $base_path . 'assets/profiles/' . $p_row['profile_img'];
+        } else {
+            $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($full_name) . "&background=1e293b&color=fff&bold=true";
+        }
+    }
+}
+
 
 // --- 5. ENTERPRISE AUTO-SYNC & UNIFIED NOTIFICATION ENGINE ---
 $unread_count = 0;
@@ -86,45 +108,38 @@ if (isset($conn) && $current_user_id > 0) {
     }
 
     // =========================================================================
-    // B. BACKGROUND SYNC ENGINE (MAPPED TO ALL DATABASE ROLES)
+    // B. BACKGROUND SYNC ENGINE (CRASH-PROOF STATIC QUERIES)
     // =========================================================================
     function syncSafe($conn, $table, $sql) {
-        $chk = $conn->query("SHOW TABLES LIKE '$table'");
-        if($chk && $chk->num_rows > 0) @$conn->query($sql); 
+        try {
+            $chk = $conn->query("SHOW TABLES LIKE '$table'");
+            if($chk && $chk->num_rows > 0) $conn->query($sql); 
+        } catch (Exception $e) { /* Silently catch if table structure differs slightly */ }
     }
 
-    // 1. Announcements (To Target Role or All)
-    syncSafe($conn, 'announcements', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT target_audience, CONCAT('Broadcast: ', title), SUBSTRING(message, 1, 65), 'announcement', '../view_announcements.php', 'ann', id, created_at FROM announcements WHERE is_archived = 0 AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'ann')");
+    // 1. Announcements
+    syncSafe($conn, 'announcements', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT target_audience, '📢 Announcement', 'A new company announcement was posted.', 'announcement', '../view_announcements.php', 'ann', id, created_at FROM announcements WHERE is_archived = 0 AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'ann')");
 
-    // 2. Personal Tasks (To specific Employee)
-    syncSafe($conn, 'personal_taskboard', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, CONCAT('Task: ', title), CONCAT('Priority: ', priority), 'task', '../my_tasks.php', 'task', id, created_at FROM personal_taskboard WHERE status != 'completed' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'task')");
+    // 2. Personal Tasks
+    syncSafe($conn, 'personal_taskboard', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, '📋 Personal Task', 'A new task was added to your board.', 'task', '../my_tasks.php', 'task', id, created_at FROM personal_taskboard WHERE status != 'completed' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'task')");
 
-    // 3. Sales Expenses (Alerting Sales Manager)
-    syncSafe($conn, 'sales_expenses', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Sales Manager', 'New Expense Request', CONCAT(executive_name, ' submitted an expense for ', expense_name), 'warning', '../sales_manager/manage_expenses.php', 'exp_mgr', id, created_at FROM sales_expenses WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'exp_mgr')");
+    // 3. Team Tasks (Manager to TL, TL to Employee) - Maps foreign key assigned_to directly
+    syncSafe($conn, 'team_tasks', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT assigned_to, '👥 Team Task Assigned', 'You have been assigned a new team task. Please review.', 'task', '../my_tasks.php', 'team_task', id, created_at FROM team_tasks WHERE status != 'Completed' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'team_task')");
 
-    // 4. WFH Requests (Alerting HR)
-    syncSafe($conn, 'wfh_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', 'New WFH Request', CONCAT(employee_name, ' requested WFH.'), 'info', '../HR/wfh_approvals.php', 'wfh_hr', id, applied_date FROM wfh_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'wfh_hr')");
+    // 4. Sales Expenses (Alert Manager)
+    syncSafe($conn, 'sales_expenses', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Sales Manager', '💸 New Expense Request', 'A new sales expense was submitted for approval.', 'warning', '../sales_manager/manage_expenses.php', 'exp_mgr', id, created_at FROM sales_expenses WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'exp_mgr')");
 
-    // 5. Purchase Orders (Alerting CFO)
-    syncSafe($conn, 'purchase_orders', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'CFO', 'Pending PO Approval', CONCAT('PO #', po_number, ' requires your approval.'), 'warning', '../CFO/manage_po.php', 'po_cfo', id, created_at FROM purchase_orders WHERE approval_status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'po_cfo')");
+    // 5. Purchase Orders (Alert CFO)
+    syncSafe($conn, 'purchase_orders', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'CFO', '🛒 Pending PO Approval', 'A purchase order requires your approval.', 'warning', '../CFO/manage_po.php', 'po_cfo', id, created_at FROM purchase_orders WHERE approval_status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'po_cfo')");
 
-    // 6. Payslip Requests (Alerting Accounts)
-    syncSafe($conn, 'payslip_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Accounts', 'New Payslip Request', CONCAT('Req ID: ', request_id, ' needs processing.'), 'info', '../Accounts/payslip_management.php', 'pay_acc', id, requested_date FROM payslip_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'pay_acc')");
+    // 6. Payslip Requests (Alert Accounts)
+    syncSafe($conn, 'payslip_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Accounts', '📄 Payslip Request', 'An employee requested a payslip.', 'info', '../Accounts/payslip_management.php', 'pay_acc', id, requested_date FROM payslip_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'pay_acc')");
 
-    // 7. Payslip Requests (Alerting CFO)
-    syncSafe($conn, 'payslip_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'CFO', 'Payslip Needs Approval', CONCAT('Req ID: ', request_id, ' sent by Accounts.'), 'warning', '../CFO/payslip_management.php', 'pay_cfo', id, requested_date FROM payslip_requests WHERE status = 'Pending CFO Approval' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'pay_cfo')");
+    // 7. Leave Requests (Alert HR)
+    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', '✈️ New Leave Request', 'A new leave request is pending your review.', 'warning', '../HR/leave_approval.php', 'lv_hr', id, created_at FROM leave_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_hr')");
 
-    // 8. Hiring Requests (Alerting HR)
-    syncSafe($conn, 'hiring_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', 'New Hiring Request', CONCAT('Job: ', job_title, ' for ', department), 'info', '../HR/jobs.php', 'hire_hr', id, created_at FROM hiring_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'hire_hr')");
-
-    // 9. Leave Requests (Alerting HR / Managers)
-    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', 'New Leave Request', CONCAT('A new ', leave_type, ' request requires approval.'), 'warning', '../HR/leave_approval.php', 'lv_hr', id, created_at FROM leave_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_hr')");
-
-    // 10. Leave Responses (Alerting specific Employee)
-    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, CONCAT('Leave ', status), CONCAT('Your ', leave_type, ' was ', status), IF(status='Approved', 'success', 'danger'), '../leave_request.php', 'lv_emp', id, created_at FROM leave_requests WHERE status IN ('Approved', 'Rejected') AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_emp')");
-
-    // 11. IT Tickets (Alerting IT Admin)
-    syncSafe($conn, 'tickets', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'IT Admin', 'New IT Ticket', CONCAT('Subject: ', subject), 'danger', '../ITadmin/manage_tickets.php', 'tkt_it', id, created_at FROM tickets WHERE status = 'Open' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'tkt_it')");
+    // 8. Leave Responses (Alert Employee)
+    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, 'Leave Update', CONCAT('Your leave request is ', status, '.'), IF(status='Approved', 'success', 'danger'), '../leave_request.php', 'lv_emp', id, created_at FROM leave_requests WHERE status IN ('Approved', 'Rejected') AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_emp')");
 
 
     // =========================================================================
@@ -137,6 +152,8 @@ if (isset($conn) && $current_user_id > 0) {
     if (strpos($user_role_lower, 'hr') !== false) { $target_roles[] = "'HR'"; $target_roles[] = "'HR Executive'"; }
     if (strpos($user_role_lower, 'admin') !== false) { $target_roles[] = "'Admin'"; $target_roles[] = "'System Admin'"; }
     if (strpos($user_role_lower, 'manager') !== false && strpos($user_role_lower, 'sales') === false) { $target_roles[] = "'Manager'"; }
+    if (strpos($user_role_lower, 'sales') !== false) { $target_roles[] = "'Sales'"; }
+    if (strpos($user_role_lower, 'lead') !== false) { $target_roles[] = "'Team Lead'"; }
     $role_in = implode(",", array_unique($target_roles));
 
     // Fetch Unread Count 
@@ -165,7 +182,7 @@ if (isset($conn) && $current_user_id > 0) {
     }
 }
 
-// Helper function for "Time Ago" format (Matches Image Style)
+// Helper function for "Time Ago" format
 if (!function_exists('time_elapsed_string')) {
     function time_elapsed_string($datetime, $full = false) {
         $now = new DateTime; $ago = new DateTime($datetime); $diff = $now->diff($ago);
@@ -255,7 +272,7 @@ if (!function_exists('time_elapsed_string')) {
                 </div>
             <?php else: ?>
                 <?php foreach ($notifications as $notif): 
-                    // STYLING TO MATCH THE IMAGE (Purple Megaphone for Announcements)
+                    // STYLING TO MATCH THE IMAGE
                     $type = strtolower($notif['type']);
                     
                     // Default Icon Style
@@ -299,19 +316,17 @@ if (!function_exists('time_elapsed_string')) {
 
     <div class="relative pl-3 ml-1">
       <button id="profileBtn" class="flex items-center gap-2 focus:outline-none">
-        <div class="w-9 h-9 rounded-full bg-[#1e293b] text-white flex items-center justify-center font-bold text-sm shadow-sm relative">
-            <?php echo substr($display_name, 0, 1); ?>
-            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#22c55e] border-2 border-white rounded-full"></span>
+        <div class="relative">
+            <img src="<?php echo $profile_img; ?>" onerror="this.src='https://ui-avatars.com/api/?name=User&background=1e293b&color=fff'" alt="Profile" class="w-9 h-9 rounded-full object-cover shadow-sm border border-gray-200">
+            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#22c55e] border-2 border-white rounded-full z-10"></span>
         </div>
       </button>
 
       <div id="profileDropdown" class="hidden absolute right-0 mt-3 w-56 bg-white border border-gray-100 rounded-xl shadow-xl z-50 overflow-hidden">
         <div class="p-4 border-b border-gray-100 flex items-center gap-3 bg-gray-50/50">
-          <div class="w-10 h-10 rounded-full bg-[#1e293b] text-white flex items-center justify-center font-bold text-sm uppercase">
-            <?php echo substr($display_name, 0, 1); ?>
-          </div>
+          <img src="<?php echo $profile_img; ?>" onerror="this.src='https://ui-avatars.com/api/?name=User&background=1e293b&color=fff'" alt="Profile" class="w-10 h-10 rounded-full object-cover border border-gray-200">
           <div class="overflow-hidden">
-            <h4 class="font-bold text-gray-800 text-sm truncate"><?php echo htmlspecialchars($display_name); ?></h4>
+            <h4 class="font-bold text-gray-800 text-sm truncate"><?php echo htmlspecialchars($full_name); ?></h4>
             <p class="text-[10px] font-bold text-gray-500 uppercase tracking-widest truncate mt-0.5"><?php echo htmlspecialchars($user_role); ?></p>
           </div>
         </div>
