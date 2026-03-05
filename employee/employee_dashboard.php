@@ -92,7 +92,7 @@ if ($manager_id > 0) {
 }
 
 // =========================================================================
-// 3. ADVANCED TIME TRACKER (TODAY'S HOURS) - FOR RIGHT SIDE CARD
+// 3. ADVANCED TIME TRACKER (TODAY'S HOURS)
 // =========================================================================
 $total_seconds_today = 0; $break_seconds_today = 0; $productive_seconds_today = 0; $overtime_seconds_today = 0;
 $display_break_seconds = 0; $today_punch_in = null; $attendance_record_today = null;
@@ -266,11 +266,10 @@ $tasks_result = $conn->query("SELECT * FROM personal_taskboard WHERE user_id = $
 $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskboard WHERE user_id = $current_user_id AND status != 'completed'")->fetch_assoc()['cnt'] ?? 0;
 
 // =========================================================================
-// 7. UNIFIED NOTIFICATIONS (Newest First + Correct Links)
+// 7. UNIFIED NOTIFICATIONS (Newest First)
 // =========================================================================
 $all_notifications = [];
 
-// 1. IT Tickets (Resolved/Closed) -> Mark as Viewed
 $q_tickets = "SELECT id, ticket_code, subject FROM tickets WHERE user_id = $current_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY id DESC LIMIT 3";
 $r_tickets = mysqli_query($conn, $q_tickets);
 if($r_tickets) {
@@ -280,14 +279,13 @@ if($r_tickets) {
             'id' => $row['id'],
             'title' => 'Ticket Solved: #' . ($row['ticket_code'] ?? $row['id']),
             'message' => 'IT Team resolved: ' . htmlspecialchars($row['subject']),
-            'time' => date('Y-m-d H:i:s'), // Fallback to current time safely
+            'time' => date('Y-m-d H:i:s'), 
             'icon' => 'fa-check-double', 'color' => 'text-emerald-600 bg-emerald-100',
             'link' => '?dismiss_ticket=' . $row['id']
         ];
     }
 }
 
-// 2. My Leave Updates -> View Details
 $q_leaves = "SELECT leave_type, status FROM leave_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 3";
 $r_leaves = mysqli_query($conn, $q_leaves);
 if($r_leaves) {
@@ -305,7 +303,6 @@ if($r_leaves) {
     }
 }
 
-// 3. My Shift Swap Updates -> View Details
 $q_swaps = "SELECT status FROM shift_swap_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 2";
 $r_swaps = mysqli_query($conn, $q_swaps);
 if($r_swaps) {
@@ -323,8 +320,7 @@ if($r_swaps) {
     }
 }
 
-// 4. Announcements -> View Details
-$q_announcements = "SELECT * FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 5"; 
+$q_announcements = "SELECT id, title, message FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 5"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
     while($row = mysqli_fetch_assoc($r_announcements)) {
@@ -339,11 +335,9 @@ if($r_announcements) {
     }
 }
 
-// Ensure Newest shows on top
 usort($all_notifications, function($a, $b) { 
     return strtotime($b['time']) - strtotime($a['time']); 
 });
-// Get only top 6 recent notifications to fit the card nicely
 $all_notifications = array_slice($all_notifications, 0, 6); 
 
 ?>
@@ -362,8 +356,8 @@ $all_notifications = array_slice($all_notifications, 0, 6);
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; overflow-x: hidden; }
         
-        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; }
-        .card:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1; transform: translateY(-2px); transition: all 0.3s ease; }
+        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; transition: all 0.3s ease; }
+        .card:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1; transform: translateY(-2px); }
         
         .custom-scroll::-webkit-scrollbar { width: 4px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -375,7 +369,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
             display: grid; 
             grid-template-columns: repeat(1, minmax(0, 1fr)); 
             gap: 1.5rem; 
-            align-items: stretch;
+            align-items: start; /* Prevents cards from stretching unnaturally */
         }
         @media (min-width: 1024px) {
             .dashboard-container {
@@ -439,13 +433,13 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                 
                 <?php include '../attendance_card.php'; ?>
 
-                <div class="card flex-grow">
-                    <div class="p-6 flex flex-col h-full">
+                <div class="card">
+                    <div class="p-6">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
                             <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
                         </div>
-                        <div class="space-y-3 custom-scroll overflow-y-auto h-[350px] pr-2">
+                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[350px] pr-2">
                             <?php if(!empty($all_notifications)): ?>
                                 <?php foreach($all_notifications as $notif): ?>
                                 <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
@@ -517,43 +511,78 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                     </div>
                 </div>
 
-                <div class="card flex-grow">
-                    <div class="p-6 flex flex-col h-full justify-between">
-                        <div>
-                            <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                                <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                                <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
+                <div class="card">
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
+                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
+                        </div>
+                        <div class="grid grid-cols-3 gap-3 mb-4">
+                            <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
+                                <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
+                                <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
                             </div>
-                            <div class="grid grid-cols-3 gap-3 mb-4">
-                                <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
-                                    <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
-                                    <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
-                                </div>
-                                <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
-                                    <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
-                                    <p class="text-2xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
-                                </div>
-                                <div class="bg-green-50 p-3 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden">
-                                    <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
-                                    <p class="text-2xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
-                                        <?php echo $display_leaves_remaining; ?>
-                                    </p>
-                                    <?php if($leaves_remaining < 0): ?>
-                                        <div class="absolute bottom-0 left-0 right-0 h-1 bg-rose-500"></div>
-                                    <?php endif; ?>
-                                </div>
+                            <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
+                                <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
+                                <p class="text-2xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
                             </div>
-                            <?php if($leaves_remaining < 0): ?>
-                                <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4 flex items-center gap-3">
-                                    <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                                    <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
+                            <div class="bg-green-50 p-3 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden">
+                                <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
+                                <p class="text-2xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
+                                    <?php echo $display_leaves_remaining; ?>
+                                </p>
+                                <?php if($leaves_remaining < 0): ?>
+                                    <div class="absolute bottom-0 left-0 right-0 h-1 bg-rose-500"></div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        
+                        <?php if($leaves_remaining < 0): ?>
+                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4 flex items-center gap-3">
+                                <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                                <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm mt-2">
+                            <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
+                        </a>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-list-check text-teal-600"></i> My Tasks
+                            </h3>
+                            <a href="personal_task.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
+                        </div>
+                        
+                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[300px] pr-2">
+                            <?php if(isset($tasks_result) && mysqli_num_rows($tasks_result) > 0): ?>
+                                <?php while($task = mysqli_fetch_assoc($tasks_result)): 
+                                    $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
+                                    $icon_class = 'fa-regular fa-circle text-teal-600';
+                                ?>
+                                <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <i class="<?php echo $icon_class; ?> shrink-0"></i>
+                                        <div class="min-w-0">
+                                            <span class="text-sm font-medium text-slate-700 block truncate" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
+                                        </div>
+                                    </div>
+                                    <div class="flex flex-col items-end gap-1 shrink-0 ml-2">
+                                        <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
+                                    </div>
+                                </div>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <div class="text-center py-6 text-slate-400">
+                                    <i class="fa-solid fa-clipboard-check text-3xl mb-2 text-emerald-400 opacity-80"></i>
+                                    <p class="text-sm font-medium">All tasks completed.</p>
                                 </div>
                             <?php endif; ?>
-                        </div>
-                        <div class="mt-2">
-                            <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm">
-                                <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
-                            </a>
                         </div>
                     </div>
                 </div>
@@ -562,7 +591,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
 
             <div class="flex flex-col gap-6 w-full"> 
                 
-                <div class="card overflow-hidden shadow-sm border-slate-200 shrink-0">
+                <div class="card overflow-hidden shadow-sm border-slate-200 shrink-0 min-h-[200px]">
                     <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative">
                         <div class="relative shrink-0">
                             <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white shadow-lg object-cover bg-white">
@@ -574,7 +603,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                             <span class="inline-block mt-2 bg-white/20 border border-white/20 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider backdrop-blur-sm">Employee</span>
                         </div>
                     </div>
-                    <div class="p-4 bg-white border-b border-gray-100">
+                    <div class="p-4 bg-white border-b border-gray-100 flex-grow">
                          <div class="flex flex-col gap-2">
                             <div class="flex items-center gap-3">
                                 <i class="fa-solid fa-phone text-teal-600 w-4 text-center text-sm"></i>
@@ -603,7 +632,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                     </div>
                 </div>
 
-                <div class="card border-blue-200 shrink-0">
+                <div class="card border-blue-200 shrink-0 min-h-[200px]">
                     <div class="p-6">
                         <div class="flex justify-between items-center mb-5 border-b border-blue-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-stopwatch text-blue-500 text-lg"></i> My Time Tracker</h3>
@@ -635,48 +664,11 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                             <div class="bg-blue-500 h-full transition-all" style="width: <?php echo $pct_ot; ?>%" title="Overtime"></div>
                         </div>
                         
-                        <div class="pt-4 border-t border-gray-100">
+                        <div class="pt-4 border-t border-gray-100 mt-2">
                             <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">Total Overtime This Month</p>
                             <div class="flex items-center justify-between bg-orange-50 border border-orange-100 p-3 rounded-lg">
                                 <span class="text-lg font-black text-orange-600"><?php echo $overtime_this_month; ?> <span class="text-xs font-bold text-orange-500">Hrs</span></span>
                             </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card flex-grow">
-                    <div class="p-6 flex flex-col h-full">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
-                                <i class="fa-solid fa-list-check text-teal-600"></i> My Tasks
-                            </h3>
-                            <a href="personal_task.php" class="bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1 rounded-lg text-[10px] font-bold uppercase hover:bg-teal-100 transition">View All</a>
-                        </div>
-                        
-                        <div class="grid grid-cols-1 gap-3 custom-scroll overflow-y-auto max-h-[300px] pr-2 flex-grow">
-                            <?php if(isset($tasks_result) && mysqli_num_rows($tasks_result) > 0): ?>
-                                <?php while($task = mysqli_fetch_assoc($tasks_result)): 
-                                    $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
-                                    $icon_class = 'fa-regular fa-circle text-teal-600';
-                                ?>
-                                <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
-                                    <div class="flex items-center gap-3 min-w-0">
-                                        <i class="<?php echo $icon_class; ?> shrink-0"></i>
-                                        <div class="min-w-0">
-                                            <span class="text-sm font-medium text-slate-700 block truncate" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
-                                        </div>
-                                    </div>
-                                    <div class="flex flex-col items-end gap-1 shrink-0 ml-2">
-                                        <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
-                                    </div>
-                                </div>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <div class="text-center py-8 text-slate-400">
-                                    <i class="fa-solid fa-clipboard-check text-3xl mb-2 text-emerald-400 opacity-80"></i>
-                                    <p class="text-sm font-medium">All tasks completed.</p>
-                                </div>
-                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -709,7 +701,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                     marker: { show: true },
                     y: {
                         formatter: function(val, opts) {
-                            if (opts.seriesIndex === 1) {
+                            if (opts.seriesIndex === 1) { // If "Late" is hovered
                                 return val + " Days (Total: " + lateTimeStr + ")";
                             }
                             return val + " Days";
