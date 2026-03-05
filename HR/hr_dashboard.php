@@ -492,7 +492,7 @@ $all_notifications = array_slice($all_notifications, 0, 15);
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; overflow-x: hidden; }
         
-        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; }
+        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column;}
         .card:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1; transform: translateY(-2px); transition: all 0.3s ease; }
         
         .custom-scroll::-webkit-scrollbar { width: 4px; }
@@ -536,7 +536,7 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
-                <h1 class="text-2xl lg:text-3xl font-black text-slate-800 tracking-tight">HR Executive Dashboard</h1>
+                <h1 class="text-2xl lg:text-3xl font-black text-slate-800 tracking-tight">HR Dashboard</h1>
                 <p class="text-slate-500 text-sm mt-1">Welcome back, <b class="text-slate-700"><?php echo htmlspecialchars($employee_name); ?></b></p>
             </div>
             <div class="flex gap-3">
@@ -568,7 +568,15 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         <div class="dashboard-container">
 
             <div class="flex flex-col gap-6 w-full"> 
+                <div class="col-span-12 lg:col-span-4 card overflow-hidden p-5 flex flex-col">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                            <i class="fa-solid fa-clock text-teal-500"></i> Today's Attendance
+                        </h3>
+                        <a href="admin_attendance.php" class="bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1 rounded-lg text-[10px] font-bold uppercase hover:bg-teal-100 transition">View All</a>
+                    </div>
                 <?php include '../attendance_card.php'; ?>
+            </div>
 
                 
              <div class="card border-blue-200 shrink-0">
@@ -767,10 +775,10 @@ $all_notifications = array_slice($all_notifications, 0, 15);
 
             <div class="flex flex-col gap-6 w-full"> 
                 <div class="card overflow-hidden shadow-sm border-slate-200 shrink-0">
-                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative">
+                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-10 flex items-center gap-8 relative">
                         <div class="relative shrink-0">
-                            <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white shadow-lg object-cover bg-white">
-                            <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 border-2 border-white rounded-full"></div>
+                            <img src="<?php echo $profile_img; ?>" class="w-20 h-20 rounded-full border-2 border-white shadow-lg object-cover bg-white">
+                            <div class="absolute bottom-0 right-0 w-5 h-5 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <div class="min-w-0 text-white">
                             <h2 class="font-black text-xl truncate"><?php echo htmlspecialchars($employee_name); ?></h2>
@@ -837,7 +845,7 @@ $all_notifications = array_slice($all_notifications, 0, 15);
 
            
 
-                <div class="card flex flex-col shrink-0 mt-auto">
+                <div class="card flex flex-col shrink-0 mt-10">
                     <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Recruitment Metrics</h3>
