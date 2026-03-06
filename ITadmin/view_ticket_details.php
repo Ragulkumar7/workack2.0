@@ -1,5 +1,5 @@
 <?php
-// view_ticket_details.php
+// view_ticket_details.php - IT Admin Ticket View
 
 // 1. SESSION & SECURITY GUARD
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
@@ -23,7 +23,7 @@ if (file_exists($dbPath)) {
     die("Critical Error: Cannot find database connection file.");
 }
 
-// 3. SILENT SCHEMA UPDATE
+// 3. SILENT SCHEMA UPDATE (Safety Catch)
 $conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_to INT DEFAULT NULL");
 $conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
 
@@ -32,24 +32,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_ticket'])) {
     $t_id = (int)$_POST['ticket_id'];
     $assigned_to = !empty($_POST['assigned_to']) ? (int)$_POST['assigned_to'] : NULL;
     
-    // Automatically set status to "In Progress" if an executive is assigned, else "Open"
-    $status = $assigned_to ? 'In Progress' : 'Open';
+    // BACKEND SECURITY CHECK: Prevent modifying already resolved/closed tickets
+    $check_stmt = $conn->prepare("SELECT status FROM tickets WHERE id = ?");
+    $check_stmt->bind_param("i", $t_id);
+    $check_stmt->execute();
+    $current_status = strtolower($check_stmt->get_result()->fetch_assoc()['status'] ?? '');
+    $check_stmt->close();
 
-    $upd_stmt = $conn->prepare("UPDATE tickets SET assigned_to = ?, status = ? WHERE id = ?");
-    $upd_stmt->bind_param("isi", $assigned_to, $status, $t_id);
-    
-    if ($upd_stmt->execute()) {
-        $_SESSION['toast'] = ['type' => 'success', 'msg' => 'Ticket assigned successfully!'];
+    if (in_array($current_status, ['resolved', 'closed'])) {
+        $_SESSION['toast'] = ['type' => 'warning', 'msg' => 'Action denied: Ticket is already closed or resolved.'];
     } else {
-        $_SESSION['toast'] = ['type' => 'error', 'msg' => 'Failed to assign ticket.'];
+        // Automatically set status to "In Progress" if an executive is assigned, else "Open"
+        $status = $assigned_to ? 'In Progress' : 'Open';
+
+        $upd_stmt = $conn->prepare("UPDATE tickets SET assigned_to = ?, status = ? WHERE id = ?");
+        $upd_stmt->bind_param("isi", $assigned_to, $status, $t_id);
+        
+        if ($upd_stmt->execute()) {
+            $_SESSION['toast'] = ['type' => 'success', 'msg' => 'Ticket assigned successfully!'];
+        } else {
+            $_SESSION['toast'] = ['type' => 'error', 'msg' => 'Failed to assign ticket.'];
+        }
+        $upd_stmt->close();
     }
     
-    // Redirect to self to prevent form resubmission on refresh
     header("Location: view_ticket_details.php?id=" . $t_id);
     exit();
 }
 
-// 5. FETCH TICKET DETAILS
+// 5. FETCH TICKET DETAILS (Including the new Executive Resolution Columns)
 $ticket_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 $t_stmt = $conn->prepare("
     SELECT t.*, 
@@ -72,14 +83,18 @@ if (!$ticket) {
     exit();
 }
 
+$is_locked = in_array(strtolower($ticket['status']), ['resolved', 'closed']);
+
 // 6. FETCH IT STAFF FOR DROPDOWN
 $it_staff = [];
-$staff_res = $conn->query("SELECT u.id, COALESCE(ep.full_name, u.username) as name, u.role 
-                           FROM users u 
-                           LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
-                           WHERE u.role IN ('System Admin', 'IT Admin', 'IT Executive')");
-while ($s = $staff_res->fetch_assoc()) {
-    $it_staff[] = $s;
+if (!$is_locked) {
+    $staff_res = $conn->query("SELECT u.id, COALESCE(ep.full_name, u.username) as name, u.role 
+                               FROM users u 
+                               LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
+                               WHERE u.role IN ('System Admin', 'IT Admin', 'IT Executive')");
+    while ($s = $staff_res->fetch_assoc()) {
+        $it_staff[] = $s;
+    }
 }
 
 // Helpers for badges
@@ -97,7 +112,7 @@ function getStatusBadge($status) {
     switch (strtolower($status)) {
         case 'open': return 'bg-primary text-white';
         case 'in progress': return 'bg-warning text-dark';
-        case 'waiting on user': return 'bg-secondary text-white';
+        case 'waiting for parts': return 'bg-secondary text-white';
         case 'resolved': 
         case 'closed': return 'bg-success text-white';
         default: return 'bg-dark text-white';
@@ -136,7 +151,6 @@ function getStatusBadge($status) {
             overflow-x: hidden;
         }
 
-        /* Standardized Main Content Layout */
         .main-content {
             margin-left: var(--sidebar-width);
             width: calc(100% - var(--sidebar-width));
@@ -146,66 +160,23 @@ function getStatusBadge($status) {
             transition: margin-left 0.3s ease, width 0.3s ease;
         }
 
-        .ticket-header {
-            background: var(--primary-color);
-            color: white;
-            border-radius: 12px 12px 0 0;
-            padding: 1rem 1.5rem;
-        }
+        .ticket-header { background: var(--primary-color); color: white; border-radius: 12px 12px 0 0; padding: 1.2rem 1.5rem; }
+        
+        .ticket-info-box { background: #f8fafc; border-radius: 8px; padding: 20px; border: 1px solid var(--border-color); }
 
-        .ticket-info-box {
-            background: #f8fafc;
-            border-radius: 8px;
-            padding: 20px;
-            border: 1px solid var(--border-color);
-        }
+        .admin-action-box { background: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 12px; padding: 24px; }
+        .admin-action-box.locked { background: #f8fafc; border: 1px solid #e2e8f0; }
 
-        .admin-action-box {
-            background: #f0fdfa; /* Light teal tint */
-            border: 1px solid #ccfbf1;
-            border-radius: 12px;
-            padding: 24px;
-        }
+        .activity-log .alert { margin-bottom: 8px; font-size: 0.85rem; border-left: 4px solid var(--primary-color); border-radius: 4px; background: white; border-top: 1px solid var(--border-color); border-right: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
 
-        .activity-log .alert {
-            margin-bottom: 8px;
-            font-size: 0.85rem;
-            border-left: 4px solid var(--primary-color);
-            border-radius: 4px;
-            background: white;
-            border-top: 1px solid var(--border-color);
-            border-right: 1px solid var(--border-color);
-            border-bottom: 1px solid var(--border-color);
-        }
+        .btn-brand { background-color: var(--primary-color); border-color: var(--primary-color); color: white; font-weight: 500; }
+        .btn-brand:hover { background-color: var(--primary-light); border-color: var(--primary-light); color: white; }
 
-        .btn-brand {
-            background-color: var(--primary-color);
-            border-color: var(--primary-color);
-            color: white;
-            font-weight: 500;
-        }
-
-        .btn-brand:hover {
-            background-color: var(--primary-light);
-            border-color: var(--primary-light);
-            color: white;
-        }
-
-        .card {
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
-        }
+        .card { border: 1px solid var(--border-color); border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.02); }
 
         @media (max-width: 992px) {
-            .main-content {
-                margin-left: 0 !important;
-                width: 100% !important;
-            }
-            .admin-action-box {
-                position: static !important;
-                margin-top: 1.5rem;
-            }
+            .main-content { margin-left: 0 !important; width: 100% !important; }
+            .admin-action-box { position: static !important; margin-top: 1.5rem; }
         }
     </style>
 </head>
@@ -221,8 +192,7 @@ function getStatusBadge($status) {
 
             <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
                 <h3 class="mb-0" style="color: var(--primary-color); font-weight: 700;">
-                    <i class="fas fa-ticket-alt me-2"></i>
-                    Ticket #<?= htmlspecialchars($ticket['ticket_code']) ?>
+                    <i class="fas fa-ticket-alt me-2"></i> Ticket #<?= htmlspecialchars($ticket['ticket_code'] ?? $ticket['id']) ?>
                 </h3>
                 <a href="manage_tickets.php" class="btn btn-outline-secondary fw-medium">
                     <i class="fas fa-arrow-left me-1"></i> Back to List
@@ -235,25 +205,29 @@ function getStatusBadge($status) {
 
                     <div class="card mb-4">
                         <div class="card-header ticket-header d-flex justify-content-between align-items-center border-0">
-                            <span class="fw-bold fs-5">Ticket #<?= htmlspecialchars($ticket['ticket_code']) ?></span>
-                            <span class="opacity-75 small">Raised by: <?= htmlspecialchars($ticket['requester_name']) ?></span>
+                            <span class="fw-bold fs-5">Ticket Details</span>
+                            <span class="opacity-75 small">Reported via: <?= htmlspecialchars($ticket['source'] ?? 'System') ?></span>
                         </div>
                         <div class="card-body p-4">
                             <h4 class="mb-4 text-dark fw-bold"><?= htmlspecialchars($ticket['subject']) ?></h4>
 
                             <div class="row mb-4 g-4">
-                                <div class="col-md-4">
-                                    <div class="text-muted small fw-semibold text-uppercase tracking-wider mb-1">Department</div>
-                                    <div class="fw-medium"><?= htmlspecialchars($ticket['department']) ?></div>
+                                <div class="col-md-3">
+                                    <div class="text-muted small fw-semibold text-uppercase tracking-wider mb-1">Requester</div>
+                                    <div class="fw-medium text-dark"><?= htmlspecialchars($ticket['requester_name']) ?></div>
                                 </div>
-                                <div class="col-md-4">
+                                <div class="col-md-3">
+                                    <div class="text-muted small fw-semibold text-uppercase tracking-wider mb-1">Department</div>
+                                    <div class="fw-medium text-dark"><?= htmlspecialchars($ticket['department']) ?></div>
+                                </div>
+                                <div class="col-md-3">
                                     <div class="text-muted small fw-semibold text-uppercase tracking-wider mb-1">Priority</div>
                                     <span class="badge <?= getPriorityBadge($ticket['priority']) ?> px-3 py-2 fs-6">
                                         <?= htmlspecialchars($ticket['priority']) ?>
                                     </span>
                                 </div>
-                                <div class="col-md-4">
-                                    <div class="text-muted small fw-semibold text-uppercase tracking-wider mb-1">Current Status</div>
+                                <div class="col-md-3">
+                                    <div class="text-muted small fw-semibold text-uppercase tracking-wider mb-1">Status</div>
                                     <span class="badge <?= getStatusBadge($ticket['status']) ?> px-3 py-2 fs-6 shadow-sm">
                                         <?= htmlspecialchars($ticket['status']) ?>
                                     </span>
@@ -261,18 +235,15 @@ function getStatusBadge($status) {
                             </div>
 
                             <div class="ticket-info-box mb-4">
-                                <label class="text-muted small fw-bold text-uppercase tracking-wider mb-2">Detailed Description</label>
+                                <label class="text-muted small fw-bold text-uppercase tracking-wider mb-2">Description of Issue</label>
                                 <p class="mb-0 text-dark" style="line-height: 1.6;">
                                     <?= nl2br(htmlspecialchars($ticket['description'])) ?>
                                 </p>
                             </div>
 
                             <?php if (!empty($ticket['attachment'])): 
-                                // Determine proper path based on string contents
                                 $attachPath = $ticket['attachment'];
-                                if (!str_starts_with($attachPath, 'uploads/')) {
-                                    $attachPath = 'uploads/tickets/' . $attachPath;
-                                }
+                                if (!str_starts_with($attachPath, 'uploads/')) { $attachPath = 'uploads/tickets/' . $attachPath; }
                                 $attachPath = (file_exists('../' . $attachPath)) ? '../' . $attachPath : $attachPath;
                             ?>
                             <div>
@@ -287,28 +258,88 @@ function getStatusBadge($status) {
                         </div>
                     </div>
 
-                    <div class="card shadow-sm mb-4">
-                        <div class="card-header bg-light fw-bold text-secondary border-bottom">
-                            <i class="fas fa-history me-2"></i>Activity Log
+                    <?php if (!empty($ticket['solution']) || !empty($ticket['diagnosis'])): ?>
+                    <div class="card mb-4 border-success shadow-sm" style="border-width: 2px;">
+                        <div class="card-header bg-success bg-opacity-10 border-bottom border-success text-success fw-bold d-flex justify-content-between align-items-center py-3">
+                            <span class="fs-5"><i class="fas fa-clipboard-check me-2"></i>Executive Resolution Report</span>
+                            <?php if(!empty($ticket['time_taken'])): ?>
+                                <span class="badge bg-success fs-6 shadow-sm"><i class="fas fa-stopwatch me-1"></i> Time Taken: <?= htmlspecialchars($ticket['time_taken']) ?></span>
+                            <?php endif; ?>
                         </div>
-                        <div class="card-body activity-log bg-light">
+                        <div class="card-body p-4">
+                            
+                            <?php if (!empty($ticket['diagnosis'])): ?>
+                            <div class="mb-4">
+                                <h6 class="fw-bold text-secondary text-uppercase mb-2" style="font-size:0.8rem; letter-spacing: 1px;">Diagnosis / Root Cause</h6>
+                                <p class="text-dark bg-light p-3 rounded border border-light-subtle m-0" style="line-height: 1.6;"><?= nl2br(htmlspecialchars($ticket['diagnosis'])) ?></p>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if (!empty($ticket['solution'])): ?>
+                            <div class="mb-4">
+                                <h6 class="fw-bold text-secondary text-uppercase mb-2" style="font-size:0.8rem; letter-spacing: 1px;">Solution / Steps Taken</h6>
+                                <p class="text-dark bg-light p-3 rounded border border-light-subtle m-0" style="line-height: 1.6;"><?= nl2br(htmlspecialchars($ticket['solution'])) ?></p>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if (!empty($ticket['new_part_name']) || !empty($ticket['old_part_name'])): ?>
+                            <h6 class="fw-bold text-secondary text-uppercase mt-4 mb-3" style="font-size:0.8rem; letter-spacing: 1px;">
+                                <i class="fas fa-microchip me-1"></i> Hardware Replacement Log
+                            </h6>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <div class="p-3 bg-danger bg-opacity-10 border border-danger border-opacity-25 rounded h-100">
+                                        <span class="d-block text-danger small fw-bold mb-2"><i class="fas fa-arrow-down me-1"></i> OLD / FAULTY PART</span>
+                                        <div class="fw-bold fs-5 text-dark"><?= htmlspecialchars($ticket['old_part_name'] ?: 'Not Specified') ?></div>
+                                        <div class="text-muted small mt-1 fw-medium">Serial No: <?= htmlspecialchars($ticket['old_part_serial'] ?: 'N/A') ?></div>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="p-3 bg-success bg-opacity-10 border border-success border-opacity-25 rounded h-100">
+                                        <span class="d-block text-success small fw-bold mb-2"><i class="fas fa-arrow-up me-1"></i> NEW / INSTALLED PART</span>
+                                        <div class="fw-bold fs-5 text-dark"><?= htmlspecialchars($ticket['new_part_name'] ?: 'Not Specified') ?></div>
+                                        <div class="text-muted small mt-1 fw-medium">Serial No: <?= htmlspecialchars($ticket['new_part_serial'] ?: 'N/A') ?></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endif; ?>
+                            
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
+                    <div class="card shadow-sm mb-4">
+                        <div class="card-header bg-light fw-bold text-secondary border-bottom py-3">
+                            <i class="fas fa-history me-2"></i>Timeline Activity Log
+                        </div>
+                        <div class="card-body activity-log bg-light p-4">
+                            
+                            <?php if (!empty($ticket['resolved_at'])): ?>
+                                <div class="alert text-dark shadow-sm" style="border-left: 4px solid #198754;">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <small class="text-success fw-bold"><i class="fas fa-check-circle me-1"></i> Ticket Resolved</small>
+                                        <small class="text-muted fw-medium"><?= date('d M Y, h:i A', strtotime($ticket['resolved_at'])) ?></small>
+                                    </div>
+                                    <div class="fw-medium text-dark">Resolution submitted by <?= htmlspecialchars($ticket['assigned_name']) ?>.</div>
+                                </div>
+                            <?php endif; ?>
+
                             <?php if (!empty($ticket['assigned_to'])): ?>
                                 <div class="alert text-dark shadow-sm">
                                     <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <small class="text-muted"><i class="fas fa-user-cog me-1"></i> Ticket Assigned</small>
-                                        <small class="text-muted"><?= date('d M Y, h:i A', strtotime($ticket['updated_at'])) ?></small>
+                                        <small class="text-muted fw-bold"><i class="fas fa-user-cog me-1"></i> Ticket Assigned</small>
+                                        <small class="text-muted fw-medium"><?= date('d M Y, h:i A', strtotime($ticket['updated_at'])) ?></small>
                                     </div>
-                                    <div class="fw-medium">Assigned to: <?= htmlspecialchars($ticket['assigned_name']) ?></div>
-                                    <div class="mt-1 text-secondary small">Status changed to: <?= htmlspecialchars($ticket['status']) ?></div>
+                                    <div class="fw-medium text-dark">Assigned to IT Executive: <?= htmlspecialchars($ticket['assigned_name']) ?></div>
                                 </div>
                             <?php endif; ?>
                             
                             <div class="alert text-dark shadow-sm opacity-75">
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <small class="text-muted"><i class="fas fa-user me-1"></i> Ticket Created</small>
-                                    <small class="text-muted"><?= date('d M Y, h:i A', strtotime($ticket['created_at'])) ?></small>
+                                    <small class="text-muted fw-bold"><i class="fas fa-ticket-alt me-1"></i> Ticket Created</small>
+                                    <small class="text-muted fw-medium"><?= date('d M Y, h:i A', strtotime($ticket['created_at'])) ?></small>
                                 </div>
-                                <div class="fw-medium"><?= htmlspecialchars($ticket['requester_name']) ?> submitted the ticket.</div>
+                                <div class="fw-medium text-dark"><?= htmlspecialchars($ticket['requester_name']) ?> submitted the initial ticket.</div>
                             </div>
                         </div>
                     </div>
@@ -316,36 +347,61 @@ function getStatusBadge($status) {
                 </div>
 
                 <div class="col-lg-4">
-                    <div class="admin-action-box static-top shadow-sm" style="top: 20px;">
-                        <h5 class="text-teal-800 fw-bold mb-4" style="color: var(--primary-color);">
-                            <i class="fas fa-tools me-2"></i>Admin Actions
-                        </h5>
-
-                        <form action="" method="POST">
-                            <input type="hidden" name="update_ticket" value="1">
-                            <input type="hidden" name="ticket_id" value="<?= htmlspecialchars($ticket['id']) ?>">
-
-                            <div class="mb-4">
-                                <label class="form-label fw-bold text-secondary small text-uppercase">Assign Engineer</label>
-                                <select class="form-select shadow-none border-secondary-subtle py-2" name="assigned_to" required>
-                                    <option value="">-- Select Executive --</option>
-                                    <optgroup label="Internal IT Team">
-                                        <?php foreach ($it_staff as $staff): ?>
-                                            <option value="<?= $staff['id'] ?>" <?= ($ticket['assigned_to'] == $staff['id']) ? 'selected' : '' ?>>
-                                                <?= htmlspecialchars($staff['name']) ?> (<?= htmlspecialchars($staff['role']) ?>)
-                                            </option>
-                                        <?php endforeach; ?>
-                                    </optgroup>
-                                </select>
-                                <small class="text-muted mt-2 d-block"><i class="fas fa-info-circle"></i> Assigning will automatically mark the ticket as "In Progress".</small>
+                    <div class="admin-action-box static-top shadow-sm <?= $is_locked ? 'locked' : '' ?>" style="top: 20px;">
+                        
+                        <?php if ($is_locked): ?>
+                            <h5 class="text-secondary fw-bold mb-3">
+                                <i class="fas fa-lock me-2 text-success"></i>Ticket Locked
+                            </h5>
+                            
+                            <div class="bg-white border rounded p-3 mb-3 shadow-sm">
+                                <p class="text-muted small mb-0">This ticket has been marked as <strong><?= htmlspecialchars($ticket['status']) ?></strong>. No further administrative actions or assignments can be made.</p>
                             </div>
 
-                            <div class="d-grid">
-                                <button type="submit" class="btn btn-brand btn-lg shadow-sm">
-                                    <i class="fas fa-user-check me-2"></i> Assign Ticket
-                                </button>
-                            </div>
-                        </form>
+                            <?php if (!empty($ticket['assigned_to'])): ?>
+                                <div class="bg-white border rounded p-3 shadow-sm">
+                                    <span class="text-muted small fw-bold text-uppercase d-block mb-1">Handled By</span>
+                                    <div class="d-flex align-items-center fw-medium text-dark mt-2">
+                                        <div class="bg-light rounded-circle d-flex align-items-center justify-content-center text-primary me-2" style="width:32px;height:32px;font-size:14px;font-weight:bold;">
+                                            <?= substr(htmlspecialchars($ticket['assigned_name']), 0, 1); ?>
+                                        </div>
+                                        <?= htmlspecialchars($ticket['assigned_name']) ?>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
+
+                        <?php else: ?>
+                            <h5 class="text-teal-800 fw-bold mb-4" style="color: var(--primary-color);">
+                                <i class="fas fa-tools me-2"></i>Admin Actions
+                            </h5>
+
+                            <form action="" method="POST">
+                                <input type="hidden" name="update_ticket" value="1">
+                                <input type="hidden" name="ticket_id" value="<?= htmlspecialchars($ticket['id']) ?>">
+
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold text-secondary small text-uppercase">Assign IT Executive</label>
+                                    <select class="form-select shadow-none border-secondary-subtle py-2" name="assigned_to" required>
+                                        <option value="">-- Select Executive --</option>
+                                        <optgroup label="Internal IT Team">
+                                            <?php foreach ($it_staff as $staff): ?>
+                                                <option value="<?= $staff['id'] ?>" <?= ($ticket['assigned_to'] == $staff['id']) ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars($staff['name']) ?> (<?= htmlspecialchars($staff['role']) ?>)
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </optgroup>
+                                    </select>
+                                    <small class="text-muted mt-2 d-block"><i class="fas fa-info-circle"></i> Assigning will automatically mark the ticket as "In Progress" and start the resolution timer for the executive.</small>
+                                </div>
+
+                                <div class="d-grid">
+                                    <button type="submit" class="btn btn-brand btn-lg shadow-sm">
+                                        <i class="fas fa-user-check me-2"></i> Assign Ticket
+                                    </button>
+                                </div>
+                            </form>
+                        <?php endif; ?>
+
                     </div>
                 </div>
 

@@ -568,15 +568,9 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         <div class="dashboard-container">
 
             <div class="flex flex-col gap-6 w-full"> 
-                <div class="col-span-12 lg:col-span-4 card overflow-hidden p-5 flex flex-col">
-                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
-                            <i class="fa-solid fa-clock text-teal-500"></i> Today's Attendance
-                        </h3>
-                        <a href="admin_attendance.php" class="bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1 rounded-lg text-[10px] font-bold uppercase hover:bg-teal-100 transition">View All</a>
-                    </div>
+                
                 <?php include '../attendance_card.php'; ?>
-            </div>
+            
 
                 
              <div class="card border-blue-200 shrink-0">

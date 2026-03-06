@@ -171,9 +171,21 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts', 'CFO', 'Sales Manager', 'Sales Executive'],
+                'allowed' => ['Employee', 'IT Executive', 'Accounts', 'CFO', 'Sales Manager', 'Sales Executive'],
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
+                ]
+            ],
+            [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['IT Admin'],
+                'subItems' => [
+                    ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Team Attendance', 'path' => $base . 'ITadmin/it_team_attendance.php', 'icon' => 'users'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
@@ -240,7 +252,7 @@ $sections = [
                 'name' => 'Stock Maintenance', 
                 'path' => $base . 'IT_Executive/stock_maintenance.php', // File path-ai check seithu kollungal
                 'icon' => 'package', // Lucide icon for stock/package
-                'allowed' => ['IT Admin', 'IT Executive']
+                'allowed' => ['IT Admin', 'IT Executive',"CFO"]
             ],
             // --- TASK MANAGEMENT ---
             [
