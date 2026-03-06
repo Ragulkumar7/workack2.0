@@ -518,7 +518,7 @@ $curr_leave_stmt->close();
 
 // =========================================================================
 
-// 5. LEAVE BALANCE (CARRY-FORWARD)
+// 5. LEAVE BALANCE (CARRY-FORWARD) - CORRECTED FIXED 2 DAYS
 
 // =========================================================================
 
@@ -532,23 +532,9 @@ $display_join_month_year = date('M Y', strtotime($raw_join_date));
 
 
 
-$d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
+// Fixed to strictly 2 leaves earned limit, as requested
 
-$d2 = new DateTime('now'); $d2->modify('first day of this month');
-
-
-
-$months_worked = 0;
-
-if ($d2 >= $d1) {
-
-    $interval = $d1->diff($d2);
-
-    $months_worked = ($interval->y * 12) + $interval->m + 1; 
-
-}
-
-$total_earned_leaves = $months_worked * $base_leaves_per_month;
+$total_earned_leaves = 2;
 
 
 

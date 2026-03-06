@@ -369,21 +369,13 @@ while ($cl_row = $curr_leave_res->fetch_assoc()) {
 }
 $curr_leave_stmt->close();
 
-// LEAVE BALANCE
+// LEAVE BALANCE (HR Profile)
 $base_leaves_per_month = 2;
 $raw_join_date = $joining_date !== "Not Set" ? $row['joining_date'] : date('Y-m-01');
 $calc_join_date = date('Y-m-d', strtotime($raw_join_date));
 $display_join_month_year = date('M Y', strtotime($raw_join_date));
 
-$d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
-$d2 = new DateTime('now'); $d2->modify('first day of this month');
-
-$months_worked = 0;
-if ($d2 >= $d1) {
-    $interval = $d1->diff($d2);
-    $months_worked = ($interval->y * 12) + $interval->m + 1; 
-}
-$total_earned_leaves = $months_worked * $base_leaves_per_month;
+$total_earned_leaves = 2; // FIXED FOR HR EXECUTIVE
 
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
@@ -403,15 +395,24 @@ $late_q = $conn->query("SELECT ep.full_name, ep.department, a.punch_in FROM atte
 if($late_q) { while($r = $late_q->fetch_assoc()) $late_list[] = $r; }
 
 $lop_list = [];
-$lop_q = $conn->query("SELECT ep.user_id, ep.full_name, ep.department, ep.joining_date, SUM(lr.total_days) as taken_leaves FROM employee_profiles ep LEFT JOIN leave_requests lr ON ep.user_id = lr.user_id AND lr.status = 'Approved' GROUP BY ep.user_id");
+// Added u.role to the query to identify the HR Executive
+$lop_q = $conn->query("SELECT ep.user_id, ep.full_name, ep.department, ep.joining_date, u.role, SUM(lr.total_days) as taken_leaves FROM employee_profiles ep LEFT JOIN users u ON ep.user_id = u.id LEFT JOIN leave_requests lr ON ep.user_id = lr.user_id AND lr.status = 'Approved' GROUP BY ep.user_id");
 if ($lop_q) {
     while ($r = $lop_q->fetch_assoc()) {
-        $jd = $r['joining_date'] ?: date('Y-m-01');
-        $d1 = new DateTime($jd); $d1->modify('first day of this month'); 
-        $d2 = new DateTime('now'); $d2->modify('first day of this month');
-        $mw = ($d2 >= $d1) ? (($d1->diff($d2)->y * 12) + $d1->diff($d2)->m + 1) : 0;
-        $earned = $mw * 2;
         $taken = floatval($r['taken_leaves']);
+        
+        // CHECK IF IT IS HR EXECUTIVE OR OTHER EMPLOYEES
+        if (strtolower($r['role']) === 'hr executive' || stripos($r['department'], 'human resource') !== false) {
+            $earned = 2; // FIXED 2 DAYS FOR HR
+        } else {
+            // NORMAL EMPLOYEES (Month based calculation)
+            $jd = $r['joining_date'] ?: date('Y-m-01');
+            $d1 = new DateTime($jd); $d1->modify('first day of this month'); 
+            $d2 = new DateTime('now'); $d2->modify('first day of this month');
+            $mw = ($d2 >= $d1) ? (($d1->diff($d2)->y * 12) + $d1->diff($d2)->m + 1) : 0;
+            $earned = $mw * 2;
+        }
+
         if ($taken > $earned) {
             $r['lop_days'] = $taken - $earned;
             $lop_list[] = $r;
@@ -837,7 +838,7 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                 
                
 
-           
+            
 
                 <div class="card flex flex-col shrink-0 mt-10">
                     <div class="p-6 flex flex-col h-full">
