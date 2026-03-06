@@ -63,7 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset(
     }
     
     $update_stmt->close();
-    $conn->close(); 
+    // Do not close connection here, as other scripts might need it later, just exit
     exit(); 
 }
 
@@ -151,7 +151,7 @@ while ($row = $result->fetch_assoc()) {
     ];
 }
 $stmt->close();
-$conn->close(); 
+// REMOVED: $conn->close(); so the header and sidebar can still use the database connection!
 
 $sidebarPath = '../sidebars.php';
 $headerPath = '../header.php';

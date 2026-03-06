@@ -26,8 +26,9 @@ $joining_date = "Not Set";
 $department = "Management";
 $experience_label = "10+ Years";
 $profile_img = "";
+$emergency_contacts = '[]';
 
-$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, p.department, p.experience_label 
+$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, p.department, p.experience_label, p.emergency_contacts 
                 FROM users u 
                 LEFT JOIN employee_profiles p ON u.id = p.user_id 
                 WHERE u.id = ?";
@@ -45,6 +46,7 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
     $department = $user_info['department'] ?? 'Management';
     $experience_label = $user_info['experience_label'] ?? 'Executive';
     $joining_date = $user_info['joining_date'] ? date("d M Y", strtotime($user_info['joining_date'])) : "Not Set";
+    $emergency_contacts = $user_info['emergency_contacts'] ?? '[]';
     
     if (!empty($user_info['profile_img']) && $user_info['profile_img'] !== 'default_user.png') {
         if (str_starts_with($user_info['profile_img'], 'http')) {
@@ -177,7 +179,7 @@ if ($attendance_record) {
 // 4. FETCH INTEGRATED SECTIONS (Notifications, Meetings)
 // -------------------------------------------------------------------------
 $notif_result = @mysqli_query($conn, "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 4");
-$meet_result = @mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 4");
+$meet_result = @mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 10");
 
 // -------------------------------------------------------------------------
 // 5. FINANCIAL DATA & CHART PREP (CFO Dashboard specifics)
@@ -197,11 +199,11 @@ $kpi = ['income' => 0, 'expense' => 0, 'profit' => 0, 'ar' => 0];
 $kpi['income'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
 $kpi['expense'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
 $kpi['profit'] = $kpi['income'] - $kpi['expense'];
-$kpi['ar'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status != 'Paid'"))['val'] ?? 0; // Accounts Receivable (Unpaid Invoices)
+$kpi['ar'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status != 'Paid'"))['val'] ?? 0;
 
 // Recent Invoices
 $recent_invoices = [];
-$res_inv = @mysqli_query($conn, "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status FROM invoices i JOIN clients c ON i.client_id = c.id ORDER BY i.created_at DESC LIMIT 3");
+$res_inv = @mysqli_query($conn, "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status FROM invoices i JOIN clients c ON i.client_id = c.id ORDER BY i.created_at DESC LIMIT 6");
 if($res_inv){
     while($row = mysqli_fetch_assoc($res_inv)){
         $recent_invoices[] = ['no' => $row['invoice_no'], 'client' => $row['client_name'], 'date' => date('d-M-Y', strtotime($row['invoice_date'])), 'amount' => $row['grand_total'], 'status' => $row['status']];
@@ -217,14 +219,6 @@ for($m=1; $m<=12; $m++) {
     $rev_income[] = $inc;
     $rev_expense[] = $exp;
     $rev_profit[] = $inc - $exp;
-}
-
-// Chart 2: CFO Budget vs Actual
-$budget_labels = ['Salaries', 'Rent', 'Marketing', 'Operations', 'Tech'];
-$budget_actual = [];
-foreach($budget_labels as $bl) {
-    $val = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE remarks LIKE '%$bl%' AND MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
-    $budget_actual[] = $val;
 }
 
 include '../sidebars.php'; 
@@ -243,71 +237,80 @@ include '../header.php';
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
     <style>
-        body { background-color: #f1f5f9; font-family: 'Inter', sans-serif; color: #1e293b; }
+        body { background-color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b; overflow-x: hidden; }
         
-        /* Dashboard Framework */
-        .dashboard-container { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; align-items: stretch; margin-bottom: 1.5rem;}
+        /* 12-Col grid for KPI and Bottom Charts */
+        .dashboard-container { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; margin-bottom: 1.5rem;}
+        
+        /* 3-Col Vertical Flex Grid (Eliminates Empty Space) */
+        .dashboard-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 1.5rem; margin-bottom: 1.5rem; }
+        @media (min-width: 1024px) { .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
         #mainContent { margin-left: 90px; width: calc(100% - 90px); transition: all 0.3s; }
+        @media (max-width: 1024px) { #mainContent { margin-left: 0; width: 100%; padding-top: 80px; } }
         
-        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); transition: all 0.3s ease; height: 100%; display: flex; flex-direction: column; overflow: hidden; }
-        .card:hover { transform: translateY(-3px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); }
-        .card-body { padding: 1.5rem; flex-grow: 1; }
+        .card { 
+            background: white; 
+            border-radius: 1rem; 
+            border: 1px solid #e2e8f0; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04); 
+            transition: all 0.3s ease; 
+            display: flex; 
+            flex-direction: column; 
+            height: fit-content; /* PREVENTS VERTICAL STRETCHING */
+        }
+        .card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1;}
+        .card-body { padding: 1.25rem; flex-grow: 1; display: flex; flex-direction: column;} 
 
         .progress-ring-circle { transition: stroke-dashoffset 0.35s; transform: rotate(-90deg); transform-origin: 50% 50%; }
 
         /* Custom Scrollbars */
         .custom-scroll::-webkit-scrollbar { width: 5px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .scroll-area { flex-grow: 1; overflow-y: auto; min-height: 0; }
 
         /* CFO specific components */
         .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
         .badge-paid { background: #dcfce7; color: #16a34a; }
         .badge-unpaid { background: #fef9c3; color: #d97706; }
         .badge-overdue { background: #fee2e2; color: #dc2626; }
-        .badge-approved { background: #dcfce7; color: #16a34a; }
         .badge-pending { background: #f1f5f9; color: #64748b; }
 
         /* Meetings Timeline */
         .meeting-timeline { position: relative; }
-        .meeting-timeline::before { content: ''; position: absolute; left: 80px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
-        .meeting-row-wrapper { position: relative; margin-bottom: 1.5rem; }
-        .meeting-dot { position: absolute; left: 76px; top: 10px; width: 10px; height: 10px; border-radius: 50%; z-index: 10; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.05); }
-        .meeting-flex-container { display: flex; align-items: flex-start; gap: 24px; }
-        .meeting-time-label { width: 68px; text-align: right; flex-shrink: 0; font-weight: 700; font-size: 12px; color: #64748b; padding-top: 4px; }
-        .meeting-content-box { background-color: #f8fafc; padding: 12px; border-radius: 0.75rem; border: 1px solid #f1f5f9; flex-grow: 1; }
-
-        @media (max-width: 1024px) {
-            .dashboard-container { grid-template-columns: 1fr; }
-            #mainContent { margin-left: 0; width: 100%; }
-            .col-span-12, .col-span-3, .col-span-4, .col-span-5, .col-span-6, .col-span-8, .col-span-7 { grid-column: span 12 !important; }
-        }
+        .meeting-timeline::before { content: ''; position: absolute; left: 74px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
+        .meeting-row-wrapper { position: relative; margin-bottom: 1.2rem; }
+        .meeting-dot { position: absolute; left: 70px; top: 12px; width: 10px; height: 10px; border-radius: 50%; z-index: 10; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.05); }
+        .meeting-flex-container { display: flex; align-items: flex-start; gap: 20px; }
+        .meeting-time-label { width: 62px; text-align: right; flex-shrink: 0; font-weight: 700; font-size: 11px; color: #64748b; padding-top: 8px; }
+        .meeting-content-box { background-color: #f8fafc; padding: 10px 14px; border-radius: 0.75rem; border: 1px solid #f1f5f9; flex-grow: 1; }
     </style>
 </head>
-<body class="bg-slate-100">
+<body class="bg-slate-50">
 
     <main id="mainContent" class="p-6 lg:p-8 min-h-screen">
         
-        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">
             <div>
-                <h1 class="text-3xl font-bold text-slate-800 tracking-tight">CFO Dashboard</h1>
+                <h1 class="text-2xl lg:text-3xl font-black text-slate-800 tracking-tight">CFO Dashboard</h1>
                 <p class="text-slate-500 text-sm mt-1">Executive financial & operational overview</p>
             </div>
-            <form method="GET" class="flex gap-3 bg-white p-2 rounded-xl border border-gray-200 shadow-sm">
-                <select name="month" class="bg-transparent border-none text-sm font-semibold text-slate-700 outline-none pr-4">
+            <form method="GET" class="flex gap-3 bg-white p-2.5 rounded-xl border border-gray-200 shadow-sm">
+                <select name="month" class="bg-transparent border-none text-sm font-bold text-slate-700 outline-none pr-2">
                     <?php foreach($months as $num => $name): ?>
                         <option value="<?= $num ?>" <?= ($selected_month == $num) ? 'selected' : '' ?>><?= $name ?></option>
                     <?php endforeach; ?>
                 </select>
-                <div class="w-px h-6 bg-gray-200 self-center"></div>
-                <select name="year" class="bg-transparent border-none text-sm font-semibold text-slate-700 outline-none pr-4">
+                <div class="w-px h-5 bg-gray-200 self-center"></div>
+                <select name="year" class="bg-transparent border-none text-sm font-bold text-slate-700 outline-none pr-2">
                     <option value="2026" <?= ($selected_year == '2026') ? 'selected' : '' ?>>2026</option>
                     <option value="2025" <?= ($selected_year == '2025') ? 'selected' : '' ?>>2025</option>
                 </select>
-                <button type="submit" class="bg-teal-600 hover:bg-teal-700 text-white p-2 rounded-lg transition">
+                <button type="submit" class="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 rounded-lg transition text-xs shadow-sm">
                     <i class="fa-solid fa-filter"></i>
                 </button>
             </form>
@@ -315,239 +318,327 @@ include '../header.php';
 
         <div class="dashboard-container">
             <div class="col-span-12 lg:col-span-3 card border-l-4 border-l-teal-600">
-                <div class="card-body p-5">
+                <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
-                            <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Net Profit</p>
-                            <h3 class="text-2xl font-bold text-slate-800 mt-1">₹<?php echo number_format($kpi['profit']); ?></h3>
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Net Profit</p>
+                            <h3 class="text-2xl font-black text-slate-800 mt-1">₹<?php echo number_format($kpi['profit']); ?></h3>
                         </div>
-                        <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center text-xl"><i class="fa-solid fa-chart-line"></i></div>
+                        <div class="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center text-lg shadow-inner"><i class="fa-solid fa-chart-line"></i></div>
                     </div>
                 </div>
             </div>
             <div class="col-span-12 lg:col-span-3 card">
-                <div class="card-body p-5">
+                <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
-                            <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">A/R (Pending)</p>
-                            <h3 class="text-2xl font-bold text-amber-600 mt-1">₹<?php echo number_format($kpi['ar']); ?></h3>
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">A/R (Pending)</p>
+                            <h3 class="text-2xl font-black text-amber-600 mt-1">₹<?php echo number_format($kpi['ar']); ?></h3>
                         </div>
-                        <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl"><i class="fa-solid fa-file-invoice-dollar"></i></div>
+                        <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg shadow-inner"><i class="fa-solid fa-file-invoice-dollar"></i></div>
                     </div>
                 </div>
             </div>
             <div class="col-span-12 lg:col-span-3 card">
-                <div class="card-body p-5">
+                <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
-                            <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Income</p>
-                            <h3 class="text-2xl font-bold text-emerald-600 mt-1">₹<?php echo number_format($kpi['income']); ?></h3>
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Income</p>
+                            <h3 class="text-2xl font-black text-emerald-600 mt-1">₹<?php echo number_format($kpi['income']); ?></h3>
                         </div>
-                        <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl"><i class="fa-solid fa-arrow-trend-down"></i></div>
+                        <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg shadow-inner"><i class="fa-solid fa-arrow-trend-down"></i></div>
                     </div>
                 </div>
             </div>
             <div class="col-span-12 lg:col-span-3 card">
-                <div class="card-body p-5">
+                <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
-                            <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Expense</p>
-                            <h3 class="text-2xl font-bold text-red-600 mt-1">₹<?php echo number_format($kpi['expense']); ?></h3>
+                            <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Expense</p>
+                            <h3 class="text-2xl font-black text-rose-600 mt-1">₹<?php echo number_format($kpi['expense']); ?></h3>
                         </div>
-                        <div class="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center text-xl"><i class="fa-solid fa-arrow-trend-up"></i></div>
+                        <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg shadow-inner"><i class="fa-solid fa-arrow-trend-up"></i></div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="dashboard-container mb-6">
+        <div class="dashboard-grid">
             
-            <div class="col-span-12 lg:col-span-4 card overflow-hidden">
+            <div class="flex flex-col gap-6">
+                
                 <?php include '../attendance_card.php'; ?>
-            </div>
-            
 
-            <div class="col-span-12 lg:col-span-4 card">
-                <div class="card-body flex flex-col justify-between">
-                    <div>
-                        <div class="flex justify-between items-center mb-6">
+                <div class="card flex-grow">
+                    <div class="card-body flex flex-col">
+                        <div class="flex items-center justify-between mb-3 border-b border-gray-100 pb-2 shrink-0">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-bolt text-amber-500 text-lg"></i>
+                                <h3 class="font-bold text-slate-800 text-lg">Action Hub</h3>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 flex-grow">
+                            <a href="cfo_approvals.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
+                                <i class="fa-solid fa-check-double text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Approvals</span>
+                            </a>
+                            <a href="ledger.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
+                                <i class="fa-solid fa-book-open text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Ledger</span>
+                            </a>
+                            <a href="cfo_reports.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
+                                <i class="fa-solid fa-chart-pie text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Reports</span>
+                            </a>
+                            <a href="tax_filing.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
+                                <i class="fa-solid fa-building-columns text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Tax & Filing</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="flex flex-col gap-6">
+                
+                <div class="card">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg">Leave Status</h3>
+                            <span class="text-[10px] font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded uppercase">Overview</span>
+                        </div>
+                        <div class="flex flex-col xl:flex-row items-center gap-4 shrink-0">
+                            <div class="space-y-3 w-full pr-2">
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div><span class="text-xs text-gray-600 font-semibold">On Time</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_ontime; ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="text-xs text-gray-600 font-semibold">Late</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_late; ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div><span class="text-xs text-gray-600 font-semibold">WFH</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_wfh; ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-red-500"></div><span class="text-xs text-gray-600 font-semibold">Absent</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_absent; ?></span></div>
+                                <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                                    <div class="flex items-center gap-2"><i class="fa-solid fa-plane-departure text-rose-400 text-xs"></i><span class="text-xs text-slate-800 font-bold uppercase">Sick Leave</span></div>
+                                    <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs"><?php echo $stats_sick; ?> Days</span>
+                                </div>
+                            </div>
+                            <div class="relative flex-shrink-0 w-28 h-28 mx-auto">
+                                <div id="attendanceChart" class="w-full h-full"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-body flex flex-col gap-3">
+                        <div class="flex justify-between items-center border-b border-gray-100 pb-2">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <span class="text-xs font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded">Year 2026</span>
+                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
                         </div>
-                        <div class="grid grid-cols-3 gap-3 mb-6">
-                            <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
-                                <p class="text-[10px] text-gray-500 font-bold uppercase">Total</p>
-                                <p class="text-xl font-bold text-slate-700 mt-1"><?php echo $leaves_total; ?></p>
+                        <div class="grid grid-cols-3 gap-3">
+                            <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
+                                <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Total</p>
+                                <p class="text-xl font-black text-teal-800"><?php echo $leaves_total; ?></p>
                             </div>
-                            <div class="bg-blue-50 p-3 rounded-xl border border-blue-100 text-center">
-                                <p class="text-[10px] text-blue-600 font-bold uppercase">Taken</p>
-                                <p class="text-xl font-bold text-blue-700 mt-1"><?php echo $leaves_taken; ?></p>
+                            <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
+                                <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
+                                <p class="text-xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
                             </div>
-                            <div class="bg-teal-50 p-3 rounded-xl border border-teal-100 text-center">
-                                <p class="text-[10px] text-teal-600 font-bold uppercase">Left</p>
-                                <p class="text-xl font-bold text-teal-700 mt-1"><?php echo $leaves_remaining; ?></p>
+                            <div class="bg-green-50 p-3 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden">
+                                <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
+                                <p class="text-xl font-black relative z-10 text-green-800">
+                                    <?php echo $leaves_remaining; ?>
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-1.5 mt-2">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recent Leave Policy</p>
+                            <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                <span class="text-[10px] font-bold text-slate-600">Monthly Accrual</span>
+                                <span class="text-[10px] font-black text-teal-600">+2.0 Days</span>
+                            </div>
+                            <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
+                                <span class="text-[10px] font-bold text-slate-600">Sick Leave Cap</span>
+                                <span class="text-[10px] font-black text-slate-700">12 Days/Year</span>
+                            </div>
+                        </div>
+
+                        <div class="mt-auto pt-4">
+                            <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-sm shadow-teal-200/50 text-xs">
+                                <i class="fa-solid fa-plus mr-1"></i> APPLY NEW LEAVE
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card flex-grow">
+                    <div class="card-body flex flex-col">
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
+                            <button class="text-[9px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
+                        </div>
+                        <div class="meeting-timeline pt-1 custom-scroll scroll-area pr-2 mt-1">
+                            <?php if($meet_result && mysqli_num_rows($meet_result) > 0) { 
+                                while($meet = mysqli_fetch_assoc($meet_result)):
+                                    $is_past = (strtotime($meet['meeting_time']) < time()) ? 'opacity-50' : '';
+                                    $dot_color = (strtotime($meet['meeting_time']) < time()) ? 'bg-slate-300' : 'bg-teal-500';
+                            ?>
+                            <div class="meeting-row-wrapper <?php echo $is_past; ?>">
+                                <div class="meeting-dot <?php echo $dot_color; ?>"></div>
+                                <div class="meeting-flex-container gap-4">
+                                    <div class="meeting-time-label mt-1"><?php echo date("h:i A", strtotime($meet['meeting_time'])); ?></div>
+                                    <div class="meeting-content-box shadow-sm py-2 px-3">
+                                        <h4 class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></h4>
+                                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5 flex items-center gap-1"><i class="fa-solid fa-link"></i> <?php echo $meet['platform'] ?? 'Online'; ?></p>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endwhile; } else { ?>
+                                <div class="text-center py-6 flex flex-col items-center justify-center h-full">
+                                    <i class="fa-regular fa-calendar-xmark text-3xl text-slate-200 mb-2"></i>
+                                    <p class="text-xs text-slate-400 font-medium">No meetings scheduled for today.</p>
+                                </div>
+                            <?php } ?>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="flex flex-col gap-6">
+                
+                <div class="card overflow-hidden shadow-sm border-slate-200">
+                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative shrink-0">
+                        <div class="relative shrink-0">
+                            <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white/30 shadow-lg object-cover bg-white">
+                            <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 border-2 border-white rounded-full"></div>
+                        </div>
+                        <div class="min-w-0 text-white">
+                            <h2 class="font-black text-xl truncate tracking-tight"><?php echo htmlspecialchars($username); ?></h2>
+                            <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5 opacity-90"><?php echo htmlspecialchars($employee_role); ?></p>
+                        </div>
+                    </div>
+                    
+                    <div class="p-4 bg-white border-b border-gray-100 shrink-0">
+                         <div class="flex flex-col gap-2">
+                            <div class="flex items-center gap-3">
+                                <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-phone text-teal-600 text-xs"></i>
+                                </div>
+                                <p class="text-xs font-bold text-slate-700 truncate"><?php echo htmlspecialchars($employee_phone); ?></p>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-envelope text-teal-600 text-xs"></i>
+                                </div>
+                                <p class="text-xs font-bold text-slate-700 truncate" title="<?php echo htmlspecialchars($employee_email); ?>">
+                                    <?php echo htmlspecialchars($employee_email); ?>
+                                </p>
                             </div>
                         </div>
                     </div>
-                    <a href="../employee/leave_request.php" class="block w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3.5 rounded-xl text-center transition shadow-lg shadow-teal-200/50">
-                        <i class="fa-solid fa-plus mr-2"></i> APPLY NEW LEAVE
-                    </a>
-                </div>
-            </div>
-             <div class="col-span-12 lg:col-span-4 card overflow-hidden">
-                <div class="bg-[#1b5a5a] p-6 flex flex-col items-center text-center relative">
-                    <div class="relative mb-3 mt-2">
-                        <img src="<?php echo $profile_img; ?>" alt="Profile" class="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover">
-                        <div class="absolute bottom-1 right-1 w-5 h-5 bg-green-400 border-2 border-white rounded-full"></div>
-                    </div>
-                    <h2 class="text-white font-bold text-lg"><?php echo htmlspecialchars($username); ?></h2>
-                    <p class="text-teal-100 text-xs mb-2"><?php echo htmlspecialchars($employee_role); ?></p>
-                </div>
-                <div class="card-body space-y-4">
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700"><i class="fa-solid fa-phone text-sm"></i></div>
-                        <div>
-                            <p class="text-[10px] text-gray-400 font-bold uppercase">Phone</p>
-                            <p class="text-sm font-semibold text-slate-800"><?php echo htmlspecialchars($employee_phone); ?></p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center text-teal-700"><i class="fa-solid fa-envelope text-sm"></i></div>
-                        <div>
-                            <p class="text-[10px] text-gray-400 font-bold uppercase">Email</p>
-                            <p class="text-sm font-semibold text-slate-800 truncate w-40" title="<?php echo htmlspecialchars($employee_email); ?>"><?php echo htmlspecialchars($employee_email); ?></p>
-                        </div>
-                    </div>
-                    <hr class="border-dashed border-gray-200">
-                    <div class="grid grid-cols-2 gap-2">
-                        <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                            <p class="text-[9px] text-gray-400 font-bold uppercase">Experience</p>
-                            <p class="text-xs font-bold text-slate-800 mt-1"><?php echo htmlspecialchars($experience_label); ?></p>
-                        </div>
-                        <div class="bg-slate-50 p-2 rounded-lg border border-slate-100">
-                            <p class="text-[9px] text-gray-400 font-bold uppercase">Department</p>
-                            <p class="text-xs font-bold text-slate-800 mt-1"><?php echo htmlspecialchars($department); ?></p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-           
-
-        </div>
-
-        <div class="dashboard-container">
-            <div class="col-span-12 lg:col-span-4 card">
-                <div class="card-body">
-                    <div class="flex justify-between items-center mb-6">
-                        <h3 class="font-bold text-slate-800 text-lg">Leave Status</h3>
-                        <span class="text-xs font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded">Overview</span>
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <div class="space-y-4">
-                            <div class="flex items-center gap-3"><div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div><span class="font-bold text-slate-700 w-6"><?php echo $stats_ontime; ?></span><span class="text-xs text-gray-500">On Time</span></div>
-                            <div class="flex items-center gap-3"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="font-bold text-slate-700 w-6"><?php echo $stats_late; ?></span><span class="text-xs text-gray-500">Late</span></div>
-                            <div class="flex items-center gap-3"><div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div><span class="font-bold text-slate-700 w-6"><?php echo $stats_wfh; ?></span><span class="text-xs text-gray-500">WFH</span></div>
-                            <div class="flex items-center gap-3"><div class="w-2.5 h-2.5 rounded-full bg-red-500"></div><span class="font-bold text-slate-700 w-6"><?php echo $stats_absent; ?></span><span class="text-xs text-gray-500">Absent</span></div>
-                            <div class="flex items-center gap-3"><div class="w-2.5 h-2.5 rounded-full bg-yellow-500"></div><span class="font-bold text-slate-700 w-6"><?php echo $stats_sick; ?></span><span class="text-xs text-gray-500">Sick Leave</span></div>
-                        </div>
-                        <div class="relative"><div id="attendanceChart" class="w-28 h-28"></div></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-span-12 lg:col-span-4 card">
-                <div class="card-body">
-                    <div class="flex items-center gap-2 mb-4 border-b border-slate-100 pb-3">
-                        <i class="fa-solid fa-bolt text-teal-600 text-lg"></i>
-                        <h3 class="font-bold text-slate-800 text-base">CFO Action Hub</h3>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3 h-[calc(100%-40px)]">
-                        <a href="cfo_approvals.php" class="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col items-center justify-center gap-2 hover:border-teal-500 hover:bg-white hover:shadow transition group">
-                            <i class="fa-solid fa-check-double text-2xl text-slate-400 group-hover:text-teal-600"></i><span class="text-xs font-semibold text-slate-700 text-center">Approvals Center</span>
-                        </a>
-                        <a href="ledger.php" class="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col items-center justify-center gap-2 hover:border-teal-500 hover:bg-white hover:shadow transition group">
-                            <i class="fa-solid fa-book-open text-2xl text-slate-400 group-hover:text-teal-600"></i><span class="text-xs font-semibold text-slate-700 text-center">Master Ledger</span>
-                        </a>
-                        <a href="cfo_reports.php" class="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col items-center justify-center gap-2 hover:border-teal-500 hover:bg-white hover:shadow transition group">
-                            <i class="fa-solid fa-chart-pie text-2xl text-slate-400 group-hover:text-teal-600"></i><span class="text-xs font-semibold text-slate-700 text-center">Financial Reports</span>
-                        </a>
-                        <a href="tax_filing.php" class="bg-slate-50 border border-slate-100 rounded-xl p-4 flex flex-col items-center justify-center gap-2 hover:border-teal-500 hover:bg-white hover:shadow transition group">
-                            <i class="fa-solid fa-building-columns text-2xl text-slate-400 group-hover:text-teal-600"></i><span class="text-xs font-semibold text-slate-700 text-center">Tax & Filing</span>
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <div class="col-span-12 lg:col-span-4 card">
-                <div class="card-body flex flex-col">
-                    <div class="flex justify-between items-center mb-5 border-b border-slate-100 pb-3">
-                        <h3 class="font-bold text-slate-800 text-base">Scheduled Meetings</h3>
-                        <button class="text-teal-600 bg-teal-50 w-6 h-6 rounded flex items-center justify-center"><i class="fa-solid fa-plus text-xs"></i></button>
-                    </div>
-                    <div class="meeting-timeline custom-scroll overflow-y-auto pr-2" style="max-height: 190px;">
-                        <?php if($meet_result && mysqli_num_rows($meet_result) > 0) { 
-                            while($meet = mysqli_fetch_assoc($meet_result)):
-                                $is_past = (strtotime($meet['meeting_time']) < time()) ? 'opacity-50' : '';
-                                $dot_color = (strtotime($meet['meeting_time']) < time()) ? 'bg-slate-300' : 'bg-teal-500';
-                        ?>
-                        <div class="meeting-row-wrapper <?php echo $is_past; ?>">
-                            <div class="meeting-dot <?php echo $dot_color; ?>"></div>
-                            <div class="meeting-flex-container">
-                                <div class="meeting-time-label"><?php echo date("h:i A", strtotime($meet['meeting_time'])); ?></div>
-                                <div class="meeting-content-box">
-                                    <h4 class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></h4>
-                                    <p class="text-xs text-slate-500 mt-1 flex items-center gap-1"><i class="fa-solid fa-link text-slate-400"></i> <?php echo $meet['platform'] ?? 'Online'; ?></p>
+                    
+                    <div class="p-4 bg-slate-50 flex-grow space-y-4">
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                <i class="fa-solid fa-user-shield text-purple-500"></i> Reporting To
+                            </p>
+                            <div class="flex justify-between items-center">
+                                <div class="min-w-0">
+                                    <p class="text-sm font-black text-slate-800 truncate">Board of Directors</p>
+                                    <p class="text-[10px] text-slate-500 font-medium mt-0.5 truncate">
+                                        <i class="fa-solid fa-envelope text-[9px] mr-1"></i> management@company.com
+                                    </p>
+                                </div>
+                                <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 flex-shrink-0">
+                                    <i class="fa-solid fa-building text-xs"></i>
                                 </div>
                             </div>
                         </div>
-                        <?php endwhile; } else { ?>
-                            <div class="text-center py-6 flex flex-col items-center justify-center">
-                                <i class="fa-regular fa-calendar-xmark text-3xl text-slate-200 mb-2"></i>
-                                <p class="text-xs text-slate-400 font-medium">No meetings scheduled for today.</p>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
+                                <p class="text-[9px] text-gray-400 font-black uppercase tracking-tighter">Experience</p>
+                                <p class="text-xs font-black text-slate-700 mt-1"><?php echo htmlspecialchars($experience_label); ?></p>
                             </div>
-                        <?php } ?>
+                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
+                                <p class="text-[9px] text-gray-400 font-black uppercase tracking-tighter">Department</p>
+                                <p class="text-xs font-black text-slate-700 mt-1"><?php echo htmlspecialchars($department); ?></p>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                            <p class="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Company Journey</p>
+                            <div class="flex justify-between items-center">
+                                <p class="text-xs font-black text-slate-700">Joined On</p>
+                                <span class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded-lg"><?php echo $joining_date; ?></span>
+                            </div>
+                        </div>
+
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Core Expertise</p>
+                            <div class="flex flex-wrap gap-1.5">
+                                <span class="px-2 py-1 bg-teal-100 text-teal-700 text-[9px] font-bold rounded-md border border-teal-200">Finance</span>
+                                <span class="px-2 py-1 bg-blue-100 text-blue-700 text-[9px] font-bold rounded-md border border-blue-200">Strategy</span>
+                                <span class="px-2 py-1 bg-slate-200 text-slate-700 text-[9px] font-bold rounded-md border border-slate-300">Leadership</span>
+                            </div>
+                        </div>
+
+                        <?php
+                        $emergency = json_decode($emergency_contacts, true);
+                        if (!empty($emergency)): 
+                            $primary = $emergency[0]; ?>
+                            <div class="p-3 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between mt-auto shadow-sm">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-500 shadow-inner">
+                                        <i class="fa-solid fa-heart-pulse text-xs"></i>
+                                    </div>
+                                    <div>
+                                        <span class="text-[9px] font-black text-rose-700 uppercase block tracking-tight">Emergency</span>
+                                        <p class="text-xs font-black text-slate-800"><?php echo htmlspecialchars($primary['name']); ?></p>
+                                    </div>
+                                </div>
+                                <p class="text-[10px] font-black text-rose-600 bg-white px-2 py-1 rounded-lg border border-rose-100"><?php echo htmlspecialchars($primary['phone']); ?></p>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
+
+                <div class="card flex-grow">
+                    <div class="card-body flex flex-col">
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg">Invoices Pending</h3>
+                            <a href="cfo_approvals.php" class="text-[9px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
+                        </div>
+                        <div class="custom-scroll scroll-area pr-2">
+                            <table class="w-full text-left border-collapse">
+                                <?php if(empty($recent_invoices)): ?>
+                                    <tr><td class="text-center py-8 text-slate-400 text-xs">No pending invoices found.</td></tr>
+                                <?php endif; ?>
+                                <?php foreach($recent_invoices as $inv): 
+                                    $badge = 'badge-pending';
+                                    if($inv['status'] == 'Paid') $badge = 'badge-paid';
+                                    if($inv['status'] == 'Overdue') $badge = 'badge-overdue';
+                                ?>
+                                <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition">
+                                    <td class="py-2.5 px-2">
+                                        <p class="font-bold text-[13px] text-slate-800"><?php echo htmlspecialchars($inv['no']); ?></p>
+                                        <p class="text-[10px] text-slate-500 font-medium mt-0.5"><?php echo htmlspecialchars($inv['client']); ?> • <?php echo $inv['date']; ?></p>
+                                    </td>
+                                    <td class="py-2.5 px-2 text-right">
+                                        <p class="font-black text-sm text-slate-800">₹<?php echo number_format($inv['amount']); ?></p>
+                                        <span class="status-badge <?php echo $badge; ?> inline-block mt-1"><?php echo htmlspecialchars($inv['status']); ?></span>
+                                    </td>
+                                </tr>
+                                <?php endforeach; ?>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 
-        <div class="dashboard-container">
-            <div class="col-span-12 lg:col-span-7 card">
-                <div class="card-body">
-                    <h3 class="font-bold text-slate-800 text-lg mb-4">Revenue Trend (<?php echo $selected_year; ?>)</h3>
-                    <div class="relative h-64"><canvas id="revenueChart"></canvas></div>
-                </div>
-            </div>
-            
-            <div class="col-span-12 lg:col-span-5 card">
-                <div class="card-body">
-                    <div class="flex justify-between items-center mb-4">
-                        <h3 class="font-bold text-slate-800 text-lg">Invoices Pending Payment</h3>
-                        <a href="cfo_approvals.php" class="text-xs font-bold text-teal-600 hover:underline bg-teal-50 px-2 py-1 rounded">View All</a>
-                    </div>
-                    <div class="custom-scroll overflow-y-auto" style="max-height: 250px; padding-right:5px;">
-                        <table class="w-full text-left border-collapse">
-                            <?php if(empty($recent_invoices)): ?>
-                                <tr><td class="text-center py-8 text-slate-400 text-sm">No pending invoices.</td></tr>
-                            <?php endif; ?>
-                            <?php foreach($recent_invoices as $inv): 
-                                $badge = 'badge-pending';
-                                if($inv['status'] == 'Paid') $badge = 'badge-paid';
-                                if($inv['status'] == 'Overdue') $badge = 'badge-overdue';
-                            ?>
-                            <tr class="border-b border-slate-50 last:border-0">
-                                <td class="py-3">
-                                    <p class="font-bold text-sm text-slate-800"><?php echo htmlspecialchars($inv['no']); ?></p>
-                                    <p class="text-[11px] text-slate-500 font-medium"><?php echo htmlspecialchars($inv['client']); ?> • <?php echo $inv['date']; ?></p>
-                                </td>
-                                <td class="py-3 text-right">
-                                    <p class="font-bold text-sm text-slate-800">₹<?php echo number_format($inv['amount']); ?></p>
-                                    <span class="status-badge <?php echo $badge; ?> inline-block mt-1"><?php echo htmlspecialchars($inv['status']); ?></span>
-                                </td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </table>
+        <div class="dashboard-grid">
+            <div class="card">
+                <div class="card-body flex flex-col">
+                    <h3 class="font-bold text-slate-800 text-lg mb-4 shrink-0 border-b border-gray-100 pb-2">Revenue Trend (<?php echo $selected_year; ?>)</h3>
+                    <div class="relative flex-grow min-h-[300px] w-full">
+                        <canvas id="revenueChart"></canvas>
                     </div>
                 </div>
             </div>
@@ -556,27 +647,29 @@ include '../header.php';
     </main>
 
     <script>
-        // 1. LIVE TIMER LOGIC 
+        // 1. LIVE TIMER LOGIC
         const timerElement = document.getElementById('liveTimer');
         const progressRing = document.getElementById('progressRing');
-        const isRunning = timerElement.getAttribute('data-running') === 'true';
-        let totalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-        const startTime = new Date().getTime(); 
+        if(timerElement) {
+            const isRunning = timerElement.getAttribute('data-running') === 'true';
+            let totalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
+            const startTime = new Date().getTime(); 
 
-        function updateTimer() {
-            if (!isRunning) return; 
-            const now = new Date().getTime();
-            const diffSeconds = Math.floor((now - startTime) / 1000);
-            const currentTotal = totalSeconds + diffSeconds;
-            const hours = Math.floor(currentTotal / 3600);
-            const minutes = Math.floor((currentTotal % 3600) / 60);
-            const seconds = currentTotal % 60;
-            
-            timerElement.innerText = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-            const progress = Math.min(currentTotal / 32400, 1);
-            if(progressRing) progressRing.style.strokeDashoffset = 352 - (progress * 352);
+            function updateTimer() {
+                if (!isRunning) return; 
+                const now = new Date().getTime();
+                const diffSeconds = Math.floor((now - startTime) / 1000);
+                const currentTotal = totalSeconds + diffSeconds;
+                const hours = Math.floor(currentTotal / 3600);
+                const minutes = Math.floor((currentTotal % 3600) / 60);
+                const seconds = currentTotal % 60;
+                
+                timerElement.innerText = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+                const progress = Math.min(currentTotal / 32400, 1);
+                if(progressRing) progressRing.style.strokeDashoffset = 352 - (progress * 352);
+            }
+            if (isRunning) setInterval(updateTimer, 1000);
         }
-        if (isRunning) setInterval(updateTimer, 1000);
 
         // 2. APEXCHART FOR LEAVE DETAILS
         const attData = [<?php echo $stats_ontime; ?>, <?php echo $stats_late; ?>, <?php echo $stats_wfh; ?>, <?php echo $stats_absent; ?>, <?php echo $stats_sick; ?>];
@@ -586,28 +679,34 @@ include '../header.php';
             series: hasData ? attData : [1],
             labels: hasData ? ['On Time', 'Late', 'WFH', 'Absent', 'Sick'] : ['No Data'],
             colors: hasData ? ['#0d9488', '#22c55e', '#f97316', '#ef4444', '#eab308'] : ['#e2e8f0'],
-            chart: { type: 'donut', height: 130 },
+            chart: { type: 'donut', width: 100, height: 100, sparkline: { enabled: true } },
             plotOptions: { donut: { size: '75%' } },
             dataLabels: { enabled: false },
             legend: { show: false },
             tooltip: { enabled: hasData }
         };
-        new ApexCharts(document.querySelector("#attendanceChart"), options).render();
+        var attendanceChartEl = document.querySelector("#attendanceChart");
+        if(attendanceChartEl) {
+            new ApexCharts(attendanceChartEl, options).render();
+        }
 
         // 3. CFO FINANCIAL CHART
-        const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11, family: "'Inter', sans-serif" } } } } };
+        const revChartCanvas = document.getElementById('revenueChart');
+        if(revChartCanvas) {
+            const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" } } } } };
 
-        new Chart(document.getElementById('revenueChart'), {
-            type: 'line',
-            data: {
-                labels: <?php echo json_encode($rev_labels); ?>,
-                datasets: [
-                    { label: 'Income', data: <?php echo json_encode($rev_income); ?>, borderColor: '#0d9488', backgroundColor: 'rgba(13, 148, 136, 0.1)', fill: true, tension: 0.4 },
-                    { label: 'Expense', data: <?php echo json_encode($rev_expense); ?>, borderColor: '#ef4444', backgroundColor: 'transparent', borderDash: [5, 5], tension: 0.4 }
-                ]
-            },
-            options: { ...commonOptions, scales: { y: { beginAtZero: true, grid: { borderDash: [2, 2], color: '#f1f5f9' } }, x: { grid: { display: false } } } }
-        });
+            new Chart(revChartCanvas, {
+                type: 'line',
+                data: {
+                    labels: <?php echo json_encode($rev_labels); ?>,
+                    datasets: [
+                        { label: 'Income', data: <?php echo json_encode($rev_income); ?>, borderColor: '#0d9488', backgroundColor: 'rgba(13, 148, 136, 0.1)', fill: true, tension: 0.4 },
+                        { label: 'Expense', data: <?php echo json_encode($rev_expense); ?>, borderColor: '#ef4444', backgroundColor: 'transparent', borderDash: [5, 5], tension: 0.4 }
+                    ]
+                },
+                options: { ...commonOptions, scales: { y: { beginAtZero: true, grid: { borderDash: [2, 2], color: '#f1f5f9' } }, x: { grid: { display: false } } } }
+            });
+        }
     </script>
 </body>
 </html>
