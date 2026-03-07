@@ -319,13 +319,6 @@ $sections = [
                 'icon' => 'trending-up', 
                 'allowed' => ['Team Lead'],
             ],
-            // --- TL PERFORMANCE (TEAM LEAD ROLE) ---
-            [
-                'name' => 'Team Performance', 
-                'path' => $base . 'TL/tl_performance.php', 
-                'icon' => 'trending-up', // Lucide icon for performance
-                'allowed' => ['Team Lead']
-            ],
             [
                 'name' => 'Performance', 
                 'path' => $base . 'HR/all_performance.php', 
