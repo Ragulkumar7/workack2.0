@@ -555,7 +555,7 @@ $perf_score = 92; $perf_grade = "A+";
                                             <td class="font-medium text-slate-800 max-w-[150px] truncate" title="<?php echo htmlspecialchars($t['subject']); ?>"><?php echo htmlspecialchars($t['subject']); ?></td>
                                             <td class="text-xs text-slate-500"><?php echo htmlspecialchars($t['raised_by']); ?></td>
                                             <td><span class="badge-status <?php echo $st_class; ?>"><?php echo htmlspecialchars($t['status']); ?></span></td>
-                                            <td class="text-right"><a href="assigned_tickets.php" class="text-xs font-bold text-teal-600 hover:text-teal-800 bg-teal-50 px-2 py-1 rounded border border-teal-200 transition">Open</a></td>
+                                            <td class="text-right"><a href="it_exec_ticket_action.php" class="text-xs font-bold text-teal-600 hover:text-teal-800 bg-teal-50 px-2 py-1 rounded border border-teal-200 transition">Open</a></td>
                                         </tr>
                                         <?php endforeach; endif; ?>
                                     </tbody>
