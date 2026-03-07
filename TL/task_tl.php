@@ -24,17 +24,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $tasks_array = json_decode($tasks_json, true);
 
     if (!empty($tasks_array) && is_array($tasks_array)) {
-        // Prepare the statement once for efficiency
-        $stmt = $conn->prepare("INSERT INTO project_tasks (project_id, task_title, description, assigned_to, priority, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')");
+        // [UPGRADE]: Added assigned_to_user_id to ensure enterprise performance tracking works accurately
+        $stmt = $conn->prepare("INSERT INTO project_tasks (project_id, task_title, description, assigned_to_user_id, assigned_to, priority, due_date, created_by, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')");
         
         foreach ($tasks_array as $task) {
             $title = $task['title'];
             $desc = $task['desc'];
-            $assignees = $task['assignees'];
+            $assignee_id = (int)$task['assignee_id'];
+            $assignee_name = $task['assignee_name'];
             $priority = $task['priority'];
             $due_date = $task['due_date'];
             
-            $stmt->bind_param("isssssi", $project_id, $title, $desc, $assignees, $priority, $due_date, $tl_id);
+            $stmt->bind_param("ississsi", $project_id, $title, $desc, $assignee_id, $assignee_name, $priority, $due_date, $tl_id);
             $stmt->execute();
         }
         $stmt->close();
@@ -255,8 +256,21 @@ $tasks_result = $t_stmt->get_result();
                     
                     <div style="display: flex; gap: 12px; margin-bottom: 12px;">
                         <div style="flex: 2;">
-                            <label style="font-size:11px; font-weight:600; color: #475569; display: block; margin-bottom: 4px;">Assignee Name</label>
-                            <input type="text" id="m_assignee" class="form-input" list="empList" placeholder="Select Employee">
+                            <label style="font-size:11px; font-weight:600; color: #475569; display: block; margin-bottom: 4px;">Assignee</label>
+                            
+                            <select id="m_assignee" class="form-input">
+                                <option value="">-- Select Employee --</option>
+                                <?php 
+                                $e_stmt = $conn->prepare("SELECT user_id, full_name FROM employee_profiles WHERE reporting_to = ?");
+                                $e_stmt->bind_param("i", $tl_id);
+                                $e_stmt->execute();
+                                $e_res = $e_stmt->get_result();
+                                while($e = $e_res->fetch_assoc()) { 
+                                    echo "<option value='".$e['user_id']."'>".htmlspecialchars($e['full_name'])."</option>"; 
+                                }
+                                ?>
+                            </select>
+
                         </div>
                         <div style="flex: 1;">
                             <label style="font-size:11px; font-weight:600; color: #475569; display: block; margin-bottom: 4px;">Due Date</label>
@@ -285,18 +299,6 @@ $tasks_result = $t_stmt->get_result();
     </div>
 
     <div id="toast"></div>
-
-    <datalist id="empList">
-        <?php 
-        $e_stmt = $conn->prepare("SELECT full_name FROM employee_profiles WHERE reporting_to = ?");
-        $e_stmt->bind_param("i", $tl_id);
-        $e_stmt->execute();
-        $e_res = $e_stmt->get_result();
-        while($e = $e_res->fetch_assoc()) { 
-            echo "<option value='".htmlspecialchars($e['full_name'])."'>"; 
-        }
-        ?>
-    </datalist>
 
     <script>
         lucide.createIcons();
@@ -329,16 +331,21 @@ $tasks_result = $t_stmt->get_result();
         function addToQueue() {
             const title = document.getElementById('m_title').value.trim();
             const desc = document.getElementById('m_desc').value.trim();
-            const assignee = document.getElementById('m_assignee').value.trim();
+            const assigneeSelect = document.getElementById('m_assignee');
+            
+            // Get both ID and Name to ensure tracking logic works
+            const assignee_id = assigneeSelect.value;
+            const assignee_name = assignee_id ? assigneeSelect.options[assigneeSelect.selectedIndex].text : '';
+            
             const date = document.getElementById('m_date').value;
             const priority = document.getElementById('m_priority').value;
 
-            if(!title || !assignee || !date) { 
+            if(!title || !assignee_id || !date) { 
                 showToast("Please fill out the Task Title, Assignee, and Due Date.", "error"); 
                 return; 
             }
 
-            taskQueue.push({ title, desc, assignees: assignee, due_date: date, priority });
+            taskQueue.push({ title, desc, assignee_id, assignee_name, due_date: date, priority });
             
             // Clear inputs for next entry
             document.getElementById('m_title').value = '';
@@ -373,7 +380,7 @@ $tasks_result = $t_stmt->get_result();
                 <div class="preview-item">
                     <div>
                         <div style="font-weight:700; font-size:14px; color: #0f172a; margin-bottom: 3px;">${t.title}</div>
-                        <div style="font-size:12px; color:#64748b;"><b>To:</b> <span style="color:#0f766e;">${t.assignees}</span> | <b>Due:</b> ${t.due_date} | <b>Priority:</b> ${t.priority}</div>
+                        <div style="font-size:12px; color:#64748b;"><b>To:</b> <span style="color:#0f766e;">${t.assignee_name}</span> | <b>Due:</b> ${t.due_date} | <b>Priority:</b> ${t.priority}</div>
                     </div>
                     <button type="button" onclick="removeFromQueue(${i})" style="color:#ef4444; border:none; background:none; cursor:pointer; padding: 5px; border-radius: 4px;" title="Remove">
                         <i data-lucide="trash-2" style="width:18px;"></i>

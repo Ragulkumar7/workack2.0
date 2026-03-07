@@ -1,5 +1,5 @@
 <?php
-// 1. OUTPUT BUFFERING
+// 1. OUTPUT BUFFERING - Prevents "Headers already sent"
 ob_start();
 
 // 2. SESSION & SECURITY
@@ -19,47 +19,75 @@ $dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
 if (file_exists($dbPath)) { include_once($dbPath); } 
 else { include_once('../include/db_connect.php'); }
 
-// 4. FETCH PERFORMANCE DATA DYNAMICALLY
+/// 4. FETCH PERFORMANCE DATA DYNAMICALLY BASED ON HIERARCHY
 $performanceData = [];
 
-// Base query to get employees reporting to this user (or all if HR)
 if ($user_role === 'HR' || $user_role === 'Admin') {
-    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, per.manager_comments, per.self_review 
+    // LEVEL 4 (HR/Admin): Sees EVERYONE in the company.
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
+            per.manager_rating_pct, per.manager_comments, per.self_review 
             FROM employee_profiles ep 
-            LEFT JOIN employee_performance per ON ep.user_id = per.user_id";
+            LEFT JOIN employee_performance per ON ep.user_id = per.user_id
+            WHERE ep.user_id != ?"; // Optionally exclude themselves from the list
+            
     $stmt = mysqli_prepare($conn, $sql);
-} else {
-    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, per.manager_comments, per.self_review 
+    mysqli_stmt_bind_param($stmt, "i", $current_user_id);
+
+} elseif ($user_role === 'Manager') {
+    // LEVEL 3 (Manager): Sees their direct reports (Team Leads) AND the employees reporting to those Team Leads.
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
+            per.manager_rating_pct, per.manager_comments, per.self_review 
             FROM employee_profiles ep 
             LEFT JOIN employee_performance per ON ep.user_id = per.user_id 
-            WHERE ep.reporting_to = ? OR ep.manager_id = ?";
+            WHERE ep.reporting_to = ? 
+               OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE reporting_to = ?)";
+               
     $stmt = mysqli_prepare($conn, $sql);
+    // Bind the Manager's ID twice (once for direct reports, once for second-level reports)
     mysqli_stmt_bind_param($stmt, "ii", $current_user_id, $current_user_id);
+
+} else {
+    // LEVEL 2 (Team Lead): Sees ONLY the employees reporting directly to them.
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
+            per.manager_rating_pct, per.manager_comments, per.self_review 
+            FROM employee_profiles ep 
+            LEFT JOIN employee_performance per ON ep.user_id = per.user_id 
+            WHERE ep.reporting_to = ?";
+            
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $current_user_id);
 }
 
 if ($stmt) {
     mysqli_stmt_execute($stmt);
     $result = mysqli_stmt_get_result($stmt);
 
-    // Prepare internal queries for efficiency
-    $att_stmt = $conn->prepare("SELECT COUNT(*) as present_days, SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days FROM attendance WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
-    $task_stmt = $conn->prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN due_date < CURDATE() AND status != 'completed' THEN 1 ELSE 0 END) as overdue FROM personal_taskboard WHERE user_id = ?");
-    $proj_stmt = $conn->prepare("SELECT status FROM project_tasks WHERE assigned_to LIKE ? LIMIT 10");
+    // [UPGRADE] Prepared efficient queries for the loop
+    // 1. Dynamic working days logic
+    $att_stmt = $conn->prepare("SELECT COUNT(*) as total_days, SUM(CASE WHEN status = 'On Time' THEN 1 ELSE 0 END) as present_days, SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days FROM attendance WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+    
+    // 2. Exclude cancelled tasks
+    $task_stmt = $conn->prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN due_date < CURDATE() AND status != 'completed' THEN 1 ELSE 0 END) as overdue FROM personal_taskboard WHERE user_id = ? AND status != 'cancelled'");
+    
+    // 3. Strict User ID matching for Projects
+    $proj_stmt = $conn->prepare("SELECT status FROM project_tasks WHERE assigned_to_user_id = ? LIMIT 10");
 
     if ($result && mysqli_num_rows($result) > 0) {
         while($row = mysqli_fetch_assoc($result)) {
             $emp_id = $row['user_id'];
             $emp_full_name = $row['full_name'];
+            $mgr_pct = $row['manager_rating_pct'] ?? 0;
 
-            // 1. Attendance Calculation (20%)
+            // 1. Attendance Calculation (15%)
             $att_stmt->bind_param("i", $emp_id);
             $att_stmt->execute();
             $att_data = $att_stmt->get_result()->fetch_assoc();
+            $total_att_days = $att_data['total_days'] > 0 ? $att_data['total_days'] : 1; 
             $present_days = $att_data['present_days'] ?? 0;
             $late_days = $att_data['late_days'] ?? 0;
-            $attendance_pct = min(100, round(($present_days / 22) * 100));
+            $attendance_pct = min(100, round(($present_days / $total_att_days) * 100));
 
-            // 2. Task Calculation (30%)
+            // 2. Task Calculation (25%)
             $task_stmt->bind_param("i", $emp_id);
             $task_stmt->execute();
             $task_res = $task_stmt->get_result()->fetch_assoc();
@@ -68,9 +96,8 @@ if ($stmt) {
             $overdue_tasks = $task_res['overdue'] ?? 0;
             $task_completion_pct = round(($completed_tasks / $task_total) * 100);
 
-            // 3. Project Calculation (40%)
-            $emp_search = "%" . $emp_full_name . "%";
-            $proj_stmt->bind_param("s", $emp_search);
+            // 3. Project Calculation (30%)
+            $proj_stmt->bind_param("i", $emp_id);
             $proj_stmt->execute();
             $projects_list = $proj_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
             $on_time_projects = 0;
@@ -78,17 +105,18 @@ if ($stmt) {
             $proj_total = count($projects_list) > 0 ? count($projects_list) : 1;
             $project_completion_pct = round(($on_time_projects / $proj_total) * 100);
 
-            // 4. System Reliability Rating (10%)
+            // 4. System Reliability Rating (10%) - Min Cap at 40
             $automated_rating = 100 - ($late_days * 5) - ($overdue_tasks * 5);
-            $automated_rating = max(0, min(100, $automated_rating));
+            $automated_rating = max(40, min(100, $automated_rating));
 
-            // FINAL AGGREGATION
-            $score = ($project_completion_pct * 0.4) + ($task_completion_pct * 0.3) + ($attendance_pct * 0.2) + ($automated_rating * 0.1);
+            // FINAL ENTERPRISE AGGREGATION
+            $score = ($project_completion_pct * 0.30) + ($task_completion_pct * 0.25) + ($attendance_pct * 0.15) + ($automated_rating * 0.10) + ($mgr_pct * 0.20);
             $score = round($score, 1);
 
-            if($score >= 90) $grade = "Excellent";
-            elseif($score >= 75) $grade = "Good";
-            elseif($score >= 50) $grade = "Average";
+            // Enterprise Grading Scale
+            if($score >= 90) $grade = "Outstanding";
+            elseif($score >= 75) $grade = "Exceeds Expectations";
+            elseif($score >= 50) $grade = "Meets Expectations";
             else $grade = "Needs Improvement";
 
             $performanceData[] = [
@@ -103,11 +131,13 @@ if ($stmt) {
                 "overdue" => $overdue_tasks,
                 "attendance" => $attendance_pct,
                 "present_days" => $present_days,
+                "total_att_days" => $total_att_days,
                 "speed" => $score,
                 "quality" => $project_completion_pct,
                 "on_time_proj" => $on_time_projects,
                 "total_proj" => count($projects_list),
-                "soft_skills" => $automated_rating,
+                "sys_score" => $automated_rating,
+                "mgr_score" => $mgr_pct,
                 "comments" => $row['manager_comments'],
                 "self_review" => $row['self_review'],
                 "status" => $grade
@@ -168,10 +198,10 @@ usort($performanceData, function($a, $b) {
         .emp-role { font-size: 12px; color: var(--text-muted); }
 
         .grade-badge { padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .status-Excellent, .status-High { background: #ecfdf5; color: #10b981; }
-        .status-Good { background: #eff6ff; color: #3b82f6; }
-        .status-Average { background: #fff7ed; color: #f59e0b; }
-        .status-Poor, .status-Needs { background: #fef2f2; color: #ef4444; }
+        .status-Outstanding { background: #ecfdf5; color: #10b981; }
+        .status-Exceeds { background: #eff6ff; color: #3b82f6; }
+        .status-Meets { background: #fff7ed; color: #f59e0b; }
+        .status-Needs { background: #fef2f2; color: #ef4444; }
 
         .btn-view { background: #1e293b; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; transition: 0.2s;}
         .btn-view:hover { background: var(--primary); }
@@ -181,9 +211,11 @@ usort($performanceData, function($a, $b) {
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
         .modal-box { width: 100%; padding-bottom: 50px; }
-        .modal-nav { padding: 0 0 20px 0; }
+        .modal-nav { display: flex; justify-content: space-between; padding: 0 0 20px 0; }
         .back-link { display: flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 14px; cursor: pointer; font-weight: 600; }
         .back-link:hover { color: var(--text-main); }
+        .btn-evaluate { background: var(--primary); color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 6px;}
+        .btn-evaluate:hover { background: #0f766e; }
 
         .profile-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0 30px; }
         .profile-info { display: flex; align-items: center; gap: 15px; }
@@ -193,11 +225,11 @@ usort($performanceData, function($a, $b) {
         .card-wide { grid-column: span 2; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
         .grade-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
         
-        .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 10px; }
-        .metric-item { background: #fcfcfd; border: 1px solid var(--border); padding: 20px; border-radius: 12px; }
-        .metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: 8px; }
-        .metric-value { font-size: 24px; font-weight: 700; margin: 5px 0; display: block; }
-        .metric-sub { font-size: 12px; color: var(--text-muted); }
+        .metrics-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-top: 10px; }
+        .metric-item { background: #fcfcfd; border: 1px solid var(--border); padding: 15px; border-radius: 12px; }
+        .metric-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .metric-value { font-size: 20px; font-weight: 700; margin: 5px 0; display: block; color: #0f172a;}
+        .metric-sub { font-size: 11px; color: var(--text-muted); }
 
         .score-circle-container { position: relative; width: 110px; height: 110px; }
         .score-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -209,7 +241,6 @@ usort($performanceData, function($a, $b) {
         .list-item { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
         .list-item:last-child { border-bottom: none; }
 
-        .feedback-section { margin-top: 25px; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
         .feedback-text-box { background: #fcfcfd; padding: 20px; border-radius: 8px; border: 1px solid var(--border); font-size: 14px; color: #334155; font-style: italic; line-height: 1.6;}
 
         @media (max-width: 992px) {
@@ -282,8 +313,13 @@ usort($performanceData, function($a, $b) {
                                         <td><?= $row['tasks_done'] ?>%</td>
                                         <td><span style="font-weight:700; color: #0f172a;"><?= rtrim(rtrim($row['speed'], '0'), '.') ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
                                         <td>
-                                            <?php $badge_class = strpos($row['status'], 'Needs') !== false ? 'status-Poor' : 'status-'.$row['status']; ?>
-                                            <span class="grade-badge <?= $badge_class ?>"><?= $row['status'] ?></span>
+                                            <?php 
+                                                $b_class = 'status-Needs';
+                                                if (strpos($row['status'], 'Outstanding') !== false) $b_class = 'status-Outstanding';
+                                                elseif (strpos($row['status'], 'Exceeds') !== false) $b_class = 'status-Exceeds';
+                                                elseif (strpos($row['status'], 'Meets') !== false) $b_class = 'status-Meets';
+                                            ?>
+                                            <span class="grade-badge <?= $b_class ?>"><?= $row['status'] ?></span>
                                         </td>
                                         <td>
                                             <button class="btn-view" onclick='openDetails(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8") ?>)'>
@@ -304,6 +340,9 @@ usort($performanceData, function($a, $b) {
                             <a class="back-link" onclick="closeModal()">
                                 <i data-lucide="arrow-left" style="width:18px"></i> Back to Employee List
                             </a>
+                            <a href="evaluate_team.php" class="btn-evaluate">
+                                <i data-lucide="gavel" style="width:16px"></i> Evaluate & Grade
+                            </a>
                         </div>
 
                         <div class="profile-header">
@@ -319,11 +358,11 @@ usort($performanceData, function($a, $b) {
                         <div class="grid-dashboard">
                             <div class="card-wide">
                                 <div class="grade-header">
-                                    <span style="font-weight:600; font-size:16px;">Performance Grade</span>
-                                    <span id="dStatusLabel" style="font-weight:800; font-size:20px;">Good</span>
+                                    <span style="font-weight:600; font-size:16px;">Enterprise Performance Grade</span>
+                                    <span id="dStatusLabel" style="font-weight:800; font-size:20px;">Meets Expectations</span>
                                 </div>
                                 
-                                <div style="display:flex; align-items:center; gap:50px;">
+                                <div style="display:flex; align-items:center; gap:40px;">
                                     <div class="score-circle-container">
                                         <svg viewBox="0 0 36 36" style="width:110px; height:110px; transform: rotate(-90deg);">
                                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#eee" stroke-width="3" />
@@ -337,24 +376,29 @@ usort($performanceData, function($a, $b) {
 
                                     <div class="metrics-row" style="flex:1;">
                                         <div class="metric-item">
-                                            <span class="metric-label">Projects <span style="font-weight:400">40%</span></span>
+                                            <span class="metric-label">Projects <span style="font-weight:400">30%</span></span>
                                             <span class="metric-value" id="dQual">0%</span>
                                             <span class="metric-sub" id="dQualSub">0/0 Completed</span>
                                         </div>
                                         <div class="metric-item">
-                                            <span class="metric-label">Tasks <span style="font-weight:400">30%</span></span>
+                                            <span class="metric-label">Tasks <span style="font-weight:400">25%</span></span>
                                             <span class="metric-value" id="dDone">0%</span>
                                             <span class="metric-sub" id="dDoneSub">0 Completed</span>
                                         </div>
                                         <div class="metric-item">
-                                            <span class="metric-label">Attendance <span style="font-weight:400">20%</span></span>
+                                            <span class="metric-label">Attendance <span style="font-weight:400">15%</span></span>
                                             <span class="metric-value" id="dAtt">0%</span>
-                                            <span class="metric-sub" id="dAttSub">0 Days Present</span>
+                                            <span class="metric-sub" id="dAttSub">0/0 Days</span>
                                         </div>
                                         <div class="metric-item">
                                             <span class="metric-label">System <span style="font-weight:400">10%</span></span>
-                                            <span class="metric-value" id="dManager">0%</span>
+                                            <span class="metric-value" id="dSys">0%</span>
                                             <span class="metric-sub">Reliability</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="metric-label">Manager <span style="font-weight:400">20%</span></span>
+                                            <span class="metric-value" id="dManager">0%</span>
+                                            <span class="metric-sub">Soft Skills</span>
                                         </div>
                                     </div>
                                 </div>
@@ -368,11 +412,12 @@ usort($performanceData, function($a, $b) {
                             </div>
 
                             <div class="info-card">
-                                <div class="card-title"><i data-lucide="list-checks" style="width:20px; color:#f97316;"></i> Task Efficiency</div>
-                                <div class="list-item"><span>Total Tasks Assigned</span> <span style="font-weight:700; color:#1e293b;" id="tTotal">0</span></div>
-                                <div class="list-item"><span>Completed On Time</span> <span style="font-weight:700; color:#10b981;" id="tOnTime">0</span></div>
-                                <div class="list-item"><span>Overdue / Pending</span> <span style="font-weight:700; color:#ef4444;" id="tOverdue">0</span></div>
+                                <div class="card-title"><i data-lucide="message-square-quote" style="width:20px; color:#8b5cf6;"></i> Your Official Feedback</div>
+                                <div class="feedback-text-box" id="dComments">
+                                    No official feedback provided yet.
+                                </div>
                             </div>
+
                         </div>
 
                     </div>
@@ -401,20 +446,17 @@ usort($performanceData, function($a, $b) {
             document.getElementById('dQual').innerText = data.quality + "%";
             document.getElementById('dDone').innerText = data.tasks_done + "%";
             document.getElementById('dAtt').innerText = data.attendance + "%";
-            document.getElementById('dManager').innerText = data.soft_skills + "%";
+            document.getElementById('dSys').innerText = data.sys_score + "%";
+            document.getElementById('dManager').innerText = data.mgr_score + "%";
             
             // Metric Subtexts
             document.getElementById('dQualSub').innerText = data.on_time_proj + "/" + data.total_proj + " Completed";
             document.getElementById('dDoneSub').innerText = data.completed_on_time + " Completed";
-            document.getElementById('dAttSub').innerText = data.present_days + " Days Present";
+            document.getElementById('dAttSub').innerText = data.present_days + "/" + data.total_att_days + " Days";
 
-            // Task Stats
-            document.getElementById('tTotal').innerText = data.tasks_total;
-            document.getElementById('tOnTime').innerText = data.completed_on_time;
-            document.getElementById('tOverdue').innerText = data.overdue;
-
-            // Self Review
+            // Reviews
             document.getElementById('dSelfReview').innerText = data.self_review ? '"' + data.self_review + '"' : 'Employee has not submitted a self-review yet.';
+            document.getElementById('dComments').innerText = data.comments ? '"' + data.comments + '"' : 'No official feedback provided yet.';
 
             // Score Formatting
             let rawScore = parseFloat(data.speed);
@@ -424,11 +466,11 @@ usort($performanceData, function($a, $b) {
             const scoreLabel = document.getElementById('dStatusLabel');
             scoreLabel.innerText = data.status;
             
-            // Dynamic Coloring
-            let color = '#ef4444'; // Red
-            if(rawScore >= 90) color = '#10b981'; // Green
-            else if (rawScore >= 75) color = '#3b82f6'; // Blue
-            else if (rawScore >= 50) color = '#f97316'; // Orange
+            // Dynamic Coloring based on Enterprise Grades
+            let color = '#ef4444'; // Red (Needs Improvement)
+            if(rawScore >= 90) color = '#10b981'; // Green (Outstanding)
+            else if (rawScore >= 75) color = '#3b82f6'; // Blue (Exceeds)
+            else if (rawScore >= 50) color = '#f97316'; // Orange (Meets)
 
             scoreLabel.style.color = color;
             document.getElementById('scoreCircle').setAttribute('stroke', color);
@@ -465,4 +507,6 @@ usort($performanceData, function($a, $b) {
     </script>
 </body>
 </html>
-<?php ob_end_flush(); ?>
+<?php 
+ob_end_flush(); 
+?>
