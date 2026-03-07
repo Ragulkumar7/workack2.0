@@ -19,8 +19,8 @@ if (!isset($_SESSION['id']) && !isset($_SESSION['user_id'])) {
 }
 $current_user_id = isset($_SESSION['id']) ? $_SESSION['id'] : $_SESSION['user_id'];
 
-// --- [BUG FIX]: GET PROPER NAME FOR SEARCHING ---
-// Fetch the user's full name from the database instead of relying on an undefined session variable
+
+// --- GET PROPER NAME FOR SEARCHING ---
 $name_stmt = $conn->prepare("SELECT full_name FROM employee_profiles WHERE user_id = ?");
 $name_stmt->bind_param("i", $current_user_id);
 $name_stmt->execute();
@@ -29,7 +29,6 @@ $emp_full_name = $name_res['full_name'] ?? 'Unknown';
 
 
 // --- 1. DYNAMIC CALCULATION: ATTENDANCE (Weight: 20%) ---
-// Logic: (Present Days / Last 30 Days) * 100
 $att_stmt = $conn->prepare("SELECT COUNT(*) as present_days FROM attendance WHERE user_id = ? AND status = 'On Time' AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
 $att_stmt->bind_param("i", $current_user_id);
 $att_stmt->execute();
@@ -37,7 +36,6 @@ $att_data = $att_stmt->get_result()->fetch_assoc();
 $attendance_pct = min(100, round(($att_data['present_days'] / 22) * 100)); // Assuming 22 working days/month
 
 // --- 2. DYNAMIC CALCULATION: TASK COMPLETION (Weight: 30%) ---
-// Pulling from personal_taskboard table
 $task_stmt = $conn->prepare("SELECT 
     COUNT(*) as total, 
     SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
@@ -50,7 +48,6 @@ $task_total = $task_res['total'] > 0 ? $task_res['total'] : 1;
 $task_completion_pct = round(($task_res['completed'] / $task_total) * 100);
 
 // --- 3. DYNAMIC CALCULATION: PROJECT TIMELINES (Weight: 40%) ---
-// Fetching active projects from project_tasks table using the fetched full name
 $proj_stmt = $conn->prepare("SELECT task_title as name, due_date as deadline, status FROM project_tasks WHERE assigned_to LIKE ? LIMIT 5");
 $emp_search = "%" . $emp_full_name . "%"; 
 $proj_stmt->bind_param("s", $emp_search);
@@ -62,16 +59,38 @@ foreach($projects_list as $p) { if($p['status'] == 'Completed') $on_time_project
 $proj_total = count($projects_list) > 0 ? count($projects_list) : 1;
 $project_completion_pct = round(($on_time_projects / $proj_total) * 100);
 
-// --- 4. MANAGER RATING (Weight: 10%) ---
-// Still fetched from performance table as it requires manual input
-$stmt = $conn->prepare("SELECT manager_rating_pct, manager_comments, weekly_trend FROM employee_performance WHERE user_id = ?");
-$stmt->bind_param("i", $current_user_id);
-$stmt->execute();
-$perf_table = $stmt->get_result()->fetch_assoc();
-$mgr_pct = $perf_table['manager_rating_pct'] ?? 0;
+
+// --- 4. AUTOMATED SYSTEM RATING (Weight: 10%) ---
+// Calculates penalty for late days and overdue tasks
+$late_stmt = $conn->prepare("SELECT COUNT(*) as late_days FROM attendance WHERE user_id = ? AND status = 'Late' AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+$late_stmt->bind_param("i", $current_user_id);
+$late_stmt->execute();
+$late_data = $late_stmt->get_result()->fetch_assoc();
+$late_days = $late_data['late_days'] ?? 0;
+$overdue_count = $task_res['overdue'] ?? 0;
+
+// Start at 100. Deduct 5 points per late day and 5 points per overdue task
+$automated_rating = 100 - ($late_days * 5) - ($overdue_count * 5);
+$automated_rating = max(0, min(100, $automated_rating)); // Ensure it stays between 0 and 100
+
+// Generate Automated Feedback Text
+$auto_comments = "System Analysis: ";
+if ($late_days == 0 && $overdue_count == 0) {
+    $auto_comments .= "Exceptional reliability! Zero late arrivals and zero overdue tasks detected in the current period.";
+} else {
+    $auto_comments .= "Detected " . $late_days . " late arrival(s) and " . $overdue_count . " overdue task(s). Improve punctuality and deadline management to increase your overall system rating.";
+}
+
+
+// --- FETCH WEEKLY TREND DATA ---
+$perf_stmt = $conn->prepare("SELECT weekly_trend FROM employee_performance WHERE user_id = ?");
+$perf_stmt->bind_param("i", $current_user_id);
+$perf_stmt->execute();
+$perf_table = $perf_stmt->get_result()->fetch_assoc();
+
 
 // --- FINAL SCORE AGGREGATION ---
-$score = ($project_completion_pct * 0.4) + ($task_completion_pct * 0.3) + ($attendance_pct * 0.2) + ($mgr_pct * 0.1);
+$score = ($project_completion_pct * 0.4) + ($task_completion_pct * 0.3) + ($attendance_pct * 0.2) + ($automated_rating * 0.1);
 $score = round($score, 1);
 
 // Determine Grade
@@ -97,9 +116,9 @@ $metrics = [
     'overdue_tasks' => $task_res['overdue'] ?? 0,
     'attendance_pct' => $attendance_pct,
     'attendance_details' => $att_data['present_days'] . " Days Present",
-    'manager_rating_pct' => $mgr_pct,
-    'manager_details' => 'Soft Skills',
-    'manager_comments' => $perf_table['manager_comments'] ?? 'No feedback available.'
+    'manager_rating_pct' => $automated_rating, 
+    'manager_details' => 'Reliability Index',
+    'manager_comments' => $auto_comments
 ];
 
 include_once $path_to_root . 'header.php';
@@ -186,7 +205,7 @@ include_once $path_to_root . 'sidebars.php';
                     </div>
                     <div class="bg-slate-50 p-3 rounded-lg border border-slate-100 metric-card cursor-default">
                         <div class="flex justify-between text-xs text-slate-400 font-bold uppercase mb-1">
-                            <span>Manager</span> <span>10%</span>
+                            <span>System</span> <span>10%</span>
                         </div>
                         <div class="text-xl font-bold text-slate-700"><?php echo $metrics['manager_rating_pct']; ?>%</div>
                         <div class="text-xs text-slate-500 mt-1"><?php echo htmlspecialchars($metrics['manager_details']); ?></div>
@@ -258,25 +277,26 @@ include_once $path_to_root . 'sidebars.php';
 
         </div>
 
-        <div class="bg-white rounded-xl border border-slate-200 shadow-sm mt-6 p-6">
+        <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 mt-6 mb-10">
             <h4 class="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                <i class="fa-solid fa-comment-dots text-slate-400"></i> Manager's Feedback (10% Score)
+                <i class="fa-solid fa-microchip text-blue-500"></i> System Assessment (10% Score)
             </h4>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-2">Soft Skills Rating</label>
-                    <div class="relative w-full h-2 bg-slate-200 rounded-lg overflow-hidden mt-3">
-                         <div class="absolute top-0 left-0 h-full bg-slate-800" style="width: <?php echo $metrics['manager_rating_pct']; ?>%;"></div>
+                    <label class="block text-sm font-medium text-slate-600 mb-2">Reliability Rating</label>
+                    <div class="relative w-full h-2 bg-slate-200 rounded-lg overflow-hidden mt-3 mb-2">
+                         <div class="absolute top-0 left-0 h-full bg-blue-500" style="width: <?php echo $metrics['manager_rating_pct']; ?>%;"></div>
                     </div>
                     <div class="flex justify-between items-center mt-2">
-                        <span class="text-xs text-slate-400">Rated by Team Lead</span>
+                        <span class="text-xs text-slate-400">Calculated Automatically</span>
                         <span class="font-bold text-slate-800 text-lg"><?php echo $metrics['manager_rating_pct']; ?>/100</span>
                     </div>
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-slate-600 mb-2">Comments</label>
-                    <div class="w-full bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-700 italic">
+                    <label class="block text-sm font-medium text-slate-600 mb-2">Analysis Results</label>
+                    <div class="w-full bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm text-slate-700 italic min-h-[80px] flex items-center">
                         "<?php echo htmlspecialchars($metrics['manager_comments']); ?>"
                     </div>
                 </div>

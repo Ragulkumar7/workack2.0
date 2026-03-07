@@ -1,80 +1,126 @@
 <?php
-// 1. OUTPUT BUFFERING - Prevents "Headers already sent" by holding output in memory
+// 1. OUTPUT BUFFERING
 ob_start();
 
-// 2. SESSION & SECURITY - Must be at the very top
+// 2. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { 
     session_start(); 
 }
 
-// Ensure the user is logged in
 if (!isset($_SESSION['user_id'])) { 
     header("Location: index.php"); 
     exit(); 
 }
 $current_user_id = $_SESSION['user_id'];
+$user_role = $_SESSION['role'] ?? 'Manager';
 
-// 3. DB CONNECTION
-require_once 'include/db_connect.php'; 
+// 3. DB CONNECTION (Dynamic Path mapping)
+$dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
+if (file_exists($dbPath)) { include_once($dbPath); } 
+else { include_once('../include/db_connect.php'); }
 
-// 4. FETCH PERFORMANCE DATA (Filtered strictly for the logged-in Manager or Team Lead)
+// 4. FETCH PERFORMANCE DATA DYNAMICALLY
 $performanceData = [];
 
-// This query checks if the employee reports to the logged-in user either as a TL or Manager
-$sql = "SELECT 
-            ep.user_id,
-            ep.emp_id_code as employee_id, 
-            ep.full_name, 
-            ep.designation, 
-            ep.profile_img as profile_image, 
-            COALESCE(per.performance_grade, 'Average') as performance_status,
-            COALESCE(per.total_score, 0) as performance_score,
-            COALESCE(per.project_completion_pct, 0) as project_completion_rate,
-            COALESCE(per.task_completion_pct, 0) as task_completion_rate,
-            COALESCE(per.attendance_pct, 0) as attendance_rate,
-            COALESCE(per.soft_skills, 0) as soft_skills,
-            per.manager_comments
-        FROM employee_profiles ep
-        LEFT JOIN employee_performance per ON ep.user_id = per.user_id
-        WHERE ep.reporting_to = ? OR ep.manager_id = ?
-        ORDER BY per.total_score DESC";
-
-// Using prepared statements for security
-$stmt = mysqli_prepare($conn, $sql);
-if ($stmt) {
+// Base query to get employees reporting to this user (or all if HR)
+if ($user_role === 'HR' || $user_role === 'Admin') {
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, per.manager_comments, per.self_review 
+            FROM employee_profiles ep 
+            LEFT JOIN employee_performance per ON ep.user_id = per.user_id";
+    $stmt = mysqli_prepare($conn, $sql);
+} else {
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, per.manager_comments, per.self_review 
+            FROM employee_profiles ep 
+            LEFT JOIN employee_performance per ON ep.user_id = per.user_id 
+            WHERE ep.reporting_to = ? OR ep.manager_id = ?";
+    $stmt = mysqli_prepare($conn, $sql);
     mysqli_stmt_bind_param($stmt, "ii", $current_user_id, $current_user_id);
+}
+
+if ($stmt) {
     mysqli_stmt_execute($stmt);
     $result = mysqli_stmt_get_result($stmt);
 
+    // Prepare internal queries for efficiency
+    $att_stmt = $conn->prepare("SELECT COUNT(*) as present_days, SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days FROM attendance WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+    $task_stmt = $conn->prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN due_date < CURDATE() AND status != 'completed' THEN 1 ELSE 0 END) as overdue FROM personal_taskboard WHERE user_id = ?");
+    $proj_stmt = $conn->prepare("SELECT status FROM project_tasks WHERE assigned_to LIKE ? LIMIT 10");
+
     if ($result && mysqli_num_rows($result) > 0) {
         while($row = mysqli_fetch_assoc($result)) {
-            // Determine badge status fallback
-            $status = ($row['performance_status'] !== 'N/A' && !empty($row['performance_status'])) 
-                      ? $row['performance_status'] 
-                      : 'Average';
+            $emp_id = $row['user_id'];
+            $emp_full_name = $row['full_name'];
+
+            // 1. Attendance Calculation (20%)
+            $att_stmt->bind_param("i", $emp_id);
+            $att_stmt->execute();
+            $att_data = $att_stmt->get_result()->fetch_assoc();
+            $present_days = $att_data['present_days'] ?? 0;
+            $late_days = $att_data['late_days'] ?? 0;
+            $attendance_pct = min(100, round(($present_days / 22) * 100));
+
+            // 2. Task Calculation (30%)
+            $task_stmt->bind_param("i", $emp_id);
+            $task_stmt->execute();
+            $task_res = $task_stmt->get_result()->fetch_assoc();
+            $task_total = $task_res['total'] > 0 ? $task_res['total'] : 1;
+            $completed_tasks = $task_res['completed'] ?? 0;
+            $overdue_tasks = $task_res['overdue'] ?? 0;
+            $task_completion_pct = round(($completed_tasks / $task_total) * 100);
+
+            // 3. Project Calculation (40%)
+            $emp_search = "%" . $emp_full_name . "%";
+            $proj_stmt->bind_param("s", $emp_search);
+            $proj_stmt->execute();
+            $projects_list = $proj_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $on_time_projects = 0;
+            foreach($projects_list as $p) { if($p['status'] == 'Completed') $on_time_projects++; }
+            $proj_total = count($projects_list) > 0 ? count($projects_list) : 1;
+            $project_completion_pct = round(($on_time_projects / $proj_total) * 100);
+
+            // 4. System Reliability Rating (10%)
+            $automated_rating = 100 - ($late_days * 5) - ($overdue_tasks * 5);
+            $automated_rating = max(0, min(100, $automated_rating));
+
+            // FINAL AGGREGATION
+            $score = ($project_completion_pct * 0.4) + ($task_completion_pct * 0.3) + ($attendance_pct * 0.2) + ($automated_rating * 0.1);
+            $score = round($score, 1);
+
+            if($score >= 90) $grade = "Excellent";
+            elseif($score >= 75) $grade = "Good";
+            elseif($score >= 50) $grade = "Average";
+            else $grade = "Needs Improvement";
 
             $performanceData[] = [
-                "user_id" => $row['user_id'],
+                "user_id" => $emp_id,
                 "id" => $row['employee_id'],
-                "name" => $row['full_name'],
+                "name" => $emp_full_name,
                 "role" => $row['designation'],
                 "img" => $row['profile_image'],
-                "tasks_total" => 100, 
-                "tasks_done" => (float)$row['task_completion_rate'],
-                "attendance" => (float)$row['attendance_rate'],
-                "speed" => (float)$row['performance_score'],
-                "quality" => (float)$row['project_completion_rate'],
-                "soft_skills" => (float)$row['soft_skills'],
+                "tasks_total" => $task_res['total'], 
+                "tasks_done" => $task_completion_pct,
+                "completed_on_time" => $completed_tasks,
+                "overdue" => $overdue_tasks,
+                "attendance" => $attendance_pct,
+                "present_days" => $present_days,
+                "speed" => $score,
+                "quality" => $project_completion_pct,
+                "on_time_proj" => $on_time_projects,
+                "total_proj" => count($projects_list),
+                "soft_skills" => $automated_rating,
                 "comments" => $row['manager_comments'],
-                "status" => $status
+                "self_review" => $row['self_review'],
+                "status" => $grade
             ];
         }
     }
     mysqli_stmt_close($stmt);
-} else {
-    // Debugging if the query fails
-    die("Database Query Failed: " . mysqli_error($conn));
 }
+
+// Sort dynamically calculated data by score (Highest to lowest)
+usort($performanceData, function($a, $b) {
+    return $b['speed'] <=> $a['speed'];
+});
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -82,7 +128,6 @@ if ($stmt) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Performance Overview</title>
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -93,81 +138,25 @@ if ($stmt) {
             --text-muted: #64748b;
             --border: #e2e8f0;
             --white: #ffffff;
-            --primary: #f97316;
+            --primary: #0d9488;
             --sidebar-width: 100px; 
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: var(--bg-body); 
-            margin: 0; 
-            color: var(--text-main);
-            overflow-x: hidden;
-        }
-
-        .layout-wrapper {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        .content-area {
-            flex: 1;
-            margin-left: var(--sidebar-width); 
-            display: flex;
-            flex-direction: column;
-            transition: all 0.3s ease;
-        }
-
-        .main-content { 
-            padding: 30px; 
-            width: 100%; 
-            box-sizing: border-box;
-            position: relative; 
-        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; color: var(--text-main); overflow-x: hidden; }
+        .layout-wrapper { display: flex; min-height: 100vh; }
+        .content-area { flex: 1; margin-left: var(--sidebar-width); display: flex; flex-direction: column; transition: all 0.3s ease; }
+        .main-content { padding: 30px; width: 100%; box-sizing: border-box; position: relative; }
 
         .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 30px; }
         .header-title h1 { font-size: 28px; font-weight: 700; margin: 0; color: #0f172a; }
         .header-title p { color: var(--text-muted); margin: 5px 0 0; font-size: 14px; }
 
-        .table-header-tools {
-            display: flex;
-            justify-content: flex-end;
-            padding: 20px 24px;
-            gap: 12px;
-            align-items: center;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .search-box { 
-            position: relative; 
-            display: flex; 
-            align-items: center;
-            border: 1px solid ; 
-            border-radius: 8px; 
-        }
-        
-        .search-box i { 
-            position: absolute; 
-            left: 14px; 
-            width: 18px; 
-            height: 18px;
-            color: var(--text-muted); 
-            pointer-events: none;
-            z-index: 1;
-        }
-
-        .form-control { 
-            padding: 10px 15px 10px 42px; 
-            border: 1px solid var(--border); 
-             
-            font-size: 14px; 
-            background: var(--white); 
-            outline: none; 
-            min-width: 280px; 
-            transition: border 0.2s; 
-        }
+        .table-header-tools { display: flex; justify-content: flex-end; padding: 20px 24px; border-bottom: 1px solid #f1f5f9; }
+        .search-box { position: relative; display: flex; align-items: center; }
+        .search-box i { position: absolute; left: 14px; width: 18px; height: 18px; color: var(--text-muted); pointer-events: none; z-index: 1; }
+        .form-control { padding: 10px 15px 10px 42px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; min-width: 280px; outline: none; }
         .form-control:focus { border-color: var(--primary); }
-        
+
         .table-container { background: white; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; width: 100%; }
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 16px 24px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; background: #fcfcfd; border-bottom: 1px solid var(--border); }
@@ -182,35 +171,28 @@ if ($stmt) {
         .status-Excellent, .status-High { background: #ecfdf5; color: #10b981; }
         .status-Good { background: #eff6ff; color: #3b82f6; }
         .status-Average { background: #fff7ed; color: #f59e0b; }
-        .status-Poor, .status-Low { background: #fef2f2; color: #ef4444; }
+        .status-Poor, .status-Needs { background: #fef2f2; color: #ef4444; }
 
-        .btn-view { background: #1e293b; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+        .btn-view { background: #1e293b; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; transition: 0.2s;}
+        .btn-view:hover { background: var(--primary); }
         
-        .modal-overlay { 
-            display: none; 
-            width: 100%; 
-            background: var(--bg-body); 
-            animation: fadeIn 0.3s ease;
-        }
-        
+        .modal-overlay { display: none; width: 100%; animation: fadeIn 0.3s ease; }
         .modal-overlay.active { display: block; }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
         .modal-box { width: 100%; padding-bottom: 50px; }
-        .modal-nav { padding: 0 0 20px 0; display: flex; justify-content: space-between; align-items: center; }
-        .back-link { display: flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 14px; cursor: pointer; font-weight: 500; }
+        .modal-nav { padding: 0 0 20px 0; }
+        .back-link { display: flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 14px; cursor: pointer; font-weight: 600; }
+        .back-link:hover { color: var(--text-main); }
 
         .profile-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0 30px; }
         .profile-info { display: flex; align-items: center; gap: 15px; }
         .profile-info img { width: 55px; height: 55px; border-radius: 50%; }
 
         .grid-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; padding: 0; }
-        .card-wide { grid-column: span 2; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; }
+        .card-wide { grid-column: span 2; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
         .grade-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+        
         .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 10px; }
         .metric-item { background: #fcfcfd; border: 1px solid var(--border); padding: 20px; border-radius: 12px; }
         .metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: 8px; }
@@ -221,53 +203,20 @@ if ($stmt) {
         .score-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .score-num { font-size: 26px; font-weight: 800; color: #1e293b; }
 
-        .info-card { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 25px; }
+        .info-card { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
         .card-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 20px; color: #334155; }
         
         .list-item { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-        .status-pill { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .on-time { background: #ecfdf5; color: #10b981; }
-        .delayed { background: #fef2f2; color: #ef4444; }
+        .list-item:last-child { border-bottom: none; }
 
-        .feedback-section { margin-top: 25px; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; position: relative; }
-        .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 20px; }
-        .feedback-title { font-size: 16px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        
-        .slider-wrapper { margin-top: 20px; }
-        .slider-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 8px; font-weight: 500; }
-        .slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .slider-header span { font-size: 14px; font-weight: 500; color: var(--text-muted); }
-        .slider-header .val { color: #1e293b; font-weight: 700; font-size: 18px; }
-
-        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
-        input[type=range]:focus { outline: none; }
-        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cursor: pointer; background: #e2e8f0; border-radius: 10px; }
-        input[type=range]::-webkit-slider-thumb { height: 18px; width: 18px; border-radius: 50%; background: #3b82f6; cursor: pointer; -webkit-appearance: none; margin-top: -6px; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-
-        .comments-area { display: flex; flex-direction: column; gap: 10px; }
-        .feedback-textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 15px; font-family: inherit; font-size: 14px; color: var(--text-main); resize: none; min-height: 100px; box-sizing: border-box; }
-        .feedback-textarea:focus { outline: none; border-color: #3b82f6; }
-        
-        .btn-update { 
-            margin-top: 20px;
-            margin-left: auto;
-            display: block;
-            background: #1e293b; 
-            color: white; 
-            border: none; 
-            padding: 12px 24px; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            font-weight: 600; 
-            font-size: 14px; 
-            transition: opacity 0.2s; 
-        }
-        .btn-update:hover { opacity: 0.9; }
+        .feedback-section { margin-top: 25px; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
+        .feedback-text-box { background: #fcfcfd; padding: 20px; border-radius: 8px; border: 1px solid var(--border); font-size: 14px; color: #334155; font-style: italic; line-height: 1.6;}
 
         @media (max-width: 992px) {
             .content-area { margin-left: 0 !important; }
-            .grid-dashboard, .feedback-grid { grid-template-columns: 1fr; }
+            .grid-dashboard { grid-template-columns: 1fr; }
             .card-wide { grid-column: span 1; }
+            .metrics-row { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
@@ -285,7 +234,7 @@ if ($stmt) {
                     <div class="page-header">
                         <div class="header-title">
                             <h1>Performance Overview</h1>
-                            <p>Track and manage your team's performance ratings</p>
+                            <p>Track and review synchronized dynamic team metrics</p>
                         </div>
                     </div>
 
@@ -301,9 +250,9 @@ if ($stmt) {
                             <thead>
                                 <tr>
                                     <th>Employee Name</th>
-                                    <th>Department</th>
-                                    <th>Projects</th>
-                                    <th>Attendance</th>
+                                    <th>Designation</th>
+                                    <th>Project Score</th>
+                                    <th>Task Score</th>
                                     <th>Overall Score</th>
                                     <th>Grade</th>
                                     <th>Action</th>
@@ -324,18 +273,21 @@ if ($stmt) {
                                                 <img src="<?= !empty($row['img']) && strpos($row['img'], 'http') === 0 ? $row['img'] : 'assets/profiles/'.(!empty($row['img']) ? $row['img'] : 'default.png') ?>" class="emp-img" onerror="this.src='https://ui-avatars.com/api/?name=<?= urlencode($row['name']) ?>&background=random'">
                                                 <div>
                                                     <span class="emp-name"><?= htmlspecialchars($row['name']) ?></span>
-                                                    <span class="emp-role"><?= htmlspecialchars($row['role']) ?></span>
+                                                    <span class="emp-role">ID: <?= htmlspecialchars($row['id'] ?? 'N/A') ?></span>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td style="color: var(--text-muted);">Web Development</td>
+                                        <td style="color: var(--text-muted); font-weight: 500;"><?= htmlspecialchars($row['role']) ?></td>
                                         <td><?= $row['quality'] ?>%</td>
-                                        <td><?= $row['attendance'] ?>%</td>
-                                        <td><span style="font-weight:700;"><?= rtrim(rtrim($row['speed'], '0'), '.') ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
-                                        <td><span class="grade-badge status-<?= $row['status'] ?>"><?= $row['status'] ?></span></td>
+                                        <td><?= $row['tasks_done'] ?>%</td>
+                                        <td><span style="font-weight:700; color: #0f172a;"><?= rtrim(rtrim($row['speed'], '0'), '.') ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
+                                        <td>
+                                            <?php $badge_class = strpos($row['status'], 'Needs') !== false ? 'status-Poor' : 'status-'.$row['status']; ?>
+                                            <span class="grade-badge <?= $badge_class ?>"><?= $row['status'] ?></span>
+                                        </td>
                                         <td>
                                             <button class="btn-view" onclick='openDetails(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8") ?>)'>
-                                                <i data-lucide="eye" style="width:14px"></i> View
+                                                <i data-lucide="eye" style="width:14px"></i> Review
                                             </button>
                                         </td>
                                     </tr>
@@ -358,8 +310,8 @@ if ($stmt) {
                             <div class="profile-info">
                                 <img id="modalImg" src="">
                                 <div>
-                                    <h2 id="modalName" style="margin:0; font-size:24px;"></h2>
-                                    <p id="modalRole" style="margin:4px 0 0; color:var(--text-muted); font-size:14px;"></p>
+                                    <h2 id="modalName" style="margin:0; font-size:24px; font-weight: 700; color: #0f172a;"></h2>
+                                    <p id="modalRole" style="margin:4px 0 0; color:var(--primary); font-size:13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;"></p>
                                 </div>
                             </div>
                         </div>
@@ -368,12 +320,12 @@ if ($stmt) {
                             <div class="card-wide">
                                 <div class="grade-header">
                                     <span style="font-weight:600; font-size:16px;">Performance Grade</span>
-                                    <span id="dStatusLabel" style="font-weight:700; color:var(--primary); font-size:18px;">Good</span>
+                                    <span id="dStatusLabel" style="font-weight:800; font-size:20px;">Good</span>
                                 </div>
                                 
                                 <div style="display:flex; align-items:center; gap:50px;">
                                     <div class="score-circle-container">
-                                        <svg viewBox="0 0 36 36" style="width:110px; height:110px;">
+                                        <svg viewBox="0 0 36 36" style="width:110px; height:110px; transform: rotate(-90deg);">
                                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#eee" stroke-width="3" />
                                             <path id="scoreCircle" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--primary)" stroke-width="3" stroke-dasharray="0, 100" style="transition: stroke-dasharray 1s ease-out;" />
                                         </svg>
@@ -387,39 +339,39 @@ if ($stmt) {
                                         <div class="metric-item">
                                             <span class="metric-label">Projects <span style="font-weight:400">40%</span></span>
                                             <span class="metric-value" id="dQual">0%</span>
-                                            <span class="metric-sub">2/4 On Time</span>
+                                            <span class="metric-sub" id="dQualSub">0/0 Completed</span>
                                         </div>
                                         <div class="metric-item">
                                             <span class="metric-label">Tasks <span style="font-weight:400">30%</span></span>
                                             <span class="metric-value" id="dDone">0%</span>
-                                            <span class="metric-sub">30 Completed</span>
+                                            <span class="metric-sub" id="dDoneSub">0 Completed</span>
                                         </div>
                                         <div class="metric-item">
                                             <span class="metric-label">Attendance <span style="font-weight:400">20%</span></span>
                                             <span class="metric-value" id="dAtt">0%</span>
-                                            <span class="metric-sub">4 Days Leave</span>
+                                            <span class="metric-sub" id="dAttSub">0 Days Present</span>
                                         </div>
                                         <div class="metric-item">
-                                            <span class="metric-label">Manager <span style="font-weight:400">10%</span></span>
+                                            <span class="metric-label">System <span style="font-weight:400">10%</span></span>
                                             <span class="metric-value" id="dManager">0%</span>
-                                            <span class="metric-sub">Soft Skills</span>
+                                            <span class="metric-sub">Reliability</span>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="info-card">
-                                <div class="card-title"><i data-lucide="layers" style="width:18px; color:#3b82f6;"></i> Project Timelines</div>
-                                <div class="list-item"><span>HRMS Portal v2</span> <span style="color:var(--text-muted)">10 Feb 2026</span> <span class="status-pill on-time">On Time</span></div>
-                                <div class="list-item"><span>E-Commerce App</span> <span style="color:var(--text-muted)">01 Feb 2026</span> <span class="status-pill delayed">Delayed</span></div>
-                                <div class="list-item" style="border:none;"><span>Client API Integ.</span> <span style="color:var(--text-muted)">15 Jan 2026</span> <span class="status-pill on-time">On Time</span></div>
+                                <div class="card-title"><i data-lucide="user-pen" style="width:20px; color:#0d9488;"></i> Employee Self-Review</div>
+                                <div class="feedback-text-box" id="dSelfReview">
+                                    No self-review submitted by the employee yet.
+                                </div>
                             </div>
 
                             <div class="info-card">
-                                <div class="card-title"><i data-lucide="list-checks" style="width:18px; color:var(--primary);"></i> Task Efficiency</div>
-                                <div class="list-item"><span>Total Tasks Assigned</span> <span style="font-weight:700;">40</span></div>
-                                <div class="list-item"><span>Completed On Time</span> <span style="font-weight:700; color:#10b981;">30</span></div>
-                                <div class="list-item" style="border:none;"><span>Overdue / Pending</span> <span style="font-weight:700; color:#ef4444;">10</span></div>
+                                <div class="card-title"><i data-lucide="list-checks" style="width:20px; color:#f97316;"></i> Task Efficiency</div>
+                                <div class="list-item"><span>Total Tasks Assigned</span> <span style="font-weight:700; color:#1e293b;" id="tTotal">0</span></div>
+                                <div class="list-item"><span>Completed On Time</span> <span style="font-weight:700; color:#10b981;" id="tOnTime">0</span></div>
+                                <div class="list-item"><span>Overdue / Pending</span> <span style="font-weight:700; color:#ef4444;" id="tOverdue">0</span></div>
                             </div>
                         </div>
 
@@ -432,32 +384,39 @@ if ($stmt) {
     <script>
         lucide.createIcons();
 
-        function updateSliderVal(val) {
-            document.getElementById('softSkillVal').innerText = val;
-        }
-
         function openDetails(data) {
             document.getElementById('modalName').innerText = data.name;
             
-            // Fix Profile Image Loading
+            // Format Image
             let imgSource = data.img;
             if(!imgSource || imgSource === 'default.png') {
-                imgSource = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+                imgSource = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=0d9488&color=fff`;
             } else if (!imgSource.startsWith('http')) {
                 imgSource = "assets/profiles/" + imgSource;
             }
             document.getElementById('modalImg').src = imgSource;
+            document.getElementById('modalRole').innerText = data.role;
             
-            document.getElementById('modalRole').innerText = data.role + " • Web Development";
-            
+            // Metric Percentages
+            document.getElementById('dQual').innerText = data.quality + "%";
             document.getElementById('dDone').innerText = data.tasks_done + "%";
             document.getElementById('dAtt').innerText = data.attendance + "%";
-            document.getElementById('dQual').innerText = data.quality + "%";
-            
-            // Populate the dynamic Manager Score
             document.getElementById('dManager').innerText = data.soft_skills + "%";
             
-            // Format score to drop trailing decimals
+            // Metric Subtexts
+            document.getElementById('dQualSub').innerText = data.on_time_proj + "/" + data.total_proj + " Completed";
+            document.getElementById('dDoneSub').innerText = data.completed_on_time + " Completed";
+            document.getElementById('dAttSub').innerText = data.present_days + " Days Present";
+
+            // Task Stats
+            document.getElementById('tTotal').innerText = data.tasks_total;
+            document.getElementById('tOnTime').innerText = data.completed_on_time;
+            document.getElementById('tOverdue').innerText = data.overdue;
+
+            // Self Review
+            document.getElementById('dSelfReview').innerText = data.self_review ? '"' + data.self_review + '"' : 'Employee has not submitted a self-review yet.';
+
+            // Score Formatting
             let rawScore = parseFloat(data.speed);
             let formattedScore = Number.isInteger(rawScore) ? rawScore : rawScore.toFixed(1);
             document.getElementById('dSpeed').innerText = formattedScore;
@@ -465,20 +424,14 @@ if ($stmt) {
             const scoreLabel = document.getElementById('dStatusLabel');
             scoreLabel.innerText = data.status;
             
-            // Color formatting for modal
-            if(rawScore >= 90 || data.status === 'High' || data.status === 'Excellent') {
-                scoreLabel.style.color = '#10b981'; // Green
-                document.getElementById('scoreCircle').setAttribute('stroke', '#10b981');
-            } else if (rawScore >= 75 || data.status === 'Good') {
-                scoreLabel.style.color = '#3b82f6'; // Blue
-                document.getElementById('scoreCircle').setAttribute('stroke', '#3b82f6');
-            } else if (rawScore >= 50 || data.status === 'Average') {
-                scoreLabel.style.color = '#f97316'; // Orange
-                document.getElementById('scoreCircle').setAttribute('stroke', '#f97316');
-            } else {
-                scoreLabel.style.color = '#ef4444'; // Red
-                document.getElementById('scoreCircle').setAttribute('stroke', '#ef4444');
-            }
+            // Dynamic Coloring
+            let color = '#ef4444'; // Red
+            if(rawScore >= 90) color = '#10b981'; // Green
+            else if (rawScore >= 75) color = '#3b82f6'; // Blue
+            else if (rawScore >= 50) color = '#f97316'; // Orange
+
+            scoreLabel.style.color = color;
+            document.getElementById('scoreCircle').setAttribute('stroke', color);
             
             // Animation for Ring
             setTimeout(() => {
@@ -494,8 +447,6 @@ if ($stmt) {
         function closeModal() {
             document.getElementById('detailModal').classList.remove('active');
             document.getElementById('listView').style.display = 'block';
-            
-            // Reset ring for next animation
             document.getElementById('scoreCircle').setAttribute('stroke-dasharray', `0, 100`);
         }
 
@@ -504,7 +455,7 @@ if ($stmt) {
             let rows = document.querySelector("#performanceTable tbody").rows;
             for (let i = 0; i < rows.length; i++) {
                 let nameCell = rows[i].querySelector('.emp-name');
-                if(nameCell) { // Prevent error on empty row
+                if(nameCell) { 
                     let name = nameCell.textContent.toUpperCase();
                     rows[i].style.display = name.includes(filter) ? "" : "none";
                 }
@@ -514,6 +465,4 @@ if ($stmt) {
     </script>
 </body>
 </html>
-<?php 
-ob_end_flush(); 
-?>
+<?php ob_end_flush(); ?>
