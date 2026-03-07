@@ -96,7 +96,7 @@ while ($row = $result->fetch_assoc()) {
     $wfh_requests[] = $row;
 }
 $stmt->close();
-$conn->close();
+// $conn->close(); <-- REMOVED THIS LINE SO HEADER.PHP CAN USE THE CONNECTION
 
 $sidebarPath = __DIR__ . '/sidebars.php'; 
 if (!file_exists($sidebarPath)) { $sidebarPath = '../sidebars.php'; }

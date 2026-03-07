@@ -470,13 +470,26 @@ if($r_wfh_pend) {
             'message' => htmlspecialchars($row['full_name']) . ' requested Work From Home.',
             'time' => $row['created_at'] ?? $row['start_date'] ?? date('Y-m-d H:i:s'), 
             'icon' => 'fa-house-laptop', 'color' => 'text-indigo-600 bg-indigo-100',
-            'link' => '../work_from_home.php'
+            'link' => '../wfh_management.php' // <-- LINK CORRECTED HERE
         ];
     }
 }
 
 usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
 $all_notifications = array_slice($all_notifications, 0, 15); 
+
+// =========================================================================
+// 7. NEW ADDITION: RECENT NEW JOINERS 
+// =========================================================================
+$new_joiners = [];
+$nj_q = "SELECT full_name, department, joining_date FROM employee_profiles WHERE status = 'Active' AND joining_date IS NOT NULL ORDER BY joining_date DESC LIMIT 4";
+$nj_res = @mysqli_query($conn, $nj_q);
+if($nj_res) {
+    while($row = mysqli_fetch_assoc($nj_res)) {
+        $new_joiners[] = $row;
+    }
+}
+
 ?>
 
 <!DOCTYPE html>
@@ -867,6 +880,41 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                                     <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Applications</p>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card border-indigo-200 flex-grow mt-6">
+                    <div class="p-6 flex flex-col h-full">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-user-plus text-indigo-500"></i> New Joiners
+                            </h3>
+                            <span class="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-1 rounded font-bold border border-indigo-100">Recent</span>
+                        </div>
+                        <div class="space-y-3 custom-scroll overflow-y-auto pr-2 flex-grow flex flex-col justify-center">
+                            <?php if(!empty($new_joiners)): ?>
+                                <div class="space-y-3 h-full">
+                                <?php foreach($new_joiners as $nj): ?>
+                                    <div class="flex gap-3 items-center border border-gray-100 p-2.5 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
+                                            <i class="fa-solid fa-user-check"></i>
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="text-sm font-bold text-slate-800 truncate"><?= htmlspecialchars($nj['full_name']) ?></p>
+                                            <p class="text-[10px] text-gray-500 font-medium"><?= htmlspecialchars($nj['department']) ?></p>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <span class="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200"><?= date('d M Y', strtotime($nj['joining_date'])) ?></span>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="text-center text-slate-400 text-sm font-medium my-auto">
+                                    No recent joiners found.
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
