@@ -46,16 +46,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id']) && isse
     }
     
     $update_stmt->close();
-    $conn->close();
+    // REMOVED $conn->close() from here so header.php can use the connection
     exit(); 
 }
 
 // =========================================================================
 // 4. FETCH DATA FOR UI DISPLAY
 // =========================================================================
+// FIXED: Removed u.employee_id from COALESCE since it doesn't exist in users table
 $base_select = "SELECT w.*, 
-                COALESCE(ep.full_name, u.name, 'Unknown Employee') as emp_name, 
-                COALESCE(ep.emp_id_code, u.employee_id, 'N/A') as emp_id_code,
+                COALESCE(ep.full_name, u.username, 'Unknown Employee') as emp_name, 
+                COALESCE(ep.emp_id_code, 'N/A') as emp_id_code,
                 ep.designation as emp_role,
                 ep.profile_img
               FROM wfh_requests w 
@@ -96,7 +97,7 @@ while ($row = $result->fetch_assoc()) {
     $wfh_requests[] = $row;
 }
 $stmt->close();
-$conn->close();
+// REMOVED $conn->close() from here so header.php can use the connection
 
 $sidebarPath = __DIR__ . '/sidebars.php'; 
 if (!file_exists($sidebarPath)) { $sidebarPath = '../sidebars.php'; }

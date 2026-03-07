@@ -47,28 +47,34 @@ $user_role       = $_SESSION['role'] ?? 'User';
 $display_name    = ucfirst(explode('@', $user_email)[0]); 
 $full_name       = $display_name;
 
-// Default Avatar
-$profile_img = "https://ui-avatars.com/api/?name=" . urlencode($display_name) . "&background=1e293b&color=fff&bold=true";
+$db_designation = '';
+$db_department  = '';
 
-// Fetch actual Profile Image from DB
+// Fetch actual Profile Image & Exact Roles from DB
 if (isset($conn) && $current_user_id > 0) {
-    $p_sql = "SELECT full_name, profile_img FROM employee_profiles WHERE user_id = $current_user_id";
+    $p_sql = "SELECT full_name, profile_img, designation, department FROM employee_profiles WHERE user_id = $current_user_id";
     $p_res = $conn->query($p_sql);
     if ($p_res && $p_row = $p_res->fetch_assoc()) {
         if (!empty($p_row['full_name'])) {
             $full_name = $p_row['full_name'];
-            $display_name = explode(' ', trim($full_name))[0]; // First name only for header
+            $display_name = explode(' ', trim($full_name))[0]; 
         }
         if (!empty($p_row['profile_img']) && $p_row['profile_img'] !== 'default_user.png') {
             $profile_img = (strpos($p_row['profile_img'], 'http') === 0) ? $p_row['profile_img'] : $base_path . 'assets/profiles/' . $p_row['profile_img'];
         } else {
             $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($full_name) . "&background=1e293b&color=fff&bold=true";
         }
+        
+        $db_designation = $p_row['designation'] ?? '';
+        $db_department  = $p_row['department'] ?? '';
+    } else {
+        $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($display_name) . "&background=1e293b&color=fff&bold=true";
     }
+} else {
+    $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($display_name) . "&background=1e293b&color=fff&bold=true";
 }
 
-
-// --- 5. ENTERPRISE AUTO-SYNC & UNIFIED NOTIFICATION ENGINE ---
+// --- 5. UNIFIED NOTIFICATION ENGINE ---
 $unread_count = 0;
 $notifications = [];
 
@@ -89,17 +95,9 @@ if (isset($conn) && $current_user_id > 0) {
             `source_type` varchar(50) DEFAULT 'system',
             `source_id` int(11) DEFAULT NULL,
             `created_at` timestamp DEFAULT current_timestamp(),
-            PRIMARY KEY (`id`), KEY `user_id` (`user_id`), KEY `target_role` (`target_role`)
+            PRIMARY KEY (`id`), KEY `user_id` (`user_id`), KEY `target_role` (`target_role`),
+            KEY `src_idx` (`source_type`, `source_id`)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
-    } else {
-        // Smart Patch existing table
-        $conn->query("ALTER TABLE `notifications` MODIFY COLUMN `user_id` int(11) NULL DEFAULT NULL");
-        $check_role = $conn->query("SHOW COLUMNS FROM `notifications` LIKE 'target_role'");
-        if ($check_role && $check_role->num_rows == 0) $conn->query("ALTER TABLE `notifications` ADD COLUMN `target_role` varchar(50) DEFAULT NULL AFTER `user_id`");
-        $check_src = $conn->query("SHOW COLUMNS FROM `notifications` LIKE 'source_type'");
-        if ($check_src && $check_src->num_rows == 0) {
-            $conn->query("ALTER TABLE `notifications` ADD COLUMN `source_type` varchar(50) DEFAULT 'system', ADD COLUMN `source_id` int(11) DEFAULT NULL");
-        }
     }
 
     $check_reads = $conn->query("SHOW TABLES LIKE 'notification_reads'");
@@ -108,55 +106,199 @@ if (isset($conn) && $current_user_id > 0) {
     }
 
     // =========================================================================
-    // B. BACKGROUND SYNC ENGINE (CRASH-PROOF STATIC QUERIES)
+    // B. BULLETPROOF SYNC ENGINE (SELECT * prevents all SQL Column Errors)
     // =========================================================================
-    function syncSafe($conn, $table, $sql) {
-        try {
-            $chk = $conn->query("SHOW TABLES LIKE '$table'");
-            if($chk && $chk->num_rows > 0) $conn->query($sql); 
-        } catch (Exception $e) { /* Silently catch if table structure differs slightly */ }
+    if (!isset($_SESSION['last_notif_sync']) || (time() - $_SESSION['last_notif_sync']) > 5) { // 5-second fast sync
+        $uid_safe = (int)$current_user_id;
+        $username_safe = $user_email; 
+        $fullname_safe = $full_name; 
+        
+        $u_name_db = '';
+        $u_q = $conn->query("SELECT name FROM users WHERE id = $uid_safe LIMIT 1");
+        if($u_q && $u_row = $u_q->fetch_assoc()) {
+            $u_name_db = $u_row['name'];
+        }
+        
+        function createNotif($conn, $uid, $role, $title, $msg, $type, $link, $srcType, $srcId) {
+            $uid_val = $uid ? (int)$uid : "NULL";
+            $role_val = $role ? "'".$conn->real_escape_string($role)."'" : "NULL";
+            $title_val = "'".$conn->real_escape_string($title)."'";
+            $msg_val = "'".$conn->real_escape_string($msg)."'";
+            
+            $uid_check = $uid ? "= $uid_val" : "IS NULL";
+            $role_check = $role ? "= $role_val" : "IS NULL";
+            
+            $check = $conn->query("SELECT id FROM notifications WHERE source_id = $srcId AND source_type = '$srcType' AND user_id $uid_check AND target_role $role_check LIMIT 1");
+            if ($check && $check->num_rows == 0) {
+                $conn->query("INSERT INTO notifications (user_id, target_role, title, message, type, link, source_type, source_id) 
+                              VALUES ($uid_val, $role_val, $title_val, $msg_val, '$type', '$link', '$srcType', $srcId)");
+            }
+        }
+
+        // 1. ANNOUNCEMENTS
+        $chk = $conn->query("SHOW TABLES LIKE 'announcements'");
+        if ($chk && $chk->num_rows > 0) {
+            $anns = $conn->query("SELECT * FROM announcements WHERE is_archived = 0 ORDER BY id DESC LIMIT 15");
+            if($anns) while($a = $anns->fetch_assoc()) {
+                $target = $a['target_audience'] ?? 'All';
+                if(strtolower($target) == 'all' || strtolower($target) == 'all employees') $target = 'All';
+                createNotif($conn, null, $target, '📢 ' . ($a['category'] ?? 'Announcement'), $a['title'] ?? 'New Update', 'announcement', '../view_announcements.php', 'ann', $a['id']);
+            }
+        }
+
+        // 2. WFH & LEAVES & PAYSLIPS
+        $chk = $conn->query("SHOW TABLES LIKE 'wfh_requests'");
+        if ($chk && $chk->num_rows > 0) {
+            $wfh = $conn->query("SELECT * FROM wfh_requests WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
+            if($wfh) while($w = $wfh->fetch_assoc()) {
+                $st = $w['status'] ?? 'Pending';
+                if ($st != 'Pending') createNotif($conn, $uid_safe, null, '🏠 WFH ' . $st, 'Your WFH request was ' . $st, $st == 'Approved' ? 'success' : 'danger', '../work_from_home.php', 'wfh_emp_'.$st, $w['id']);
+            }
+        }
+
+        $chk = $conn->query("SHOW TABLES LIKE 'leave_requests'");
+        if ($chk && $chk->num_rows > 0) {
+            $lvs = $conn->query("SELECT * FROM leave_requests WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
+            if($lvs) while($l = $lvs->fetch_assoc()) {
+                $st = $l['status'] ?? 'Pending';
+                if ($st != 'Pending') createNotif($conn, $uid_safe, null, '✈️ Leave ' . $st, 'Your ' . ($l['leave_type']??'Leave') . ' was ' . $st, $st == 'Approved' ? 'success' : 'danger', '../leave_request.php', 'lv_emp_'.$st, $l['id']);
+            }
+        }
+
+        $chk = $conn->query("SHOW TABLES LIKE 'payslip_requests'");
+        if ($chk && $chk->num_rows > 0) {
+            $pays = $conn->query("SELECT * FROM payslip_requests WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
+            if($pays) while($p = $pays->fetch_assoc()) {
+                $st = $p['status'] ?? 'Pending';
+                if (in_array($st, ['Approved', 'Sent', 'Completed', 'Sent to Emp'])) {
+                    createNotif($conn, $uid_safe, null, '📄 Payslip Ready', 'Your requested payslip is ready.', 'success', '../payslip_request.php', 'pay_emp_ready', $p['id']);
+                }
+            }
+        }
+
+        $chk = $conn->query("SHOW TABLES LIKE 'sales_expenses'");
+        if ($chk && $chk->num_rows > 0) {
+            $exps = $conn->query("SELECT * FROM sales_expenses WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
+            if($exps) while($e = $exps->fetch_assoc()) {
+                $st = $e['status'] ?? 'Pending';
+                if ($st != 'Pending') createNotif($conn, $uid_safe, null, '💸 Expense ' . $st, 'Your expense claim was ' . $st, $st == 'Approved' ? 'success' : 'danger', '../sales_executive/my_expenses.php', 'exp_emp_'.$st, $e['id']);
+            }
+        }
+
+        // 3. TASKS (Bulletproof Dynamic Column Checking)
+        $task_tables = [
+            'team_tasks' => '../my_tasks.php',
+            'project_tasks' => '../my_tasks.php',
+            'tasks' => '../my_tasks.php',
+            'sales_tasks' => '../sales_executive/my_tasks.php',
+            'personal_taskboard' => '../my_tasks.php'
+        ];
+
+        foreach ($task_tables as $tbl => $link) {
+            $chk = $conn->query("SHOW TABLES LIKE '$tbl'");
+            if ($chk && $chk->num_rows > 0) {
+                $res = $conn->query("SELECT * FROM `$tbl` ORDER BY id DESC LIMIT 20");
+                if ($res) {
+                    while ($row = $res->fetch_assoc()) {
+                        $status = $row['status'] ?? $row['task_status'] ?? '';
+                        if (strtolower($status) == 'completed') continue;
+
+                        $assigned = $row['assigned_to'] ?? $row['user_id'] ?? '';
+                        
+                        $is_mine = false;
+                        if ((string)$assigned === (string)$uid_safe) $is_mine = true;
+                        elseif (strcasecmp((string)$assigned, $username_safe) === 0) $is_mine = true;
+                        elseif (strcasecmp((string)$assigned, $fullname_safe) === 0) $is_mine = true;
+                        elseif (!empty($u_name_db) && strcasecmp((string)$assigned, $u_name_db) === 0) $is_mine = true;
+
+                        if ($is_mine) {
+                            $tname = $row['task_name'] ?? $row['task_title'] ?? $row['title'] ?? 'New Task';
+                            createNotif($conn, $uid_safe, null, '📋 Task Assigned', $tname, 'task', $link, $tbl.'_emp', $row['id']);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. APPROVER NOTIFICATIONS (HR, Manager, Accounts)
+        $combined_str = strtolower($user_role . ' ' . $db_designation . ' ' . $db_department);
+        $is_approver = strpos($combined_str, 'hr') !== false || strpos($combined_str, 'manager') !== false || strpos($combined_str, 'lead') !== false || strpos($combined_str, 'tl') !== false || strpos($combined_str, 'account') !== false || strpos($combined_str, 'cfo') !== false;
+        
+        if ($is_approver) {
+            // Safe Leave Approvals
+            $chk = $conn->query("SHOW TABLES LIKE 'leave_requests'");
+            if ($chk && $chk->num_rows > 0) {
+                $pend = $conn->query("SELECT * FROM leave_requests WHERE status = 'Pending' ORDER BY id DESC LIMIT 5");
+                if($pend) while($l = $pend->fetch_assoc()) {
+                    $u = $l['user_id'] ?? 0;
+                    $name = "Employee";
+                    if ($u) {
+                        $uq = $conn->query("SELECT name, username FROM users WHERE id = $u LIMIT 1");
+                        if ($uq && $ur = $uq->fetch_assoc()) $name = $ur['name'] ?? $ur['username'] ?? "Employee";
+                    }
+                    $msg = $name . ' applied for ' . ($l['leave_type'] ?? 'Leave');
+                    createNotif($conn, null, 'HR', '✈️ Leave Request', $msg, 'warning', '../HR/leave_approval.php', 'lv_hr', $l['id']);
+                    createNotif($conn, null, 'Manager', '✈️ Team Leave', $msg, 'warning', '../leave_approval.php', 'lv_mgr', $l['id']);
+                }
+            }
+
+            // Safe WFH Approvals
+            $chk = $conn->query("SHOW TABLES LIKE 'wfh_requests'");
+            if ($chk && $chk->num_rows > 0) {
+                $pend = $conn->query("SELECT * FROM wfh_requests WHERE status = 'Pending' ORDER BY id DESC LIMIT 5");
+                if($pend) while($w = $pend->fetch_assoc()) {
+                    $u = $w['user_id'] ?? 0;
+                    $name = "Employee";
+                    if ($u) {
+                        $uq = $conn->query("SELECT name, username FROM users WHERE id = $u LIMIT 1");
+                        if ($uq && $ur = $uq->fetch_assoc()) $name = $ur['name'] ?? $ur['username'] ?? "Employee";
+                    }
+                    $msg = $name . ' requested WFH';
+                    createNotif($conn, null, 'HR', '🏠 WFH Request', $msg, 'info', '../HR/wfh_approvals.php', 'wfh_hr', $w['id']);
+                    createNotif($conn, null, 'Manager', '🏠 Team WFH', $msg, 'info', '../work_from_home.php', 'wfh_mgr', $w['id']);
+                }
+            }
+        }
+
+        $_SESSION['last_notif_sync'] = time();
     }
 
-    // 1. Announcements
-    syncSafe($conn, 'announcements', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT target_audience, '📢 Announcement', 'A new company announcement was posted.', 'announcement', '../view_announcements.php', 'ann', id, created_at FROM announcements WHERE is_archived = 0 AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'ann')");
-
-    // 2. Personal Tasks
-    syncSafe($conn, 'personal_taskboard', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, '📋 Personal Task', 'A new task was added to your board.', 'task', '../my_tasks.php', 'task', id, created_at FROM personal_taskboard WHERE status != 'completed' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'task')");
-
-    // 3. Team Tasks (Manager to TL, TL to Employee) - Maps foreign key assigned_to directly
-    syncSafe($conn, 'team_tasks', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT assigned_to, '👥 Team Task Assigned', 'You have been assigned a new team task. Please review.', 'task', '../my_tasks.php', 'team_task', id, created_at FROM team_tasks WHERE status != 'Completed' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'team_task')");
-
-    // 4. Sales Expenses (Alert Manager)
-    syncSafe($conn, 'sales_expenses', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Sales Manager', '💸 New Expense Request', 'A new sales expense was submitted for approval.', 'warning', '../sales_manager/manage_expenses.php', 'exp_mgr', id, created_at FROM sales_expenses WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'exp_mgr')");
-
-    // 5. Purchase Orders (Alert CFO)
-    syncSafe($conn, 'purchase_orders', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'CFO', '🛒 Pending PO Approval', 'A purchase order requires your approval.', 'warning', '../CFO/manage_po.php', 'po_cfo', id, created_at FROM purchase_orders WHERE approval_status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'po_cfo')");
-
-    // 6. Payslip Requests (Alert Accounts)
-    syncSafe($conn, 'payslip_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'Accounts', '📄 Payslip Request', 'An employee requested a payslip.', 'info', '../Accounts/payslip_management.php', 'pay_acc', id, requested_date FROM payslip_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'pay_acc')");
-
-    // 7. Leave Requests (Alert HR)
-    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) SELECT 'HR', '✈️ New Leave Request', 'A new leave request is pending your review.', 'warning', '../HR/leave_approval.php', 'lv_hr', id, created_at FROM leave_requests WHERE status = 'Pending' AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_hr')");
-
-    // 8. Leave Responses (Alert Employee)
-    syncSafe($conn, 'leave_requests', "INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) SELECT user_id, 'Leave Update', CONCAT('Your leave request is ', status, '.'), IF(status='Approved', 'success', 'danger'), '../leave_request.php', 'lv_emp', id, created_at FROM leave_requests WHERE status IN ('Approved', 'Rejected') AND id NOT IN (SELECT source_id FROM notifications WHERE source_type = 'lv_emp')");
-
-
     // =========================================================================
-    // C. FETCH UNREAD COUNT & FEED (Tailored precisely to the logged-in User)
+    // C. FETCH UNREAD COUNT & FEED FOR CURRENT USER (STRICT ROLE MATCHING)
     // =========================================================================
     
-    // Group roles safely 
-    $target_roles = ["'$user_role'", "'All'", "'All Employees'"];
-    $user_role_lower = strtolower($user_role);
-    if (strpos($user_role_lower, 'hr') !== false) { $target_roles[] = "'HR'"; $target_roles[] = "'HR Executive'"; }
-    if (strpos($user_role_lower, 'admin') !== false) { $target_roles[] = "'Admin'"; $target_roles[] = "'System Admin'"; }
-    if (strpos($user_role_lower, 'manager') !== false && strpos($user_role_lower, 'sales') === false) { $target_roles[] = "'Manager'"; }
-    if (strpos($user_role_lower, 'sales') !== false) { $target_roles[] = "'Sales'"; }
-    if (strpos($user_role_lower, 'lead') !== false) { $target_roles[] = "'Team Lead'"; }
-    $role_in = implode(",", array_unique($target_roles));
+    $roles_array = ['All', 'All Employees'];
+    if (!empty($user_role)) $roles_array[] = $user_role;
+    if (!empty($db_designation)) $roles_array[] = $db_designation;
+    if (!empty($db_department)) $roles_array[] = $db_department;
 
-    // Fetch Unread Count 
+    $combined_role_str = strtolower($user_role . ' ' . $db_designation . ' ' . $db_department);
+    
+    if (strpos($combined_role_str, 'hr') !== false) { array_push($roles_array, 'HR', 'HR Executive'); }
+    if (strpos($combined_role_str, 'admin') !== false) { array_push($roles_array, 'Admin', 'System Admin'); }
+    if (strpos($combined_role_str, 'cfo') !== false) { array_push($roles_array, 'CFO'); }
+    if (strpos($combined_role_str, 'account') !== false || strpos($combined_role_str, 'finance') !== false) { array_push($roles_array, 'Accounts', 'Accountant', 'Finance'); }
+    if (strpos($combined_role_str, 'lead') !== false || $combined_role_str === 'tl') { array_push($roles_array, 'Team Lead', 'TL'); }
+    
+    if (strpos($combined_role_str, 'manager') !== false) { 
+        array_push($roles_array, 'Manager'); 
+    }
+    
+    if (strpos($combined_role_str, 'sales') !== false) {
+        if (strpos($combined_role_str, 'executive') !== false) {
+            array_push($roles_array, 'Sales Executive', 'Sales');
+        } elseif (strpos($combined_role_str, 'manager') !== false) {
+            array_push($roles_array, 'Sales Manager'); 
+        } else {
+            array_push($roles_array, 'Sales');
+        }
+    }
+
+    $roles_array = array_unique(array_filter($roles_array));
+    $role_in = implode(',', array_map(function($r) use ($conn) {
+        return "'" . $conn->real_escape_string(trim($r)) . "'";
+    }, $roles_array));
+
     $cnt_query = "
         SELECT COUNT(*) as cnt 
         FROM notifications n
@@ -166,13 +308,12 @@ if (isset($conn) && $current_user_id > 0) {
     $cnt_res = $conn->query($cnt_query);
     if ($cnt_res) $unread_count = (int)$cnt_res->fetch_assoc()['cnt'];
 
-    // Fetch Feed Timeline
     $notif_query = "
         SELECT n.*, IF(n.user_id = $current_user_id, n.is_read, IF(nr.notif_id IS NOT NULL, 1, 0)) as actual_read_status
         FROM notifications n
         LEFT JOIN notification_reads nr ON n.id = nr.notif_id AND nr.user_id = $current_user_id
         WHERE (n.user_id = $current_user_id OR n.target_role IN ($role_in))
-        ORDER BY n.created_at DESC LIMIT 15
+        ORDER BY n.id DESC LIMIT 40
     ";
     $notif_res = $conn->query($notif_query);
     if ($notif_res) {
@@ -278,10 +419,10 @@ if (!function_exists('time_elapsed_string')) {
                     // Default Icon Style
                     $bg = 'bg-blue-50'; $text = 'text-blue-500'; $icon = 'bell';
                     
-                    if (strpos($type, 'alert') !== false || strpos($type, 'danger') !== false) { 
+                    if (strpos($type, 'alert') !== false || strpos($type, 'danger') !== false || strpos($type, 'rejected') !== false) { 
                         $bg = 'bg-red-50'; $text = 'text-red-500'; $icon = 'alert-circle'; 
                     }
-                    elseif (strpos($type, 'success') !== false || strpos($type, 'salary') !== false || strpos($type, 'approved') !== false) { 
+                    elseif (strpos($type, 'success') !== false || strpos($type, 'salary') !== false || strpos($type, 'approved') !== false || strpos($type, 'ready') !== false) { 
                         $bg = 'bg-emerald-50'; $text = 'text-emerald-500'; $icon = 'check-circle'; 
                     }
                     elseif (strpos($type, 'warning') !== false || strpos($type, 'leave') !== false) { 
