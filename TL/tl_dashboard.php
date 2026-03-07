@@ -464,7 +464,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
         .card-body { padding: 1.25rem; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;} 
         
         .meeting-timeline { position: relative; }
-        .meeting-timeline::before { content: ''; position: absolute; left: 80px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
+        .meeting-timeline::before { content: ''; position: absolute; left: 40px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
         .meeting-row-wrapper { position: relative; margin-bottom: 1.5rem; }
         .meeting-dot { position: absolute; left: 76px; top: 10px; width: 10px; height: 10px; border-radius: 50%; z-index: 10; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.05); }
         .meeting-flex-container { display: flex; align-items: flex-start; gap: 24px; }
@@ -962,7 +962,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card h-[420px]">
+                <div class="card h-[200px]">
                     <div class="card-body flex flex-col min-h-0">
                         <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
