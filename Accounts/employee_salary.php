@@ -3,6 +3,15 @@
 ob_start();
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
+// =========================================================================
+// 0. AJAX INTERCEPTOR (Prevents PHP warnings from breaking JSON)
+// =========================================================================
+$is_ajax = ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action']));
+if ($is_ajax) {
+    error_reporting(0);
+    ini_set('display_errors', 0);
+}
+
 $sidebarPath = ''; $headerPath = '';
 if (file_exists('include/db_connect.php')) {
     require_once 'include/db_connect.php';
@@ -23,299 +32,354 @@ $can_credit = in_array($user_role, ['Accounts', 'CFO', 'Admin']);
 $can_approve = in_array($user_role, ['CFO', 'Admin']);
 
 if (isset($conn)) {
-    // 1. DYNAMICALLY PATCH ONBOARDING TABLE
-    $check_col = $conn->query("SHOW COLUMNS FROM `employee_onboarding` LIKE 'salary_type'");
-    if ($check_col->num_rows == 0) {
-        $conn->query("ALTER TABLE `employee_onboarding` ADD COLUMN `salary_type` ENUM('Monthly','Annual') DEFAULT 'Annual'");
-    }
+    
+    // Only run database structure patches on normal page load to save performance
+    if (!$is_ajax) {
+        // 1. DYNAMICALLY PATCH ONBOARDING TABLE
+        $check_col = $conn->query("SHOW COLUMNS FROM `employee_onboarding` LIKE 'salary_type'");
+        if ($check_col && $check_col->num_rows == 0) {
+            $conn->query("ALTER TABLE `employee_onboarding` ADD COLUMN `salary_type` ENUM('Monthly','Annual') DEFAULT 'Annual'");
+        }
 
-    // 2. DYNAMICALLY PATCH SALARY TABLE FOR SOFT DELETES
-    $check_del = $conn->query("SHOW COLUMNS FROM `employee_salary` LIKE 'is_deleted'");
-    if ($check_del && $check_del->num_rows == 0) {
-        $conn->query("ALTER TABLE `employee_salary` ADD COLUMN `is_deleted` TINYINT(1) DEFAULT 0");
-    }
+        // 2. AUTO-CREATE ENTERPRISE PAYROLL TABLE
+        $create_table = "CREATE TABLE IF NOT EXISTS `employee_salary` (
+          `id` int(11) NOT NULL AUTO_INCREMENT,
+          `user_id` int(11) NOT NULL,
+          `salary_month` DATE NOT NULL,
+          `basic` decimal(10,2) DEFAULT 0.00,
+          `da` decimal(10,2) DEFAULT 0.00,
+          `hra` decimal(10,2) DEFAULT 0.00,
+          `allowance` decimal(10,2) DEFAULT 0.00,
+          `esi` decimal(10,2) DEFAULT 0.00,
+          `pf` decimal(10,2) DEFAULT 0.00,
+          `leave_deduction` decimal(10,2) DEFAULT 0.00,
+          `professional_tax` decimal(10,2) DEFAULT 0.00,
+          `gross_salary` decimal(12,2) DEFAULT 0.00,
+          `net_salary` decimal(12,2) DEFAULT 0.00,
+          `credit_status` ENUM('Pending', 'Credited') DEFAULT 'Pending',
+          `credit_date` date DEFAULT NULL,
+          `approval_status` ENUM('Draft', 'Pending', 'Approved', 'Rejected') DEFAULT 'Draft',
+          `is_deleted` TINYINT(1) DEFAULT 0,
+          `created_by` INT DEFAULT NULL,
+          `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+          `approved_by` INT DEFAULT NULL,
+          `approved_at` DATETIME DEFAULT NULL,
+          PRIMARY KEY (`id`),
+          UNIQUE KEY `unique_salary` (`user_id`, `salary_month`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
+        $conn->query($create_table);
 
-    // 3. AUTO-CREATE ENTERPRISE PAYROLL TABLE
-    $create_table = "CREATE TABLE IF NOT EXISTS `employee_salary` (
-      `id` int(11) NOT NULL AUTO_INCREMENT,
-      `user_id` int(11) NOT NULL,
-      `salary_month` DATE NOT NULL,
-      `basic` decimal(10,2) DEFAULT 0.00,
-      `da` decimal(10,2) DEFAULT 0.00,
-      `hra` decimal(10,2) DEFAULT 0.00,
-      `conveyance` decimal(10,2) DEFAULT 0.00,
-      `allowance` decimal(10,2) DEFAULT 0.00,
-      `medical` decimal(10,2) DEFAULT 0.00,
-      `others_earnings` decimal(10,2) DEFAULT 0.00,
-      `tds` decimal(10,2) DEFAULT 0.00,
-      `esi` decimal(10,2) DEFAULT 0.00,
-      `pf` decimal(10,2) DEFAULT 0.00,
-      `leave_deduction` decimal(10,2) DEFAULT 0.00,
-      `professional_tax` decimal(10,2) DEFAULT 0.00,
-      `labour_welfare` decimal(10,2) DEFAULT 0.00,
-      `others_deductions` decimal(10,2) DEFAULT 0.00,
-      `gross_salary` decimal(12,2) DEFAULT 0.00,
-      `net_salary` decimal(12,2) DEFAULT 0.00,
-      `credit_status` ENUM('Pending', 'Credited') DEFAULT 'Pending',
-      `credit_date` date DEFAULT NULL,
-      `payment_mode` varchar(50) DEFAULT 'Bank Transfer',
-      `transaction_reference` varchar(100) DEFAULT NULL,
-      `approval_status` ENUM('Draft', 'Pending', 'Approved', 'Rejected') DEFAULT 'Draft',
-      `is_deleted` TINYINT(1) DEFAULT 0,
-      `created_by` INT DEFAULT NULL,
-      `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
-      `approved_by` INT DEFAULT NULL,
-      `approved_at` DATETIME DEFAULT NULL,
-      `credited_by` INT DEFAULT NULL,
-      `credited_at` DATETIME DEFAULT NULL,
-      PRIMARY KEY (`id`),
-      UNIQUE KEY `unique_salary` (`user_id`, `salary_month`),
-      INDEX `idx_user_month` (`user_id`, `salary_month`),
-      INDEX `idx_credit_status` (`credit_status`),
-      INDEX `idx_approval_status` (`approval_status`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
-    $conn->query($create_table);
+        // 3. COMPREHENSIVE SCHEMA PATCHER (Fixes the Prepare Crash!)
+        $salary_columns = [
+            'is_deleted' => 'TINYINT(1) DEFAULT 0',
+            'conveyance' => 'decimal(10,2) DEFAULT 0.00',
+            'medical' => 'decimal(10,2) DEFAULT 0.00',
+            'others_earnings' => 'decimal(10,2) DEFAULT 0.00',
+            'tds' => 'decimal(10,2) DEFAULT 0.00',
+            'labour_welfare' => 'decimal(10,2) DEFAULT 0.00',
+            'others_deductions' => 'decimal(10,2) DEFAULT 0.00',
+            'payment_mode' => "varchar(50) DEFAULT 'Bank Transfer'",
+            'transaction_reference' => 'varchar(100) DEFAULT NULL',
+            'credited_by' => 'INT DEFAULT NULL',
+            'credited_at' => 'DATETIME DEFAULT NULL'
+        ];
+
+        foreach ($salary_columns as $col => $def) {
+            $chk = $conn->query("SHOW COLUMNS FROM `employee_salary` LIKE '$col'");
+            if ($chk && $chk->num_rows == 0) {
+                $conn->query("ALTER TABLE `employee_salary` ADD COLUMN `$col` $def");
+            }
+        }
+
+        // Apply necessary indexes safely
+        $indexes = [
+            'idx_user_month' => '(`user_id`, `salary_month`)',
+            'idx_credit_status' => '(`credit_status`)',
+            'idx_approval_status' => '(`approval_status`)'
+        ];
+        foreach ($indexes as $idx_name => $cols) {
+            $chk_idx = $conn->query("SHOW INDEX FROM `employee_salary` WHERE Key_name = '$idx_name'");
+            if ($chk_idx && $chk_idx->num_rows == 0) {
+                $conn->query("CREATE INDEX $idx_name ON `employee_salary` $cols");
+            }
+        }
+    }
 
     // 4. INTERNAL API LOGIC (Zero Raw Queries & Strict Validation)
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
+    if ($is_ajax) {
         ob_clean(); 
         header('Content-Type: application/json');
         $action = $_POST['ajax_action'];
 
-        // --- SAVE OR UPDATE SALARY ---
-        if ($action === 'save_salary') {
-            if (!$can_generate && !$can_credit) {
-                echo json_encode(['success' => false, 'message' => 'Unauthorized Role.']); exit;
-            }
+        try {
+            // --- SAVE OR UPDATE SALARY ---
+            if ($action === 'save_salary') {
+                if (!$can_generate && !$can_credit) {
+                    echo json_encode(['success' => false, 'message' => 'Unauthorized Role.']); exit;
+                }
 
-            $id = (int)($_POST['id'] ?? 0);
-            $user_id = (int)($_POST['user_id'] ?? 0);
-            $salary_month_raw = $_POST['salary_month'] ?? '';
-            
-            if (!preg_match('/^\d{4}-\d{2}$/', $salary_month_raw)) {
-                echo json_encode(['success' => false, 'message' => 'Invalid month format.']); exit;
-            }
-            $salary_month_db = $salary_month_raw . '-01'; 
+                $id = (int)($_POST['id'] ?? 0);
+                $user_id = (int)($_POST['user_id'] ?? 0);
+                $salary_month_raw = $_POST['salary_month'] ?? '';
+                
+                if (!preg_match('/^\d{4}-\d{2}$/', $salary_month_raw)) {
+                    echo json_encode(['success' => false, 'message' => 'Invalid month format.']); exit;
+                }
+                $salary_month_db = $salary_month_raw . '-01'; 
 
-            $credit_status = 'Pending';
-            $credit_date = null;
-            $payment_mode = null;
-            $trans_ref = null;
-            $credited_by = null;
-            $credited_at = null;
+                // THE SMART INTERCEPTOR: If $id is 0, check if a soft-deleted row already exists to prevent Duplicate Key Crash
+                if ($id === 0) {
+                    $chk_exist = $conn->prepare("SELECT id FROM employee_salary WHERE user_id = ? AND salary_month = ?");
+                    $chk_exist->bind_param("is", $user_id, $salary_month_db);
+                    $chk_exist->execute();
+                    $res_exist = $chk_exist->get_result();
+                    if ($res_exist->num_rows > 0) {
+                        $id = $res_exist->fetch_assoc()['id']; // Force it to act as an UPDATE instead of an INSERT
+                    }
+                    $chk_exist->close();
+                }
 
-            if ($can_credit && isset($_POST['credit_status'])) {
-                $credit_status = $_POST['credit_status'];
-                if ($credit_status === 'Credited') {
-                    // WORKFLOW ENFORCEMENT: Cannot credit unapproved salaries
-                    if ($id > 0) {
-                        $app_check_stmt = $conn->prepare("SELECT approval_status FROM employee_salary WHERE id = ? AND is_deleted = 0");
-                        $app_check_stmt->bind_param("i", $id);
-                        $app_check_stmt->execute();
-                        $app_stat = $app_check_stmt->get_result()->fetch_assoc()['approval_status'] ?? 'Draft';
-                        $app_check_stmt->close();
-                        
-                        if ($app_stat !== 'Approved') {
-                            echo json_encode(['success' => false, 'message' => 'Workflow Error: Salary must be Approved by CFO before it can be Credited.']);
+                $credit_status = 'Pending';
+                $credit_date = null;
+                $payment_mode = null;
+                $trans_ref = null;
+                $credited_by = null;
+                $credited_at = null;
+
+                if ($can_credit && isset($_POST['credit_status'])) {
+                    $credit_status = $_POST['credit_status'];
+                    if ($credit_status === 'Credited') {
+                        if ($id > 0) {
+                            $app_check_stmt = $conn->prepare("SELECT approval_status FROM employee_salary WHERE id = ? AND is_deleted = 0");
+                            $app_check_stmt->bind_param("i", $id);
+                            $app_check_stmt->execute();
+                            $app_stat = $app_check_stmt->get_result()->fetch_assoc()['approval_status'] ?? 'Draft';
+                            $app_check_stmt->close();
+                            
+                            if ($app_stat !== 'Approved') {
+                                echo json_encode(['success' => false, 'message' => 'Workflow Error: Salary must be Approved by CFO before it can be Credited.']);
+                                exit;
+                            }
+                        } else {
+                            echo json_encode(['success' => false, 'message' => 'Workflow Error: Cannot credit a new draft salary directly.']);
                             exit;
                         }
-                    } else {
-                        echo json_encode(['success' => false, 'message' => 'Workflow Error: Cannot credit a new draft salary.']);
+
+                        $credit_date = !empty($_POST['credit_date']) ? $_POST['credit_date'] : null;
+                        $payment_mode = $_POST['payment_mode'] ?? 'Bank Transfer';
+                        $trans_ref = $_POST['transaction_reference'] ?? '';
+                        $credited_by = $current_user_id;
+                        $credited_at = date('Y-m-d H:i:s');
+                    }
+                }
+
+                $basic = (float)($_POST['basic'] ?? 0);
+                $da = (float)($_POST['da'] ?? 0);
+                $hra = (float)($_POST['hra'] ?? 0);
+                $conveyance = (float)($_POST['conveyance'] ?? 0);
+                $allowance = (float)($_POST['allowance'] ?? 0);
+                $medical = (float)($_POST['medical'] ?? 0);
+                $others_earnings = (float)($_POST['others_earnings'] ?? 0);
+
+                $tds = (float)($_POST['tds'] ?? 0);
+                $esi = (float)($_POST['esi'] ?? 0);
+                $pf = (float)($_POST['pf'] ?? 0);
+                $leave_deduction = (float)($_POST['leave_deduction'] ?? 0);
+                $professional_tax = (float)($_POST['professional_tax'] ?? 0);
+                $labour_welfare = (float)($_POST['labour_welfare'] ?? 0);
+                $others_deductions = (float)($_POST['others_deductions'] ?? 0);
+
+                $gross_salary = $basic + $da + $hra + $conveyance + $allowance + $medical + $others_earnings;
+                $total_deductions = $tds + $esi + $pf + $leave_deduction + $professional_tax + $labour_welfare + $others_deductions;
+                $net_salary = $gross_salary - $total_deductions;
+
+                if ($net_salary < 0) {
+                    echo json_encode(['success' => false, 'message' => 'Financial Integrity Error: Net salary cannot be negative.']);
+                    exit;
+                }
+
+                if ($id > 0) { 
+                    $lock_stmt = $conn->prepare("SELECT credit_status, credit_date, payment_mode, transaction_reference, credited_by, credited_at FROM employee_salary WHERE id = ?");
+                    $lock_stmt->bind_param("i", $id);
+                    $lock_stmt->execute();
+                    $lock_res = $lock_stmt->get_result()->fetch_assoc();
+                    $lock_stmt->close();
+                    
+                    if ($lock_res && $lock_res['credit_status'] === 'Credited' && $credit_status !== 'Pending') {
+                        echo json_encode(['success' => false, 'message' => 'Payroll Locked. This salary has already been credited.']);
                         exit;
                     }
+                    
+                    if (!$can_credit && $lock_res) {
+                        $credit_status = $lock_res['credit_status'];
+                        $credit_date = $lock_res['credit_date'];
+                        $payment_mode = $lock_res['payment_mode'];
+                        $trans_ref = $lock_res['transaction_reference'];
+                        $credited_by = $lock_res['credited_by'];
+                        $credited_at = $lock_res['credited_at'];
+                    }
 
-                    $credit_date = !empty($_POST['credit_date']) ? $_POST['credit_date'] : null;
-                    $payment_mode = $_POST['payment_mode'] ?? 'Bank Transfer';
-                    $trans_ref = $_POST['transaction_reference'] ?? '';
-                    $credited_by = $current_user_id;
-                    $credited_at = date('Y-m-d H:i:s');
+                    // Added is_deleted=0 so that if this was a recovered soft-delete row, it becomes visible again
+                    $stmt = $conn->prepare("UPDATE employee_salary SET basic=?, da=?, hra=?, conveyance=?, allowance=?, medical=?, others_earnings=?, tds=?, esi=?, pf=?, leave_deduction=?, professional_tax=?, labour_welfare=?, others_deductions=?, gross_salary=?, net_salary=?, credit_status=?, credit_date=?, payment_mode=?, transaction_reference=?, credited_by=?, credited_at=?, is_deleted=0 WHERE id=?");
+                    if(!$stmt) throw new Exception("DB Prepare Error: " . $conn->error);
+                    $stmt->bind_param("ddddddddddddddddssssisi", $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date, $payment_mode, $trans_ref, $credited_by, $credited_at, $id);
+                } else { 
+                    $stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, conveyance, allowance, medical, others_earnings, tds, esi, pf, leave_deduction, professional_tax, labour_welfare, others_deductions, gross_salary, net_salary, credit_status, credit_date, payment_mode, transaction_reference, approval_status, created_by, credited_by, credited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft', ?, ?, ?)");
+                    if(!$stmt) throw new Exception("DB Prepare Error: " . $conn->error);
+                    $stmt->bind_param("isddddddddddddddddssssiis", $user_id, $salary_month_db, $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date, $payment_mode, $trans_ref, $current_user_id, $credited_by, $credited_at);
                 }
-            }
-
-            $basic = (float)($_POST['basic'] ?? 0);
-            $da = (float)($_POST['da'] ?? 0);
-            $hra = (float)($_POST['hra'] ?? 0);
-            $conveyance = (float)($_POST['conveyance'] ?? 0);
-            $allowance = (float)($_POST['allowance'] ?? 0);
-            $medical = (float)($_POST['medical'] ?? 0);
-            $others_earnings = (float)($_POST['others_earnings'] ?? 0);
-
-            $tds = (float)($_POST['tds'] ?? 0);
-            $esi = (float)($_POST['esi'] ?? 0);
-            $pf = (float)($_POST['pf'] ?? 0);
-            $leave_deduction = (float)($_POST['leave_deduction'] ?? 0);
-            $professional_tax = (float)($_POST['professional_tax'] ?? 0);
-            $labour_welfare = (float)($_POST['labour_welfare'] ?? 0);
-            $others_deductions = (float)($_POST['others_deductions'] ?? 0);
-
-            $gross_salary = $basic + $da + $hra + $conveyance + $allowance + $medical + $others_earnings;
-            $total_deductions = $tds + $esi + $pf + $leave_deduction + $professional_tax + $labour_welfare + $others_deductions;
-            $net_salary = $gross_salary - $total_deductions;
-
-            if ($net_salary < 0) {
-                echo json_encode(['success' => false, 'message' => 'Financial Integrity Error: Net salary cannot be negative.']);
+                
+                if ($stmt->execute()) { echo json_encode(['success' => true]); } 
+                else { echo json_encode(['success' => false, 'message' => 'DB Execute Error: ' . $stmt->error]); }
+                $stmt->close();
                 exit;
             }
-
-            if ($id > 0) { 
+            
+            // --- SOFT DELETE SALARY ---
+            if ($action === 'delete_salary') {
+                if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
+                $id = (int)($_POST['id'] ?? 0);
+                
                 $lock_stmt = $conn->prepare("SELECT credit_status FROM employee_salary WHERE id = ?");
                 $lock_stmt->bind_param("i", $id);
                 $lock_stmt->execute();
                 $lock_res = $lock_stmt->get_result()->fetch_assoc();
                 $lock_stmt->close();
-                
-                if ($lock_res && $lock_res['credit_status'] === 'Credited' && $credit_status !== 'Pending') {
-                    echo json_encode(['success' => false, 'message' => 'Payroll Locked. This salary has already been credited.']);
+
+                if ($lock_res && $lock_res['credit_status'] === 'Credited') {
+                    echo json_encode(['success' => false, 'message' => 'Payroll Locked. Cannot delete a credited salary.']);
                     exit;
                 }
 
-                $stmt = $conn->prepare("UPDATE employee_salary SET basic=?, da=?, hra=?, conveyance=?, allowance=?, medical=?, others_earnings=?, tds=?, esi=?, pf=?, leave_deduction=?, professional_tax=?, labour_welfare=?, others_deductions=?, gross_salary=?, net_salary=?, credit_status=?, credit_date=?, payment_mode=?, transaction_reference=?, credited_by=?, credited_at=? WHERE id=?");
-                $stmt->bind_param("ddddddddddddddddssssisi", $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date, $payment_mode, $trans_ref, $credited_by, $credited_at, $id);
-            } else { 
-                $stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, conveyance, allowance, medical, others_earnings, tds, esi, pf, leave_deduction, professional_tax, labour_welfare, others_deductions, gross_salary, net_salary, credit_status, credit_date, payment_mode, transaction_reference, approval_status, created_by, credited_by, credited_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Draft', ?, ?, ?)");
-                $stmt->bind_param("isddddddddddddddddssssiis", $user_id, $salary_month_db, $basic, $da, $hra, $conveyance, $allowance, $medical, $others_earnings, $tds, $esi, $pf, $leave_deduction, $professional_tax, $labour_welfare, $others_deductions, $gross_salary, $net_salary, $credit_status, $credit_date, $payment_mode, $trans_ref, $current_user_id, $credited_by, $credited_at);
-            }
-            
-            if ($stmt->execute()) { echo json_encode(['success' => true]); } 
-            else { echo json_encode(['success' => false, 'message' => 'DB Error or Duplicate Record: ' . $stmt->error]); }
-            $stmt->close();
-            exit;
-        }
-        
-        // --- SOFT DELETE SALARY ---
-        if ($action === 'delete_salary') {
-            if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
-            $id = (int)($_POST['id'] ?? 0);
-            
-            $lock_stmt = $conn->prepare("SELECT credit_status FROM employee_salary WHERE id = ?");
-            $lock_stmt->bind_param("i", $id);
-            $lock_stmt->execute();
-            $lock_res = $lock_stmt->get_result()->fetch_assoc();
-            $lock_stmt->close();
-
-            if ($lock_res && $lock_res['credit_status'] === 'Credited') {
-                echo json_encode(['success' => false, 'message' => 'Payroll Locked. Cannot delete a credited salary.']);
+                $del_stmt = $conn->prepare("UPDATE employee_salary SET is_deleted = 1 WHERE id = ?");
+                if(!$del_stmt) throw new Exception("DB Prepare Error: " . $conn->error);
+                $del_stmt->bind_param("i", $id);
+                $del_stmt->execute();
+                $del_stmt->close();
+                
+                echo json_encode(['success' => true]);
                 exit;
             }
 
-            // Enterprise Standard: Soft Delete (Immutable Audit Data)
-            $del_stmt = $conn->prepare("UPDATE employee_salary SET is_deleted = 1 WHERE id = ?");
-            $del_stmt->bind_param("i", $id);
-            $del_stmt->execute();
-            $del_stmt->close();
-            
-            echo json_encode(['success' => true]);
-            exit;
-        }
-
-        // --- ASK APPROVAL WORKFLOW ---
-        if ($action === 'ask_approval') {
-            if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
-            $id = (int)($_POST['id'] ?? 0);
-            $app_stmt = $conn->prepare("UPDATE employee_salary SET approval_status = 'Pending' WHERE id = ? AND approval_status = 'Draft' AND is_deleted = 0");
-            $app_stmt->bind_param("i", $id);
-            $app_stmt->execute();
-            $app_stmt->close();
-            echo json_encode(['success' => true]);
-            exit;
-        }
-
-        // --- DIRECT APPROVE ACTION (AUDIT TRAIL LOGGED) ---
-        if ($action === 'approve_salary') {
-            if (!$can_approve) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
-            $id = (int)($_POST['id'] ?? 0);
-            $app_stmt = $conn->prepare("UPDATE employee_salary SET approval_status = 'Approved', approved_by = ?, approved_at = NOW() WHERE id = ? AND is_deleted = 0");
-            $app_stmt->bind_param("ii", $current_user_id, $id);
-            $app_stmt->execute();
-            $app_stmt->close();
-            echo json_encode(['success' => true]);
-            exit;
-        }
-
-        // --- AUTO GENERATE ALL (TRANSACTION SAFE + BATCH QUERY OPTIMIZED) ---
-        if ($action === 'auto_generate') {
-            if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
-            
-            $month = $_POST['month'] ?? '';
-            if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
-                echo json_encode(['success' => false, 'message' => 'Invalid month format.']); exit;
+            // --- ASK APPROVAL WORKFLOW ---
+            if ($action === 'ask_approval') {
+                if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
+                $id = (int)($_POST['id'] ?? 0);
+                $app_stmt = $conn->prepare("UPDATE employee_salary SET approval_status = 'Pending' WHERE id = ? AND approval_status = 'Draft' AND is_deleted = 0");
+                if(!$app_stmt) throw new Exception("DB Prepare Error: " . $conn->error);
+                $app_stmt->bind_param("i", $id);
+                $app_stmt->execute();
+                $app_stmt->close();
+                echo json_encode(['success' => true]);
+                exit;
             }
-            $month_db = $month . '-01';
-            $month_end = date('Y-m-t', strtotime($month_db));
-            $days_in_month = date('t', strtotime($month_db)); 
-            
-            // TRANSACTION SAFE WRAPPER
-            $conn->begin_transaction();
-            try {
-                // Batch Fetch Absents with Prepared Statement
-                $abs_stmt = $conn->prepare("SELECT user_id, COUNT(*) as cnt FROM attendance WHERE date >= ? AND date <= ? AND status = 'Absent' GROUP BY user_id");
-                $abs_stmt->bind_param("ss", $month_db, $month_end);
-                $abs_stmt->execute();
-                $abs_res = $abs_stmt->get_result();
-                $absents = [];
-                while($ar = $abs_res->fetch_assoc()) $absents[$ar['user_id']] = $ar['cnt'];
-                $abs_stmt->close();
 
-                // Batch Fetch Leaves (Cross-Month Math) with Prepared Statement
-                $lr_stmt = $conn->prepare("SELECT user_id, SUM(DATEDIFF(LEAST(end_date, ?), GREATEST(start_date, ?)) + 1) as cnt FROM leave_requests WHERE status = 'Approved' AND start_date <= ? AND end_date >= ? GROUP BY user_id");
-                $lr_stmt->bind_param("ssss", $month_end, $month_db, $month_end, $month_db);
-                $lr_stmt->execute();
-                $lr_res = $lr_stmt->get_result();
-                $leaves = [];
-                while($lr = $lr_res->fetch_assoc()) $leaves[$lr['user_id']] = $lr['cnt'];
-                $lr_stmt->close();
+            // --- DIRECT APPROVE ACTION ---
+            if ($action === 'approve_salary') {
+                if (!$can_approve) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
+                $id = (int)($_POST['id'] ?? 0);
+                $app_stmt = $conn->prepare("UPDATE employee_salary SET approval_status = 'Approved', approved_by = ?, approved_at = NOW() WHERE id = ? AND is_deleted = 0");
+                if(!$app_stmt) throw new Exception("DB Prepare Error: " . $conn->error);
+                $app_stmt->bind_param("ii", $current_user_id, $id);
+                $app_stmt->execute();
+                $app_stmt->close();
+                echo json_encode(['success' => true]);
+                exit;
+            }
 
-                $emps = $conn->query("SELECT id, salary, IFNULL(salary_type, 'Annual') as salary_type FROM employee_onboarding WHERE status = 'Completed'");
+            // --- AUTO GENERATE ALL ---
+            if ($action === 'auto_generate') {
+                if (!$can_generate) { echo json_encode(['success' => false, 'message' => 'Unauthorized Action']); exit; }
                 
-                $insert_stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, allowance, esi, pf, professional_tax, leave_deduction, gross_salary, net_salary, credit_status, approval_status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Draft', ?)");
-                
-                while($emp = $emps->fetch_assoc()) {
-                    $uid = $emp['id'];
-                    $ctc = (float)$emp['salary'];
-                    $sal_type = $emp['salary_type'];
-                    
-                    // Respect Soft Deletes
-                    $check_stmt = $conn->prepare("SELECT id FROM employee_salary WHERE user_id = ? AND salary_month = ? AND is_deleted = 0");
-                    $check_stmt->bind_param("is", $uid, $month_db);
-                    $check_stmt->execute();
-                    $exists = $check_stmt->get_result()->num_rows;
-                    $check_stmt->close();
-                    
-                    if ($exists == 0) {
-                        $abs_days = $absents[$uid] ?? 0;
-                        $approved_leaves = $leaves[$uid] ?? 0;
-
-                        $monthlyGross = ($sal_type === 'Annual') ? ($ctc / 12) : $ctc;
-
-                        $basic = round($monthlyGross * 0.50, 2); 
-                        $da = round($basic * 0.40, 2); 
-                        $hra = round($basic * 0.15, 2);
-                        $allowance = round($monthlyGross - ($basic + $da + $hra), 2);
-                        if ($allowance < 0) $allowance = 0;
-                        $gross = $basic + $da + $hra + $allowance;
-                        
-                        $billable_absent = max(0, $abs_days - $approved_leaves);
-                        $per_day_salary = $gross / $days_in_month;
-                        $leave_deduction = round($per_day_salary * $billable_absent, 2);
-                        
-                        $pf = round($basic * 0.12, 2);
-                        $esi = ($gross <= 21000) ? round($gross * 0.0075, 2) : 0;
-                        $pt = ($gross > 15000) ? 200 : 0;
-                        $deductions = $pf + $esi + $pt + $leave_deduction;
-                        $net = $gross - $deductions;
-                        if ($net < 0) $net = 0;
-
-                        $insert_stmt->bind_param("isddddddddddi", $uid, $month_db, $basic, $da, $hra, $allowance, $esi, $pf, $pt, $leave_deduction, $gross, $net, $current_user_id);
-                        $insert_stmt->execute();
-                    }
+                $month = $_POST['month'] ?? '';
+                if (!preg_match('/^\d{4}-\d{2}$/', $month)) {
+                    echo json_encode(['success' => false, 'message' => 'Invalid month format.']); exit;
                 }
-                $insert_stmt->close();
-                $conn->commit();
-                echo json_encode(['success' => true, 'message' => "Salaries Auto-Generated securely!"]);
-            } catch (Exception $e) {
-                $conn->rollback();
-                echo json_encode(['success' => false, 'message' => 'Transaction failed: ' . $e->getMessage()]);
+                $month_db = $month . '-01';
+                $month_end = date('Y-m-t', strtotime($month_db));
+                $days_in_month = date('t', strtotime($month_db)); 
+                
+                $conn->begin_transaction();
+                try {
+                    $abs_stmt = $conn->prepare("SELECT user_id, COUNT(*) as cnt FROM attendance WHERE date >= ? AND date <= ? AND status = 'Absent' GROUP BY user_id");
+                    $abs_stmt->bind_param("ss", $month_db, $month_end);
+                    $abs_stmt->execute();
+                    $abs_res = $abs_stmt->get_result();
+                    $absents = [];
+                    while($ar = $abs_res->fetch_assoc()) $absents[$ar['user_id']] = $ar['cnt'];
+                    $abs_stmt->close();
+
+                    $lr_stmt = $conn->prepare("SELECT user_id, SUM(DATEDIFF(LEAST(end_date, ?), GREATEST(start_date, ?)) + 1) as cnt FROM leave_requests WHERE status = 'Approved' AND start_date <= ? AND end_date >= ? GROUP BY user_id");
+                    $lr_stmt->bind_param("ssss", $month_end, $month_db, $month_end, $month_db);
+                    $lr_stmt->execute();
+                    $lr_res = $lr_stmt->get_result();
+                    $leaves = [];
+                    while($lr = $lr_res->fetch_assoc()) $leaves[$lr['user_id']] = $lr['cnt'];
+                    $lr_stmt->close();
+
+                    $emps = $conn->query("SELECT id, salary, IFNULL(salary_type, 'Annual') as salary_type FROM employee_onboarding WHERE status = 'Completed'");
+                    
+                    while($emp = $emps->fetch_assoc()) {
+                        $uid = $emp['id'];
+                        $ctc = (float)$emp['salary'];
+                        $sal_type = $emp['salary_type'];
+                        
+                        $check_stmt = $conn->prepare("SELECT id, is_deleted FROM employee_salary WHERE user_id = ? AND salary_month = ?");
+                        $check_stmt->bind_param("is", $uid, $month_db);
+                        $check_stmt->execute();
+                        $exist_data = $check_stmt->get_result()->fetch_assoc();
+                        $check_stmt->close();
+                        
+                        // We ONLY auto-generate if no record exists, OR if the record exists but is soft-deleted.
+                        if (!$exist_data || $exist_data['is_deleted'] == 1) {
+                            $abs_days = $absents[$uid] ?? 0;
+                            $approved_leaves = $leaves[$uid] ?? 0;
+
+                            $monthlyGross = ($sal_type === 'Annual') ? ($ctc / 12) : $ctc;
+
+                            $basic = round($monthlyGross * 0.50, 2); 
+                            $da = round($basic * 0.40, 2); 
+                            $hra = round($basic * 0.15, 2);
+                            $allowance = round($monthlyGross - ($basic + $da + $hra), 2);
+                            if ($allowance < 0) $allowance = 0;
+                            $gross = $basic + $da + $hra + $allowance;
+                            
+                            $billable_absent = max(0, $abs_days - $approved_leaves);
+                            $per_day_salary = $gross / $days_in_month;
+                            $leave_deduction = round($per_day_salary * $billable_absent, 2);
+                            
+                            $pf = round($basic * 0.12, 2);
+                            $esi = ($gross <= 21000) ? round($gross * 0.0075, 2) : 0;
+                            $pt = ($gross > 15000) ? 200 : 0;
+                            $deductions = $pf + $esi + $pt + $leave_deduction;
+                            $net = $gross - $deductions;
+                            if ($net < 0) $net = 0;
+
+                            if ($exist_data && $exist_data['is_deleted'] == 1) {
+                                // Restore and Overwrite the soft-deleted row
+                                $upd = $conn->prepare("UPDATE employee_salary SET basic=?, da=?, hra=?, allowance=?, esi=?, pf=?, professional_tax=?, leave_deduction=?, gross_salary=?, net_salary=?, is_deleted=0, approval_status='Draft' WHERE id=?");
+                                $upd->bind_param("ddddddddddi", $basic, $da, $hra, $allowance, $esi, $pf, $pt, $leave_deduction, $gross, $net, $exist_data['id']);
+                                $upd->execute();
+                                $upd->close();
+                            } else {
+                                // Insert fresh
+                                $insert_stmt = $conn->prepare("INSERT INTO employee_salary (user_id, salary_month, basic, da, hra, allowance, esi, pf, professional_tax, leave_deduction, gross_salary, net_salary, credit_status, approval_status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Draft', ?)");
+                                $insert_stmt->bind_param("isddddddddddi", $uid, $month_db, $basic, $da, $hra, $allowance, $esi, $pf, $pt, $leave_deduction, $gross, $net, $current_user_id);
+                                $insert_stmt->execute();
+                                $insert_stmt->close();
+                            }
+                        }
+                    }
+                    $conn->commit();
+                    echo json_encode(['success' => true, 'message' => "Salaries Auto-Generated securely!"]);
+                } catch (Exception $e) {
+                    $conn->rollback();
+                    echo json_encode(['success' => false, 'message' => 'Transaction failed: ' . $e->getMessage()]);
+                }
+                exit;
             }
+        } catch (Exception $globalError) {
+            echo json_encode(['success' => false, 'message' => 'System Execution Error: ' . $globalError->getMessage()]);
             exit;
         }
     }
@@ -332,8 +396,6 @@ $employees_data = []; $grouped_data = [];
 $tot_payroll = 0; $tot_credited = 0; $tot_pending = 0; $tot_deductions = 0;
 
 if (isset($conn)) {
-    // Highly optimized query using grouped derived tables. Eliminates N+1 problem.
-    // Joins on s.is_deleted = 0 to ignore soft-deleted records.
     $query = "SELECT e.id as user_id, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as name, 
                      e.emp_id_code as emp_code, e.profile_img, e.designation, e.department, 
                      e.salary as ctc, IFNULL(e.salary_type, 'Annual') as salary_type, IFNULL(e.total_leaves, 12) as total_leaves,
@@ -361,11 +423,9 @@ if (isset($conn)) {
     if (!empty($status_filter)) {
         $query .= " AND s.approval_status = ?";
         $stmt = $conn->prepare($query . " ORDER BY e.department ASC, e.first_name ASC");
-        // Bind 8 variables
         $stmt->bind_param("ssssssss", $month_db, $month_db, $month_end, $month_end, $month_db, $month_end, $month_db, $status_filter);
     } else {
         $stmt = $conn->prepare($query . " ORDER BY e.department ASC, e.first_name ASC");
-        // Bind 7 variables
         $stmt->bind_param("sssssss", $month_db, $month_db, $month_end, $month_end, $month_db, $month_end, $month_db);
     }
 
@@ -402,6 +462,7 @@ if (isset($conn)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enterprise Payroll Management | WorkAck HRMS</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         :root { --primary: #f97316; --success: #22c55e; --warning: #1b5a5a; --danger: #ef4444; --gray: #6b7280; --bg: #f3f4f6; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); margin: 0; overflow-x: hidden; }
@@ -442,6 +503,9 @@ if (isset($conn)) {
         .form-group input, .form-group select { padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; outline: none; }
         .form-group input:focus, .form-group select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.1); }
         .section-title { grid-column: 1 / -1; margin: 20px 0 10px; font-weight: 800; color: #111827; font-size: 16px; border-bottom: 2px solid #f3f4f6; padding-bottom: 8px; }
+
+        /* Forces SweetAlert popups to always render above modals */
+        .swal2-container { z-index: 100000 !important; }
     </style>
 </head>
 <body>
@@ -727,7 +791,6 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
 
     async function runAutoGenerate() {
         const month = document.getElementById('filter-month').value;
-        
         const formData = new FormData();
         formData.append('ajax_action', 'auto_generate');
         formData.append('month', month);
@@ -738,11 +801,12 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             try {
                 const result = JSON.parse(raw);
                 if(result.success) window.location.reload();
-                else alert("Server Info: " + result.message);
+                else Swal.fire('Error', result.message, 'error');
             } catch(e) {
-                console.error("Failed to parse JSON:", raw);
+                console.error("Server Responded with:", raw);
+                Swal.fire('Database Error', 'System failed to parse response. Check console.', 'error');
             }
-        } catch(err) { alert("Network Error. Check connection."); }
+        } catch(err) { Swal.fire("Network Error", "Check connection.", "error"); }
     }
 
     async function requestPayrollApproval(id) {
@@ -756,11 +820,12 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             try {
                 const result = JSON.parse(raw);
                 if(result.success) window.location.reload();
-                else alert("Error: " + result.message);
+                else Swal.fire('Error', result.message, 'error');
             } catch(e) {
-                console.error("Failed to parse JSON:", raw);
+                console.error("Server Responded with:", raw);
+                Swal.fire('Database Error', 'Check console.', 'error');
             }
-        } catch(err) { alert("Error sending for approval."); }
+        } catch(err) { Swal.fire("Network Error", "Check connection.", "error"); }
     }
 
     async function confirmPayrollApprove(id) {
@@ -774,11 +839,12 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             try {
                 const result = JSON.parse(raw);
                 if(result.success) window.location.reload();
-                else alert("Error: " + result.message);
+                else Swal.fire('Error', result.message, 'error');
             } catch(e) {
-                console.error("Failed to parse JSON:", raw);
+                console.error("Server Responded with:", raw);
+                Swal.fire('Database Error', 'Check console.', 'error');
             }
-        } catch(err) { alert("Error approving record."); }
+        } catch(err) { Swal.fire("Network Error", "Check connection.", "error"); }
     }
 
     function generateManual(userId) {
@@ -786,7 +852,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         if(!item) return;
 
         document.getElementById('modal-title').innerText = `Generate Salary: ${item.name}`;
-        document.getElementById('salary_db_id').value = ''; 
+        document.getElementById('salary_db_id').value = 0; // Forced to 0 for the smart interceptor
         
         const empSelect = document.getElementById('employeeSelect');
         empSelect.innerHTML = `<option value="${item.user_id}" selected>${item.name} (${item.emp_code})</option>`;
@@ -822,7 +888,6 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         let lopDeduct = perDaySalary * billableAbsent;
 
         let pfDeduct = basicPay * 0.12;
-        // PERFECT ESI MATH (Consistent with PHP backend gross math)
         let esiDeduct = grossPay <= 21000 ? (grossPay * 0.0075) : 0;
         let ptDeduct = grossPay > 15000 ? 200 : 0;
 
@@ -889,7 +954,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
     async function submitSalary(e) {
         e.preventDefault();
         const empSelect = document.getElementById('employeeSelect');
-        empSelect.style.pointerEvents = 'auto'; 
+        empSelect.style.pointerEvents = 'auto'; // Temporarily enable to grab the value
         
         const formData = new FormData(e.target);
         
@@ -903,16 +968,16 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
                     closeModal();
                     window.location.reload(); 
                 } else {
-                    alert("Database Error: " + result.message);
+                    Swal.fire('Database Error', result.message, 'error');
                     empSelect.style.pointerEvents = 'none'; 
                 }
             } catch(parseErr) {
                 console.error("PHP Error Details:", rawText);
-                alert("Database Error! Please see console.");
+                Swal.fire('Database Error', 'A backend error occurred. Check console for details.', 'error');
                 empSelect.style.pointerEvents = 'none'; 
             }
         } catch(err) {
-            alert("Network error. Please try again.");
+            Swal.fire('Network error', 'Please try again.', 'error');
             empSelect.style.pointerEvents = 'none'; 
         }
     }
@@ -928,11 +993,12 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             try {
                 const result = JSON.parse(raw);
                 if(result.success) window.location.reload();
-                else alert("Error: " + result.message);
+                else Swal.fire('Error', result.message, 'error');
             } catch(e) {
-                console.error("Failed to parse JSON:", raw);
+                console.error("Server Responded with:", raw);
+                Swal.fire('Database Error', 'Check console.', 'error');
             }
-        } catch(err) { alert("Network error deleting record."); }
+        } catch(err) { Swal.fire('Network error', 'Please try again.', 'error'); }
     }
 
     function exportCSV() {
@@ -949,7 +1015,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
             }
         });
         
-        if(!hasData) return alert("No generated salaries to export for this month.");
+        if(!hasData) return Swal.fire('Notice', 'No generated salaries to export for this month.', 'info');
         
         const blob = new Blob([csv], { type: 'text/csv' });
         const a = document.createElement('a');

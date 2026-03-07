@@ -47,7 +47,8 @@ if ($user_role === 'Manager') {
 $total_emp_res = mysqli_query($conn, $total_emp_sql);
 $total_employees = mysqli_fetch_assoc($total_emp_res)['count'] ?? 0;
 
-// 4. FETCH EXISTING ATTENDANCE DATA
+// 4. FETCH EXISTING ATTENDANCE DATA (Optimized for last 60 days to keep JS fast)
+$sixty_days_ago = date('Y-m-d', strtotime('-60 days'));
 $query = "SELECT 
             a.id, 
             a.user_id,
@@ -64,13 +65,14 @@ $query = "SELECT
             ep.shift_timings,
             (SELECT SUM(TIMESTAMPDIFF(MINUTE, break_start, IFNULL(break_end, NOW()))) FROM attendance_breaks WHERE attendance_id = a.id) as break_mins
           FROM attendance a
-          JOIN employee_profiles ep ON a.user_id = ep.user_id";
+          JOIN employee_profiles ep ON a.user_id = ep.user_id 
+          WHERE a.date >= '$sixty_days_ago'";
 
 // Filter for Managers to only see their team
 if ($user_role === 'Manager') {
-    $query .= " WHERE ep.manager_id = ? 
+    $query .= " AND (ep.manager_id = ? 
                 OR ep.reporting_to = ? 
-                OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE manager_id = ? OR reporting_to = ?)";
+                OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE manager_id = ? OR reporting_to = ?))";
 }
 $query .= " ORDER BY a.date DESC";
 
@@ -85,7 +87,7 @@ $attendanceData = [];
 $users_punched_in_today = [];
 
 while ($row = $result->fetch_assoc()) {
-    // Track who has punched in today to calculate absentees later
+    // Track who has punched in today to calculate live absentees later
     if ($row['date'] === $today_str) {
         $users_punched_in_today[] = $row['user_id'];
     }
@@ -133,8 +135,8 @@ while ($row = $result->fetch_assoc()) {
         "avatar" => $imgSource,
         "role" => $row['designation'] ?? 'Employee',
         "dept" => $row['department'] ?? 'Unassigned',
-        "date" => $row['date'], // Used for filtering logic (YYYY-MM-DD)
-        "display_date" => date('d M Y', strtotime($row['date'])), // Used for Table UI
+        "date" => $row['date'], // YYYY-MM-DD
+        "display_date" => date('d M Y', strtotime($row['date'])),
         "status" => $status,
         "checkin" => $checkIn,
         "checkout" => $checkOut,
@@ -161,7 +163,7 @@ while($emp = mysqli_fetch_assoc($emp_res)) {
         if(empty($imgSource) || $imgSource === 'default_user.png') {
             $imgSource = "https://ui-avatars.com/api/?name=".urlencode($emp['full_name'] ?? 'User')."&background=0d9488&color=fff&bold=true";
         } elseif (!str_starts_with($imgSource, 'http') && strpos($imgSource, 'assets/profiles/') === false) {
-            $imgSource = '../assets/profiles/' . $imgSource; 
+            $imgSource = './assets/profiles/' . $imgSource; 
         }
 
         $attendanceData[] = [
@@ -184,8 +186,8 @@ while($emp = mysqli_fetch_assoc($emp_res)) {
     }
 }
 
-// CRITICAL FIX: Direct json_encode WITHOUT htmlspecialchars prevents the Javascript parsing crash!
-$jsonData = json_encode($attendanceData);
+// CRITICAL FIX: High-security JSON encode prevents JS crashing on names with quotes (e.g. O'Connor)
+$jsonData = json_encode($attendanceData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP);
 ?>
 
 <!DOCTYPE html>
@@ -193,7 +195,7 @@ $jsonData = json_encode($attendanceData);
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HRMS - Attendance Management</title>
+    <title>HRMS - Enterprise Attendance Tracker</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -249,7 +251,7 @@ $jsonData = json_encode($attendanceData);
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
                 <h2 class="font-black text-slate-800 text-3xl tracking-tight mb-1">Attendance Monitor</h2>
-                <p class="text-slate-500 text-sm font-medium">Manage and track company-wide attendance records.</p>
+                <p class="text-slate-500 text-sm font-medium">Daily overview of company-wide attendance and shifts.</p>
             </div>
             <div>
                 <button onclick="exportCSV()" class="bg-white border border-slate-200 text-slate-700 px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:shadow-md hover:border-teal-300 hover:text-teal-700 transition flex items-center gap-2">
@@ -264,7 +266,7 @@ $jsonData = json_encode($attendanceData);
                     <i class="fa-solid fa-users text-xl"></i>
                 </div>
                 <div>
-                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5">Total Employees</div>
+                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5">Total Headcount</div>
                     <div class="text-2xl font-black text-slate-800"><?php echo number_format($total_employees); ?></div>
                 </div>
             </div>
@@ -274,7 +276,7 @@ $jsonData = json_encode($attendanceData);
                     <i class="fa-solid fa-user-check text-xl"></i>
                 </div>
                 <div>
-                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5">Present Today</div>
+                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5" id="lblPresent">Present Selected Day</div>
                     <div class="text-2xl font-black text-slate-800" id="statPresent">0</div>
                 </div>
             </div>
@@ -284,7 +286,7 @@ $jsonData = json_encode($attendanceData);
                     <i class="fa-solid fa-clock text-xl"></i>
                 </div>
                 <div>
-                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5">Late Arrivals</div>
+                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5" id="lblLate">Late Arrivals</div>
                     <div class="text-2xl font-black text-slate-800" id="statLate">0</div>
                 </div>
             </div>
@@ -294,7 +296,7 @@ $jsonData = json_encode($attendanceData);
                     <i class="fa-solid fa-user-xmark text-xl"></i>
                 </div>
                 <div>
-                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5">Absent</div>
+                    <div class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-0.5" id="lblAbsent">Absent</div>
                     <div class="text-2xl font-black text-slate-800" id="statAbsent">0</div>
                 </div>
             </div>
@@ -304,18 +306,15 @@ $jsonData = json_encode($attendanceData);
             
             <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col xl:flex-row gap-4 items-start xl:items-center justify-between shrink-0">
                 <div class="flex flex-wrap gap-3 w-full xl:w-auto">
-                    <select id="filterMonth" class="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl px-4 py-2.5 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition shadow-sm w-full sm:w-auto">
-                        <option value="">All Months</option>
-                        <option value="<?php echo date('Y-m'); ?>" selected>This Month</option>
-                        <option value="<?php echo date('Y-m', strtotime('-1 month')); ?>">Last Month</option>
-                    </select>
+                    <input type="date" id="filterDate" value="<?php echo $today_str; ?>" class="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl px-4 py-2.5 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition shadow-sm w-full sm:w-auto cursor-pointer">
 
-                    <select id="filterStatus" class="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl px-4 py-2.5 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition shadow-sm w-full sm:w-auto">
-                        <option value="">All Status</option>
-                        <option value="On Time">On Time</option>
+                    <select id="filterStatus" class="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl px-4 py-2.5 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition shadow-sm w-full sm:w-auto cursor-pointer">
+                        <option value="">All Statuses</option>
+                        <option value="Present">Present (All)</option>
+                        <option value="On Time">↳ On Time</option>
+                        <option value="Late">↳ Late</option>
+                        <option value="WFH">↳ WFH</option>
                         <option value="Absent">Absent</option>
-                        <option value="Late">Late</option>
-                        <option value="WFH">WFH</option>
                     </select>
                 </div>
                 
@@ -331,7 +330,6 @@ $jsonData = json_encode($attendanceData);
                         <tr>
                             <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Employee</th>
                             <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Emp ID</th>
-                            <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
                             <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Department</th>
                             <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
                             <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Check In</th>
@@ -365,15 +363,16 @@ $jsonData = json_encode($attendanceData);
                 <div class="flex items-center mb-6">
                     <img id="vm-avatar" src="" class="w-14 h-14 rounded-full border-2 border-slate-100 shadow-sm object-cover mr-4">
                     <div class="flex-1">
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 mb-1">
                             <h4 class="font-black text-lg text-slate-800" id="vm-name">User Name</h4>
                             <span class="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2 py-0.5 rounded uppercase" id="vm-id">EMP-001</span>
+                            <span id="detStatus" class="px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border">STATUS</span>
                         </div>
                         <p class="text-sm font-medium text-slate-500" id="vm-dept">Department</p>
                     </div>
                     <div class="text-right">
                         <div class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</div>
-                        <div class="fw-bold text-slate-800" id="vm-date">--</div>
+                        <div class="font-bold text-slate-800" id="vm-date">--</div>
                     </div>
                 </div>
 
@@ -407,9 +406,9 @@ $jsonData = json_encode($attendanceData);
                 
                 <div class="flex justify-between items-center pt-2">
                     <a href="#" id="vm-full-history" class="text-teal-600 hover:text-teal-800 text-sm font-bold flex items-center gap-1 transition">
-                        <i class="fa-solid fa-chart-pie"></i> View Full History
+                        <i class="fa-solid fa-chart-pie"></i> View Full Monthly History
                     </a>
-                    <button class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-6 py-2.5 rounded-xl transition shadow-md" onclick="closeModal('viewModal')">Done</button>
+                    <button class="bg-slate-800 hover:bg-slate-900 text-white font-bold px-6 py-2.5 rounded-xl transition shadow-md" onclick="closeModal('viewModal')">Close</button>
                 </div>
             </div>
         </div>
@@ -418,8 +417,7 @@ $jsonData = json_encode($attendanceData);
     <div id="toast">Action Successful</div>
 
     <script>
-        // 1. INITIALIZE DATA FROM PHP
-        // The array is safely parsed without HTML entities breaking it!
+        // 1. INITIALIZE DATA FROM PHP SAFELY
         let allRecords = <?php echo $jsonData; ?>;
 
         // 2. AUTO-ADJUST LAYOUT BASED ON SIDEBAR WIDTH
@@ -459,7 +457,7 @@ $jsonData = json_encode($attendanceData);
 
         // 3. DOM ELEMENTS
         const tableBody = document.getElementById('attendanceTableBody');
-        const filterMonth = document.getElementById('filterMonth');
+        const filterDate = document.getElementById('filterDate');
         const filterStatus = document.getElementById('filterStatus');
         const searchInput = document.getElementById('searchInput');
         const showingCount = document.getElementById('showingCount');
@@ -469,7 +467,7 @@ $jsonData = json_encode($attendanceData);
         const statLate = document.getElementById('statLate');
         const statAbsent = document.getElementById('statAbsent');
 
-        // 4. RENDER FUNCTION
+        // 4. RENDER FUNCTION WITH EXACT DAILY MATH
         function renderTable() {
             tableBody.innerHTML = '';
             
@@ -477,45 +475,58 @@ $jsonData = json_encode($attendanceData);
             let lateCount = 0;
             let absentCount = 0;
 
-            const monthVal = filterMonth.value;
+            const dateVal = filterDate.value; // YYYY-MM-DD
             const statusVal = filterStatus.value;
             const searchVal = searchInput.value.toLowerCase();
 
+            // Filter engine
             const filteredData = allRecords.filter(record => {
-                const recordMonth = record.date.substring(0, 7); // Extracts YYYY-MM from YYYY-MM-DD
+                // Enterprise Rule: Dashboard Table displays ONE specific day at a time.
+                const matchDate = dateVal === "" || record.date === dateVal;
                 
-                const matchMonth = monthVal === "" || recordMonth === monthVal;
-                const matchStatus = statusVal === "" || record.status === statusVal;
+                // Handle "Present" encompassing multiple sub-statuses
+                let matchStatus = false;
+                if(statusVal === "") { matchStatus = true; }
+                else if(statusVal === "Present" && (record.status === 'On Time' || record.status === 'Present' || record.status === 'Late' || record.status === 'WFH')) { matchStatus = true; }
+                else if(record.status === statusVal) { matchStatus = true; }
+
                 const matchSearch = record.name.toLowerCase().includes(searchVal) || record.emp_id.toLowerCase().includes(searchVal);
 
-                return matchMonth && matchStatus && matchSearch;
+                return matchDate && matchStatus && matchSearch;
             });
 
-            // Update Stats based on filtered view
+            // Update KPI Stats based strictly on the selected day
             filteredData.forEach(rec => {
-                if(rec.status === 'On Time' || rec.status === 'Present') presentCount++;
-                else if(rec.status === 'Late') lateCount++;
-                else if(rec.status === 'Absent') absentCount++;
-                else if(rec.status === 'WFH') presentCount++; // WFH counts as present
+                if(rec.status === 'On Time' || rec.status === 'Present' || rec.status === 'WFH') {
+                    presentCount++;
+                }
+                else if(rec.status === 'Late') { 
+                    presentCount++; // Late people ARE present.
+                    lateCount++; 
+                }
+                else if(rec.status === 'Absent') {
+                    absentCount++;
+                }
             });
 
-            statPresent.innerText = presentCount + lateCount; // Late counts as present in the total
+            statPresent.innerText = presentCount; 
             statLate.innerText = lateCount;
             statAbsent.innerText = absentCount;
             showingCount.innerText = filteredData.length;
 
             if(filteredData.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="9" class="text-center py-12 text-slate-400 font-medium">No records found matching your filters.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="text-center py-16 text-slate-400 font-medium"><i class="fa-solid fa-folder-open text-3xl mb-3 opacity-50 block"></i> No attendance records found for this selection.</td></tr>`;
                 return;
             }
 
+            // Build UI Rows
             filteredData.forEach(rec => {
                 let statusClass = 'bg-emerald-50 text-emerald-600 border-emerald-200';
                 if(rec.status === 'Absent') statusClass = 'bg-rose-50 text-rose-600 border-rose-200';
                 if(rec.status === 'Late') statusClass = 'bg-amber-50 text-amber-600 border-amber-200';
                 if(rec.status === 'WFH') statusClass = 'bg-blue-50 text-blue-600 border-blue-200';
 
-                // Red text for low production
+                // Red text for low production (< 8 hours)
                 let prodClass = "font-bold text-slate-700";
                 if(rec.status !== 'Absent' && parseFloat(rec.production) > 0 && parseFloat(rec.production) < 8) {
                     prodClass = "font-bold text-rose-500";
@@ -533,9 +544,8 @@ $jsonData = json_encode($attendanceData);
                             </div>
                         </td>
                         <td class="px-6 py-4">
-                            <span class="bg-slate-100 border border-slate-200 text-slate-600 px-2 py-1 rounded text-xs font-bold font-mono">${rec.emp_id}</span>
+                            <span class="bg-slate-100 border border-slate-200 text-slate-600 px-2 py-1 rounded text-xs font-bold font-mono shadow-sm">${rec.emp_id}</span>
                         </td>
-                        <td class="px-6 py-4 font-bold text-slate-700">${rec.display_date}</td>
                         <td class="px-6 py-4 text-xs font-semibold text-slate-600">${rec.dept}</td>
                         <td class="px-6 py-4">
                             <span class="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border ${statusClass}">
@@ -557,7 +567,7 @@ $jsonData = json_encode($attendanceData);
         }
 
         // 5. EVENT LISTENERS
-        filterMonth.addEventListener('change', renderTable);
+        filterDate.addEventListener('change', renderTable);
         filterStatus.addEventListener('change', renderTable);
         searchInput.addEventListener('input', renderTable);
 
@@ -597,6 +607,7 @@ $jsonData = json_encode($attendanceData);
             document.getElementById('vm-total').innerText = rec.production;
             document.getElementById('vm-late').innerText = rec.late;
             
+            // Dynamic Status Badge Injection Fix
             const statusEl = document.getElementById('detStatus');
             statusEl.innerText = rec.status;
             
@@ -604,7 +615,7 @@ $jsonData = json_encode($attendanceData);
             if(rec.status === 'Absent') statusClass = 'bg-rose-50 text-rose-600 border-rose-200';
             if(rec.status === 'Late') statusClass = 'bg-amber-50 text-amber-600 border-amber-200';
             if(rec.status === 'WFH') statusClass = 'bg-blue-50 text-blue-600 border-blue-200';
-            statusEl.className = `px-3 py-1 rounded-md text-[11px] font-black uppercase tracking-wider border ${statusClass}`;
+            statusEl.className = `px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider border ${statusClass}`;
 
             // Smart routing to detailed history page
             let pathPrefix = window.location.pathname.includes('/manager/') ? '../' : '';
@@ -613,7 +624,6 @@ $jsonData = json_encode($attendanceData);
             openModal();
         }
 
-        // Close on outside click
         window.onclick = function(event) {
             if (event.target == modalEl) closeModal();
         }
@@ -624,27 +634,35 @@ $jsonData = json_encode($attendanceData);
             csvContent += "Employee ID,Name,Department,Date,Status,CheckIn,CheckOut,Production\n";
 
             const rows = document.querySelectorAll("#attendanceTableBody tr");
+            if (rows.length === 0 || rows[0].innerText.includes('No attendance records')) {
+                alert("No records to export for this date.");
+                return;
+            }
+
             rows.forEach(row => {
                 const cols = row.querySelectorAll("td");
                 if(cols.length > 1) { 
                     const rowData = [
                         cols[1].innerText.trim(),       // Emp ID
-                        cols[0].innerText.replace(/\n/g, ' ').trim(), // Name
-                        cols[3].innerText.trim(),       // Dept
-                        cols[2].innerText,              // Date
-                        cols[4].innerText.trim(),       // Status
-                        cols[5].innerText,              // In
-                        cols[6].innerText,              // Out
-                        cols[7].innerText               // Prod
+                        cols[0].innerText.replace(/\n/g, ' ').trim(), // Name/Role combo
+                        cols[2].innerText.trim(),       // Dept
+                        document.getElementById('filterDate').value, // Selected Date
+                        cols[3].innerText.trim(),       // Status
+                        cols[4].innerText,              // In
+                        cols[5].innerText,              // Out
+                        cols[6].innerText               // Prod
                     ];
-                    csvContent += rowData.join(",") + "\n";
+                    // Clean names by removing extra spaces and roles
+                    rowData[1] = rowData[1].split('  ')[0]; 
+                    
+                    csvContent += rowData.map(d => `"${d}"`).join(",") + "\n";
                 }
             });
 
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "attendance_export.csv");
+            link.setAttribute("download", `Attendance_Report_${document.getElementById('filterDate').value}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);

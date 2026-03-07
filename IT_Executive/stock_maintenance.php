@@ -113,7 +113,7 @@ function logAssetHistory($conn, $asset_id, $user_id, $action, $remarks = '') {
     }
 }
 
-// 3. HANDLE AJAX POST REQUESTS
+// 3. HANDLE AJAX POST REQUESTS SAFELY
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     $action = $_POST['action'] ?? '';
@@ -126,153 +126,178 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!empty($action)) {
+        // Critical: Stop PHP warnings from bleeding into the JSON response
+        error_reporting(0);
+        ini_set('display_errors', 0);
         if (ob_get_length()) ob_clean(); 
         header('Content-Type: application/json');
         
         // CSRF VALIDATION
         if (empty($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
-            echo json_encode(['success' => false, 'error' => 'Security token mismatch. Please refresh.']);
+            echo json_encode(['success' => false, 'error' => 'Security token mismatch. Please refresh the page.']);
             exit;
         }
 
-        $response = ['success' => false, 'error' => 'Unknown action'];
+        try {
+            // Ensure core upload directory exists
+            $base_upload_dir = $root_path . 'uploads/';
+            if (!is_dir($base_upload_dir)) @mkdir($base_upload_dir, 0777, true);
 
-        // ACTION: ADD ASSET
-        if ($action === 'add' && $can_manage_assets) {
-            $date = !empty($_POST['date']) ? $_POST['date'] : date('Y-m-d');
-            
-            // SECURE Invoice Upload (Using @ to suppress XAMPP folder permission warnings breaking JSON)
-            $invoice_path = null;
-            if (isset($_FILES['invoice_file']) && $_FILES['invoice_file']['error'] === UPLOAD_ERR_OK) {
-                $file_size = $_FILES['invoice_file']['size'];
-                $ext = strtolower(pathinfo($_FILES['invoice_file']['name'], PATHINFO_EXTENSION));
-                $allowed = ['pdf', 'png', 'jpg', 'jpeg'];
+            // ACTION: ADD ASSET
+            if ($action === 'add' && $can_manage_assets) {
+                $date = !empty($_POST['date']) ? $_POST['date'] : date('Y-m-d');
                 
-                if (in_array($ext, $allowed) && $file_size <= 5 * 1024 * 1024) {
-                    $dir = $root_path . 'uploads/invoices/';
-                    if (!is_dir($dir)) @mkdir($dir, 0777, true);
-                    $filename = 'INV_' . uniqid() . '.' . $ext;
-                    if (@move_uploaded_file($_FILES['invoice_file']['tmp_name'], $dir . $filename)) {
-                        $invoice_path = 'uploads/invoices/' . $filename;
+                // SECURE Invoice Upload
+                $invoice_path = null;
+                if (isset($_FILES['invoice_file']) && $_FILES['invoice_file']['error'] === UPLOAD_ERR_OK) {
+                    $file_size = $_FILES['invoice_file']['size'];
+                    $ext = strtolower(pathinfo($_FILES['invoice_file']['name'], PATHINFO_EXTENSION));
+                    $allowed = ['pdf', 'png', 'jpg', 'jpeg'];
+                    
+                    if (in_array($ext, $allowed) && $file_size <= 5 * 1024 * 1024) {
+                        $dir = $base_upload_dir . 'invoices/';
+                        if (!is_dir($dir)) @mkdir($dir, 0777, true);
+                        $filename = 'INV_' . uniqid() . '.' . $ext;
+                        if (@move_uploaded_file($_FILES['invoice_file']['tmp_name'], $dir . $filename)) {
+                            $invoice_path = 'uploads/invoices/' . $filename;
+                        }
+                    } else {
+                        echo json_encode(['success' => false, 'error' => 'Invalid file format or size exceeds 5MB.']);
+                        exit;
                     }
-                } else {
-                    echo json_encode(['success' => false, 'error' => 'Invalid file format or size exceeds 5MB.']);
-                    exit;
                 }
-            }
 
-            // Generate QR Code via API
-            $qr_path = null;
-            if (!empty($_POST['sys'])) {
-                $qr_dir = $root_path . 'uploads/qrcodes/';
-                if (!is_dir($qr_dir)) @mkdir($qr_dir, 0777, true);
-                $qr_data = "ASSET: " . $_POST['sys'] . "\n" . $_POST['desc'] . "\nSN: " . $_POST['bar'];
-                $qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" . urlencode($qr_data);
-                $qr_img = @file_get_contents($qr_url);
-                if ($qr_img) {
-                    $qr_filename = 'QR_' . $_POST['sys'] . '_' . uniqid() . '.png';
-                    @file_put_contents($qr_dir . $qr_filename, $qr_img);
-                    $qr_path = 'uploads/qrcodes/' . $qr_filename;
+                // Generate QR Code via API securely
+                $qr_path = null;
+                if (!empty($_POST['sys'])) {
+                    $qr_dir = $base_upload_dir . 'qrcodes/';
+                    if (!is_dir($qr_dir)) @mkdir($qr_dir, 0777, true);
+                    $qr_data = "ASSET: " . $_POST['sys'] . "\n" . $_POST['desc'] . "\nSN: " . $_POST['bar'];
+                    $qr_url = "https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=" . urlencode($qr_data);
+                    
+                    // Add timeout context so the server doesn't hang
+                    $ctx = stream_context_create(array('http'=> array('timeout' => 5)));
+                    $qr_img = @file_get_contents($qr_url, false, $ctx);
+                    if ($qr_img) {
+                        $qr_filename = 'QR_' . $_POST['sys'] . '_' . uniqid() . '.png';
+                        @file_put_contents($qr_dir . $qr_filename, $qr_img);
+                        $qr_path = 'uploads/qrcodes/' . $qr_filename;
+                    }
                 }
-            }
 
-            $stmt = $conn->prepare("INSERT INTO hardware_assets (system_id, category, asset_name, barcode, invoice_number, amount, status, acquisition_date, depreciation_rate, invoice_file, qr_code_path, request_status, lifecycle_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending Accountant', 'Available')");
-            
-            $amt = floatval($_POST['amt']);
-            $dep = floatval($_POST['dep_rate']);
-            
-            $stmt->bind_param("sssssdssdss", $_POST['sys'], $_POST['cat'], $_POST['desc'], $_POST['bar'], $_POST['inv'], $amt, $_POST['cond'], $date, $dep, $invoice_path, $qr_path);
-            
-            if ($stmt->execute()) {
-                $new_asset_id = $stmt->insert_id;
-                logAssetHistory($conn, $new_asset_id, $current_user_id, 'Created', 'Asset registered into inventory.');
-                $response = ['success' => true];
-            } else {
-                $response = ['success' => false, 'error' => $stmt->error];
-            }
-            $stmt->close();
-        }
-        
-        // ACTION: EDIT ASSET
-        else if ($action === 'edit' && $can_manage_assets) {
-            $formattedDate = !empty($_POST['date']) ? $_POST['date'] : date('Y-m-d');
-            $amt = floatval($_POST['amt']);
-            $dep = floatval($_POST['dep_rate']);
-            $asset_id = (int)$_POST['id'];
-
-            $stmt = $conn->prepare("UPDATE hardware_assets SET acquisition_date = ?, category = ?, asset_name = ?, barcode = ?, system_id = ?, status = ?, invoice_number = ?, amount = ?, depreciation_rate = ?, lifecycle_status = ? WHERE id = ?");
-            $stmt->bind_param("sssssssddsi", $formattedDate, $_POST['cat'], $_POST['desc'], $_POST['bar'], $_POST['sys'], $_POST['cond'], $_POST['inv'], $amt, $dep, $_POST['lifecycle'], $asset_id);
-            
-            if ($stmt->execute()) {
-                logAssetHistory($conn, $asset_id, $current_user_id, 'Updated', 'Asset details modified.');
-                $response = ['success' => true];
-            } else {
-                $response = ['success' => false, 'error' => $stmt->error];
-            }
-            $stmt->close();
-        }
-
-        // ACTION: ALLOCATE ASSET
-        else if ($action === 'allocate' && $can_manage_assets) {
-            $asset_id = (int)$_POST['asset_id'];
-            $emp_id = (int)$_POST['employee_id'];
-            $alloc_date = $_POST['alloc_date'];
-            
-            $stmt = $conn->prepare("UPDATE hardware_assets SET assigned_to = ?, assigned_date = ?, allocation_status = 'Assigned', lifecycle_status = 'Assigned' WHERE id = ?");
-            $stmt->bind_param("isi", $emp_id, $alloc_date, $asset_id);
-            if ($stmt->execute()) {
-                logAssetHistory($conn, $asset_id, $current_user_id, 'Allocated', "Asset assigned to User ID: $emp_id");
+                $stmt = $conn->prepare("INSERT INTO hardware_assets (system_id, category, asset_name, barcode, invoice_number, amount, status, acquisition_date, depreciation_rate, invoice_file, qr_code_path, request_status, lifecycle_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending Accountant', 'Available')");
                 
-                $n_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message, type, source_type, created_at) VALUES (?, 'Asset Allocated', 'You have been assigned a new IT asset.', 'info', 'system', NOW())");
-                if($n_stmt) {
-                    $n_stmt->bind_param("i", $emp_id);
-                    $n_stmt->execute();
-                    $n_stmt->close();
-                }
-                $response = ['success' => true];
-            } else {
-                $response = ['success' => false, 'error' => $stmt->error];
-            }
-            $stmt->close();
-        }
+                if (!$stmt) { throw new Exception("Database Prepare Error: " . $conn->error); }
 
-        // ACTION: RETURN ASSET
-        else if ($action === 'return' && $can_manage_assets) {
-            $asset_id = (int)$_POST['asset_id'];
-            $ret_date = date('Y-m-d');
-            $stmt = $conn->prepare("UPDATE hardware_assets SET returned_date = ?, allocation_status = 'Returned', lifecycle_status = 'Available', assigned_to = NULL WHERE id = ?");
-            $stmt->bind_param("si", $ret_date, $asset_id);
-            if ($stmt->execute()) {
-                logAssetHistory($conn, $asset_id, $current_user_id, 'Returned', 'Asset returned to inventory.');
-                $response = ['success' => true];
-            } else {
-                $response = ['success' => false, 'error' => $stmt->error];
-            }
-            $stmt->close();
-        }
-
-        // ACTION: PROCESS APPROVAL (Finance Only)
-        else if ($action === 'approve_reject') {
-            if ($can_approve) {
-                $new_status = $_POST['new_status'];
-                $asset_id = (int)$_POST['asset_id'];
-
-                $stmt = $conn->prepare("UPDATE hardware_assets SET request_status = ? WHERE id = ?");
-                $stmt->bind_param("si", $new_status, $asset_id);
+                $amt = floatval($_POST['amt']);
+                $dep = floatval($_POST['dep_rate']);
+                
+                $stmt->bind_param("sssssdssdss", $_POST['sys'], $_POST['cat'], $_POST['desc'], $_POST['bar'], $_POST['inv'], $amt, $_POST['cond'], $date, $dep, $invoice_path, $qr_path);
+                
                 if ($stmt->execute()) {
-                    logAssetHistory($conn, $asset_id, $current_user_id, 'Finance Approval', "Invoice marked as $new_status.");
-                    $response = ['success' => true];
+                    $new_asset_id = $stmt->insert_id;
+                    logAssetHistory($conn, $new_asset_id, $current_user_id, 'Created', 'Asset registered into inventory.');
+                    echo json_encode(['success' => true]);
                 } else {
-                    $response = ['success' => false, 'error' => $stmt->error];
+                    echo json_encode(['success' => false, 'error' => $stmt->error]);
                 }
                 $stmt->close();
-            } else {
-                $response = ['success' => false, 'error' => 'Permission denied. Only Finance can approve.'];
+                exit;
             }
-        }
+            
+            // ACTION: EDIT ASSET
+            else if ($action === 'edit' && $can_manage_assets) {
+                $formattedDate = !empty($_POST['date']) ? $_POST['date'] : date('Y-m-d');
+                $amt = floatval($_POST['amt']);
+                $dep = floatval($_POST['dep_rate']);
+                $asset_id = (int)$_POST['id'];
 
-        echo json_encode($response);
-        exit;
+                $stmt = $conn->prepare("UPDATE hardware_assets SET acquisition_date = ?, category = ?, asset_name = ?, barcode = ?, system_id = ?, status = ?, invoice_number = ?, amount = ?, depreciation_rate = ?, lifecycle_status = ? WHERE id = ?");
+                if (!$stmt) { throw new Exception("Database Prepare Error: " . $conn->error); }
+
+                $stmt->bind_param("sssssssddsi", $formattedDate, $_POST['cat'], $_POST['desc'], $_POST['bar'], $_POST['sys'], $_POST['cond'], $_POST['inv'], $amt, $dep, $_POST['lifecycle'], $asset_id);
+                
+                if ($stmt->execute()) {
+                    logAssetHistory($conn, $asset_id, $current_user_id, 'Updated', 'Asset details modified.');
+                    echo json_encode(['success' => true]);
+                } else {
+                    echo json_encode(['success' => false, 'error' => $stmt->error]);
+                }
+                $stmt->close();
+                exit;
+            }
+
+            // ACTION: ALLOCATE ASSET
+            else if ($action === 'allocate' && $can_manage_assets) {
+                $asset_id = (int)$_POST['asset_id'];
+                $emp_id = (int)$_POST['employee_id'];
+                $alloc_date = $_POST['alloc_date'];
+                
+                $stmt = $conn->prepare("UPDATE hardware_assets SET assigned_to = ?, assigned_date = ?, allocation_status = 'Assigned', lifecycle_status = 'Assigned' WHERE id = ?");
+                $stmt->bind_param("isi", $emp_id, $alloc_date, $asset_id);
+                if ($stmt->execute()) {
+                    logAssetHistory($conn, $asset_id, $current_user_id, 'Allocated', "Asset assigned to User ID: $emp_id");
+                    
+                    $n_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message, type, source_type, created_at) VALUES (?, 'Asset Allocated', 'You have been assigned a new IT asset.', 'info', 'system', NOW())");
+                    if($n_stmt) {
+                        $n_stmt->bind_param("i", $emp_id);
+                        $n_stmt->execute();
+                        $n_stmt->close();
+                    }
+                    echo json_encode(['success' => true]);
+                } else {
+                    echo json_encode(['success' => false, 'error' => $stmt->error]);
+                }
+                $stmt->close();
+                exit;
+            }
+
+            // ACTION: RETURN ASSET
+            else if ($action === 'return' && $can_manage_assets) {
+                $asset_id = (int)$_POST['asset_id'];
+                $ret_date = date('Y-m-d');
+                $stmt = $conn->prepare("UPDATE hardware_assets SET returned_date = ?, allocation_status = 'Returned', lifecycle_status = 'Available', assigned_to = NULL WHERE id = ?");
+                $stmt->bind_param("si", $ret_date, $asset_id);
+                if ($stmt->execute()) {
+                    logAssetHistory($conn, $asset_id, $current_user_id, 'Returned', 'Asset returned to inventory.');
+                    echo json_encode(['success' => true]);
+                } else {
+                    echo json_encode(['success' => false, 'error' => $stmt->error]);
+                }
+                $stmt->close();
+                exit;
+            }
+
+            // ACTION: PROCESS APPROVAL (Finance Only)
+            else if ($action === 'approve_reject') {
+                if ($can_approve) {
+                    $new_status = $_POST['new_status'];
+                    $asset_id = (int)$_POST['asset_id'];
+
+                    $stmt = $conn->prepare("UPDATE hardware_assets SET request_status = ? WHERE id = ?");
+                    $stmt->bind_param("si", $new_status, $asset_id);
+                    if ($stmt->execute()) {
+                        logAssetHistory($conn, $asset_id, $current_user_id, 'Finance Approval', "Invoice marked as $new_status.");
+                        echo json_encode(['success' => true]);
+                    } else {
+                        echo json_encode(['success' => false, 'error' => $stmt->error]);
+                    }
+                    $stmt->close();
+                } else {
+                    echo json_encode(['success' => false, 'error' => 'Permission denied. Only Finance can approve.']);
+                }
+                exit;
+            }
+
+            // If action doesn't match
+            echo json_encode(['success' => false, 'error' => 'Invalid action requested.']);
+            exit;
+
+        } catch (Exception $e) {
+            // Ultimate fallback to catch all exceptions and format them nicely for Javascript
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+            exit;
+        }
     }
 }
 
@@ -292,7 +317,7 @@ $asset_categories = array_unique(array_merge($asset_categories, $default_cats));
 sort($asset_categories);
 
 // 6. FETCH TABLE DATA & CALCULATE DEPRECIATION
-$query = "SELECT a.*, DATE_FORMAT(a.acquisition_date, '%d M Y') as display_date, 
+$query = "SELECT a.*, DATE_FORMAT(a.acquisition_date, '%d %b %Y') as display_date, 
                  COALESCE(ep.full_name, u.username) as assigned_name 
           FROM hardware_assets a
           LEFT JOIN users u ON a.assigned_to = u.id
@@ -373,7 +398,7 @@ if ($result) {
         .ts-dropdown { border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); border-color: #e2e8f0; font-size: 0.875rem; z-index: 10000; }
         .ts-control.focus { border-color: #0d9488; box-shadow: 0 0 0 1px #0d9488; }
 
-        /* CRITICAL: Forces SweetAlert to appear over any custom modal */
+        /* Forces SweetAlert popups to always render above tailwind modals */
         .swal2-container { z-index: 100000 !important; }
 
         @media (max-width: 1024px) {
@@ -597,6 +622,8 @@ if ($result) {
             
             <div class="p-6 bg-slate-50/50">
                 <form id="assetForm">
+                    <input type="hidden" id="assetId">
+                    
                     <div class="grid grid-cols-2 gap-4 mb-4">
                         <div>
                             <label class="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1">System ID <span class="text-red-500">*</span></label>
@@ -671,7 +698,6 @@ if ($result) {
                     </div>
 
                     <div class="flex justify-end gap-3 mt-6">
-                        <input type="hidden" id="assetId">
                         <button type="button" onclick="closeModal('assetModal')" class="px-5 py-2.5 rounded-xl text-sm font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 transition shadow-sm">Cancel</button>
                         <button type="button" onclick="submitAsset()" id="saveBtn" class="bg-[#1b5a5a] hover:bg-[#144343] text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-md transition">Save Asset</button>
                     </div>
@@ -784,6 +810,7 @@ if ($result) {
             });
         }
 
+        // --- EXPORT TO CSV ---
         function exportCSV() {
             let csvContent = "data:text/csv;charset=utf-8,";
             csvContent += "System ID,Category,Asset Name,Serial Number,Invoice Number,Purchase Amount (Rs),Current Depreciated Value (Rs),Allocation Status,Assigned To,Lifecycle Status,Finance Approval Status,Acquired Date\n";
@@ -816,6 +843,7 @@ if ($result) {
             document.body.removeChild(link);
         }
 
+        // --- MODAL CONTROLS ---
         function openViewModal(data) {
             document.getElementById('v_name').innerText = data.asset_name || 'N/A';
             document.getElementById('v_sys_cat').innerText = (data.system_id || 'N/A') + ' / ' + (data.category || 'N/A');
@@ -915,6 +943,8 @@ if ($result) {
             document.getElementById(modalId).classList.remove('active'); 
         }
 
+        // --- SECURE AJAX SUBMISSIONS ---
+
         async function submitAsset() {
             const btn = document.getElementById('saveBtn');
             const sys = document.getElementById('inSys').value;
@@ -966,7 +996,12 @@ if ($result) {
                 }
             } catch (e) {
                 console.error(e);
-                Swal.fire('Error', 'Server processing failed. Ensure upload directories exist.', 'error');
+                let errText = e.message.length > 200 ? e.message.substring(0, 200) + '...' : e.message;
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Server Error',
+                    html: `An error occurred processing the request.<br><br><span style="color:red; font-size:12px; word-break:break-all;">${errText}</span>`
+                });
                 btn.disabled = false; btn.innerHTML = 'Save Asset';
             }
         }

@@ -3,8 +3,8 @@
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 // 1. DATABASE CONNECTION
- $projectRoot = __DIR__; 
- $dbPath = $projectRoot . '/../include/db_connect.php';
+$projectRoot = __DIR__; 
+$dbPath = $projectRoot . '/../include/db_connect.php';
 if (file_exists($dbPath)) { require_once $dbPath; } 
 else { require_once $projectRoot . '/include/db_connect.php'; }
 
@@ -13,7 +13,7 @@ if (!isset($conn) || $conn === null) { die("Database connection failed."); }
 // =========================================================================
 // AUTO-FIX SCHEMA: Ensure reject_reason AND approver_designation exist
 // =========================================================================
- $tables_to_check = ['invoices', 'purchase_orders', 'employee_salary'];
+$tables_to_check = ['invoices', 'purchase_orders', 'employee_salary'];
 foreach($tables_to_check as $tbl) {
     // Add Reject Reason
     $check = mysqli_query($conn, "SHOW COLUMNS FROM `$tbl` LIKE 'reject_reason'");
@@ -30,7 +30,7 @@ foreach($tables_to_check as $tbl) {
 }
 
 // Company details for Print Templates
- $company_details = [
+$company_details = [
     'name' => 'Neoera infotech',
     'address' => '9/96 h, post, village nagar, Kurumbapalayam SSKulam, coimbatore, Tamil Nadu 641107',
     'phone' => '+91 866 802 5451',
@@ -42,9 +42,9 @@ foreach($tables_to_check as $tbl) {
 // =========================================================================
 // ENTERPRISE SECURITY: Role-Based Access Control (RBAC)
 // =========================================================================
- $user_role = $_SESSION['role'] ?? ''; 
- $current_user_id = $_SESSION['user_id'] ?? 0;
- $can_approve = in_array($user_role, ['CFO', 'Admin', 'Super Admin', 'Management']);
+$user_role = $_SESSION['role'] ?? ''; 
+$current_user_id = $_SESSION['user_id'] ?? 0;
+$can_approve = in_array($user_role, ['CFO', 'Admin', 'Super Admin', 'Management']);
 
 // =========================================================================
 // 2. BACKEND ACTION HANDLER (AJAX)
@@ -82,7 +82,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         exit;
     }
 
-    // --- APPROVE / REJECT LOGIC (Salaries) ---
+    // --- APPROVE / REJECT LOGIC (Individual Salaries - Kept for Granular Control) ---
     if ($_POST['action'] === 'ApproveSalary' || $_POST['action'] === 'RejectSalary') {
         $id = intval($_POST['id']);
         $newStatus = ($_POST['action'] === 'ApproveSalary') ? 'Approved' : 'Rejected';
@@ -91,6 +91,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         
         $stmt = $conn->prepare("UPDATE employee_salary SET approval_status = ?, reject_reason = ?, approved_by = ?, approved_at = ? WHERE id = ? AND is_deleted = 0");
         $stmt->bind_param("ssisi", $newStatus, $reason, $current_user_id, $approved_at, $id);
+        
+        if ($stmt->execute()) {
+            echo json_encode(['status' => 'success']);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => $stmt->error]);
+        }
+        $stmt->close();
+        exit;
+    }
+
+    // --- NEW: APPROVE / REJECT BATCH PAYROLL ---
+    if ($_POST['action'] === 'ApproveSalaryBatch' || $_POST['action'] === 'RejectSalaryBatch') {
+        $month = $_POST['month_db'];
+        $newStatus = ($_POST['action'] === 'ApproveSalaryBatch') ? 'Approved' : 'Rejected';
+        $reason = mysqli_real_escape_string($conn, $_POST['reason'] ?? '');
+        $approved_at = date('Y-m-d H:i:s');
+        
+        $stmt = $conn->prepare("UPDATE employee_salary SET approval_status = ?, reject_reason = ?, approved_by = ?, approved_at = ? WHERE salary_month = ? AND approval_status = 'Pending' AND is_deleted = 0");
+        $stmt->bind_param("ssiss", $newStatus, $reason, $current_user_id, $approved_at, $month);
         
         if ($stmt->execute()) {
             echo json_encode(['status' => 'success']);
@@ -168,40 +187,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 // 3. FETCH REAL DATA FROM DB
 // =========================================================================
 
-// Pending Salaries
- $salary_requests = [];
- $resSalaries = mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status = 'Pending' AND s.is_deleted = 0 ORDER BY s.created_at DESC");
- $valSalaries = 0;
+// --- NEW: CFO PAYROLL BATCHING ENGINE ---
+$salary_batches = [];
+$resSalaries = mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%M %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name, e.emp_id_code as emp_code FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status = 'Pending' AND s.is_deleted = 0 ORDER BY s.salary_month DESC, e.first_name ASC");
+$valSalaries = 0;
+$total_pending_salaries_count = 0;
+
 if ($resSalaries) {
     while($row = mysqli_fetch_assoc($resSalaries)) {
-        $salary_requests[] = $row;
+        $month_db = $row['salary_month'];
+        
+        if(!isset($salary_batches[$month_db])) {
+            $salary_batches[$month_db] = [
+                'month_fmt' => $row['month_fmt'],
+                'month_db' => $month_db,
+                'total_emp' => 0,
+                'total_gross' => 0,
+                'total_deductions' => 0,
+                'total_net' => 0,
+                'employees' => []
+            ];
+        }
+        
+        $deductions = $row['tds'] + $row['esi'] + $row['pf'] + $row['leave_deduction'] + $row['professional_tax'] + $row['labour_welfare'] + $row['others_deductions'];
+        
+        $salary_batches[$month_db]['total_emp']++;
+        $salary_batches[$month_db]['total_gross'] += (float)$row['gross_salary'];
+        $salary_batches[$month_db]['total_deductions'] += (float)$deductions;
+        $salary_batches[$month_db]['total_net'] += (float)$row['net_salary'];
+        
+        $salary_batches[$month_db]['employees'][] = $row;
+        
         $valSalaries += (float)$row['net_salary'];
+        $total_pending_salaries_count++;
     }
 }
 
 // Pending General (POs & Invoices)
- $pendingPosCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM purchase_orders WHERE approval_status = 'Pending'"))['cnt'] ?? 0;
- $pendingInvsCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM invoices WHERE status = 'Pending Approval'"))['cnt'] ?? 0;
- $valPOs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM purchase_orders WHERE approval_status = 'Pending'"))['val'] ?? 0;
- $valInvs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status = 'Pending Approval'"))['val'] ?? 0;
+$pendingPosCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM purchase_orders WHERE approval_status = 'Pending'"))['cnt'] ?? 0;
+$pendingInvsCount = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT COUNT(*) as cnt FROM invoices WHERE status = 'Pending Approval'"))['cnt'] ?? 0;
+$valPOs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM purchase_orders WHERE approval_status = 'Pending'"))['val'] ?? 0;
+$valInvs = mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status = 'Pending Approval'"))['val'] ?? 0;
 
- $summary = [
+$summary = [
     'pending_pos' => $pendingPosCount,
     'pending_invs' => $pendingInvsCount,
-    'pending_salaries' => count($salary_requests),
+    'pending_salaries' => $total_pending_salaries_count,
     'total_pending_value' => $valPOs + $valInvs + $valSalaries
 ];
 
- $pending_requests = [];
- $resPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status = 'Pending' ORDER BY created_at DESC");
+$pending_requests = [];
+$resPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status = 'Pending' ORDER BY created_at DESC");
 if($resPOs) {
     while($row = mysqli_fetch_assoc($resPOs)) {
         $pending_requests[] = ['id_db' => $row['id'], 'id' => $row['po_number'], 'type' => 'Purchase Order', 'vendor_client' => $row['vendor_name'], 'amount' => $row['grand_total'], 'date' => date('d-M-Y', strtotime($row['po_date'])), 'assigned_to' => 'N/A'];
     }
 }
 
-// UPDATED: Fetch assigned_to (approver_designation) for invoices
- $resInvs = @mysqli_query($conn, "SELECT i.*, c.client_name, i.approver_designation FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status = 'Pending Approval' ORDER BY i.created_at DESC");
+$resInvs = @mysqli_query($conn, "SELECT i.*, c.client_name, i.approver_designation FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status = 'Pending Approval' ORDER BY i.created_at DESC");
 if($resInvs) {
     while($row = mysqli_fetch_assoc($resInvs)) {
         $pending_requests[] = [
@@ -218,15 +261,15 @@ if($resInvs) {
 usort($pending_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
 // --- History 1: General Requests (POs & Invoices) ---
- $history_requests = [];
- $resHistoryPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 20");
+$history_requests = [];
+$resHistoryPOs = @mysqli_query($conn, "SELECT * FROM purchase_orders WHERE approval_status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 20");
 if($resHistoryPOs) {
     while($row = mysqli_fetch_assoc($resHistoryPOs)) {
         $history_requests[] = ['id_db' => $row['id'], 'id' => $row['po_number'], 'type' => 'Purchase Order', 'vendor_client' => $row['vendor_name'], 'amount' => $row['grand_total'], 'status' => $row['approval_status'], 'date' => date('d-M-Y', strtotime($row['po_date'])), 'reason' => $row['reject_reason']];
     }
 }
 
- $resHistoryInvs = @mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status IN ('Approved', 'Rejected') ORDER BY i.created_at DESC LIMIT 20");
+$resHistoryInvs = @mysqli_query($conn, "SELECT i.*, c.client_name FROM invoices i JOIN clients c ON i.client_id = c.id WHERE i.status IN ('Approved', 'Rejected') ORDER BY i.created_at DESC LIMIT 20");
 if($resHistoryInvs) {
     while($row = mysqli_fetch_assoc($resHistoryInvs)) {
         $history_requests[] = ['id_db' => $row['id'], 'id' => $row['invoice_no'], 'type' => 'Invoice', 'vendor_client' => $row['client_name'], 'amount' => $row['grand_total'], 'status' => $row['status'], 'date' => date('d-M-Y', strtotime($row['invoice_date'])), 'reason' => $row['reject_reason']];
@@ -235,8 +278,8 @@ if($resHistoryInvs) {
 usort($history_requests, function($a, $b) { return strtotime($b['date']) - strtotime($a['date']); });
 
 // --- History 2: Separated Salary History ---
- $history_salaries = [];
- $resHistorySalaries = @mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status IN ('Approved', 'Rejected') AND s.is_deleted = 0 ORDER BY s.approved_at DESC LIMIT 20");
+$history_salaries = [];
+$resHistorySalaries = @mysqli_query($conn, "SELECT s.*, DATE_FORMAT(s.salary_month, '%b %Y') as month_fmt, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as emp_name FROM employee_salary s JOIN employee_onboarding e ON s.user_id = e.id WHERE s.approval_status IN ('Approved', 'Rejected') AND s.is_deleted = 0 ORDER BY s.approved_at DESC LIMIT 20");
 if($resHistorySalaries) {
     while($row = mysqli_fetch_assoc($resHistorySalaries)) {
         $history_salaries[] = ['id_db' => $row['id'], 'id' => 'PAY-' . str_pad($row['id'], 4, '0', STR_PAD_LEFT), 'type' => 'Salary', 'vendor_client' => trim($row['emp_name']) . ' (' . $row['month_fmt'] . ')', 'amount' => $row['net_salary'], 'status' => $row['approval_status'], 'date' => date('d-M-Y', strtotime($row['approved_at'] ?? $row['created_at'])), 'reason' => $row['reject_reason']];
@@ -300,11 +343,13 @@ include '../header.php';
         .btn-print { background: #f1f5f9; color: #475569; border: 1px solid var(--border);}
         .btn-print:hover { background: #e2e8f0; }
         .btn-approve { background: var(--success); color: white; }
+        .btn-approve:hover { background: #059669; }
         .btn-reject { background: var(--danger); color: white; }
+        .btn-reject:hover { background: #dc2626; }
         .btn-disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; }
         
         /* Modals & Popups Overrides */
-        .swal2-container { z-index: 9999 !important; } /* Force SweetAlert to always be on top */
+        .swal2-container { z-index: 9999 !important; } 
         
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: none; justify-content: center; align-items: center; padding: 20px; backdrop-filter: blur(3px);}
         .modal-overlay.active { display: flex; }
@@ -320,6 +365,9 @@ include '../header.php';
         .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
         .detail-box { background: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }
         .detail-box p { margin: 4px 0; font-size: 13px; }
+
+        /* Batch Modal specifics */
+        #batch_employee_list td { padding: 12px; font-size: 12px; border-bottom: 1px solid #e2e8f0; }
 
         /* --- STRICT ISOLATED PRINT TEMPLATES --- */
         .print-container { display: none; }
@@ -362,7 +410,7 @@ include '../header.php';
         <div class="page-header">
             <div>
                 <h1>Request Approvals</h1>
-                <p>Review and authorize financial requests drafted by the team.</p>
+                <p>Review and authorize financial requests and monthly payroll batches.</p>
             </div>
             <?php if(!$can_approve): ?>
                 <div style="background: #fee2e2; color: #b91c1c; padding: 10px 15px; border-radius: 8px; font-size: 13px; font-weight: 700; display:flex; align-items:center; gap:8px;">
@@ -396,7 +444,7 @@ include '../header.php';
                     <i class="ph ph-hourglass-high"></i> Invoices / POs <span class="tab-badge" id="badgeCount"><?= count($pending_requests) ?></span>
                 </button>
                 <button class="tab-btn" onclick="switchTab(event, 'salaries')">
-                    <i class="ph ph-money"></i> Employee Salaries <?php if(count($salary_requests)>0) echo '<span class="tab-badge" style="background:#f59e0b;">'.count($salary_requests).'</span>'; ?>
+                    <i class="ph ph-money"></i> Payroll Batches <?php if(count($salary_batches)>0) echo '<span class="tab-badge" style="background:#f59e0b;">'.count($salary_batches).'</span>'; ?>
                 </button>
                 <button class="tab-btn" onclick="switchTab(event, 'history')">
                     <i class="ph ph-clock-counter-clockwise"></i> Invoice/PO History
@@ -424,7 +472,6 @@ include '../header.php';
                                     </td>
                                     <td><strong><?= htmlspecialchars($req['vendor_client']) ?></strong></td>
                                     <td>
-                                        <!-- NEW: Show who it is assigned to -->
                                         <span class="status-badge bg-pending" style="font-size:10px;">
                                             <i class="ph ph-user-circle"></i> <?= htmlspecialchars($req['assigned_to']) ?>
                                         </span>
@@ -454,25 +501,34 @@ include '../header.php';
                 <div style="overflow-x: auto;">
                     <table class="data-table">
                         <thead>
-                            <tr><th>Employee</th><th>Month</th><th style="text-align: right;">Net Payable</th><th style="text-align: right;">Action</th></tr>
+                            <tr>
+                                <th>Payroll Month</th>
+                                <th style="text-align: center;">Total Employees</th>
+                                <th style="text-align: right;">Total Gross</th>
+                                <th style="text-align: right;">Total Deductions</th>
+                                <th style="text-align: right;">Total Net Payable</th>
+                                <th style="text-align: right;">Action</th>
+                            </tr>
                         </thead>
                         <tbody>
-                            <?php if(empty($salary_requests)): ?>
-                                <tr><td colspan="4" style="text-align:center; padding:30px; color:var(--text-muted);">No pending salary approvals.</td></tr>
+                            <?php if(empty($salary_batches)): ?>
+                                <tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted);">No pending payroll batches for approval.</td></tr>
                             <?php else: ?>
-                                <?php foreach($salary_requests as $sal): ?>
+                                <?php foreach($salary_batches as $batch): ?>
                                 <tr>
                                     <td>
-                                        <strong><?= htmlspecialchars($sal['emp_name']) ?></strong>
-                                        <div style="font-size:11px; color:var(--text-muted);"><?= htmlspecialchars($sal['emp_code'] ?? '') ?></div>
+                                        <strong><i class="ph-fill ph-calendar-blank" style="color:var(--theme-color); margin-right:5px;"></i> <?= htmlspecialchars($batch['month_fmt']) ?></strong>
                                     </td>
-                                    <td><?= htmlspecialchars($sal['month_fmt']) ?></td>
-                                    <td class="amount-col">₹<?= number_format($sal['net_salary'], 2) ?></td>
+                                    <td style="text-align: center;">
+                                        <span style="background: #f1f5f9; padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 11px;"><?= $batch['total_emp'] ?> Staff</span>
+                                    </td>
+                                    <td style="text-align: right; color: #475569; font-weight: 600;">₹<?= number_format($batch['total_gross'], 2) ?></td>
+                                    <td style="text-align: right; color: #ef4444; font-weight: 600;">₹<?= number_format($batch['total_deductions'], 2) ?></td>
+                                    <td class="amount-col" style="color: #10b981; font-size: 16px;">₹<?= number_format($batch['total_net'], 2) ?></td>
                                     <td class="action-btns">
+                                        <button class="btn-sm btn-view" onclick='openBatchModal(<?= json_encode($batch, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)'><i class="ph-bold ph-list-dashes"></i> Breakdown</button>
                                         <?php if($can_approve): ?>
-                                            <button class="btn-sm btn-view" onclick="viewSalaryToApprove(<?= $sal['id'] ?>)"><i class="ph ph-eye"></i> View</button>
-                                        <?php else: ?>
-                                            <button class="btn-sm btn-disabled" disabled><i class="ph ph-lock"></i> Locked</button>
+                                            <button class="btn-sm btn-approve" onclick="executeBatchApprove('<?= $batch['month_db'] ?>', '<?= $batch['month_fmt'] ?>')"><i class="ph-bold ph-check-double"></i> Approve Batch</button>
                                         <?php endif; ?>
                                     </td>
                                 </tr>
@@ -580,6 +636,68 @@ include '../header.php';
     </main>
 </div> 
 
+<div class="modal-overlay" id="viewSalaryBatchModal">
+    <div class="modal-content" style="max-width: 900px; max-height: 95vh;">
+        <div class="modal-header">
+            <h3><i class="ph-fill ph-users-three"></i> Payroll Breakdown: <span id="batch_month_title" style="color: #64748b;"></span></h3>
+            <i class="ph-bold ph-x close-modal" onclick="closeModal('viewSalaryBatchModal')"></i>
+        </div>
+        <div class="modal-body" style="padding: 0;">
+            <div style="padding: 20px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 20px; justify-content: space-around;">
+                <div style="text-align: center;"><p style="margin:0; font-size: 11px; font-weight:bold; color:#64748b; text-transform:uppercase;">Gross Pay</p><h4 style="margin:5px 0 0 0; font-size:18px; color:#1e293b;" id="batch_gross_total"></h4></div>
+                <div style="text-align: center;"><p style="margin:0; font-size: 11px; font-weight:bold; color:#64748b; text-transform:uppercase;">Deductions</p><h4 style="margin:5px 0 0 0; font-size:18px; color:#ef4444;" id="batch_deduct_total"></h4></div>
+                <div style="text-align: center;"><p style="margin:0; font-size: 11px; font-weight:bold; color:#64748b; text-transform:uppercase;">Net Payable</p><h4 style="margin:5px 0 0 0; font-size:18px; color:#10b981;" id="batch_net_total"></h4></div>
+            </div>
+            <table class="data-table" style="margin: 0;">
+                <thead style="position: sticky; top: 0;">
+                    <tr>
+                        <th>Employee</th>
+                        <th style="text-align: right;">Gross</th>
+                        <th style="text-align: right;">Deductions</th>
+                        <th style="text-align: right;">Net Payable</th>
+                        <th style="text-align: center;">Granular Action</th>
+                    </tr>
+                </thead>
+                <tbody id="batch_employee_list"></tbody>
+            </table>
+        </div>
+        <div class="modal-footer" id="batch_action_footer" style="justify-content: space-between;">
+            <p style="font-size: 12px; color: #64748b; margin: 0; align-self: center;"><i class="ph-fill ph-info"></i> Individual rejections apply immediately. Approving batch approves all remaining pending salaries.</p>
+            <div style="display:flex; gap:10px;">
+                <button class="btn-sm btn-reject" onclick="openRejectModal('SalaryBatch')"><i class="ph-bold ph-x"></i> Reject Entire Batch</button>
+                <button class="btn-sm btn-approve" id="btn_approve_batch"><i class="ph-bold ph-check-double"></i> Approve Remaining Batch</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="viewSalaryModal">
+    <div class="modal-content" style="max-width: 450px;">
+        <div class="modal-header"><h3>Review Salary</h3><i class="ph-bold ph-x close-modal" onclick="closeModal('viewSalaryModal')"></i></div>
+        <div class="modal-body">
+            <div class="detail-box" style="margin-bottom: 20px;">
+                <p style="display:flex; justify-content:space-between;"><span>Employee:</span> <strong id="v_sal_emp" style="color:var(--theme-color);"></strong></p>
+                <p style="display:flex; justify-content:space-between;"><span>Month:</span> <strong id="v_sal_month"></strong></p>
+                <hr style="border:0; border-top:1px solid #e2e8f0; margin:15px 0;">
+                <p style="display:flex; justify-content:space-between;"><span>Basic Salary:</span> <strong id="v_sal_basic"></strong></p>
+                <p style="display:flex; justify-content:space-between;"><span>Allowances:</span> <strong id="v_sal_allow" style="color:#15803d;"></strong></p>
+                <p style="display:flex; justify-content:space-between;"><span>Deductions:</span> <strong id="v_sal_deduct" style="color:#b91c1c;"></strong></p>
+                <div style="margin-top:15px; padding-top:15px; border-top:1px dashed #cbd5e1; font-size:18px; font-weight:800; display:flex; justify-content:space-between; color: var(--theme-color);">
+                    <span>Net Payable:</span> <span id="v_sal_net"></span>
+                </div>
+            </div>
+
+            <div id="v_sal_reject_reason_box" style="display: none; background: #fee2e2; border: 1px solid #fecaca; padding: 15px; border-radius: 8px;">
+                <strong style="color: #b91c1c; font-size: 13px;">Reason for Rejection:</strong>
+                <p style="margin: 5px 0 0 0; font-size: 14px; color: #991b1b;" id="v_sal_reject_text"></p>
+            </div>
+        </div>
+        <div class="modal-footer" id="v_sal_action_footer">
+            <button class="btn-sm btn-reject" onclick="openRejectModal('Salary')"><i class="ph-bold ph-x"></i> Reject Individually</button>
+        </div>
+    </div>
+</div>
+
 <div class="modal-overlay" id="viewInvoiceModal">
     <div class="modal-content">
         <div class="modal-header"><h3>Review Invoice: <span id="v_inv_no" style="color: #64748b;"></span></h3><i class="ph-bold ph-x close-modal" onclick="closeModal('viewInvoiceModal')"></i></div>
@@ -650,34 +768,6 @@ include '../header.php';
         <div class="modal-footer" id="v_po_action_footer">
             <button class="btn-sm btn-reject" onclick="openRejectModal('Purchase Order')"><i class="ph-bold ph-x"></i> Reject</button>
             <button class="btn-sm btn-approve" onclick="executeApprove('Purchase Order')"><i class="ph-bold ph-check"></i> Approve PO</button>
-        </div>
-    </div>
-</div>
-
-<div class="modal-overlay" id="viewSalaryModal">
-    <div class="modal-content" style="max-width: 450px;">
-        <div class="modal-header"><h3>Review Salary</h3><i class="ph-bold ph-x close-modal" onclick="closeModal('viewSalaryModal')"></i></div>
-        <div class="modal-body">
-            <div class="detail-box" style="margin-bottom: 20px;">
-                <p style="display:flex; justify-content:space-between;"><span>Employee:</span> <strong id="v_sal_emp" style="color:var(--theme-color);"></strong></p>
-                <p style="display:flex; justify-content:space-between;"><span>Month:</span> <strong id="v_sal_month"></strong></p>
-                <hr style="border:0; border-top:1px solid #e2e8f0; margin:15px 0;">
-                <p style="display:flex; justify-content:space-between;"><span>Basic Salary:</span> <strong id="v_sal_basic"></strong></p>
-                <p style="display:flex; justify-content:space-between;"><span>Allowances:</span> <strong id="v_sal_allow" style="color:#15803d;"></strong></p>
-                <p style="display:flex; justify-content:space-between;"><span>Deductions:</span> <strong id="v_sal_deduct" style="color:#b91c1c;"></strong></p>
-                <div style="margin-top:15px; padding-top:15px; border-top:1px dashed #cbd5e1; font-size:18px; font-weight:800; display:flex; justify-content:space-between; color: var(--theme-color);">
-                    <span>Net Payable:</span> <span id="v_sal_net"></span>
-                </div>
-            </div>
-
-            <div id="v_sal_reject_reason_box" style="display: none; background: #fee2e2; border: 1px solid #fecaca; padding: 15px; border-radius: 8px;">
-                <strong style="color: #b91c1c; font-size: 13px;">Reason for Rejection:</strong>
-                <p style="margin: 5px 0 0 0; font-size: 14px; color: #991b1b;" id="v_sal_reject_text"></p>
-            </div>
-        </div>
-        <div class="modal-footer" id="v_sal_action_footer">
-            <button class="btn-sm btn-reject" onclick="openRejectModal('Salary')"><i class="ph-bold ph-x"></i> Reject</button>
-            <button class="btn-sm btn-approve" onclick="executeApprove('Salary')"><i class="ph-bold ph-check"></i> Approve Salary</button>
         </div>
     </div>
 </div>
@@ -861,6 +951,7 @@ include '../header.php';
 <script>
     let activeId = null;
     let activeType = null;
+    let activeBatchMonth = null;
 
     function switchTab(evt, id) {
         document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -882,7 +973,161 @@ include '../header.php';
         });
     }
 
-    // --- FETCH & VIEW MODALS LOGIC ---
+    // --- CFO BATCH PAYROLL LOGIC ---
+    function openBatchModal(batchData) {
+        document.getElementById('batch_month_title').innerText = batchData.month_fmt;
+        document.getElementById('batch_gross_total').innerText = '₹' + parseFloat(batchData.total_gross).toLocaleString('en-IN', {minimumFractionDigits: 2});
+        document.getElementById('batch_deduct_total').innerText = '₹' + parseFloat(batchData.total_deductions).toLocaleString('en-IN', {minimumFractionDigits: 2});
+        document.getElementById('batch_net_total').innerText = '₹' + parseFloat(batchData.total_net).toLocaleString('en-IN', {minimumFractionDigits: 2});
+        
+        let tbody = document.getElementById('batch_employee_list');
+        tbody.innerHTML = '';
+        
+        batchData.employees.forEach(emp => {
+            let gross = parseFloat(emp.gross_salary || 0);
+            let net = parseFloat(emp.net_salary || 0);
+            let deductions = gross - net;
+            
+            tbody.innerHTML += `<tr>
+                <td><strong>${emp.emp_name}</strong><br><span style="font-size:10px; color:#64748b;">${emp.emp_code}</span></td>
+                <td style="text-align:right;">₹${gross.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                <td style="text-align:right; color:#ef4444;">₹${deductions.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                <td style="text-align:right; font-weight:bold; color:#10b981;">₹${net.toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                <td style="text-align:center;">
+                    <button class="btn-sm btn-view" onclick="viewSalaryToApprove(${emp.id})" title="Verify Individual Breakdown"><i class="ph-bold ph-eye"></i></button>
+                </td>
+            </tr>`;
+        });
+
+        // Set action for the Approve Batch button
+        document.getElementById('btn_approve_batch').onclick = function() {
+            executeBatchApprove(batchData.month_db, batchData.month_fmt);
+        };
+        
+        activeBatchMonth = batchData.month_db;
+        document.getElementById('viewSalaryBatchModal').classList.add('active');
+    }
+
+    function executeBatchApprove(monthDb, monthFmt) {
+        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
+        
+        Swal.fire({
+            title: `Approve Batch Payroll?`,
+            text: `You are authorizing the entire payroll run for ${monthFmt}.`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#15803d',
+            confirmButtonText: 'Yes, Approve Batch'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const fd = new FormData();
+                fd.append('action', 'ApproveSalaryBatch');
+                fd.append('month_db', monthDb);
+                
+                fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+                    if(data.status === 'success') {
+                        Swal.fire({title: 'Batch Approved!', icon: 'success', timer: 1500, showConfirmButton: false}).then(() => location.reload());
+                    } else { Swal.fire('Error', data.message, 'error'); }
+                });
+            }
+        });
+    }
+
+    function viewSalaryToApprove(id, isHistory = false) {
+        activeId = id;
+        const fd = new FormData(); fd.append('action', 'fetch_salary_details'); fd.append('id', id);
+        fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+            if(data.status === 'success') {
+                const sal = data.salary;
+                
+                const basic = parseFloat(sal.basic || 0);
+                const gross = parseFloat(sal.gross_salary || 0);
+                const net = parseFloat(sal.net_salary || 0);
+                
+                const totalAllowances = gross - basic;
+                const totalDeductions = gross - net;
+
+                document.getElementById('v_sal_emp').innerText = sal.emp_name + " (" + (sal.emp_code||'') + ")";
+                document.getElementById('v_sal_month').innerText = sal.month_fmt;
+                document.getElementById('v_sal_basic').innerText = '₹' + basic.toLocaleString('en-IN', {minimumFractionDigits: 2});
+                document.getElementById('v_sal_allow').innerText = '+ ₹' + totalAllowances.toLocaleString('en-IN', {minimumFractionDigits: 2});
+                document.getElementById('v_sal_deduct').innerText = '- ₹' + totalDeductions.toLocaleString('en-IN', {minimumFractionDigits: 2});
+                document.getElementById('v_sal_net').innerText = '₹' + net.toLocaleString('en-IN', {minimumFractionDigits: 2});
+                
+                const rejectBox = document.getElementById('v_sal_reject_reason_box');
+                if (sal.approval_status === 'Rejected' && sal.reject_reason) {
+                    document.getElementById('v_sal_reject_text').innerText = sal.reject_reason;
+                    rejectBox.style.display = 'block';
+                } else { rejectBox.style.display = 'none'; }
+
+                const footer = document.getElementById('v_sal_action_footer');
+                footer.style.display = (isHistory || sal.approval_status !== 'Pending') ? 'none' : 'flex';
+
+                document.getElementById('viewSalaryModal').classList.add('active');
+            } else {
+                Swal.fire('Error', data.message || 'Could not fetch record', 'error');
+            }
+        });
+    }
+
+    // --- GENERAL APPROVAL / REJECTION EXECUTION ---
+    function executeApprove(type) {
+        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
+
+        let action = (type === 'Salary') ? 'ApproveSalary' : 'Approve';
+        Swal.fire({
+            title: `Approve ${type}?`,
+            text: "This action will authorize the request permanently.",
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#15803d',
+            confirmButtonText: 'Yes, Approve'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                const fd = new FormData();
+                fd.append('action', action); fd.append('id', activeId); fd.append('type', type);
+                fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+                    if(data.status === 'success') {
+                        Swal.fire({title: 'Approved!', icon: 'success', timer: 1500, showConfirmButton: false}).then(() => location.reload());
+                    } else { Swal.fire('Error', data.message, 'error'); }
+                });
+            }
+        });
+    }
+
+    function openRejectModal(type) {
+        activeType = type;
+        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active')); 
+        document.getElementById('rejectReasonInput').value = '';
+        document.getElementById('rejectModal').classList.add('active');
+    }
+
+    function submitReject() {
+        const reason = document.getElementById('rejectReasonInput').value.trim();
+        if(reason === '') {
+            Swal.fire('Required', 'Please enter a reason for rejection.', 'warning');
+            return;
+        }
+
+        let action = 'Reject';
+        if (activeType === 'Salary') action = 'RejectSalary';
+        if (activeType === 'SalaryBatch') action = 'RejectSalaryBatch';
+
+        const fd = new FormData();
+        fd.append('action', action); 
+        fd.append('id', activeId); // Only used for Individual 
+        fd.append('month_db', activeBatchMonth); // Only used for Batch
+        fd.append('type', activeType); 
+        fd.append('reason', reason);
+
+        fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+            if(data.status === 'success') {
+                Swal.fire({title: 'Rejected', icon: 'info', timer: 1500, showConfirmButton: false}).then(() => location.reload());
+            } else { Swal.fire('Error', data.message, 'error'); }
+        });
+    }
+
+    // --- PRINTING LOGIC ---
     function viewInvoiceToApprove(id, isHistory = false) {
         activeId = id;
         const fd = new FormData(); fd.append('action', 'fetch_invoice_details'); fd.append('id', id);
@@ -961,95 +1206,6 @@ include '../header.php';
         });
     }
 
-    function viewSalaryToApprove(id, isHistory = false) {
-        activeId = id;
-        const fd = new FormData(); fd.append('action', 'fetch_salary_details'); fd.append('id', id);
-        fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            if(data.status === 'success') {
-                const sal = data.salary;
-                
-                const basic = parseFloat(sal.basic || 0);
-                const gross = parseFloat(sal.gross_salary || 0);
-                const net = parseFloat(sal.net_salary || 0);
-                
-                const totalAllowances = gross - basic;
-                const totalDeductions = gross - net;
-
-                document.getElementById('v_sal_emp').innerText = sal.emp_name + " (" + (sal.emp_code||'') + ")";
-                document.getElementById('v_sal_month').innerText = sal.month_fmt;
-                document.getElementById('v_sal_basic').innerText = basic.toFixed(2);
-                document.getElementById('v_sal_allow').innerText = '+ ' + totalAllowances.toFixed(2);
-                document.getElementById('v_sal_deduct').innerText = '- ' + totalDeductions.toFixed(2);
-                document.getElementById('v_sal_net').innerText = net.toFixed(2);
-                
-                const rejectBox = document.getElementById('v_sal_reject_reason_box');
-                if (sal.approval_status === 'Rejected' && sal.reject_reason) {
-                    document.getElementById('v_sal_reject_text').innerText = sal.reject_reason;
-                    rejectBox.style.display = 'block';
-                } else { rejectBox.style.display = 'none'; }
-
-                const footer = document.getElementById('v_sal_action_footer');
-                footer.style.display = (isHistory || sal.approval_status !== 'Pending') ? 'none' : 'flex';
-
-                document.getElementById('viewSalaryModal').classList.add('active');
-            } else {
-                Swal.fire('Error', data.message || 'Could not fetch record', 'error');
-            }
-        });
-    }
-
-    // --- APPROVAL / REJECTION EXECUTION ---
-    function executeApprove(type) {
-        // Automatically close any open review modals to prevent overlay clashing with SweetAlert
-        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active'));
-
-        let action = (type === 'Salary') ? 'ApproveSalary' : 'Approve';
-        Swal.fire({
-            title: `Approve ${type}?`,
-            text: "This action will authorize the request permanently.",
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonColor: '#15803d',
-            confirmButtonText: 'Yes, Approve'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                const fd = new FormData();
-                fd.append('action', action); fd.append('id', activeId); fd.append('type', type);
-                fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-                    if(data.status === 'success') {
-                        Swal.fire({title: 'Approved!', icon: 'success', timer: 1500, showConfirmButton: false}).then(() => location.reload());
-                    } else { Swal.fire('Error', data.message, 'error'); }
-                });
-            }
-        });
-    }
-
-    function openRejectModal(type) {
-        activeType = type;
-        document.querySelectorAll('.modal-overlay').forEach(el => el.classList.remove('active')); 
-        document.getElementById('rejectReasonInput').value = '';
-        document.getElementById('rejectModal').classList.add('active');
-    }
-
-    function submitReject() {
-        const reason = document.getElementById('rejectReasonInput').value.trim();
-        if(reason === '') {
-            Swal.fire('Required', 'Please enter a reason for rejection.', 'warning');
-            return;
-        }
-
-        let action = (activeType === 'Salary') ? 'RejectSalary' : 'Reject';
-        const fd = new FormData();
-        fd.append('action', action); fd.append('id', activeId); fd.append('type', activeType); fd.append('reason', reason);
-
-        fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            if(data.status === 'success') {
-                Swal.fire({title: 'Rejected', icon: 'info', timer: 1500, showConfirmButton: false}).then(() => location.reload());
-            } else { Swal.fire('Error', data.message, 'error'); }
-        });
-    }
-
-    // --- PRINTING LOGIC ---
     function prepareAndPrint(id) {
         const fd = new FormData(); fd.append('action', 'fetch_invoice_details'); fd.append('id', id);
         fetch('', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
