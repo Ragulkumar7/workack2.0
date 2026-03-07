@@ -8,7 +8,9 @@ if (session_status() === PHP_SESSION_NONE) { session_start(); }
 // FIX TIMEZONE 
 date_default_timezone_set('Asia/Kolkata');
 
-require_once '../include/db_connect.php'; 
+$dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
+if (file_exists($dbPath)) { include_once($dbPath); } 
+else { include_once('../include/db_connect.php'); }
 
 if (!isset($_SESSION['user_id'])) { header("Location: ../index.php"); exit(); }
 
@@ -27,8 +29,9 @@ $department = "Management";
 $experience_label = "10+ Years";
 $profile_img = "";
 $emergency_contacts = '[]';
+$shift_timings = '09:00 AM - 06:00 PM';
 
-$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, p.department, p.experience_label, p.emergency_contacts 
+$sql_profile = "SELECT u.username, u.role, p.full_name, p.phone, p.joining_date, p.designation, p.email, p.profile_img, p.department, p.experience_label, p.emergency_contacts, p.shift_timings 
                 FROM users u 
                 LEFT JOIN employee_profiles p ON u.id = p.user_id 
                 WHERE u.id = ?";
@@ -47,6 +50,7 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
     $experience_label = $user_info['experience_label'] ?? 'Executive';
     $joining_date = $user_info['joining_date'] ? date("d M Y", strtotime($user_info['joining_date'])) : "Not Set";
     $emergency_contacts = $user_info['emergency_contacts'] ?? '[]';
+    $shift_timings = $user_info['shift_timings'] ?? $shift_timings;
     
     if (!empty($user_info['profile_img']) && $user_info['profile_img'] !== 'default_user.png') {
         if (str_starts_with($user_info['profile_img'], 'http')) {
@@ -58,7 +62,7 @@ if ($user_info = mysqli_fetch_assoc($user_res)) {
 }
 
 // --- LEAVE LOGIC ---
-$leaves_total = 20; // Example: Execs might have more leave
+$leaves_total = 20; 
 $leaves_taken = 0;
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = mysqli_prepare($conn, $leave_sql);
@@ -72,8 +76,12 @@ if ($leave_stmt) {
 }
 $leaves_remaining = max(0, $leaves_total - $leaves_taken);
 
-// --- ATTENDANCE STATS FOR DONUT CHART ---
+// -------------------------------------------------------------------------
+// 3. ATTENDANCE STATS (For Donut Chart)
+// -------------------------------------------------------------------------
+// NOTE: Active Timer & Punch Logic is securely handled by attendance_card.php
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
+$late_time_str = "0h 0m"; // Added to prevent JS error on donut chart
 $stat_sql = "SELECT status, COUNT(*) as count FROM attendance WHERE user_id = ? GROUP BY status";
 $stat_stmt = mysqli_prepare($conn, $stat_sql);
 mysqli_stmt_bind_param($stat_stmt, "i", $current_user_id);
@@ -85,94 +93,6 @@ while ($row = mysqli_fetch_assoc($stat_res)) {
     if ($row['status'] == 'WFH') $stats_wfh = $row['count'];
     if ($row['status'] == 'Absent') $stats_absent = $row['count'];
     if ($row['status'] == 'Sick Leave' || $row['status'] == 'Sick') $stats_sick = $row['count'];
-}
-
-// -------------------------------------------------------------------------
-// 3. ATTENDANCE LOGIC (Punch In/Out/Break)
-// -------------------------------------------------------------------------
-$attendance_record = null;
-$total_hours_today = "00:00:00";
-$display_punch_in = "--:--";
-$total_seconds_worked = 0;
-$is_on_break = false; 
-
-$check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
-$check_stmt = mysqli_prepare($conn, $check_sql);
-mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
-mysqli_stmt_execute($check_stmt);
-$attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
-
-$total_break_seconds = 0;
-$break_start_ts = 0;
-
-if ($attendance_record) {
-    $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NULL";
-    $bk_stmt = mysqli_prepare($conn, $bk_sql);
-    mysqli_stmt_bind_param($bk_stmt, "i", $attendance_record['id']);
-    mysqli_stmt_execute($bk_stmt);
-    if ($bk_row = mysqli_fetch_assoc(mysqli_stmt_get_result($bk_stmt))) {
-        $is_on_break = true;
-        $break_start_ts = strtotime($bk_row['break_start']);
-    }
-
-    $sum_sql = "SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as total FROM attendance_breaks WHERE attendance_id = ? AND break_end IS NOT NULL";
-    $sum_stmt = mysqli_prepare($conn, $sum_sql);
-    mysqli_stmt_bind_param($sum_stmt, "i", $attendance_record['id']);
-    mysqli_stmt_execute($sum_stmt);
-    $sum_res = mysqli_fetch_assoc(mysqli_stmt_get_result($sum_stmt));
-    $total_break_seconds = $sum_res['total'] ?? 0;
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    $now_db = date('Y-m-d H:i:s');
-    if ($_POST['action'] == 'punch_in' && !$attendance_record) {
-        $ins_sql = "INSERT INTO attendance (user_id, punch_in, date, status) VALUES (?, ?, ?, 'On Time')";
-        $ins_stmt = mysqli_prepare($conn, $ins_sql);
-        mysqli_stmt_bind_param($ins_stmt, "iss", $current_user_id, $now_db, $today);
-        mysqli_stmt_execute($ins_stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); exit();
-    } elseif ($_POST['action'] == 'break_start' && $attendance_record && !$is_on_break) {
-        $ins_bk = "INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)";
-        $stmt = mysqli_prepare($conn, $ins_bk);
-        mysqli_stmt_bind_param($stmt, "is", $attendance_record['id'], $now_db);
-        mysqli_stmt_execute($stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); exit();
-    } elseif ($_POST['action'] == 'break_end' && $attendance_record && $is_on_break) {
-        $upd_bk = "UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL";
-        $stmt = mysqli_prepare($conn, $upd_bk);
-        mysqli_stmt_bind_param($stmt, "si", $now_db, $attendance_record['id']);
-        mysqli_stmt_execute($stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); exit();
-    } elseif ($_POST['action'] == 'punch_out' && $attendance_record && !$attendance_record['punch_out']) {
-        if ($is_on_break) {
-            mysqli_query($conn, "UPDATE attendance_breaks SET break_end = '$now_db' WHERE attendance_id = {$attendance_record['id']} AND break_end IS NULL");
-            $total_break_seconds += (strtotime($now_db) - $break_start_ts);
-        }
-        $start_ts = strtotime($attendance_record['punch_in']);
-        $end_ts = strtotime($now_db);
-        $production_seconds = max(0, ($end_ts - $start_ts) - $total_break_seconds);
-        $hours = $production_seconds / 3600;
-
-        $upd_sql = "UPDATE attendance SET punch_out = ?, production_hours = ? WHERE id = ?";
-        $upd_stmt = mysqli_prepare($conn, $upd_sql);
-        mysqli_stmt_bind_param($upd_stmt, "sdi", $now_db, $hours, $attendance_record['id']);
-        mysqli_stmt_execute($upd_stmt);
-        header("Location: " . $_SERVER['PHP_SELF']); exit();
-    }
-}
-
-if ($attendance_record) {
-    $display_punch_in = date('h:i A', strtotime($attendance_record['punch_in']));
-    $start_ts = strtotime($attendance_record['punch_in']);
-    if ($is_on_break) { $now_ts = $break_start_ts; } 
-    elseif ($attendance_record['punch_out']) { $now_ts = strtotime($attendance_record['punch_out']); } 
-    else { $now_ts = time(); }
-    
-    $total_seconds_worked = max(0, ($now_ts - $start_ts) - $total_break_seconds);
-    $hours = floor($total_seconds_worked / 3600);
-    $mins = floor(($total_seconds_worked % 3600) / 60);
-    $secs = $total_seconds_worked % 60;
-    $total_hours_today = sprintf('%02d:%02d:%02d', $hours, $mins, $secs);
 }
 
 // -------------------------------------------------------------------------
@@ -193,15 +113,12 @@ $months = [
     '09' => 'September', '10' => 'October', '11' => 'November', '12' => 'December'
 ];
 
-// Fetch Real KPI Data
 $kpi = ['income' => 0, 'expense' => 0, 'profit' => 0, 'ar' => 0];
-
 $kpi['income'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
 $kpi['expense'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
 $kpi['profit'] = $kpi['income'] - $kpi['expense'];
 $kpi['ar'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status != 'Paid'"))['val'] ?? 0;
 
-// Recent Invoices
 $recent_invoices = [];
 $res_inv = @mysqli_query($conn, "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status FROM invoices i JOIN clients c ON i.client_id = c.id ORDER BY i.created_at DESC LIMIT 6");
 if($res_inv){
@@ -210,7 +127,6 @@ if($res_inv){
     }
 }
 
-// Chart 1: CFO Revenue Trend (Real Data)
 $rev_labels = []; $rev_income = []; $rev_expense = []; $rev_profit = [];
 for($m=1; $m<=12; $m++) {
     $rev_labels[] = date('M', mktime(0,0,0,$m, 1));
@@ -242,16 +158,10 @@ include '../header.php';
     <style>
         body { background-color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b; overflow-x: hidden; }
         
-        /* 12-Col grid for KPI and Bottom Charts */
-        .dashboard-container { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; margin-bottom: 1.5rem;}
-        
-        /* 3-Col Vertical Flex Grid (Eliminates Empty Space) */
-        .dashboard-grid { display: grid; grid-template-columns: repeat(1, 1fr); gap: 1.5rem; margin-bottom: 1.5rem; }
-        @media (min-width: 1024px) { .dashboard-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-
         #mainContent { margin-left: 90px; width: calc(100% - 90px); transition: all 0.3s; }
         @media (max-width: 1024px) { #mainContent { margin-left: 0; width: 100%; padding-top: 80px; } }
         
+        /* Strict boundary management for perfectly aligned cards */
         .card { 
             background: white; 
             border-radius: 1rem; 
@@ -260,18 +170,17 @@ include '../header.php';
             transition: all 0.3s ease; 
             display: flex; 
             flex-direction: column; 
-            height: fit-content; /* PREVENTS VERTICAL STRETCHING */
+            overflow: hidden; 
         }
         .card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1;}
-        .card-body { padding: 1.25rem; flex-grow: 1; display: flex; flex-direction: column;} 
-
-        .progress-ring-circle { transition: stroke-dashoffset 0.35s; transform: rotate(-90deg); transform-origin: 50% 50%; }
+        
+        /* Card body must flex-grow but have min-height: 0 so internal scrolls work */
+        .card-body { padding: 1.25rem; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;} 
 
         /* Custom Scrollbars */
         .custom-scroll::-webkit-scrollbar { width: 5px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
-        .scroll-area { flex-grow: 1; overflow-y: auto; min-height: 0; }
 
         /* CFO specific components */
         .status-badge { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
@@ -316,8 +225,8 @@ include '../header.php';
             </form>
         </div>
 
-        <div class="dashboard-container">
-            <div class="col-span-12 lg:col-span-3 card border-l-4 border-l-teal-600">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <div class="card border-l-4 border-l-teal-600">
                 <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
@@ -328,7 +237,7 @@ include '../header.php';
                     </div>
                 </div>
             </div>
-            <div class="col-span-12 lg:col-span-3 card">
+            <div class="card">
                 <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
@@ -339,7 +248,7 @@ include '../header.php';
                     </div>
                 </div>
             </div>
-            <div class="col-span-12 lg:col-span-3 card">
+            <div class="card">
                 <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
@@ -350,7 +259,7 @@ include '../header.php';
                     </div>
                 </div>
             </div>
-            <div class="col-span-12 lg:col-span-3 card">
+            <div class="card">
                 <div class="card-body p-4">
                     <div class="flex justify-between items-start">
                         <div>
@@ -363,41 +272,15 @@ include '../header.php';
             </div>
         </div>
 
-        <div class="dashboard-grid">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             
             <div class="flex flex-col gap-6">
-                
-                <?php include '../attendance_card.php'; ?>
-
-                <div class="card flex-grow">
-                    <div class="card-body flex flex-col">
-                        <div class="flex items-center justify-between mb-3 border-b border-gray-100 pb-2 shrink-0">
-                            <div class="flex items-center gap-2">
-                                <i class="fa-solid fa-bolt text-amber-500 text-lg"></i>
-                                <h3 class="font-bold text-slate-800 text-lg">Action Hub</h3>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 flex-grow">
-                            <a href="cfo_approvals.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
-                                <i class="fa-solid fa-check-double text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Approvals</span>
-                            </a>
-                            <a href="ledger.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
-                                <i class="fa-solid fa-book-open text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Ledger</span>
-                            </a>
-                            <a href="cfo_reports.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
-                                <i class="fa-solid fa-chart-pie text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Reports</span>
-                            </a>
-                            <a href="tax_filing.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group">
-                                <i class="fa-solid fa-building-columns text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Tax & Filing</span>
-                            </a>
-                        </div>
-                    </div>
+                <div class="h-full">
+                    <?php include '../attendance_card.php'; ?>
                 </div>
-
             </div>
 
-            <div class="flex flex-col gap-6">
-                
+            <div class="flex flex-col gap-6 h-full">
                 <div class="card">
                     <div class="card-body">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-2 shrink-0">
@@ -410,19 +293,15 @@ include '../header.php';
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="text-xs text-gray-600 font-semibold">Late</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_late; ?></span></div>
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div><span class="text-xs text-gray-600 font-semibold">WFH</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_wfh; ?></span></div>
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-red-500"></div><span class="text-xs text-gray-600 font-semibold">Absent</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_absent; ?></span></div>
-                                <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
-                                    <div class="flex items-center gap-2"><i class="fa-solid fa-plane-departure text-rose-400 text-xs"></i><span class="text-xs text-slate-800 font-bold uppercase">Sick Leave</span></div>
-                                    <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs"><?php echo $stats_sick; ?> Days</span>
-                                </div>
                             </div>
-                            <div class="relative flex-shrink-0 w-28 h-28 mx-auto">
+                            <div class="relative flex-shrink-0 w-24 h-24 mx-auto">
                                 <div id="attendanceChart" class="w-full h-full"></div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card flex-grow">
                     <div class="card-body flex flex-col gap-3">
                         <div class="flex justify-between items-center border-b border-gray-100 pb-2">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
@@ -444,67 +323,20 @@ include '../header.php';
                                 </p>
                             </div>
                         </div>
-                        
-                        <div class="space-y-1.5 mt-2">
-                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recent Leave Policy</p>
-                            <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
-                                <span class="text-[10px] font-bold text-slate-600">Monthly Accrual</span>
-                                <span class="text-[10px] font-black text-teal-600">+2.0 Days</span>
-                            </div>
-                            <div class="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100">
-                                <span class="text-[10px] font-bold text-slate-600">Sick Leave Cap</span>
-                                <span class="text-[10px] font-black text-slate-700">12 Days/Year</span>
-                            </div>
-                        </div>
-
-                        <div class="mt-auto pt-4">
+                        <div class="mt-auto pt-2">
                             <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-sm shadow-teal-200/50 text-xs">
                                 <i class="fa-solid fa-plus mr-1"></i> APPLY NEW LEAVE
                             </a>
                         </div>
                     </div>
                 </div>
-
-                <div class="card flex-grow">
-                    <div class="card-body flex flex-col">
-                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
-                            <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
-                            <button class="text-[9px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
-                        </div>
-                        <div class="meeting-timeline pt-1 custom-scroll scroll-area pr-2 mt-1">
-                            <?php if($meet_result && mysqli_num_rows($meet_result) > 0) { 
-                                while($meet = mysqli_fetch_assoc($meet_result)):
-                                    $is_past = (strtotime($meet['meeting_time']) < time()) ? 'opacity-50' : '';
-                                    $dot_color = (strtotime($meet['meeting_time']) < time()) ? 'bg-slate-300' : 'bg-teal-500';
-                            ?>
-                            <div class="meeting-row-wrapper <?php echo $is_past; ?>">
-                                <div class="meeting-dot <?php echo $dot_color; ?>"></div>
-                                <div class="meeting-flex-container gap-4">
-                                    <div class="meeting-time-label mt-1"><?php echo date("h:i A", strtotime($meet['meeting_time'])); ?></div>
-                                    <div class="meeting-content-box shadow-sm py-2 px-3">
-                                        <h4 class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></h4>
-                                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5 flex items-center gap-1"><i class="fa-solid fa-link"></i> <?php echo $meet['platform'] ?? 'Online'; ?></p>
-                                    </div>
-                                </div>
-                            </div>
-                            <?php endwhile; } else { ?>
-                                <div class="text-center py-6 flex flex-col items-center justify-center h-full">
-                                    <i class="fa-regular fa-calendar-xmark text-3xl text-slate-200 mb-2"></i>
-                                    <p class="text-xs text-slate-400 font-medium">No meetings scheduled for today.</p>
-                                </div>
-                            <?php } ?>
-                        </div>
-                    </div>
-                </div>
-
             </div>
 
             <div class="flex flex-col gap-6">
-                
-                <div class="card overflow-hidden shadow-sm border-slate-200">
+                <div class="card h-full overflow-hidden shadow-sm border-slate-200">
                     <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative shrink-0">
                         <div class="relative shrink-0">
-                            <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white/30 shadow-lg object-cover bg-white">
+                            <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white shadow-lg object-cover bg-white">
                             <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <div class="min-w-0 text-white">
@@ -532,7 +364,7 @@ include '../header.php';
                         </div>
                     </div>
                     
-                    <div class="p-4 bg-slate-50 flex-grow space-y-4">
+                    <div class="p-4 bg-slate-50 flex-grow flex flex-col justify-between space-y-4">
                         <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                                 <i class="fa-solid fa-user-shield text-purple-500"></i> Reporting To
@@ -569,20 +401,11 @@ include '../header.php';
                             </div>
                         </div>
 
-                        <div>
-                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Core Expertise</p>
-                            <div class="flex flex-wrap gap-1.5">
-                                <span class="px-2 py-1 bg-teal-100 text-teal-700 text-[9px] font-bold rounded-md border border-teal-200">Finance</span>
-                                <span class="px-2 py-1 bg-blue-100 text-blue-700 text-[9px] font-bold rounded-md border border-blue-200">Strategy</span>
-                                <span class="px-2 py-1 bg-slate-200 text-slate-700 text-[9px] font-bold rounded-md border border-slate-300">Leadership</span>
-                            </div>
-                        </div>
-
                         <?php
                         $emergency = json_decode($emergency_contacts, true);
                         if (!empty($emergency)): 
                             $primary = $emergency[0]; ?>
-                            <div class="p-3 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between mt-auto shadow-sm">
+                            <div class="p-3 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between shadow-sm">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-500 shadow-inner">
                                         <i class="fa-solid fa-heart-pulse text-xs"></i>
@@ -597,49 +420,110 @@ include '../header.php';
                         <?php endif; ?>
                     </div>
                 </div>
-
-                <div class="card flex-grow">
-                    <div class="card-body flex flex-col">
-                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
-                            <h3 class="font-bold text-slate-800 text-lg">Invoices Pending</h3>
-                            <a href="cfo_approvals.php" class="text-[9px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
-                        </div>
-                        <div class="custom-scroll scroll-area pr-2">
-                            <table class="w-full text-left border-collapse">
-                                <?php if(empty($recent_invoices)): ?>
-                                    <tr><td class="text-center py-8 text-slate-400 text-xs">No pending invoices found.</td></tr>
-                                <?php endif; ?>
-                                <?php foreach($recent_invoices as $inv): 
-                                    $badge = 'badge-pending';
-                                    if($inv['status'] == 'Paid') $badge = 'badge-paid';
-                                    if($inv['status'] == 'Overdue') $badge = 'badge-overdue';
-                                ?>
-                                <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition">
-                                    <td class="py-2.5 px-2">
-                                        <p class="font-bold text-[13px] text-slate-800"><?php echo htmlspecialchars($inv['no']); ?></p>
-                                        <p class="text-[10px] text-slate-500 font-medium mt-0.5"><?php echo htmlspecialchars($inv['client']); ?> • <?php echo $inv['date']; ?></p>
-                                    </td>
-                                    <td class="py-2.5 px-2 text-right">
-                                        <p class="font-black text-sm text-slate-800">₹<?php echo number_format($inv['amount']); ?></p>
-                                        <span class="status-badge <?php echo $badge; ?> inline-block mt-1"><?php echo htmlspecialchars($inv['status']); ?></span>
-                                    </td>
-                                </tr>
-                                <?php endforeach; ?>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
             </div>
         </div>
 
-        <div class="dashboard-grid">
-            <div class="card">
-                <div class="card-body flex flex-col">
-                    <h3 class="font-bold text-slate-800 text-lg mb-4 shrink-0 border-b border-gray-100 pb-2">Revenue Trend (<?php echo $selected_year; ?>)</h3>
-                    <div class="relative flex-grow min-h-[300px] w-full">
-                        <canvas id="revenueChart"></canvas>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            
+            <div class="card h-[380px]">
+                <div class="card-body flex flex-col min-h-0">
+                    <div class="flex items-center justify-between mb-3 border-b border-gray-100 pb-2 shrink-0">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-bolt text-amber-500 text-lg"></i>
+                            <h3 class="font-bold text-slate-800 text-lg">Action Hub</h3>
+                        </div>
                     </div>
+                    <div class="grid grid-cols-2 gap-3 flex-1 min-h-0">
+                        <a href="cfo_approvals.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
+                            <i class="fa-solid fa-check-double text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Approvals</span>
+                        </a>
+                        <a href="ledger.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
+                            <i class="fa-solid fa-book-open text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Ledger</span>
+                        </a>
+                        <a href="cfo_reports.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
+                            <i class="fa-solid fa-chart-pie text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Reports</span>
+                        </a>
+                        <a href="tax_filing.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
+                            <i class="fa-solid fa-building-columns text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Tax & Filing</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card h-[380px]">
+                <div class="card-body flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
+                        <button class="text-[9px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
+                    </div>
+                    <div class="meeting-timeline flex-1 overflow-y-auto custom-scroll pr-2 mt-1 space-y-4">
+                        <?php if($meet_result && mysqli_num_rows($meet_result) > 0) { 
+                            while($meet = mysqli_fetch_assoc($meet_result)):
+                                $is_past = (strtotime($meet['meeting_time']) < time()) ? 'opacity-50' : '';
+                                $dot_color = (strtotime($meet['meeting_time']) < time()) ? 'bg-slate-300' : 'bg-teal-500';
+                        ?>
+                        <div class="meeting-row-wrapper <?php echo $is_past; ?>">
+                            <div class="meeting-dot <?php echo $dot_color; ?>"></div>
+                            <div class="meeting-flex-container gap-4">
+                                <div class="meeting-time-label mt-1"><?php echo date("h:i A", strtotime($meet['meeting_time'])); ?></div>
+                                <div class="meeting-content-box shadow-sm py-2 px-3">
+                                    <h4 class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></h4>
+                                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5 flex items-center gap-1"><i class="fa-solid fa-link"></i> <?php echo $meet['platform'] ?? 'Online'; ?></p>
+                                </div>
+                            </div>
+                        </div>
+                        <?php endwhile; } else { ?>
+                            <div class="text-center py-6 flex flex-col items-center justify-center h-full text-slate-400">
+                                <i class="fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50"></i>
+                                <p class="text-xs font-medium">No meetings scheduled for today.</p>
+                            </div>
+                        <?php } ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card h-[380px]">
+                <div class="card-body flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg">Invoices Pending</h3>
+                        <a href="cfo_approvals.php" class="text-[9px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
+                    </div>
+                    <div class="flex-1 overflow-y-auto custom-scroll pr-2">
+                        <table class="w-full text-left border-collapse">
+                            <?php if(empty($recent_invoices)): ?>
+                                <tr><td class="text-center py-8 text-slate-400 text-xs">
+                                    <i class="fa-solid fa-check-double text-3xl mb-2 opacity-50 block"></i>
+                                    No pending invoices found.
+                                </td></tr>
+                            <?php endif; ?>
+                            <?php foreach($recent_invoices as $inv): 
+                                $badge = 'badge-pending';
+                                if($inv['status'] == 'Paid') $badge = 'badge-paid';
+                                if($inv['status'] == 'Overdue') $badge = 'badge-overdue';
+                            ?>
+                            <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition">
+                                <td class="py-2.5 px-2">
+                                    <p class="font-bold text-[13px] text-slate-800"><?php echo htmlspecialchars($inv['no']); ?></p>
+                                    <p class="text-[10px] text-slate-500 font-medium mt-0.5"><?php echo htmlspecialchars($inv['client']); ?> • <?php echo $inv['date']; ?></p>
+                                </td>
+                                <td class="py-2.5 px-2 text-right">
+                                    <p class="font-black text-sm text-slate-800">₹<?php echo number_format($inv['amount']); ?></p>
+                                    <span class="status-badge <?php echo $badge; ?> inline-block mt-1"><?php echo htmlspecialchars($inv['status']); ?></span>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+
+        <div class="card mb-10">
+            <div class="card-body flex flex-col">
+                <h3 class="font-bold text-slate-800 text-lg mb-4 shrink-0 border-b border-gray-100 pb-2">Revenue Trend (<?php echo $selected_year; ?>)</h3>
+                <div class="relative flex-grow min-h-[300px] w-full">
+                    <canvas id="revenueChart"></canvas>
                 </div>
             </div>
         </div>
@@ -647,31 +531,7 @@ include '../header.php';
     </main>
 
     <script>
-        // 1. LIVE TIMER LOGIC
-        const timerElement = document.getElementById('liveTimer');
-        const progressRing = document.getElementById('progressRing');
-        if(timerElement) {
-            const isRunning = timerElement.getAttribute('data-running') === 'true';
-            let totalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-            const startTime = new Date().getTime(); 
-
-            function updateTimer() {
-                if (!isRunning) return; 
-                const now = new Date().getTime();
-                const diffSeconds = Math.floor((now - startTime) / 1000);
-                const currentTotal = totalSeconds + diffSeconds;
-                const hours = Math.floor(currentTotal / 3600);
-                const minutes = Math.floor((currentTotal % 3600) / 60);
-                const seconds = currentTotal % 60;
-                
-                timerElement.innerText = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-                const progress = Math.min(currentTotal / 32400, 1);
-                if(progressRing) progressRing.style.strokeDashoffset = 352 - (progress * 352);
-            }
-            if (isRunning) setInterval(updateTimer, 1000);
-        }
-
-        // 2. APEXCHART FOR LEAVE DETAILS
+        // APEXCHART FOR LEAVE DETAILS
         const attData = [<?php echo $stats_ontime; ?>, <?php echo $stats_late; ?>, <?php echo $stats_wfh; ?>, <?php echo $stats_absent; ?>, <?php echo $stats_sick; ?>];
         const hasData = attData.some(val => val > 0);
         
@@ -690,7 +550,7 @@ include '../header.php';
             new ApexCharts(attendanceChartEl, options).render();
         }
 
-        // 3. CFO FINANCIAL CHART
+        // CFO FINANCIAL CHART
         const revChartCanvas = document.getElementById('revenueChart');
         if(revChartCanvas) {
             const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" } } } } };

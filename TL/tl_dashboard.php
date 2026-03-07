@@ -97,7 +97,7 @@ $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
 $regular_shift_hours = 9;
 
 // =========================================================================
-// ADVANCED TIME TRACKER (TODAY'S HOURS)
+// ADVANCED TIME TRACKER (READ-ONLY SUMMARY FOR COLUMN 3)
 // =========================================================================
 $total_seconds_today = 0; $break_seconds_today = 0; $productive_seconds_today = 0; $overtime_seconds_today = 0;
 $display_break_seconds = 0; $today_punch_in = null; $attendance_record_today = null;
@@ -493,12 +493,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
         @media (max-width: 1024px) {
             #mainContent { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px;}
         }
-
-        .progress-ring-circle {
-            transition: stroke-dashoffset 0.35s;
-            transform: rotate(-90deg);
-            transform-origin: 50% 50%;
-        }
     </style>
 </head>
 <body class="bg-slate-50">
@@ -817,7 +811,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                 <div class="min-w-0">
                                     <p class="text-sm font-black text-slate-800 truncate"><?php echo htmlspecialchars($tl_manager_name); ?></p>
                                     <p class="text-[10px] text-slate-500 font-medium mt-0.5 truncate">
-                                        <i class="fa-solid fa-envelope text-[8px] mr-1"></i> <?php echo htmlspecialchars($tl_manager_email); ?>
+                                        <i class="fa-solid fa-envelope text-[9px] mr-1"></i> <?php echo htmlspecialchars($tl_manager_email); ?>
                                     </p>
                                 </div>
                                 <a href="tel:<?php echo $tl_manager_phone; ?>" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-teal-600 hover:text-white transition-colors flex-shrink-0">
@@ -998,54 +992,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             
-            // Live Timer Logic
-            let attendanceTimerInterval = null;
-            function initAttendance() {
-                if (attendanceTimerInterval) clearInterval(attendanceTimerInterval);
-
-                const timerElement = document.getElementById('liveTimer');
-                const progressRing = document.getElementById('progressRing');
-                const breakTimerElement = document.getElementById('breakTimer');
-
-                if (!timerElement) return;
-
-                const isWorkRunning = timerElement.getAttribute('data-running') === 'true';
-                const isBreakRunning = breakTimerElement ? breakTimerElement.getAttribute('data-break-running') === 'true' : false;
-                
-                const workTotalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-                const breakTotalSeconds = breakTimerElement ? (parseInt(breakTimerElement.getAttribute('data-break-total')) || 0) : 0;
-                const startTime = new Date().getTime(); 
-
-                function formatTime(totalSecs) {
-                    const h = Math.floor(totalSecs / 3600);
-                    const m = Math.floor((totalSecs % 3600) / 60);
-                    const s = totalSecs % 60;
-                    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-                }
-
-                function updateTimer() {
-                    const now = new Date().getTime();
-                    const diffSeconds = Math.floor((now - startTime) / 1000);
-                    
-                    if (isWorkRunning) {
-                        const currentWork = workTotalSeconds + diffSeconds;
-                        timerElement.innerText = formatTime(currentWork);
-                        const progress = Math.min(currentWork / 32400, 1);
-                        if(progressRing) progressRing.style.strokeDashoffset = 490 - (progress * 490);
-                    }
-
-                    if (isBreakRunning && breakTimerElement) {
-                        const currentBreak = breakTotalSeconds + diffSeconds;
-                        breakTimerElement.innerText = formatTime(currentBreak);
-                    }
-                }
-
-                if (isWorkRunning || isBreakRunning) {
-                    attendanceTimerInterval = setInterval(updateTimer, 1000);
-                }
-            }
-            initAttendance();
-
             var lateTimeStr = "<?php echo $late_time_str; ?>";
 
             // Attendance Donut Chart
@@ -1074,7 +1020,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 new ApexCharts(attendanceChartEl, attOptions).render();
             }
 
-            // Task Priority Chart (Decreased Height)
+            // Task Priority Chart
             var prioOptions = {
                 series: [<?php echo $high_tasks; ?>, <?php echo $med_tasks; ?>, <?php echo $low_tasks; ?>],
                 labels: ['High', 'Medium', 'Low'],

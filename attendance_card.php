@@ -2,33 +2,35 @@
 // attendance_card.php
 ob_start(); // Ensure output buffering is active to prevent HTML bleeding
 
-// Detect if this is an AJAX request asking for fresh HTML
-$is_ajax_request = isset($_GET['ajax_card']) && $_GET['ajax_card'] == '1';
+// 1. DETECT CONTEXT (AJAX API vs Standard Include)
+$is_ajax_request = isset($_POST['action']) || (isset($_GET['ajax_card']) && $_GET['ajax_card'] == '1');
+
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 if ($is_ajax_request) {
-    if (session_status() === PHP_SESSION_NONE) { session_start(); }
-    
     // Prevent Session Locking during AJAX reload
     session_write_close();
-
     date_default_timezone_set('Asia/Kolkata');
-    $paths = ['include/db_connect.php', '../include/db_connect.php'];
-    foreach($paths as $path) { if(file_exists($path)) { require_once $path; break; } }
+    
+    // Dynamic DB Pathing for AJAX
+    $dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
+    if (file_exists($dbPath)) { require_once($dbPath); } 
+    else { require_once('../include/db_connect.php'); }
+}
 
-    $current_user_id = $_SESSION['user_id'];
+$current_user_id = $_SESSION['user_id'] ?? 0;
+// Ensure path_to_root exists depending on where this is included
+$local_path_to_root = $path_to_root ?? '../'; 
 
-    // Fetch shift details when loaded via AJAX
+// 2. ALWAYS FETCH SHIFT DETAILS (Crucial for accurate Late logic)
+if (isset($conn)) {
     $u_sql = "SELECT shift_type, shift_timings FROM employee_profiles WHERE user_id = ?";
     $u_stmt = mysqli_prepare($conn, $u_sql);
     mysqli_stmt_bind_param($u_stmt, "i", $current_user_id);
     mysqli_stmt_execute($u_stmt);
     $user_info = mysqli_fetch_assoc(mysqli_stmt_get_result($u_stmt));
-} else {
-    $current_user_id = $_SESSION['user_id'] ?? 0;
-}
 
-// --- DATABASE PATCHER FOR BREAK TYPES ---
-if (isset($conn)) {
+    // DATABASE PATCHER FOR BREAK TYPES
     $check_bt = $conn->query("SHOW COLUMNS FROM `attendance_breaks` LIKE 'break_type'");
     if ($check_bt && $check_bt->num_rows == 0) {
         $conn->query("ALTER TABLE `attendance_breaks` ADD COLUMN `break_type` VARCHAR(50) DEFAULT 'General' AFTER `attendance_id`");
@@ -36,29 +38,13 @@ if (isset($conn)) {
 }
 
 $today = date('Y-m-d');
-$attendance_record = null;
-$total_hours_today = "00:00:00";
-$display_punch_in = "--:--";
-$total_seconds_worked = 0;
-$is_on_break = false;
-$total_break_seconds = 0;
-$break_start_ts = 0;
-
-$break_seconds = 0;
-$lunch_break_seconds = 0;
-$active_break_type = 'General';
-
-// Shift Information
 $shift_name = $user_info['shift_type'] ?? 'General Shift';
 $shift_timings = $user_info['shift_timings'] ?? '09:00 AM - 06:00 PM';
-$delay_text = "";
-$delay_class = "";
 
-// --- SECURE AJAX POST HANDLER ---
+// 3. SECURE AJAX POST HANDLER (Acts as a clean API)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
-    // CRITICAL FIX: Wipe any accidental HTML output before returning JSON
-    if (ob_get_length()) ob_clean(); 
+    if (ob_get_length()) ob_clean(); // Wipe HTML before returning JSON
     header('Content-Type: application/json');
     
     $response = ['status' => 'error', 'message' => 'Unknown action'];
@@ -119,7 +105,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     exit; 
 }
 
-// 1. Fetch Attendance Data
+// 4. FETCH LIVE ATTENDANCE DATA FOR UI
+$attendance_record = null;
+$total_hours_today = "00:00:00";
+$display_punch_in = "--:--";
+$total_seconds_worked = 0;
+$is_on_break = false;
+$total_break_seconds = 0;
+$break_start_ts = 0;
+$break_seconds = 0;
+$lunch_break_seconds = 0;
+$active_break_type = 'General';
+$delay_text = "";
+$delay_class = "";
+
 $check_sql = "SELECT * FROM attendance WHERE user_id = ? AND date = ?";
 $check_stmt = mysqli_prepare($conn, $check_sql);
 mysqli_stmt_bind_param($check_stmt, "is", $current_user_id, $today);
@@ -127,7 +126,6 @@ mysqli_stmt_execute($check_stmt);
 $attendance_record = mysqli_fetch_assoc(mysqli_stmt_get_result($check_stmt));
 
 if ($attendance_record) {
-    // Advanced Granular Break calculations
     $bk_sql = "SELECT * FROM attendance_breaks WHERE attendance_id = ?";
     $bk_stmt = mysqli_prepare($conn, $bk_sql);
     mysqli_stmt_bind_param($bk_stmt, "i", $attendance_record['id']);
@@ -155,7 +153,7 @@ if ($attendance_record) {
     }
 }
 
-// 2. Calculate Display Times & Late Delay
+// Calculate Display Times & Late Delay
 $display_break_seconds = $total_break_seconds;
 $break_time_str = "00:00:00";
 
@@ -179,7 +177,8 @@ if ($attendance_record) {
             $delay_class = "text-emerald-600 bg-emerald-50 border-emerald-200";
         } else {
             $delay_text = "On Time";
-            $delay_class = "text-Breakl-600 bg-Breakl-50 border-Breakl-200";
+            // FIXED: Replaced "Breakl" typo with "teal"
+            $delay_class = "text-teal-600 bg-teal-50 border-teal-200";
         }
     }
 
@@ -215,6 +214,7 @@ function formatMinsSecs($seconds) {
     return sprintf('%02d:%02d', $m, $s);
 }
 
+// --- HTML RENDER ---
 if (!$is_ajax_request): 
 ?>
 <style>
@@ -248,7 +248,7 @@ if (!$is_ajax_request):
 
         <div class="w-full bg-slate-50 border border-slate-100 p-3 rounded-xl mb-6 flex justify-between items-center shadow-sm">
             <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded bg-Breakl-100 flex items-center justify-center text-Breakl-600">
+                <div class="w-8 h-8 rounded bg-teal-100 flex items-center justify-center text-teal-600">
                     <i class="fa-solid fa-clock"></i>
                 </div>
                 <div>
@@ -271,7 +271,7 @@ if (!$is_ajax_request):
                 $dashoffset = $circumference - $pct * $circumference;
                 
                 // Color Logic
-                $ringColor = '#0d9488'; // Default Green
+                $ringColor = '#0d9488'; // Default Teal
                 if ($is_on_break) {
                 $ringColor = $active_break_type === 'Lunch' ? '#ea580c' : '#f59e0b';
                 }
@@ -364,7 +364,7 @@ if (!$is_ajax_request):
         <?php if($attendance_record): ?>
         <div class="w-full mt-6 flex justify-between items-center bg-gray-50 p-3 rounded-xl border border-gray-100">
             <p class="text-xs text-gray-500 flex items-center gap-1.5">
-                <i class="fa-solid fa-fingerprint text-Breakl-600"></i> Punched In: <span class="font-black text-slate-800"><?php echo $display_punch_in; ?></span>
+                <i class="fa-solid fa-fingerprint text-teal-600"></i> Punched In: <span class="font-black text-slate-800"><?php echo $display_punch_in; ?></span>
             </p>
             <?php if($delay_text != ""): ?>
                 <span class="text-[10px] font-bold px-2 py-1.5 border rounded-lg <?php echo $delay_class; ?> tracking-wide"><?php echo $delay_text; ?></span>
@@ -464,11 +464,12 @@ if (!$is_ajax_request):
 
         const btnContainer = document.getElementById('attendanceActionButtons');
         if(btnContainer) {
-            btnContainer.innerHTML = '<div class="w-full flex justify-center py-4 bg-slate-50 rounded-xl border border-slate-100"><span class="spinner w-8 h-8 border-4 border-Breakl-500 border-t-transparent rounded-full animate-spin"></span></div>';
+            btnContainer.innerHTML = '<div class="w-full flex justify-center py-4 bg-slate-50 rounded-xl border border-slate-100"><span class="spinner w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></span></div>';
         }
 
-        // Post directly to the current dashboard URL safely
-        let postUrl = window.location.href.split('?')[0]; 
+        // FIXED: Force the POST request specifically to attendance_card.php 
+        // This prevents the parent dashboard from intercepting and breaking the JSON response.
+        let postUrl = '<?php echo $local_path_to_root; ?>attendance_card.php'; 
 
         fetch(postUrl, { method: 'POST', body: fd })
         .then(res => res.json())
@@ -497,7 +498,5 @@ if (!$is_ajax_request):
     document.addEventListener('DOMContentLoaded', initAttendance);
 </script>
 <?php 
-// CRITICAL: Exit here to prevent dashboard HTML from bleeding into the AJAX card load
-if ($is_ajax_request) exit; 
 endif; 
 ?>
