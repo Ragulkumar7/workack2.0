@@ -36,8 +36,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             
             $items = [];
             if($po) {
+                // Fetch perfectly mapped items from po_line_items table
                 $items_res = mysqli_query($conn, "SELECT * FROM po_line_items WHERE po_number = '".$po['po_number']."'");
-                while($it = mysqli_fetch_assoc($items_res)) { $items[] = $it; }
+                if($items_res) {
+                    while($it = mysqli_fetch_assoc($items_res)) { 
+                        $items[] = $it; 
+                    }
+                }
             }
             echo json_encode(['status' => 'success', 'po' => $po, 'items' => $items]);
             exit;
@@ -46,10 +51,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
         // --- SAVE PURCHASE ORDER ---
         if ($_POST['ajax_action'] === 'save_po') {
             $po_no = mysqli_real_escape_string($conn, $_POST['po_no']);
-            $po_date = mysqli_real_escape_string($conn, $_POST['po_date']);
+            
+            // Safe Date Handling
+            $po_date = !empty($_POST['po_date']) ? "'" . mysqli_real_escape_string($conn, $_POST['po_date']) . "'" : "CURDATE()";
+            $expected_delivery = !empty($_POST['delivery_date']) ? "'" . mysqli_real_escape_string($conn, $_POST['delivery_date']) . "'" : "NULL";
+            
             $vendor_name = mysqli_real_escape_string($conn, $_POST['shop_name']);
             $vendor_gstin = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
-            $expected_delivery = mysqli_real_escape_string($conn, $_POST['delivery_date'] ?? null);
             $po_status = mysqli_real_escape_string($conn, $_POST['status']);
             $payment_mode = mysqli_real_escape_string($conn, $_POST['payment_mode']);
             $remark = mysqli_real_escape_string($conn, $_POST['remark'] ?? '');
@@ -61,11 +69,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             $paid_amount = floatval($_POST['paid_amount'] ?? 0);
             $balance_amount = floatval($_POST['balance_amount'] ?? 0);
 
-            // Auto Schema Fix if needed to ensure no crash
-            mysqli_query($conn, "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS vendor_address TEXT DEFAULT NULL");
-            mysqli_query($conn, "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS vendor_email VARCHAR(100) DEFAULT NULL");
-            mysqli_query($conn, "ALTER TABLE purchase_orders ADD COLUMN IF NOT EXISTS vendor_phone VARCHAR(50) DEFAULT NULL");
-            
             $vendor_address = mysqli_real_escape_string($conn, $_POST['vendor_address'] ?? '');
             $vendor_email = mysqli_real_escape_string($conn, $_POST['vendor_email'] ?? '');
             $vendor_phone = mysqli_real_escape_string($conn, $_POST['vendor_phone'] ?? '');
@@ -73,33 +76,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             $insert_po = "INSERT INTO purchase_orders 
                 (po_number, po_date, vendor_name, vendor_address, vendor_email, vendor_phone, vendor_gstin, expected_delivery, po_status, payment_mode, terms_conditions, net_total, tax_amount, freight_charges, grand_total, paid_amount, balance_amount, approval_status, created_at) 
                 VALUES 
-                ('$po_no', '$po_date', '$vendor_name', '$vendor_address', '$vendor_email', '$vendor_phone', '$vendor_gstin', '$expected_delivery', '$po_status', '$payment_mode', '$remark', '$net_total', '$tax_amount', '$freight_charges', '$grand_total', '$paid_amount', '$balance_amount', 'Pending', NOW())";
+                ('$po_no', $po_date, '$vendor_name', '$vendor_address', '$vendor_email', '$vendor_phone', '$vendor_gstin', $expected_delivery, '$po_status', '$payment_mode', '$remark', $net_total, $tax_amount, $freight_charges, $grand_total, $paid_amount, $balance_amount, 'Pending', NOW())";
             
             if (mysqli_query($conn, $insert_po)) {
+                $item_errors = [];
+                // Save Items (Description, Qty, Rate, Total) perfectly to po_line_items
                 if (isset($_POST['materials']) && is_array($_POST['materials'])) {
-                    $count = count($_POST['materials']);
-                    for ($i = 0; $i < $count; $i++) {
-                        $material = mysqli_real_escape_string($conn, $_POST['materials'][$i]);
-                        $hsn_code = mysqli_real_escape_string($conn, $_POST['hsn_code'][$i] ?? '');
-                        $qty = floatval($_POST['qtys'][$i] ?? 0);
-                        $unit = mysqli_real_escape_string($conn, $_POST['unit'][$i] ?? '');
-                        $price = floatval($_POST['prices'][$i] ?? 0);
-                        $discount = floatval($_POST['discount'][$i] ?? 0);
-                        $gst = floatval($_POST['gst_percent'][$i] ?? 0);
-                        $line_total = floatval($_POST['totals'][$i] ?? 0);
+                    foreach ($_POST['materials'] as $key => $material) {
+                        $material_escaped = mysqli_real_escape_string($conn, $material);
+                        $hsn_code = mysqli_real_escape_string($conn, $_POST['hsn_code'][$key] ?? '');
+                        $qty = floatval($_POST['qtys'][$key] ?? 0);
+                        $unit = mysqli_real_escape_string($conn, $_POST['unit'][$key] ?? '');
+                        $price = floatval($_POST['prices'][$key] ?? 0);
+                        $discount = floatval($_POST['discount'][$key] ?? 0);
+                        $gst = floatval($_POST['gst_percent'][$key] ?? 0);
+                        $line_total = floatval($_POST['totals'][$key] ?? 0);
 
-                        if (!empty($material)) {
+                        if (!empty($material_escaped)) {
+                            // Exact insert mapping to po_line_items.sql
+                            // Empty string '' is sent for item_code
                             $insert_item = "INSERT INTO po_line_items 
-                                (po_number, item_description, hsn_code, quantity, unit, rate, discount_percent, gst_percent, line_total) 
+                                (po_number, item_description, item_code, hsn_code, quantity, unit, rate, discount_percent, gst_percent, line_total) 
                                 VALUES 
-                                ('$po_no', '$material', '$hsn_code', '$qty', '$unit', '$price', '$discount', '$gst', '$line_total')";
-                            mysqli_query($conn, $insert_item);
+                                ('$po_no', '$material_escaped', '', '$hsn_code', $qty, '$unit', $price, $discount, $gst, $line_total)";
+                            
+                            if(!mysqli_query($conn, $insert_item)){
+                                $item_errors[] = mysqli_error($conn);
+                            }
                         }
                     }
                 }
-                echo json_encode(['status' => 'success']);
+                
+                if (empty($item_errors)) {
+                    echo json_encode(['status' => 'success']);
+                } else {
+                    echo json_encode(['status' => 'error', 'message' => "Items Insert Error: " . implode(" | ", $item_errors)]);
+                }
             } else { 
-                echo json_encode(['status' => 'error', 'message' => "Insert Error: " . mysqli_error($conn)]); 
+                echo json_encode(['status' => 'error', 'message' => "PO Header Insert Error: " . mysqli_error($conn)]); 
             }
             exit;
         }
@@ -113,10 +127,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 // =========================================================================
 // FETCH DATA FOR UI
 // =========================================================================
+// Fixed PO Number Generation matching exact DB structure (e.g. PO-20260228-005)
 $po_query = mysqli_query($conn, "SELECT id FROM purchase_orders ORDER BY id DESC LIMIT 1");
 $last_id = $po_query && mysqli_num_rows($po_query) > 0 ? mysqli_fetch_assoc($po_query)['id'] : 0;
 $next_id = $last_id + 1;
-$po_number = "WS/PO/" . str_pad($next_id, 4, '0', STR_PAD_LEFT) . "/" . date('y') . '-' . (date('y') + 1);
+$po_number = "PO-" . date('Ymd') . "-" . str_pad($next_id, 3, '0', STR_PAD_LEFT);
 
 $history_query = mysqli_query($conn, "SELECT * FROM purchase_orders ORDER BY created_at DESC LIMIT 50");
 
@@ -230,10 +245,8 @@ include '../header.php';
             @page { size: A4; margin: 15mm; }
             body { background: #fff !important; margin: 0; padding: 0; height: auto !important; overflow: visible !important;}
             
-            /* Hide ALL UI elements */
             body > * { display: none !important; }
             
-            /* Show ONLY print container */
             body > #printablePO.active-print {
                 display: block !important;
                 position: relative !important;
@@ -618,7 +631,7 @@ include '../header.php';
                 </div>
             </td>
             <td style="text-align: center; vertical-align: middle;">
-                <button type="button" class="btn-icon btn-delete" style="background: transparent; box-shadow:none; padding:0; font-size:22px;" onclick="removeRow(this)"><i class="ph-bold ph-trash"></i></button>
+                <button type="button" class="btn-icon" style="background: transparent; color:#dc2626; box-shadow:none; padding:0; font-size:22px;" onclick="removeRow(this)"><i class="ph-bold ph-trash"></i></button>
             </td>
         `;
         tbody.appendChild(tr);
@@ -638,8 +651,8 @@ include '../header.php';
 
     function calculateTotals() {
         let subTotal = 0;
-        const taxP = parseFloat(document.getElementById('po_tax_p').value) || 0;
-
+        const taxP = parseFloat(document.getElementById('po_tax_p')?.value) || 0; 
+        
         document.querySelectorAll('.item-row').forEach(r => {
             const qty = parseFloat(r.querySelector('.qty').value) || 0;
             const rate = parseFloat(r.querySelector('.price').value) || 0;
@@ -656,20 +669,19 @@ include '../header.php';
         const balance = grandTotal - paid;
 
         document.getElementById('netTotal').value = subTotal.toFixed(2);
-        document.getElementById('displaySubtotal').innerText = subTotal.toFixed(2);
+        if(document.getElementById('displaySubtotal')) document.getElementById('displaySubtotal').innerText = subTotal.toFixed(2);
         
         document.getElementById('taxAmount').value = taxAmount.toFixed(2);
-        document.getElementById('displayTax').innerText = taxAmount.toFixed(2);
+        if(document.getElementById('displayTax')) document.getElementById('displayTax').innerText = taxAmount.toFixed(2);
         
         document.getElementById('grandTotal').value = grandTotal.toFixed(2);
-        document.getElementById('displayGrandTotal').innerText = grandTotal.toFixed(2);
+        if(document.getElementById('displayGrandTotal')) document.getElementById('displayGrandTotal').innerText = grandTotal.toFixed(2);
         
         document.getElementById('balanceAmount').value = balance.toFixed(2);
 
-        // Hidden Database fields mapping
-        document.getElementById('hiddenSubTotal').value = subTotal.toFixed(2);
-        document.getElementById('hiddenTaxTotal').value = taxAmount.toFixed(2);
-        document.getElementById('hiddenGrandTotal').value = grandTotal.toFixed(2);
+        if(document.getElementById('hiddenSubTotal')) document.getElementById('hiddenSubTotal').value = subTotal.toFixed(2);
+        if(document.getElementById('hiddenTaxTotal')) document.getElementById('hiddenTaxTotal').value = taxAmount.toFixed(2);
+        if(document.getElementById('hiddenGrandTotal')) document.getElementById('hiddenGrandTotal').value = grandTotal.toFixed(2);
     }
 
     function updateRowNumbers() {
@@ -678,7 +690,7 @@ include '../header.php';
         });
     }
 
-    // --- FORM SUBMISSION (SweetAlert Notifications) ---
+    // --- FORM SUBMISSION ---
     function savePO(e) {
         e.preventDefault(); 
         
@@ -722,16 +734,21 @@ include '../header.php';
                     $('#modalPOTitle').text('PO Reference: ' + data.po.po_number);
                     let html = '';
                     data.items.forEach(item => {
+                        let desc = item.item_description || item.description || '';
+                        let qty = item.quantity || item.qty || 0;
+                        let rate = item.rate || item.unit_price || 0;
+                        let line_total = item.line_total || item.amount || item.total_price || 0;
+
                         html += `<tr>
-                            <td style="padding: 16px; font-size: 15px;">${item.item_description || ''}</td>
+                            <td style="padding: 16px; font-size: 15px;">${desc}</td>
                             <td style="text-align:center; padding: 16px; font-size: 15px;">${item.hsn_code || '-'}</td>
-                            <td style="text-align:center; padding: 16px; font-size: 15px;">${item.quantity || 0} ${item.unit || ''}</td>
+                            <td style="text-align:center; padding: 16px; font-size: 15px;">${qty} ${item.unit || ''}</td>
                             <td style="padding: 16px; font-size: 15px;">
-                                <div style="display:flex; justify-content:space-between; width:80px; margin-left:auto;"><span>₹</span><span>${parseFloat(item.rate || 0).toFixed(2)}</span></div>
+                                <div style="display:flex; justify-content:space-between; width:80px; margin-left:auto;"><span>₹</span><span>${parseFloat(rate).toFixed(2)}</span></div>
                             </td>
                             <td style="text-align:center; padding: 16px; font-size: 15px;">${parseFloat(item.gst_percent || 0).toFixed(0)}%</td>
                             <td style="padding: 16px; font-weight:800; font-size: 15px; color:var(--theme-color);">
-                                <div style="display:flex; justify-content:space-between; width:90px; margin-left:auto;"><span>₹</span><span>${parseFloat(item.line_total || 0).toFixed(2)}</span></div>
+                                <div style="display:flex; justify-content:space-between; width:90px; margin-left:auto;"><span>₹</span><span>${parseFloat(line_total).toFixed(2)}</span></div>
                             </td>
                         </tr>`;
                     });
@@ -767,7 +784,7 @@ include '../header.php';
                     if(po.vendor_phone) contactInfo.push(po.vendor_phone);
                     document.getElementById('p_po_vendor_contact').innerText = contactInfo.join(' | ');
                     
-                    document.getElementById('p_po_sub').innerText = parseFloat(po.net_total || 0).toFixed(2);
+                    document.getElementById('p_po_sub').innerText = parseFloat(po.net_total || po.sub_total || 0).toFixed(2);
                     
                     if(parseFloat(po.tax_amount) > 0) {
                         document.getElementById('p_po_tax').innerText = parseFloat(po.tax_amount).toFixed(2);
@@ -784,7 +801,7 @@ include '../header.php';
                     }
                     
                     document.getElementById('p_po_grand').innerText = parseFloat(po.grand_total || 0).toFixed(2);
-                    document.getElementById('p_po_notes').innerText = po.terms_conditions || '';
+                    document.getElementById('p_po_notes').innerText = po.terms_conditions || po.notes || '';
 
                     const tbody = document.getElementById('p_po_items');
                     tbody.innerHTML = '';
@@ -792,15 +809,20 @@ include '../header.php';
                     
                     if(data.items && data.items.length > 0) {
                         data.items.forEach(it => {
+                            let desc = it.item_description || it.description || '';
+                            let qty = it.quantity || it.qty || 1;
+                            let rate = it.rate || it.unit_price || 0;
+                            let line_total = it.line_total || it.amount || it.total_price || 0;
+
                             tbody.innerHTML += `<tr>
                                 <td style="border-bottom:1px solid #ddd; padding:14px 10px; text-align:center;">${sno++}</td>
-                                <td style="border-bottom:1px solid #ddd; padding:14px 10px;">${it.item_description || ''}</td>
-                                <td style="border-bottom:1px solid #ddd; padding:14px 10px; text-align:center;">${it.quantity || 1} ${it.unit || ''}</td>
+                                <td style="border-bottom:1px solid #ddd; padding:14px 10px;">${desc}</td>
+                                <td style="border-bottom:1px solid #ddd; padding:14px 10px; text-align:center;">${qty} ${it.unit || ''}</td>
                                 <td style="border-bottom:1px solid #ddd; padding:14px 10px;">
-                                    <div style="display:flex; justify-content:space-between;"><span>₹</span><span>${parseFloat(it.rate || 0).toFixed(2)}</span></div>
+                                    <div style="display:flex; justify-content:space-between;"><span>₹</span><span>${parseFloat(rate).toFixed(2)}</span></div>
                                 </td>
                                 <td style="border-bottom:1px solid #ddd; padding:14px 10px; font-weight:bold;">
-                                    <div style="display:flex; justify-content:space-between;"><span>₹</span><span>${parseFloat(it.line_total || 0).toFixed(2)}</span></div>
+                                    <div style="display:flex; justify-content:space-between;"><span>₹</span><span>${parseFloat(line_total).toFixed(2)}</span></div>
                                 </td>
                             </tr>`;
                         });
