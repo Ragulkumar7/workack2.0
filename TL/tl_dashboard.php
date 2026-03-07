@@ -447,7 +447,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
     <style>
         body { background-color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b; overflow-x: hidden; }
         
-        /* Updated Card Styles for Alignment */
+        /* Updated Card Styles for strict boundary management */
         .card { 
             background: white; 
             border-radius: 1rem; 
@@ -456,10 +456,12 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             transition: all 0.3s ease; 
             display: flex; 
             flex-direction: column; 
-            height: fit-content; /* THIS LINE PREVENTS CARDS FROM STRETCHING VERTICALLY */
+            overflow: hidden; /* Prevent ANY external spillage */
         }
         .card:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1;}
-        .card-body { padding: 1.25rem; flex-grow: 1; display: flex; flex-direction: column;} 
+        
+        /* Card body must flex-grow but have min-height: 0 so internal scrolls work */
+        .card-body { padding: 1.25rem; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;} 
         
         .meeting-timeline { position: relative; }
         .meeting-timeline::before { content: ''; position: absolute; left: 80px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
@@ -473,11 +475,12 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         
-        /* Updated Grid System */
+        /* Unified 3-Column Grid Layout: items-start prevents empty gap stretching */
         .dashboard-grid { 
             display: grid; 
             grid-template-columns: repeat(1, 1fr); 
             gap: 1.5rem; 
+            align-items: start; 
         }
         
         @media (min-width: 1024px) {
@@ -495,13 +498,6 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             transition: stroke-dashoffset 0.35s;
             transform: rotate(-90deg);
             transform-origin: 50% 50%;
-        }
-        
-        /* Utility for fixed scrolling areas within cards to prevent blowout */
-        .scroll-area {
-            flex-grow: 1;
-            overflow-y: auto;
-            min-height: 0; 
         }
     </style>
 </head>
@@ -524,7 +520,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
             </div>
         </div>
 
-        <div class="dashboard-grid">
+        <div class="dashboard-grid mb-10">
 
             <div class="flex flex-col gap-6">
                 
@@ -565,7 +561,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                 <h3 class="font-bold text-slate-800 text-sm">My Team</h3>
                                 <a href="team_member.php" class="text-[9px] bg-slate-100 text-slate-600 font-bold px-2 py-1 rounded uppercase hover:bg-slate-200 transition">View List</a>
                             </div>
-                            <div class="space-y-2 custom-scroll scroll-area pr-2">
+                            <div class="space-y-2 overflow-y-auto custom-scroll pr-2 max-h-[250px]">
                                 <?php if(!empty($team_members)): ?>
                                     <?php foreach($team_members as $member): 
                                         $m_name = $member['full_name'] ?: 'Unknown';
@@ -600,6 +596,50 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                     </div>
                                 <?php endif; ?>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card h-[420px]">
+                    <div class="card-body flex flex-col min-h-0">
+                        <div class="flex justify-between items-center border-b border-gray-100 pb-2 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
+                            <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
+                        </div>
+                        <div class="flex-1 overflow-y-auto custom-scroll pr-2 mt-3 space-y-3">
+                            <?php if(!empty($all_notifications)): ?>
+                                <?php foreach($all_notifications as $notif): ?>
+                                <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                    <div class="w-8 h-8 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-[10px] shrink-0">
+                                        <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex justify-between items-start">
+                                            <p class="text-xs font-bold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
+                                            <p class="text-[8px] text-gray-400 mt-1 shrink-0"><?php echo date("d M Y", strtotime($notif['time'])); ?></p>
+                                        </div>
+                                        <p class="text-[10px] text-gray-500 mt-1 line-clamp-2 leading-snug"><?php echo htmlspecialchars($notif['message']); ?></p>
+                                        
+                                        <div class="mt-2 text-right">
+                                            <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
+                                                    <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
+                                                </a>
+                                            <?php else: ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-2.5 py-1 rounded-full hover:bg-slate-100 transition shadow-sm">
+                                                    View Details <i class="fa-solid fa-arrow-right ml-1"></i>
+                                                </a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <div class="text-center py-8 text-slate-400">
+                                    <i class="fa-regular fa-bell-slash text-3xl mb-2 opacity-80"></i>
+                                    <p class='text-xs font-medium text-slate-500'>No recent updates.</p>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -640,11 +680,11 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
                 <div class="card">
                     <div class="card-body flex flex-col gap-3">
-                        <div class="flex justify-between items-center border-b border-gray-100 pb-2">
+                        <div class="flex justify-between items-center border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
                             <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
                         </div>
-                        <div class="grid grid-cols-3 gap-3">
+                        <div class="grid grid-cols-3 gap-3 shrink-0">
                             <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
                                 <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
                                 <p class="text-xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
@@ -662,13 +702,13 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         </div>
                         
                         <?php if($leaves_remaining < 0): ?>
-                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2 flex items-center gap-3">
+                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2 flex items-center gap-3 shrink-0">
                                 <div class="w-6 h-6 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0 text-[10px]"><i class="fa-solid fa-triangle-exclamation"></i></div>
                                 <p class="text-[11px] font-semibold text-rose-700 leading-tight">Limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
                             </div>
                         <?php endif; ?>
 
-                        <div class="space-y-1.5">
+                        <div class="space-y-1.5 mt-2 shrink-0">
                             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Recent Leave Policy</p>
                             <div class="flex items-center justify-between p-1.5 bg-slate-50 rounded-lg border border-slate-100">
                                 <span class="text-[10px] font-bold text-slate-600">Monthly Accrual</span>
@@ -680,7 +720,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             </div>
                         </div>
 
-                        <div>
+                        <div class="mt-auto shrink-0">
                             <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2 rounded-lg text-center transition shadow-sm shadow-teal-200/50 text-xs">
                                 <i class="fa-solid fa-plus mr-1"></i> APPLY FOR LEAVE
                             </a>
@@ -700,65 +740,98 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
+                <div class="card h-[420px]">
+                    <div class="card-body flex flex-col min-h-0">
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg">My Personal Tasks</h3>
+                            <a href="task_tl.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">Tasks Board</a>
+                        </div>
+                        <div class="flex-1 overflow-y-auto custom-scroll pr-2 mt-1 space-y-2">
+                            <?php if(mysqli_num_rows($tasks_result) > 0) {
+                                while($task = mysqli_fetch_assoc($tasks_result)): 
+                                    $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
+                                    $icon_class = ($task['status'] == 'completed') ? 'fa-solid fa-circle-check text-emerald-500' : 'fa-regular fa-circle text-teal-600';
+                            ?>
+                            <div class="flex items-center justify-between p-2.5 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
+                                <div class="flex items-center gap-2.5">
+                                    <i class="<?php echo $icon_class; ?> text-sm"></i>
+                                    <div>
+                                        <span class="text-[13px] font-medium text-slate-700 block truncate max-w-[200px] lg:max-w-[300px]" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col items-end gap-1">
+                                    <span class="text-[8px] font-bold px-1.5 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
+                                </div>
+                            </div>
+                            <?php endwhile; } else { ?>
+                                <div class="text-center py-8 text-slate-400">
+                                    <i class="fa-solid fa-clipboard-check text-3xl mb-2 opacity-50"></i>
+                                    <p class="text-xs font-medium">No personal tasks found.</p>
+                                </div>
+                            <?php } ?>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <div class="flex flex-col gap-6">
                 
                 <div class="card overflow-hidden shadow-sm border-slate-200">
-                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-5 flex items-center gap-4 relative shrink-0">
+                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative shrink-0">
                         <div class="relative shrink-0">
-                            <img src="<?php echo $profile_img; ?>" class="w-14 h-14 rounded-full border-2 border-white shadow-lg object-cover bg-white">
-                            <div class="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-400 border-2 border-white rounded-full"></div>
+                            <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white shadow-lg object-cover bg-white">
+                            <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <div class="min-w-0 text-white">
-                            <h2 class="font-black text-lg truncate tracking-tight"><?php echo htmlspecialchars($tl_name); ?></h2>
-                            <p class="text-teal-100 text-[9px] font-bold uppercase tracking-widest truncate mt-0.5 opacity-90"><?php echo htmlspecialchars($user_role); ?></p>
+                            <h2 class="font-black text-xl truncate tracking-tight"><?php echo htmlspecialchars($tl_name); ?></h2>
+                            <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5 opacity-90"><?php echo htmlspecialchars($user_role); ?></p>
                         </div>
                     </div>
                     
-                    <div class="p-3 bg-white border-b border-gray-100 shrink-0">
-                         <div class="flex flex-col gap-1.5">
-                            <div class="flex items-center gap-2">
-                                <div class="w-6 h-6 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
-                                    <i class="fa-solid fa-phone text-teal-600 text-[10px]"></i>
+                    <div class="p-4 bg-white border-b border-gray-100 shrink-0">
+                         <div class="flex flex-col gap-2">
+                            <div class="flex items-center gap-3">
+                                <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-phone text-teal-600 text-xs"></i>
                                 </div>
-                                <p class="text-[11px] font-bold text-slate-700 truncate"><?php echo htmlspecialchars($tl_phone); ?></p>
+                                <p class="text-xs font-bold text-slate-700 truncate"><?php echo htmlspecialchars($tl_phone); ?></p>
                             </div>
-                            <div class="flex items-center gap-2">
-                                <div class="w-6 h-6 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
-                                    <i class="fa-solid fa-envelope text-teal-600 text-[10px]"></i>
+                            <div class="flex items-center gap-3">
+                                <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center shrink-0">
+                                    <i class="fa-solid fa-envelope text-teal-600 text-xs"></i>
                                 </div>
-                                <p class="text-[11px] font-bold text-slate-700 truncate" title="<?php echo htmlspecialchars($tl_email); ?>">
+                                <p class="text-xs font-bold text-slate-700 truncate" title="<?php echo htmlspecialchars($tl_email); ?>">
                                     <?php echo htmlspecialchars($tl_email); ?>
                                 </p>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="p-3 bg-slate-50 flex-grow space-y-3">
-                        <div class="bg-white p-2.5 rounded-xl border border-slate-200 shadow-sm">
-                            <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                    <div class="p-4 bg-slate-50 flex-grow space-y-4">
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                                 <i class="fa-solid fa-user-shield text-purple-500"></i> Reporting Manager
                             </p>
                             <div class="flex justify-between items-center">
                                 <div class="min-w-0">
-                                    <p class="text-xs font-black text-slate-800 truncate"><?php echo htmlspecialchars($tl_manager_name); ?></p>
-                                    <p class="text-[9px] text-slate-500 font-medium mt-0.5 truncate">
+                                    <p class="text-sm font-black text-slate-800 truncate"><?php echo htmlspecialchars($tl_manager_name); ?></p>
+                                    <p class="text-[10px] text-slate-500 font-medium mt-0.5 truncate">
                                         <i class="fa-solid fa-envelope text-[8px] mr-1"></i> <?php echo htmlspecialchars($tl_manager_email); ?>
                                     </p>
                                 </div>
-                                <a href="tel:<?php echo $tl_manager_phone; ?>" class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-teal-600 hover:text-white transition-colors flex-shrink-0">
+                                <a href="tel:<?php echo $tl_manager_phone; ?>" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 hover:bg-teal-600 hover:text-white transition-colors flex-shrink-0">
                                     <i class="fa-solid fa-phone text-[10px]"></i>
                                 </a>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-2">
-                            <div class="bg-white p-2 rounded-xl border border-slate-200 text-center shadow-sm">
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
                                 <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Experience</p>
                                 <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_exp); ?></p>
                             </div>
-                            <div class="bg-white p-2 rounded-xl border border-slate-200 text-center shadow-sm">
+                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
                                 <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Department</p>
                                 <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_dept); ?></p>
                             </div>
@@ -810,7 +883,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             </div>
                         </div>
 
-                        <div class="flex-grow space-y-2 mb-3">
+                        <div class="flex-grow space-y-2 mb-3 shrink-0">
                             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest">Work Log</p>
                             <div class="relative pl-3 border-l-2 border-slate-100 space-y-3">
                                 <div class="relative">
@@ -826,7 +899,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             </div>
                         </div>
 
-                        <div class="mt-auto">
+                        <div class="mt-auto shrink-0">
                             <div class="w-full bg-slate-100 rounded-full h-1.5 flex overflow-hidden mb-2 border border-slate-200/60 shadow-inner">
                                 <div class="bg-emerald-500 h-full transition-all" style="width: <?php echo $pct_prod; ?>%" title="Productive"></div>
                                 <div class="bg-amber-400 h-full transition-all" style="width: <?php echo $pct_break; ?>%" title="Break"></div>
@@ -849,7 +922,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                             <h3 class="font-bold text-slate-800 text-lg">My Managed Projects</h3>
                             <a href="tl_projects.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
                         </div>
-                        <div class="space-y-2.5 custom-scroll scroll-area pr-2">
+                        <div class="space-y-2.5 overflow-y-auto custom-scroll pr-2 max-h-[300px]">
                             <?php if(!empty($active_projects)): ?>
                                 <?php foreach($active_projects as $proj): 
                                     $pct = ($proj['total_tasks'] > 0) ? round(($proj['completed_tasks'] / $proj['total_tasks']) * 100) : 0;
@@ -889,115 +962,35 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-            </div>
-        </div>
-        
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 mb-10">
-            
-            <div class="card">
-                <div class="card-body h-[350px] flex flex-col gap-2">
-                    <div class="flex justify-between items-center border-b border-gray-100 pb-2 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
-                        <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
-                    </div>
-                    <div class="space-y-2 custom-scroll scroll-area pr-2 mt-1">
-                        <?php if(!empty($all_notifications)): ?>
-                            <?php foreach($all_notifications as $notif): ?>
-                            <div class="flex gap-3 items-start border border-gray-100 p-2.5 rounded-xl hover:bg-slate-50 transition shadow-sm">
-                                <div class="w-7 h-7 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-[10px] shrink-0">
-                                    <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
-                                </div>
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex justify-between items-start">
-                                        <p class="text-xs font-bold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
-                                        <p class="text-[8px] text-gray-400 mt-1 shrink-0"><?php echo date("d M Y", strtotime($notif['time'])); ?></p>
+                <div class="card h-[420px]">
+                    <div class="card-body flex flex-col min-h-0">
+                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
+                            <button class="text-[9px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
+                        </div>
+                        <div class="meeting-timeline flex-1 overflow-y-auto custom-scroll pr-2 mt-2 pt-1 space-y-4">
+                            <?php if($meet_result && mysqli_num_rows($meet_result) > 0) {
+                                while($meet = mysqli_fetch_assoc($meet_result)): 
+                                    $dot_color = ($meet['type_color']=='orange') ? 'bg-orange-500' : (($meet['type_color']=='teal') ? 'bg-teal-500' : 'bg-yellow-500');
+                            ?>
+                            <div class="meeting-row-wrapper">
+                                <div class="meeting-dot <?php echo $dot_color; ?>"></div>
+                                <div class="meeting-flex-container gap-4">
+                                    <div class="meeting-time-label">
+                                        <?php echo date("h:i A", strtotime($meet['meeting_time'])); ?>
                                     </div>
-                                    <p class="text-[10px] text-gray-500 mt-0.5 line-clamp-2 leading-snug"><?php echo htmlspecialchars($notif['message']); ?></p>
-                                    
-                                    <div class="mt-1.5 text-right">
-                                        <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
-                                            <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-2 py-1 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
-                                                <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
-                                            </a>
-                                        <?php else: ?>
-                                            <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-2 py-1 rounded-full hover:bg-slate-100 transition shadow-sm">
-                                                View Details <i class="fa-solid fa-arrow-right ml-1"></i>
-                                            </a>
-                                        <?php endif; ?>
+                                    <div class="meeting-content-box shadow-sm py-2 px-3">
+                                        <p class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
+                                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department']); ?></p>
                                     </div>
                                 </div>
                             </div>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <div class="text-center py-6 text-slate-400">
-                                <i class="fa-regular fa-bell-slash text-3xl mb-2 opacity-80"></i>
-                                <p class='text-xs font-medium text-slate-500'>No recent updates.</p>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-
-            <div class="card">
-                <div class="card-body h-[350px] flex flex-col">
-                    <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg">My Personal Tasks</h3>
-                        <a href="task_tl.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">Tasks Board</a>
-                    </div>
-                    <div class="space-y-2 custom-scroll scroll-area pr-2 mt-1">
-                        <?php if(mysqli_num_rows($tasks_result) > 0) {
-                            while($task = mysqli_fetch_assoc($tasks_result)): 
-                                $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
-                                $icon_class = ($task['status'] == 'completed') ? 'fa-solid fa-circle-check text-emerald-500' : 'fa-regular fa-circle text-teal-600';
-                        ?>
-                        <div class="flex items-center justify-between p-2.5 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
-                            <div class="flex items-center gap-2.5">
-                                <i class="<?php echo $icon_class; ?> text-sm"></i>
-                                <div>
-                                    <span class="text-[13px] font-medium text-slate-700 block truncate max-w-[200px] lg:max-w-[300px]" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
-                                </div>
-                            </div>
-                            <div class="flex flex-col items-end gap-1">
-                                <span class="text-[8px] font-bold px-1.5 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
-                            </div>
+                            <?php endwhile; } else { echo "<div class='text-center py-8 text-slate-400'><i class='fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50'></i><p class='text-xs font-medium'>No meetings scheduled today.</p></div>"; } ?>
                         </div>
-                        <?php endwhile; } else { ?>
-                            <div class="text-center py-4 text-slate-400">
-                                <p class="text-xs font-medium">No personal tasks found.</p>
-                            </div>
-                        <?php } ?>
                     </div>
                 </div>
-            </div>
 
-            <div class="card">
-                <div class="card-body h-[350px] flex flex-col">
-                    <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
-                        <button class="text-[9px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
-                    </div>
-                    <div class="meeting-timeline space-y-4 pt-1 custom-scroll scroll-area pr-2 mt-2">
-                        <?php if($meet_result && mysqli_num_rows($meet_result) > 0) {
-                            while($meet = mysqli_fetch_assoc($meet_result)): 
-                                $dot_color = ($meet['type_color']=='orange') ? 'bg-orange-500' : (($meet['type_color']=='teal') ? 'bg-teal-500' : 'bg-yellow-500');
-                        ?>
-                        <div class="meeting-row-wrapper">
-                            <div class="meeting-dot <?php echo $dot_color; ?>"></div>
-                            <div class="meeting-flex-container gap-4">
-                                <div class="meeting-time-label">
-                                    <?php echo date("h:i A", strtotime($meet['meeting_time'])); ?>
-                                </div>
-                                <div class="meeting-content-box shadow-sm py-2 px-3">
-                                    <p class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
-                                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department']); ?></p>
-                                </div>
-                            </div>
-                        </div>
-                        <?php endwhile; } else { echo "<div class='text-center py-4 text-slate-400'><p class='text-xs font-medium'>No meetings scheduled today.</p></div>"; } ?>
-                    </div>
-                </div>
             </div>
-
         </div>
 
     </main>
