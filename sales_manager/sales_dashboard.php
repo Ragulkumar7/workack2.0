@@ -343,9 +343,7 @@ if (isset($conn)) {
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                <button class="bg-white border border-slate-200 px-4 py-2 rounded-xl text-sm font-bold flex items-center shadow-sm hover:bg-slate-50 transition">
-                    <i class="fa-solid fa-download mr-2 text-slate-400"></i> Export <i class="fa-solid fa-chevron-down ml-2 text-[8px]"></i>
-                </button>
+             
                 <button class="bg-white border border-slate-200 px-4 py-2 rounded-xl text-sm font-bold flex items-center shadow-sm hover:bg-slate-50 transition">
                     <i class="fa-solid fa-calendar-range mr-2 text-slate-400"></i> <?= date('m/d/Y', strtotime('-7 days')) ?> - <?= date('m/d/Y') ?>
                 </button>
