@@ -12,6 +12,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $current_user_id = $_SESSION['user_id'];
 
+
 // SMART PATH RESOLVER
 $dbPath = 'include/db_connect.php';
 if (file_exists($dbPath)) {
@@ -25,6 +26,16 @@ if (file_exists($dbPath)) {
 } else {
     die("Critical Error: Cannot find database connection file.");
 }
+
+// =========================================================================
+// NEW: FETCH LOGGED-IN USER'S REAL NAME AND IMAGE
+// =========================================================================
+$user_info_query = mysqli_query($conn, "SELECT u.name, ep.profile_img FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = '$current_user_id'");
+$user_info = mysqli_fetch_assoc($user_info_query);
+$user_real_name = $user_info['name'] ?? $_SESSION['username'] ?? 'CEO';
+$user_profile_img = $user_info['profile_img'] ?? '';
+// =========================================================================
+
 
 // =========================================================================
 // 1. FETCH ALL DISTINCT DEPARTMENTS FOR DROPDOWN FILTERS
@@ -229,9 +240,9 @@ function getAvatar($img, $name) {
         </div>
 
         <div class="flex items-center gap-4 mb-8 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <img src="<?= getAvatar($_SESSION['profile_img'] ?? '', $_SESSION['name'] ?? 'Admin') ?>" class="w-14 h-14 rounded-full shadow-sm object-cover" alt="CEO">
+            <img src="<?= getAvatar($user_profile_img, $user_real_name) ?>" class="w-14 h-14 rounded-full shadow-sm object-cover" alt="CEO">
             <div>
-                <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">Welcome Back, <?= explode(' ', $_SESSION['name'] ?? 'Admin')[0] ?> <i class="fa-solid fa-pen text-slate-300 text-xs cursor-pointer hover:text-slate-500"></i></h2>
+                <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">Welcome Back, <?= htmlspecialchars(explode(' ', $user_real_name)[0]) ?> <i class="fa-solid fa-pen text-slate-300 text-xs cursor-pointer hover:text-slate-500"></i></h2>
                 <p class="text-sm text-slate-500 mt-0.5">Your enterprise systems are running smoothly.</p>
             </div>
             

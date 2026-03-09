@@ -110,7 +110,7 @@ $sections = [
                'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR', 'Sales Manager', 'Sales Executive']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR', 'Sales Manager', 'Sales Executive', 'CEO']
             ],
             
             // --- ATTENDANCE (HR& HR Executive) ---
@@ -121,6 +121,18 @@ $sections = [
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'HR/shift_swap_approval_hr.php', 'icon' => 'arrow-left-right'],
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
+                    ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
+                ]
+            ],
+             [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['CEO'],
+                'subItems' => [
+                    ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
                     ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'HR/shift_swap_approval_hr.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
@@ -382,7 +394,7 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR']
+                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR', 'CEO']
             ],
             [
                 'name' => 'Announcement', 
@@ -553,13 +565,13 @@ $sections = [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive', 'CEO']
             ],
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive', 'CEO']
             ],
         ]
     ]
