@@ -105,6 +105,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
                         case 'CFO':
                             header("Location: CFO/cfo_dashboard.php");
                             break;
+                        case 'CEO':
+                            header("Location: ceo/ceo_dashboard.php");
                         default:
                             header("Location: employee/employee_dashboard.php");
                             break;
