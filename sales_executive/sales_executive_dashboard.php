@@ -229,6 +229,52 @@ $pipeline_series_json = json_encode([
     ['name' => 'Opportunity', 'data' => $monthly_pipeline['Opportunity']],
     ['name' => 'Not Contacted', 'data' => $monthly_pipeline['Not Contacted']]
 ]);
+
+// --- LEAVE & ATTENDANCE DATA FIX ---
+$att_on_time = 0;
+$att_late = 0;
+$att_wfh = 0;
+$att_absent = 0;
+$leaves_taken = 0;
+
+if ($conn) {
+    $current_month = date('m');
+    $current_year_att = date('Y');
+
+    // 1. Fetch exact Late counts from Attendance matching the current month and user
+    // Adding conditions to catch variations of 'Late' status that might exist in db
+    $q_att_stats = mysqli_query($conn, "
+        SELECT 
+            SUM(CASE WHEN status = 'On Time' OR status = 'Present' THEN 1 ELSE 0 END) as on_time,
+            SUM(CASE WHEN status LIKE '%Late%' THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN status LIKE '%WFH%' THEN 1 ELSE 0 END) as wfh,
+            SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent
+        FROM attendance 
+        WHERE user_id = '$logged_in_user_id' 
+        AND MONTH(date) = '$current_month' 
+        AND YEAR(date) = '$current_year_att'
+    ");
+    
+    if ($q_att_stats && $row = mysqli_fetch_assoc($q_att_stats)) {
+        $att_on_time = (int)$row['on_time'];
+        $att_late = (int)$row['late'];
+        $att_wfh = (int)$row['wfh'];
+        $att_absent = (int)$row['absent'];
+    }
+
+    // 2. Fetch exact Leaves Taken from leave_requests
+    $q_leaves = mysqli_query($conn, "
+        SELECT SUM(total_days) as taken 
+        FROM leave_requests 
+        WHERE user_id = '$logged_in_user_id' 
+        AND status = 'Approved' 
+        AND MONTH(start_date) = '$current_month' 
+        AND YEAR(start_date) = '$current_year_att'
+    ");
+    if ($q_leaves && $row = mysqli_fetch_assoc($q_leaves)) {
+        $leaves_taken = (int)$row['taken'];
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -327,28 +373,28 @@ $pipeline_series_json = json_encode([
                                     <div class="w-2.5 h-2.5 rounded-full bg-[#0d9488]"></div>
                                     <span class="text-[14px] text-gray-600 font-medium">On Time</span>
                                 </div>
-                                <span class="font-bold text-[15px] text-[#031d38]">22</span>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_on_time ?></span>
                             </div>
                             <div class="flex items-center justify-between pr-4">
                                 <div class="flex items-center gap-2">
                                     <div class="w-2.5 h-2.5 rounded-full bg-[#10b981]"></div>
                                     <span class="text-[14px] text-gray-600 font-medium">Late</span>
                                 </div>
-                                <span class="font-bold text-[15px] text-[#031d38]">2</span>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_late ?></span>
                             </div>
                             <div class="flex items-center justify-between pr-4">
                                 <div class="flex items-center gap-2">
                                     <div class="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></div>
                                     <span class="text-[14px] text-gray-600 font-medium">WFH</span>
                                 </div>
-                                <span class="font-bold text-[15px] text-[#031d38]">1</span>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_wfh ?></span>
                             </div>
                             <div class="flex items-center justify-between pr-4 mb-2">
                                 <div class="flex items-center gap-2">
                                     <div class="w-2.5 h-2.5 rounded-full bg-[#ef4444]"></div>
                                     <span class="text-[14px] text-gray-600 font-medium">Absent</span>
                                 </div>
-                                <span class="font-bold text-[15px] text-[#031d38]">0</span>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_absent ?></span>
                             </div>
                             
                             <div class="flex items-center justify-between pr-4 pt-3 border-t border-gray-100">
@@ -358,7 +404,7 @@ $pipeline_series_json = json_encode([
                                     </svg>
                                     <span class="text-[12px] font-bold text-[#031d38] uppercase">Leaves Taken</span>
                                 </div>
-                                <span class="px-2 py-0.5 bg-rose-50 text-rose-600 text-[12px] font-bold rounded">0 Days</span>
+                                <span class="px-2 py-0.5 bg-rose-50 text-rose-600 text-[12px] font-bold rounded"><?= $leaves_taken ?> Days</span>
                             </div>
                         </div>
                         
