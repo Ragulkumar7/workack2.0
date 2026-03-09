@@ -13,13 +13,94 @@ if (file_exists('include/db_connect.php')) {
     $sidebarPath = '../sidebars.php';
     $headerPath = '../header.php';
 } else {
-    // Suppress error for UI demonstration purposes if DB file isn't found
     $sidebarPath = '';
     $headerPath = '';
 }
 
 // --- Dynamic Variables Fetching Logic ---
 $user_id = $_SESSION['user_id'] ?? 35; // Defaulting to Varshini M if session not found
+
+// =========================================================================================
+// AJAX HANDLER FOR FILTERING PIPELINE AND WON DEALS
+// =========================================================================================
+if (isset($_GET['ajax_filter'])) {
+    header('Content-Type: application/json');
+    $filter_type = $_GET['filter_type'] ?? 'pipeline'; // 'pipeline' or 'won_deals'
+    $timeframe = $_GET['timeframe'] ?? 'week'; // 'week', 'month', 'year'
+    
+    $date_condition = "";
+    if ($timeframe === 'week') {
+        $date_condition = "AND YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1)";
+    } elseif ($timeframe === 'month') {
+        $date_condition = "AND MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE())";
+    } elseif ($timeframe === 'year') {
+        $date_condition = "AND YEAR(created_at) = YEAR(CURDATE())";
+    }
+
+    if ($filter_type === 'pipeline' && isset($conn)) {
+        $p_stages = ['Marketing'=>0, 'Sales'=>0, 'Email'=>0, 'Chat'=>0, 'Operational'=>0, 'Calls'=>0];
+        $p_vals = ['Marketing'=>0, 'Sales'=>0, 'Email'=>0, 'Chat'=>0, 'Operational'=>0, 'Calls'=>0];
+        
+        $q_ajax = mysqli_query($conn, "SELECT status, source, COUNT(*) as count, SUM(deal_value) as value FROM crm_clients WHERE 1=1 $date_condition GROUP BY status, source");
+        if ($q_ajax) {
+            while ($r = mysqli_fetch_assoc($q_ajax)) {
+                $src = strtolower($r['source'] ?? '');
+                if(strpos($src, 'web') !== false) { $p_stages['Marketing'] += $r['count']; $p_vals['Marketing'] += $r['value']; }
+                elseif(strpos($src, 'referral') !== false) { $p_stages['Sales'] += $r['count']; $p_vals['Sales'] += $r['value']; }
+                elseif(strpos($src, 'email') !== false) { $p_stages['Email'] += $r['count']; $p_vals['Email'] += $r['value']; }
+                elseif(strpos($src, 'social') !== false) { $p_stages['Chat'] += $r['count']; $p_vals['Chat'] += $r['value']; }
+                elseif(strpos($src, 'call') !== false) { $p_stages['Calls'] += $r['count']; $p_vals['Calls'] += $r['value']; }
+                else { $p_stages['Operational'] += $r['count']; $p_vals['Operational'] += $r['value']; }
+            }
+        }
+        echo json_encode(['stages' => $p_stages, 'values' => $p_vals]);
+        exit;
+    }
+
+    if ($filter_type === 'won_deals' && isset($conn)) {
+        $w_total = 0;
+        $w_count = 0;
+        $all_count = 0;
+        $w_sources = ['Calls' => 0, 'Email' => 0, 'Chat' => 0, 'Referrals' => 0];
+        
+        // Get total count for conversion rate
+        $q_all = mysqli_query($conn, "SELECT COUNT(*) as total FROM crm_clients WHERE 1=1 $date_condition");
+        if ($q_all && $r = mysqli_fetch_assoc($q_all)) { $all_count = $r['total']; }
+
+        $q_won = mysqli_query($conn, "SELECT source, COUNT(*) as count, SUM(deal_value) as value FROM crm_clients WHERE status='Won' $date_condition GROUP BY source");
+        if ($q_won) {
+            while ($r = mysqli_fetch_assoc($q_won)) {
+                $w_total += $r['value'];
+                $w_count += $r['count'];
+                
+                $src = strtolower($r['source'] ?? '');
+                if(strpos($src, 'call') !== false) { $w_sources['Calls'] += $r['count']; }
+                elseif(strpos($src, 'email') !== false) { $w_sources['Email'] += $r['count']; }
+                elseif(strpos($src, 'social') !== false) { $w_sources['Chat'] += $r['count']; }
+                else { $w_sources['Referrals'] += $r['count']; }
+            }
+        }
+        
+        $conv_rate = ($all_count > 0) ? round(($w_count / $all_count) * 100, 2) : 0;
+        
+        // Calculate percentages for sources
+        $src_pct = ['Calls' => 0, 'Email' => 0, 'Chat' => 0, 'Referrals' => 0];
+        if ($w_count > 0) {
+            $src_pct['Calls'] = round(($w_sources['Calls'] / $w_count) * 100);
+            $src_pct['Email'] = round(($w_sources['Email'] / $w_count) * 100);
+            $src_pct['Chat'] = round(($w_sources['Chat'] / $w_count) * 100);
+            $src_pct['Referrals'] = round(($w_sources['Referrals'] / $w_count) * 100);
+        }
+
+        echo json_encode([
+            'total_value' => $w_total,
+            'conversion' => $conv_rate,
+            'sources' => $src_pct
+        ]);
+        exit;
+    }
+}
+// =========================================================================================
 
 // Default UI Fallbacks
 $emp_initials = "CD";
@@ -35,9 +116,10 @@ $punch_in = "--:--";
 $stroke_dashoffset = 414;
 
 $att_stats = ['on_time'=>0, 'late'=>0, 'absent'=>0, 'wfh'=>0];
-$leave_total = 16;
+$leave_total = 2;
 $leave_taken = 0;
-$leave_left = 16;
+$leave_left = 2;
+$lop_days = 0;
 
 $total_deals = 0;
 $deal_value = 0;
@@ -45,13 +127,15 @@ $total_customers = 0;
 $active_customers = 0;
 $conversion_rate = 0;
 $monthly_revenue = 0;
-
 $won_deals = 0;
 
-// Pipeline stages mapped for UI
+// Pipeline stages mapped for UI (Default load is THIS WEEK)
 $pipeline_stages = ['Marketing'=>0, 'Sales'=>0, 'Email'=>0, 'Chat'=>0, 'Operational'=>0, 'Calls'=>0];
 $pipeline_vals = ['Marketing'=>0, 'Sales'=>0, 'Email'=>0, 'Chat'=>0, 'Operational'=>0, 'Calls'=>0];
 $pipeline_details = ['Marketing'=>[], 'Sales'=>[], 'Email'=>[], 'Chat'=>[], 'Operational'=>[], 'Calls'=>[]];
+
+// Won deals default load (THIS YEAR)
+$won_sources_pct = ['Calls' => 24, 'Email' => 39, 'Chat' => 20, 'Referrals' => 17]; 
 
 $recent_deals = [];
 $recent_activities = [];
@@ -84,7 +168,11 @@ if (isset($conn)) {
     $q_leave = mysqli_query($conn, "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = '$user_id' AND status = 'Approved' AND YEAR(start_date) = YEAR(CURRENT_DATE())");
     if ($q_leave && $row = mysqli_fetch_assoc($q_leave)) {
         $leave_taken = (int)$row['taken'];
-        $leave_left = max(0, $leave_total - $leave_taken);
+        $leave_left = $leave_total - $leave_taken;
+        if ($leave_left < 0) {
+            $lop_days = abs($leave_left);
+            $leave_left = 0; 
+        }
     }
 
     $q_astats = mysqli_query($conn, "SELECT
@@ -95,18 +183,13 @@ if (isset($conn)) {
         FROM attendance WHERE user_id='$user_id' AND YEAR(date) = YEAR(CURRENT_DATE())");
     if ($q_astats && $r = mysqli_fetch_assoc($q_astats)) {
         $att_stats = $r;
+        $att_stats['absent'] = (int)$att_stats['absent'] + $leave_taken;
     }
 
-    // 4. CRM & Pipeline Metrics
-    $q_crm = mysqli_query($conn, "SELECT status, source, COUNT(*) as count, SUM(deal_value) as value FROM crm_clients GROUP BY status, source");
+    // 4. CRM & Pipeline Metrics (Default: This Week)
+    $q_crm = mysqli_query($conn, "SELECT status, source, COUNT(*) as count, SUM(deal_value) as value FROM crm_clients WHERE YEARWEEK(created_at, 1) = YEARWEEK(CURDATE(), 1) GROUP BY status, source");
     if ($q_crm) {
         while ($r = mysqli_fetch_assoc($q_crm)) {
-            $total_deals += $r['count'];
-            $deal_value += $r['value'];
-            if ($r['status'] === 'Won') {
-                $won_deals += $r['count'];
-            }
-            
             $src = strtolower($r['source'] ?? '');
             if(strpos($src, 'web') !== false) { $pipeline_stages['Marketing'] += $r['count']; $pipeline_vals['Marketing'] += $r['value']; }
             elseif(strpos($src, 'referral') !== false) { $pipeline_stages['Sales'] += $r['count']; $pipeline_vals['Sales'] += $r['value']; }
@@ -116,7 +199,36 @@ if (isset($conn)) {
             else { $pipeline_stages['Operational'] += $r['count']; $pipeline_vals['Operational'] += $r['value']; }
         }
     }
-    $conversion_rate = ($total_deals > 0) ? round(($won_deals / $total_deals) * 100, 2) : 0;
+    
+    // Overall Stats (All time)
+    $q_overall = mysqli_query($conn, "SELECT COUNT(*) as count, SUM(deal_value) as value, SUM(CASE WHEN status='Won' THEN 1 ELSE 0 END) as won_count FROM crm_clients");
+    if ($q_overall && $r = mysqli_fetch_assoc($q_overall)) {
+        $total_deals = $r['count'] ?? 0;
+        $deal_value = $r['value'] ?? 0;
+        $conversion_rate = ($total_deals > 0) ? round(($r['won_count'] / $total_deals) * 100, 2) : 0;
+    }
+
+    // Won Deals specific stats (Default: This Year)
+    $q_won_yr = mysqli_query($conn, "SELECT source, COUNT(*) as count, SUM(deal_value) as value FROM crm_clients WHERE status='Won' AND YEAR(created_at) = YEAR(CURDATE()) GROUP BY source");
+    if ($q_won_yr) {
+        $w_c = 0; $w_sources = ['Calls' => 0, 'Email' => 0, 'Chat' => 0, 'Referrals' => 0];
+        while ($r = mysqli_fetch_assoc($q_won_yr)) {
+            $won_deals += $r['value'];
+            $w_c += $r['count'];
+            $src = strtolower($r['source'] ?? '');
+            if(strpos($src, 'call') !== false) { $w_sources['Calls'] += $r['count']; }
+            elseif(strpos($src, 'email') !== false) { $w_sources['Email'] += $r['count']; }
+            elseif(strpos($src, 'social') !== false) { $w_sources['Chat'] += $r['count']; }
+            else { $w_sources['Referrals'] += $r['count']; }
+        }
+        if($w_c > 0) {
+            $won_sources_pct['Calls'] = round(($w_sources['Calls'] / $w_c) * 100);
+            $won_sources_pct['Email'] = round(($w_sources['Email'] / $w_c) * 100);
+            $won_sources_pct['Chat'] = round(($w_sources['Chat'] / $w_c) * 100);
+            $won_sources_pct['Referrals'] = round(($w_sources['Referrals'] / $w_c) * 100);
+        }
+    }
+
 
     // 4.1 Detailed Pipeline Fetching for Context Menu
     $q_crm_details = mysqli_query($conn, "SELECT name, status, source, deal_value, executive, created_at FROM crm_clients ORDER BY created_at DESC");
@@ -164,7 +276,10 @@ if (isset($conn)) {
     }
     
     // 9. Quick Contacts
-    $q_qc = mysqli_query($conn, "SELECT name, role FROM users WHERE id != '$user_id' LIMIT 4");
+    $q_qc = @mysqli_query($conn, "SELECT id, name, email, phone, source, deal_value FROM crm_clients ORDER BY created_at DESC LIMIT 4");
+    if (!$q_qc) {
+        $q_qc = @mysqli_query($conn, "SELECT id, name, executive as email, source, deal_value FROM crm_clients ORDER BY created_at DESC LIMIT 4");
+    }
     if ($q_qc) {
         while ($r = mysqli_fetch_assoc($q_qc)) {
             $quick_contacts[] = $r;
@@ -187,6 +302,20 @@ if (isset($conn)) {
         .funnel-step:hover { filter: brightness(1.1); transform: translateX(5px); }
         .custom-scrollbar::-webkit-scrollbar { width: 4px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
+        
+        /* Progress Bar Animation */
+        @keyframes fillProgress {
+            from { width: 0; }
+        }
+        .progress-animate {
+            animation: fillProgress 1s ease-out forwards;
+        }
+
+        /* Filter Dropdown transition */
+        .filter-dropdown { display: none; position: absolute; top: 100%; right: 0; z-index: 50; background: white; border: 1px solid #e2e8f0; border-radius: 0.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); width: 120px; padding: 4px; mt-1; }
+        .filter-dropdown.show { display: block; }
+        .filter-option { display: block; width: 100%; text-align: left; padding: 6px 12px; font-size: 11px; font-weight: 600; color: #475569; border-radius: 0.25rem; transition: all 0.2s; }
+        .filter-option:hover { background-color: #f8fafc; color: #0f172a; }
     </style>
 </head>
 <body class="text-slate-800 flex h-screen overflow-hidden">
@@ -264,6 +393,17 @@ if (isset($conn)) {
                                  <p class="text-xl font-black text-green-600"><?= $leave_left ?></p>
                              </div>
                          </div>
+                         <?php if($lop_days > 0): ?>
+                             <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mt-4 flex items-center gap-3">
+                                 <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                                 <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
+                             </div>
+                         <?php endif; ?>
+                         <div class="mt-4">
+                             <a href="../employee/leave_request.php" class="block w-full bg-[#117B6F] hover:bg-[#0f665c] text-white font-bold py-2.5 rounded-xl text-center transition shadow-sm text-[13px]">
+                                 <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
+                             </a>
+                         </div>
                     </div>
                 </div>
 
@@ -315,23 +455,32 @@ if (isset($conn)) {
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                 
                 <div class="lg:col-span-5 bg-white rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden flex flex-col">
-                    <div class="p-6 pb-0 border-b border-slate-100 flex justify-between items-center mb-6">
+                    <div class="p-6 pb-0 border-b border-slate-100 flex justify-between items-center mb-6 relative">
                         <h3 class="text-[17px] font-bold text-[#1e293b] pb-6">Pipeline Stages</h3>
-                        <button class="text-xs font-medium border border-slate-200 px-3 py-1.5 rounded-md flex items-center gap-1.5 text-slate-600 mb-6 hover:bg-slate-50">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                            This Week
-                        </button>
+                        
+                        <div class="relative">
+                            <button id="btnPipelineFilter" onclick="toggleDropdown('dropdownPipeline')" class="text-xs font-medium border border-slate-200 px-3 py-1.5 rounded-md flex items-center gap-1.5 text-slate-600 mb-6 hover:bg-slate-50 transition">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                <span id="lblPipelineFilter">This Week</span>
+                                <i class="fa-solid fa-chevron-down text-[10px] ml-1"></i>
+                            </button>
+                            <div id="dropdownPipeline" class="filter-dropdown top-[35px]">
+                                <button onclick="updateFilter('pipeline', 'week', 'This Week')" class="filter-option">This Week</button>
+                                <button onclick="updateFilter('pipeline', 'month', 'This Month')" class="filter-option">This Month</button>
+                                <button onclick="updateFilter('pipeline', 'year', 'This Year')" class="filter-option">This Year</button>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="px-6 flex flex-col items-center gap-[2px] mb-10 w-full relative">
+                    <div class="px-6 flex flex-col items-center gap-[2px] mb-10 w-full relative" id="pipelineBars">
                         <div class="absolute w-[90%] border-l border-r border-slate-100 h-full top-0 -z-10 border-dashed"></div>
 
-                        <div class="funnel-step w-[90%] bg-[#eb7943] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Marketing')">Marketing : <?= number_format($pipeline_stages['Marketing']) ?></div>
-                        <div class="funnel-step w-[75%] bg-[#f19262] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Sales')">Sales : <?= number_format($pipeline_stages['Sales']) ?></div>
-                        <div class="funnel-step w-[62%] bg-[#f5aa81] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Email')">Email : <?= number_format($pipeline_stages['Email']) ?></div>
-                        <div class="funnel-step w-[50%] bg-[#f9c2a0] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Chat')">Chat : <?= number_format($pipeline_stages['Chat']) ?></div>
-                        <div class="funnel-step w-[38%] bg-[#fcdabe] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Operational')">Operational : <?= number_format($pipeline_stages['Operational']) ?></div>
-                        <div class="funnel-step w-[28%] bg-[#fee5cf] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Calls')">Calls : <?= number_format($pipeline_stages['Calls']) ?></div>
+                        <div id="pipe-marketing" class="funnel-step w-[90%] bg-[#eb7943] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Marketing')">Marketing : <?= number_format($pipeline_stages['Marketing']) ?></div>
+                        <div id="pipe-sales" class="funnel-step w-[75%] bg-[#f19262] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Sales')">Sales : <?= number_format($pipeline_stages['Sales']) ?></div>
+                        <div id="pipe-email" class="funnel-step w-[62%] bg-[#f5aa81] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Email')">Email : <?= number_format($pipeline_stages['Email']) ?></div>
+                        <div id="pipe-chat" class="funnel-step w-[50%] bg-[#f9c2a0] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Chat')">Chat : <?= number_format($pipeline_stages['Chat']) ?></div>
+                        <div id="pipe-operational" class="funnel-step w-[38%] bg-[#fcdabe] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Operational')">Operational : <?= number_format($pipeline_stages['Operational']) ?></div>
+                        <div id="pipe-calls" class="funnel-step w-[28%] bg-[#fee5cf] h-11 rounded-xl flex items-center justify-center text-white text-[13px] font-medium shadow-sm" onclick="showContextMenu(event, 'Calls')">Calls : <?= number_format($pipeline_stages['Calls']) ?></div>
                     </div>
 
                     <div class="px-6 pb-6 mt-auto">
@@ -341,25 +490,25 @@ if (isset($conn)) {
                                 <p class="text-[13px] text-slate-500 mb-1 flex items-center gap-2">
                                     <span class="w-1.5 h-1.5 rounded-full bg-[#eb7943]"></span> Marketing
                                 </p>
-                                <p class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Marketing'], 2) ?></p>
+                                <p id="val-marketing" class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Marketing'], 2) ?></p>
                             </div>
                             <div class="p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
                                 <p class="text-[13px] text-slate-500 mb-1 flex items-center gap-2">
                                     <span class="w-1.5 h-1.5 rounded-full bg-[#f19262]"></span> Sales
                                 </p>
-                                <p class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Sales'], 2) ?></p>
+                                <p id="val-sales" class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Sales'], 2) ?></p>
                             </div>
                             <div class="p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
                                 <p class="text-[13px] text-slate-500 mb-1 flex items-center gap-2">
                                     <span class="w-1.5 h-1.5 rounded-full bg-[#f5aa81]"></span> Email
                                 </p>
-                                <p class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Email'], 2) ?></p>
+                                <p id="val-email" class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Email'], 2) ?></p>
                             </div>
                             <div class="p-3 bg-white border border-slate-200 rounded-lg shadow-sm">
                                 <p class="text-[13px] text-slate-500 mb-1 flex items-center gap-2">
                                     <span class="w-1.5 h-1.5 rounded-full bg-[#f9c2a0]"></span> Chat
                                 </p>
-                                <p class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Chat'], 2) ?></p>
+                                <p id="val-chat" class="font-bold text-[#1e293b] text-sm">₹<?= number_format($pipeline_vals['Chat'], 2) ?></p>
                             </div>
                         </div>
                     </div>
@@ -382,7 +531,7 @@ if (isset($conn)) {
                                 <div class="bg-[#e85b2b] h-full rounded-full" style="width: 55%;"></div>
                             </div>
                             <p class="text-[13px] font-medium text-slate-500">
-                                <span class="text-red-500">~ -4.01%</span> from last week
+                                <span class="text-emerald-500">~ +4.01%</span> from last week
                             </p>
                         </div>
                     </div>
@@ -442,7 +591,7 @@ if (isset($conn)) {
                                 <div class="bg-[#2563eb] h-full rounded-full" style="width: 55%;"></div>
                             </div>
                             <p class="text-[13px] font-medium text-slate-500">
-                                <span class="text-red-500">~ -6.01%</span> from last week
+                                <span class="text-emerald-500">~ +6.01%</span> from last week
                             </p>
                         </div>
                     </div>
@@ -482,7 +631,7 @@ if (isset($conn)) {
                                 <div class="bg-[#f59e0b] h-full rounded-full" style="width: 80%;"></div>
                             </div>
                             <p class="text-[13px] font-medium text-slate-500">
-                                <span class="text-red-500">~ -3.22%</span> from last week
+                                <span class="text-emerald-500">~ +3.22%</span> from last week
                             </p>
                         </div>
                     </div>
@@ -492,105 +641,115 @@ if (isset($conn)) {
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-6">
                 
-                <div class="lg:col-span-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <div class="lg:col-span-6 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col relative">
                     <div class="flex justify-between items-center mb-6">
-                        <h3 class="font-extrabold text-slate-800">Deals By Country</h3>
-                        <button class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg hover:bg-slate-100 transition">View All</button>
-                    </div>
-                    <div class="space-y-5">
-                        <div class="flex items-center justify-between group cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-xl transition">
-                            <div class="flex items-center gap-3">
-                                <span class="text-3xl drop-shadow-sm">🇺🇸</span>
-                                <div><p class="text-sm font-extrabold text-slate-800">USA</p><p class="text-[10px] font-bold text-slate-400">Deals : <?= $total_deals ?></p></div>
-                            </div>
-                            <div class="flex items-center gap-4 text-right">
-                                <svg class="w-8 h-6 text-emerald-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
-                                <div><p class="text-[10px] font-bold text-slate-400 uppercase">Total Value</p><p class="text-sm font-extrabold text-slate-800">₹<?= number_format($deal_value, 2) ?></p></div>
+                        <h3 class="font-extrabold text-slate-800">Won Deals Sources</h3>
+                        
+                        <div class="relative">
+                            <button id="btnWonFilter" onclick="toggleDropdown('dropdownWon')" class="text-[10px] font-bold bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100 flex items-center gap-1.5 text-slate-600 hover:bg-slate-100 transition">
+                                <i class="fa-solid fa-calendar text-slate-400"></i>
+                                <span id="lblWonFilter">This Year</span>
+                                <i class="fa-solid fa-chevron-down text-[8px] ml-0.5"></i>
+                            </button>
+                            <div id="dropdownWon" class="filter-dropdown top-[30px]">
+                                <button onclick="updateFilter('won_deals', 'week', 'This Week')" class="filter-option">This Week</button>
+                                <button onclick="updateFilter('won_deals', 'month', 'This Month')" class="filter-option">This Month</button>
+                                <button onclick="updateFilter('won_deals', 'year', 'This Year')" class="filter-option">This Year</button>
                             </div>
                         </div>
-                        
-                        <div class="flex items-center justify-between group cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-xl transition">
-                            <div class="flex items-center gap-3">
-                                <span class="text-3xl drop-shadow-sm">🇦🇪</span>
-                                <div><p class="text-sm font-extrabold text-slate-800">UAE</p><p class="text-[10px] font-bold text-slate-400">Deals : 0</p></div>
+                    </div>
+                    
+                    <div class="flex justify-between items-end mb-6">
+                        <div>
+                            <p class="text-[10px] text-slate-400 uppercase font-bold tracking-widest mb-1">Total Value</p>
+                            <h2 class="text-2xl font-black text-[#117B6F]" id="wonTotalValue">₹<?= number_format($won_deals) ?></h2>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[10px] text-slate-400 uppercase font-bold tracking-widest mb-1">Conversion</p>
+                            <h2 class="text-xl font-black text-slate-800" id="wonConvRate"><?= $conversion_rate ?>%</h2>
+                        </div>
+                    </div>
+
+                    <div class="space-y-5 flex-grow mt-2" id="wonSourcesContainer">
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span class="text-slate-600 flex items-center gap-2"><i class="fa-solid fa-phone text-blue-500 w-4"></i> Calls</span>
+                                <span class="text-slate-800" id="wonPctCalls"><?= $won_sources_pct['Calls'] ?>%</span>
                             </div>
-                            <div class="flex items-center gap-4 text-right">
-                                 <svg class="w-8 h-6 text-emerald-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
-                                <div><p class="text-[10px] font-bold text-slate-400 uppercase">Total Value</p><p class="text-sm font-extrabold text-slate-800">₹0.00</p></div>
+                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div id="wonBarCalls" class="bg-blue-500 h-full rounded-full transition-all duration-700 ease-out" style="width: <?= $won_sources_pct['Calls'] ?>%;"></div>
                             </div>
                         </div>
 
-                        <div class="flex items-center justify-between group cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-xl transition">
-                            <div class="flex items-center gap-3">
-                                <span class="text-3xl drop-shadow-sm">🇸🇬</span>
-                                <div><p class="text-sm font-extrabold text-slate-800">Singapore</p><p class="text-[10px] font-bold text-slate-400">Deals : 0</p></div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span class="text-slate-600 flex items-center gap-2"><i class="fa-solid fa-envelope text-amber-500 w-4"></i> Email</span>
+                                <span class="text-slate-800" id="wonPctEmail"><?= $won_sources_pct['Email'] ?>%</span>
                             </div>
-                            <div class="flex items-center gap-4 text-right">
-                                 <svg class="w-8 h-6 text-red-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 17 13.5 8.5 8.5 13.5 2 7"></polyline><polyline points="16 17 22 17 22 11"></polyline></svg>
-                                <div><p class="text-[10px] font-bold text-slate-400 uppercase">Total Value</p><p class="text-sm font-extrabold text-slate-800">₹0.00</p></div>
+                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div id="wonBarEmail" class="bg-amber-500 h-full rounded-full transition-all duration-700 ease-out" style="width: <?= $won_sources_pct['Email'] ?>%;"></div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span class="text-slate-600 flex items-center gap-2"><i class="fa-solid fa-comments text-emerald-500 w-4"></i> Chats</span>
+                                <span class="text-slate-800" id="wonPctChat"><?= $won_sources_pct['Chat'] ?>%</span>
+                            </div>
+                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div id="wonBarChat" class="bg-emerald-500 h-full rounded-full transition-all duration-700 ease-out" style="width: <?= $won_sources_pct['Chat'] ?>%;"></div>
                             </div>
                         </div>
                         
-                        <div class="flex items-center justify-between group cursor-pointer hover:bg-slate-50 p-2 -mx-2 rounded-xl transition">
-                            <div class="flex items-center gap-3">
-                                <span class="text-3xl drop-shadow-sm">🇫🇷</span>
-                                <div><p class="text-sm font-extrabold text-slate-800">France</p><p class="text-[10px] font-bold text-slate-400">Deals : 0</p></div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold mb-2">
+                                <span class="text-slate-600 flex items-center gap-2"><i class="fa-solid fa-users text-purple-500 w-4"></i> Referrals</span>
+                                <span class="text-slate-800" id="wonPctRef"><?= $won_sources_pct['Referrals'] ?>%</span>
                             </div>
-                            <div class="flex items-center gap-4 text-right">
-                                 <svg class="w-8 h-6 text-emerald-400 stroke-current" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
-                                <div><p class="text-[10px] font-bold text-slate-400 uppercase">Total Value</p><p class="text-sm font-extrabold text-slate-800">₹0.00</p></div>
+                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                <div id="wonBarRef" class="bg-purple-500 h-full rounded-full transition-all duration-700 ease-out" style="width: <?= $won_sources_pct['Referrals'] ?>%;"></div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="lg:col-span-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col">
-                    <div class="flex justify-between items-center mb-2">
-                        <h3 class="font-extrabold text-slate-800">Won Deals Stage</h3>
-                        <span class="text-[10px] font-bold bg-slate-50 px-2 py-1 rounded-lg border border-slate-100"><i class="fa-solid fa-calendar text-slate-400 mr-1"></i> This Week</span>
-                    </div>
-                    <div class="text-center mb-6 mt-4">
-                        <p class="text-[10px] text-slate-400 uppercase font-bold tracking-widest">Stages Won This Year</p>
-                        <h2 class="text-3xl font-black text-slate-900 mt-1">₹<?= number_format($won_deals) ?> <span class="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded-md font-bold align-middle">↓ 12%</span></h2>
-                    </div>
-                    <div class="relative flex-grow flex items-center justify-center min-h-[220px]">
-                        <div class="absolute top-0 left-0 md:left-4 w-36 h-36 rounded-full bg-[#0d3b44] shadow-2xl flex flex-col items-center justify-center text-white ring-4 ring-white hover:scale-105 transition cursor-pointer z-10">
-                            <span class="text-[10px] font-medium opacity-80">Conversion</span><span class="text-3xl font-black"><?= $conversion_rate ?>%</span>
-                        </div>
-                        <div class="absolute top-0 right-4 md:right-10 w-24 h-24 rounded-full bg-red-600 shadow-xl flex flex-col items-center justify-center text-white ring-4 ring-white z-20 hover:scale-105 transition cursor-pointer">
-                            <span class="text-[9px] font-medium opacity-80">Calls</span><span class="text-xl font-black">24%</span>
-                        </div>
-                        <div class="absolute bottom-4 right-0 md:right-6 w-32 h-32 rounded-full bg-amber-400 shadow-xl flex flex-col items-center justify-center text-white ring-4 ring-white z-10 hover:scale-105 transition cursor-pointer">
-                            <span class="text-[11px] font-medium opacity-80">Email</span><span class="text-2xl font-black">39%</span>
-                        </div>
-                        <div class="absolute bottom-0 left-16 md:left-24 w-20 h-20 rounded-full bg-emerald-500 shadow-xl flex flex-col items-center justify-center text-white ring-4 ring-white z-20 hover:scale-105 transition cursor-pointer">
-                            <span class="text-[9px] font-medium opacity-80">Chats</span><span class="text-lg font-black">20%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="lg:col-span-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <div class="lg:col-span-6 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm relative">
                     <div class="flex justify-between items-center mb-6">
                         <h3 class="font-extrabold text-slate-800">Recent Follow Up</h3>
-                        <button class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg hover:bg-slate-100 transition">View All</button>
+                        <a href="client_management.php" class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg hover:bg-slate-100 transition inline-block text-center">View All</a>
                     </div>
                     <div class="space-y-4">
                         <?php if (!empty($quick_contacts)): ?>
                             <?php $colors = ['blue', 'pink', 'orange', 'slate']; ?>
                             <?php foreach($quick_contacts as $index => $contact): ?>
-                            <?php $color = $colors[$index % 4]; ?>
-                            <div class="flex items-center justify-between p-2 -mx-2 hover:bg-slate-50 rounded-2xl transition group cursor-pointer border border-transparent hover:border-slate-100">
+                            <?php 
+                                $color = $colors[$index % 4]; 
+                                // Safely encode data for JavaScript
+                                $clientData = htmlspecialchars(json_encode([
+                                    'name' => $contact['name'] ?? 'Unknown',
+                                    'email' => $contact['email'] ?? 'No email',
+                                    'phone' => $contact['phone'] ?? 'No phone',
+                                    'source' => $contact['source'] ?? 'Unknown Source',
+                                    'value' => number_format($contact['deal_value'] ?? 0, 2)
+                                ]), ENT_QUOTES, 'UTF-8');
+                            ?>
+                            <div class="flex items-center justify-between p-2 -mx-2 hover:bg-slate-50 rounded-2xl transition group border border-transparent hover:border-slate-100">
                                 <div class="flex items-center gap-3">
                                     <div class="w-12 h-12 rounded-full bg-<?= $color ?>-100 border-2 border-white shadow-sm overflow-hidden flex items-center justify-center font-bold text-<?= $color ?>-600">
                                         <?= strtoupper(substr($contact['name'], 0, 1)) ?>
                                     </div>
-                                    <div><p class="text-sm font-extrabold text-slate-800"><?= htmlspecialchars($contact['name']) ?></p><p class="text-[11px] font-bold text-slate-400"><?= htmlspecialchars($contact['role']) ?></p></div>
+                                    <div>
+                                        <p class="text-sm font-extrabold text-slate-800"><?= htmlspecialchars($contact['name']) ?></p>
+                                        <p class="text-[11px] font-bold text-slate-400"><?= htmlspecialchars($contact['email'] ?? 'No Email') ?></p>
+                                    </div>
                                 </div>
-                                <div class="w-8 h-8 flex items-center justify-center bg-slate-50 rounded-xl text-slate-400 group-hover:bg-orange-500 group-hover:text-white transition shadow-sm"><i class="fa-solid fa-envelope text-[11px]"></i></div>
+                                <button onclick="openClientModal(<?= $clientData ?>)" class="w-8 h-8 flex items-center justify-center bg-slate-50 rounded-xl text-slate-400 hover:bg-[#117B6F] hover:text-white transition shadow-sm cursor-pointer">
+                                    <i class="fa-solid fa-envelope text-[11px]"></i>
+                                </button>
                             </div>
                             <?php endforeach; ?>
                         <?php else: ?>
-                            <div class="text-xs text-slate-400 italic">No contacts found.</div>
+                            <div class="text-xs text-slate-400 italic">No clients found for follow up.</div>
                         <?php endif; ?>
                     </div>
                 </div>
@@ -601,7 +760,7 @@ if (isset($conn)) {
                 <div class="lg:col-span-8 bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden flex flex-col">
                     <div class="p-6 border-b border-slate-50 flex justify-between items-center bg-white">
                         <h3 class="font-extrabold text-slate-800">Recent Deals</h3>
-                        <button class="bg-slate-50 text-[11px] font-extrabold px-4 py-1.5 rounded-xl hover:bg-slate-100 transition text-slate-500">View All</button>
+                        <a href="client_management.php" class="bg-slate-50 text-[11px] font-extrabold px-4 py-1.5 rounded-xl hover:bg-slate-100 transition text-slate-500 inline-block text-center">View All</a>
                     </div>
                     <div class="overflow-x-auto custom-scrollbar flex-grow">
                         <table class="w-full text-left whitespace-nowrap">
@@ -643,7 +802,7 @@ if (isset($conn)) {
                 <div class="lg:col-span-4 bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
                     <div class="flex justify-between items-center mb-8">
                         <h3 class="font-extrabold text-slate-800">Recent Activities</h3>
-                        <button class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg hover:bg-slate-100 transition">View All</button>
+                        <a href="sales_assigntask.php" class="text-[10px] font-bold text-slate-500 bg-slate-50 px-3 py-1 rounded-lg hover:bg-slate-100 transition inline-block text-center">View All</a>
                     </div>
                     <div class="space-y-8 relative before:absolute before:left-[19px] before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-100">
                         
@@ -669,6 +828,55 @@ if (isset($conn)) {
        
     </div>
 
+    <div id="clientModal" class="fixed inset-0 z-[200] hidden items-center justify-center bg-slate-900/50 backdrop-blur-sm transition-opacity opacity-0">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 transform scale-95 transition-transform duration-300 overflow-hidden" id="clientModalContent">
+            <div class="bg-[#117B6F] p-5 flex justify-between items-center text-white">
+                <h3 class="font-bold flex items-center gap-2"><i class="fa-solid fa-address-card"></i> Client Details</h3>
+                <button onclick="closeClientModal()" class="text-white/70 hover:text-white transition"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="flex items-center gap-4 border-b border-slate-100 pb-4">
+                    <div class="w-14 h-14 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xl font-black shadow-sm" id="modalInitial">
+                        C
+                    </div>
+                    <div>
+                        <h2 class="text-lg font-black text-slate-800" id="modalName">Client Name</h2>
+                        <span class="text-[10px] font-bold bg-slate-100 text-slate-500 px-2 py-0.5 rounded uppercase" id="modalSource">Source</span>
+                    </div>
+                </div>
+                
+                <div class="space-y-3 pt-2">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center"><i class="fa-solid fa-envelope"></i></div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Email Address</p>
+                            <p class="text-sm font-bold text-slate-700" id="modalEmail">email@example.com</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center"><i class="fa-solid fa-phone"></i></div>
+                        <div>
+                            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Phone Number</p>
+                            <p class="text-sm font-bold text-slate-700" id="modalPhone">+91 00000 00000</p>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center"><i class="fa-solid fa-sack-dollar"></i></div>
+                        <div>
+                            <p class="text-[10px] font-bold text-emerald-600/70 uppercase tracking-wider">Deal Value</p>
+                            <p class="text-sm font-black text-emerald-600" id="modalValue">₹0.00</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <a href="mailto:" id="modalMailBtn" class="bg-[#117B6F] hover:bg-[#0f665c] text-white text-xs font-bold px-5 py-2 rounded-lg shadow-sm transition flex items-center gap-2">
+                    <i class="fa-solid fa-paper-plane"></i> Send Email
+                </a>
+            </div>
+        </div>
+    </div>
+
     <div id="contextMenu" class="absolute hidden bg-white rounded-xl shadow-2xl border border-slate-100 w-72 z-[100] overflow-hidden transition-all duration-200 transform scale-95 opacity-0 origin-top-left">
         <div class="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
             <h3 class="font-bold text-slate-800 text-sm" id="contextTitle">Stage Details</h3>
@@ -679,7 +887,7 @@ if (isset($conn)) {
     </div>
 
     <script>
-        // Data injected from PHP for the pipeline context menu details
+        // Initial Pipeline Data
         const pipelineData = <?php echo json_encode($pipeline_details); ?>;
 
         document.addEventListener('DOMContentLoaded', function() {
@@ -700,17 +908,88 @@ if (isset($conn)) {
             setInterval(updateClock, 1000);
         });
 
-        // Custom Context Menu Function
+        // --- FILTER & AJAX LOGIC ---
+        function toggleDropdown(id) {
+            const dropdown = document.getElementById(id);
+            // close others
+            document.querySelectorAll('.filter-dropdown').forEach(el => {
+                if (el.id !== id) el.classList.remove('show');
+            });
+            dropdown.classList.toggle('show');
+        }
+
+        async function updateFilter(type, timeframe, label) {
+            // Update Label UI
+            if (type === 'pipeline') {
+                document.getElementById('lblPipelineFilter').innerText = label;
+                document.getElementById('dropdownPipeline').classList.remove('show');
+            } else {
+                document.getElementById('lblWonFilter').innerText = label;
+                document.getElementById('dropdownWon').classList.remove('show');
+            }
+
+            try {
+                // Fetch new data via AJAX
+                const response = await fetch(`?ajax_filter=1&filter_type=${type}&timeframe=${timeframe}`);
+                const data = await response.json();
+
+                if (type === 'pipeline') {
+                    // Update Pipeline Bars Text
+                    document.getElementById('pipe-marketing').innerText = `Marketing : ${data.stages.Marketing}`;
+                    document.getElementById('pipe-sales').innerText = `Sales : ${data.stages.Sales}`;
+                    document.getElementById('pipe-email').innerText = `Email : ${data.stages.Email}`;
+                    document.getElementById('pipe-chat').innerText = `Chat : ${data.stages.Chat}`;
+                    document.getElementById('pipe-operational').innerText = `Operational : ${data.stages.Operational}`;
+                    document.getElementById('pipe-calls').innerText = `Calls : ${data.stages.Calls}`;
+                    
+                    // Update Value Text
+                    const fmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+                    document.getElementById('val-marketing').innerText = `₹${fmt.format(data.values.Marketing)}`;
+                    document.getElementById('val-sales').innerText = `₹${fmt.format(data.values.Sales)}`;
+                    document.getElementById('val-email').innerText = `₹${fmt.format(data.values.Email)}`;
+                    document.getElementById('val-chat').innerText = `₹${fmt.format(data.values.Chat)}`;
+
+                    // Retrigger animation
+                    const bars = document.getElementById('pipelineBars');
+                    bars.style.opacity = 0;
+                    setTimeout(() => { bars.style.opacity = 1; }, 200);
+
+                } else if (type === 'won_deals') {
+                    // Update Top Stats
+                    const fmt = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
+                    document.getElementById('wonTotalValue').innerText = `₹${fmt.format(data.total_value)}`;
+                    document.getElementById('wonConvRate').innerText = `${data.conversion}%`;
+
+                    // Update Bars and Percentages
+                    document.getElementById('wonPctCalls').innerText = `${data.sources.Calls}%`;
+                    document.getElementById('wonBarCalls').style.width = `${data.sources.Calls}%`;
+
+                    document.getElementById('wonPctEmail').innerText = `${data.sources.Email}%`;
+                    document.getElementById('wonBarEmail').style.width = `${data.sources.Email}%`;
+
+                    document.getElementById('wonPctChat').innerText = `${data.sources.Chat}%`;
+                    document.getElementById('wonBarChat').style.width = `${data.sources.Chat}%`;
+
+                    document.getElementById('wonPctRef').innerText = `${data.sources.Referrals}%`;
+                    document.getElementById('wonBarRef').style.width = `${data.sources.Referrals}%`;
+                }
+
+            } catch (error) {
+                console.error("Error updating filter:", error);
+            }
+        }
+
+
+        // --- Pipeline Context Menu Functions ---
         function showContextMenu(e, stage) {
             e.preventDefault();
-            e.stopPropagation(); // Prevents document click from hiding it immediately
+            e.stopPropagation();
 
             const menu = document.getElementById('contextMenu');
             const title = document.getElementById('contextTitle');
             const body = document.getElementById('contextBody');
             const count = document.getElementById('contextCount');
 
-            // Setup Data
             title.innerText = stage + ' Deals';
             const data = pipelineData[stage] || [];
             count.innerText = data.length + (data.length === 1 ? ' Deal' : ' Deals');
@@ -736,47 +1015,88 @@ if (isset($conn)) {
                 });
             }
 
-            // Temporarily show to get dimensions
             menu.classList.remove('hidden');
 
             let x = e.clientX;
             let y = e.clientY;
-
-            // Adjust position so it doesn't go off-screen
             const menuWidth = menu.offsetWidth;
             const menuHeight = menu.offsetHeight;
             const windowWidth = window.innerWidth;
             const windowHeight = window.innerHeight;
 
-            if (x + menuWidth > windowWidth) {
-                x = windowWidth - menuWidth - 10;
-            }
-            if (y + menuHeight > windowHeight) {
-                y = windowHeight - menuHeight - 10;
-            }
+            if (x + menuWidth > windowWidth) { x = windowWidth - menuWidth - 10; }
+            if (y + menuHeight > windowHeight) { y = windowHeight - menuHeight - 10; }
 
             menu.style.left = `${x}px`;
             menu.style.top = `${y}px`;
 
-            // Animate popup
             setTimeout(() => {
                 menu.classList.remove('scale-95', 'opacity-0');
                 menu.classList.add('scale-100', 'opacity-100');
             }, 10);
         }
 
-        // Global click listener to close the context menu when clicking outside
+        // --- Client Modal Functions ---
+        function openClientModal(client) {
+            const modal = document.getElementById('clientModal');
+            const content = document.getElementById('clientModalContent');
+            
+            document.getElementById('modalName').innerText = client.name;
+            document.getElementById('modalInitial').innerText = client.name.charAt(0).toUpperCase();
+            document.getElementById('modalSource').innerText = client.source;
+            document.getElementById('modalEmail').innerText = client.email;
+            document.getElementById('modalPhone').innerText = client.phone !== 'No phone' ? client.phone : 'Not Provided';
+            document.getElementById('modalValue').innerText = '₹' + client.value;
+            
+            document.getElementById('modalMailBtn').href = `mailto:${client.email}?subject=Follow up regarding your deal`;
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                content.classList.remove('scale-95');
+                content.classList.add('scale-100');
+            }, 10);
+        }
+
+        function closeClientModal() {
+            const modal = document.getElementById('clientModal');
+            const content = document.getElementById('clientModalContent');
+            
+            modal.classList.add('opacity-0');
+            content.classList.remove('scale-100');
+            content.classList.add('scale-95');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        }
+
+        // --- Global Click Listeners ---
         document.addEventListener('click', function(e) {
-            const menu = document.getElementById('contextMenu');
-            if (menu && !menu.classList.contains('hidden')) {
-                // If the click is not inside the menu, hide it
-                if (!menu.contains(e.target)) {
-                    menu.classList.remove('scale-100', 'opacity-100');
-                    menu.classList.add('scale-95', 'opacity-0');
-                    setTimeout(() => {
-                        menu.classList.add('hidden');
-                    }, 200); // match the tailwind transition duration
-                }
+            // Close Context Menu
+            const contextMenu = document.getElementById('contextMenu');
+            if (contextMenu && !contextMenu.classList.contains('hidden') && !contextMenu.contains(e.target)) {
+                contextMenu.classList.remove('scale-100', 'opacity-100');
+                contextMenu.classList.add('scale-95', 'opacity-0');
+                setTimeout(() => { contextMenu.classList.add('hidden'); }, 200);
+            }
+            
+            // Close Dropdowns
+            if (!e.target.closest('#btnPipelineFilter') && !e.target.closest('#dropdownPipeline')) {
+                document.getElementById('dropdownPipeline')?.classList.remove('show');
+            }
+            if (!e.target.closest('#btnWonFilter') && !e.target.closest('#dropdownWon')) {
+                document.getElementById('dropdownWon')?.classList.remove('show');
+            }
+
+            // Close Modal 
+            const modal = document.getElementById('clientModal');
+            const content = document.getElementById('clientModalContent');
+            if (modal && !modal.classList.contains('hidden') && !content.contains(e.target) && !e.target.closest('button[onclick^="openClientModal"]')) {
+                closeClientModal();
             }
         });
     </script>
