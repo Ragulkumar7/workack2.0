@@ -23,7 +23,7 @@ $user_role = $_SESSION['role'] ?? 'HR Executive';
 // ACTION: MARK TICKET AS VIEWED & AUTO-UPDATE TABLES
 // =========================================================================
 $conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS user_read_status TINYINT(1) DEFAULT 0");
-// Added to automatically fix your teammate's database error
+// Added to automatically fix missing meeting_link column in teammate's DB
 $conn->query("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS meeting_link VARCHAR(255) DEFAULT NULL");
 
 if (isset($_GET['dismiss_ticket'])) {
@@ -446,16 +446,16 @@ if ($r_not_logged) {
     }
 }
 
-// C. Celebrations (Birthdays / Anniversaries) - Suggested Addition
+// C. Celebrations (Birthdays / Anniversaries) - BUG FIXED HERE (Changed date_of_birth to dob)
 $celebrations = [];
-$q_celeb = "SELECT u.username, ep.date_of_birth, ep.joining_date FROM employee_profiles ep LEFT JOIN users u ON ep.user_id = u.id WHERE MONTH(ep.date_of_birth) = '$current_month' OR MONTH(ep.joining_date) = '$current_month' LIMIT 4";
+$q_celeb = "SELECT u.username, ep.dob, ep.joining_date FROM employee_profiles ep LEFT JOIN users u ON ep.user_id = u.id WHERE MONTH(ep.dob) = '$current_month' OR MONTH(ep.joining_date) = '$current_month' LIMIT 4";
 $r_celeb = @mysqli_query($conn, $q_celeb);
 if ($r_celeb) {
     while ($row = mysqli_fetch_assoc($r_celeb)) {
-        if (date('m', strtotime($row['date_of_birth'])) == $current_month) {
-            $celebrations[] = ['name' => $row['username'], 'type' => 'Birthday', 'date' => date('d M', strtotime($row['date_of_birth'])), 'icon' => 'fa-cake-candles', 'color' => 'text-pink-500 bg-pink-100'];
+        if (!empty($row['dob']) && date('m', strtotime($row['dob'])) == $current_month) {
+            $celebrations[] = ['name' => $row['username'], 'type' => 'Birthday', 'date' => date('d M', strtotime($row['dob'])), 'icon' => 'fa-cake-candles', 'color' => 'text-pink-500 bg-pink-100'];
         }
-        if (date('m', strtotime($row['joining_date'])) == $current_month && date('Y', strtotime($row['joining_date'])) != $current_year) {
+        if (!empty($row['joining_date']) && date('m', strtotime($row['joining_date'])) == $current_month && date('Y', strtotime($row['joining_date'])) != $current_year) {
             $celebrations[] = ['name' => $row['username'], 'type' => 'Work Anniversary', 'date' => date('d M', strtotime($row['joining_date'])), 'icon' => 'fa-award', 'color' => 'text-amber-500 bg-amber-100'];
         }
     }
