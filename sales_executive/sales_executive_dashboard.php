@@ -373,19 +373,19 @@ $pipeline_series_json = json_encode([
                 <div class="card p-5 bg-white rounded-xl shadow-sm">
                     <h3 class="font-bold text-[14px] text-[#031d38] mb-4 uppercase">Quick Actions</h3>
                     <div class="grid grid-cols-2 gap-3">
-                        <button onclick="window.location.href='../my_task.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#eef2ff] rounded-xl border border-indigo-100 hover:bg-indigo-100 transition cursor-pointer">
+                        <button onclick="window.location.href='my_tasks.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#eef2ff] rounded-xl border border-indigo-100 hover:bg-indigo-100 transition cursor-pointer">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>
                             <span class="text-[13px] font-bold text-indigo-700">My Tasks</span>
                         </button>
-                        <button onclick="window.location.href='../invoice_inbox.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#f0fdfa] rounded-xl border border-teal-100 hover:bg-teal-100 transition cursor-pointer">
+                        <button onclick="window.location.href='invoice_inbox.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#f0fdfa] rounded-xl border border-teal-100 hover:bg-teal-100 transition cursor-pointer">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-teal-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-                            <span class="text-[13px] font-bold text-teal-700">Inventory</span>
+                            <span class="text-[13px] font-bold text-teal-700">Invoice Inbox</span>
                         </button>
-                        <button onclick="window.location.href='./employee/leave_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fff1f2] rounded-xl border border-rose-100 hover:bg-rose-100 transition cursor-pointer">
+                        <button onclick="window.location.href='../employee/leave_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fff1f2] rounded-xl border border-rose-100 hover:bg-rose-100 transition cursor-pointer">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-rose-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                             <span class="text-[13px] font-bold text-rose-700">Apply Leave</span>
                         </button>
-                        <button onclick="window.location.href='./employee/wfh_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fffbeb] rounded-xl border border-amber-100 hover:bg-amber-100 transition cursor-pointer">
+                        <button onclick="window.location.href='../employee/wfh_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fffbeb] rounded-xl border border-amber-100 hover:bg-amber-100 transition cursor-pointer">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
                             <span class="text-[13px] font-bold text-amber-700">Apply WFH</span>
                         </button>
