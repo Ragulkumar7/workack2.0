@@ -19,7 +19,7 @@ $current_view = $_GET['view'] ?? '';
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
 // Added 'hr_executive' to ensure paths correctly use '../' to go to root.
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo','sales_manager','sales_executive'])) {
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo','sales_manager','sales_executive','ceo'])) {
     $base = '../';
 } else {
     $base = '';
@@ -36,6 +36,12 @@ $sections = [
                 'path' => $base . 'manager/manager_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Manager'] 
+            ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'ceo/ceo_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['CEO'] 
             ],
             [
                 'name' => 'Dashboard', 
