@@ -1,16 +1,24 @@
 <?php 
 // -------------------------------------------------------------------------
-// 1. SESSION & CONFIGURATION
+// 1. SESSION & CONFIGURATION (SMART PATHING)
 // -------------------------------------------------------------------------
 ob_start(); 
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-$path_to_root = '../'; 
+// Dynamic DB & Path Logic to prevent "Include Failed" errors
+$db_path = __DIR__ . '/../include/db_connect.php';
+if (file_exists($db_path)) {
+    require_once $db_path;
+    $path_to_root = '../';
+} else {
+    require_once 'include/db_connect.php'; 
+    $path_to_root = '';
+}
+
 date_default_timezone_set('Asia/Kolkata');
-require_once '../include/db_connect.php'; 
 
 if (!isset($_SESSION['user_id'])) {
-    header("Location: login.php");
+    header("Location: " . $path_to_root . "index.php");
     exit();
 }
 
@@ -39,7 +47,7 @@ if (isset($_GET['dismiss_ticket'])) {
 // 2. FETCH EMPLOYEE PROFILE DATA & REPORTING HIERARCHY
 // -------------------------------------------------------------------------
 $employee_name = "Employee";
-$employee_role = "Staff";
+$employee_role_title = "Staff";
 $employee_phone = "Not Set";
 $employee_email = "Not Set";
 $department = "General";
@@ -57,7 +65,7 @@ $stmt_p->bind_param("i", $current_user_id);
 $stmt_p->execute();
 if ($row = $stmt_p->get_result()->fetch_assoc()) {
     $employee_name = $row['full_name'] ?? $row['username'];
-    $employee_role = $row['designation'] ?? $user_role;
+    $employee_role_title = $row['designation'] ?? $user_role;
     $employee_phone = $row['phone'] ?? 'Not Set';
     $employee_email = !empty($row['email']) ? $row['email'] : $row['u_email'];
     $department = $row['department'] ?? 'General';
@@ -92,7 +100,7 @@ if ($manager_id > 0) {
 }
 
 // =========================================================================
-// 3. ADVANCED TIME TRACKER (TODAY'S HOURS)
+// 3. ADVANCED TIME TRACKER (TODAY'S SUMMARY FOR UI)
 // =========================================================================
 $total_seconds_today = 0; $break_seconds_today = 0; $productive_seconds_today = 0; $overtime_seconds_today = 0;
 $display_break_seconds = 0; $today_punch_in = null; $attendance_record_today = null;
@@ -330,7 +338,7 @@ if($r_announcements) {
             'message' => htmlspecialchars(substr($row['message'], 0, 50)) . '...',
             'time' => date('Y-m-d H:i:s'), 
             'icon' => 'fa-bullhorn', 'color' => 'text-orange-600 bg-orange-100',
-            'link' => '../view_announcements.php'
+            'link' => $path_to_root . 'view_announcements.php'
         ];
     }
 }
@@ -356,20 +364,34 @@ $all_notifications = array_slice($all_notifications, 0, 6);
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; overflow-x: hidden; }
         
-        .card { background: white; border-radius: 1rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04); display: flex; flex-direction: column; transition: all 0.3s ease; }
+        /* Strict boundary management for perfectly aligned cards */
+        .card { 
+            background: white; 
+            border-radius: 1rem; 
+            border: 1px solid #e2e8f0; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04); 
+            display: flex; 
+            flex-direction: column; 
+            transition: all 0.3s ease; 
+            overflow: hidden; 
+        }
         .card:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1; transform: translateY(-2px); }
         
+        /* Card body must flex-grow but have min-height: 0 so internal scrolls work */
+        .card-body { padding: 1.5rem; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;}
+
         .custom-scroll::-webkit-scrollbar { width: 4px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         
         .stat-badge { font-size: 1.5rem; font-weight: 900; line-height: 1; color: #1e293b; }
 
+        /* PERFECT 3-COLUMN FLEX GRID */
         .dashboard-container { 
             display: grid; 
             grid-template-columns: repeat(1, minmax(0, 1fr)); 
             gap: 1.5rem; 
-            align-items: start; /* Prevents cards from stretching unnaturally */
+            align-items: stretch; /* Forces equal heights */
         }
         @media (min-width: 1024px) {
             .dashboard-container {
@@ -380,12 +402,6 @@ $all_notifications = array_slice($all_notifications, 0, 6);
         #mainContent { margin-left: 90px; width: calc(100% - 90px); transition: all 0.3s; padding: 24px; box-sizing: border-box; max-width: 1600px; margin-right: auto;}
         @media (max-width: 1024px) {
             #mainContent { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px;}
-        }
-
-        .progress-ring-circle {
-            transition: stroke-dashoffset 0.35s;
-            transform: rotate(-90deg);
-            transform-origin: 50% 50%;
         }
     </style>
 </head>
@@ -427,67 +443,21 @@ $all_notifications = array_slice($all_notifications, 0, 6);
             </div>
         </div>
 
-        <div class="dashboard-container">
+        <div class="dashboard-container mb-6">
 
-            <div class="flex flex-col gap-6 w-full"> 
-                
-                <?php include '../attendance_card.php'; ?>
-
-                <div class="card">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                            <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
-                            <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
-                        </div>
-                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[350px] pr-2">
-                            <?php if(!empty($all_notifications)): ?>
-                                <?php foreach($all_notifications as $notif): ?>
-                                <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
-                                    <div class="w-8 h-8 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-xs shrink-0">
-                                        <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="flex justify-between items-start">
-                                            <p class="text-sm font-bold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
-                                            <p class="text-[9px] text-gray-400 mt-1 shrink-0"><?php echo date("d M Y", strtotime($notif['time'])); ?></p>
-                                        </div>
-                                        <p class="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-snug"><?php echo htmlspecialchars($notif['message']); ?></p>
-                                        
-                                        <div class="mt-2 text-right">
-                                            <?php if($notif['type'] == 'ticket'): ?>
-                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
-                                                    <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
-                                                </a>
-                                            <?php else: ?>
-                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-3 py-1.5 rounded-full hover:bg-slate-100 transition shadow-sm">
-                                                    View Details <i class="fa-solid fa-arrow-right ml-1"></i>
-                                                </a>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <div class="text-center py-10 text-slate-400">
-                                    <i class="fa-regular fa-bell-slash text-4xl mb-3 opacity-80"></i>
-                                    <p class='text-sm font-medium text-slate-500'>No recent updates.</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
+            <div class="h-full"> 
+                <?php include $path_to_root . 'attendance_card.php'; ?>
             </div>
 
-            <div class="flex flex-col gap-6 w-full"> 
+            <div class="flex flex-col gap-6 h-full"> 
                 
-                <div class="card">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
+                <div class="card shrink-0">
+                    <div class="card-body">
+                        <div class="flex justify-between items-center mb-5 border-b border-gray-100 pb-3 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">My Attendance Stats</h3>
                             <span class="text-[10px] font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded uppercase"><?php echo date('M Y'); ?></span>
                         </div>
-                        <div class="flex flex-col xl:flex-row items-center justify-between gap-6">
+                        <div class="flex flex-col xl:flex-row items-center justify-between gap-6 shrink-0">
                             <div class="space-y-3.5 w-full pr-2">
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div><span class="text-xs text-gray-600 font-semibold">On Time</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_ontime; ?></span></div>
                                 <div class="flex items-center justify-between">
@@ -499,34 +469,30 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                                 </div>
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div><span class="text-xs text-gray-600 font-semibold">WFH</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_wfh; ?></span></div>
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-red-500"></div><span class="text-xs text-gray-600 font-semibold">Absent</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_absent; ?></span></div>
-                                <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
-                                    <div class="flex items-center gap-2"><i class="fa-solid fa-plane-departure text-rose-400 text-xs"></i><span class="text-xs text-slate-800 font-bold uppercase">Leaves Taken</span></div>
-                                    <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs"><?php echo $current_month_leaves; ?> Days</span>
-                                </div>
                             </div>
-                            <div class="relative flex-shrink-0 w-28 h-28 mx-auto">
+                            <div class="relative flex-shrink-0 w-28 h-28 mx-auto mt-2">
                                 <div id="attendanceChart" class="w-full h-full"></div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                <div class="card flex-grow">
+                    <div class="card-body flex flex-col justify-between">
+                        <div class="flex justify-between items-center border-b border-gray-100 pb-3 mb-4 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
                             <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
                         </div>
-                        <div class="grid grid-cols-3 gap-3 mb-4">
-                            <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
+                        <div class="grid grid-cols-3 gap-3 mb-4 shrink-0">
+                            <div class="bg-teal-50 p-4 rounded-xl text-center border border-teal-100 flex flex-col justify-center">
                                 <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
                                 <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
                             </div>
-                            <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
+                            <div class="bg-blue-50 p-4 rounded-xl text-center border border-blue-100 flex flex-col justify-center">
                                 <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
                                 <p class="text-2xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
                             </div>
-                            <div class="bg-green-50 p-3 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden">
+                            <div class="bg-green-50 p-4 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden flex flex-col justify-center">
                                 <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
                                 <p class="text-2xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
                                     <?php echo $display_leaves_remaining; ?>
@@ -538,72 +504,35 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                         </div>
                         
                         <?php if($leaves_remaining < 0): ?>
-                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4 flex items-center gap-3">
+                            <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-4 flex items-center gap-3 shrink-0">
                                 <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
                                 <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
                             </div>
                         <?php endif; ?>
                         
-                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm mt-2">
+                        <a href="leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm mt-auto shrink-0">
                             <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
                         </a>
                     </div>
                 </div>
 
-                <div class="card">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
-                                <i class="fa-solid fa-list-check text-teal-600"></i> My Tasks
-                            </h3>
-                            <a href="personal_task.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
-                        </div>
-                        
-                        <div class="space-y-3 custom-scroll overflow-y-auto max-h-[300px] pr-2">
-                            <?php if(isset($tasks_result) && mysqli_num_rows($tasks_result) > 0): ?>
-                                <?php while($task = mysqli_fetch_assoc($tasks_result)): 
-                                    $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
-                                    $icon_class = 'fa-regular fa-circle text-teal-600';
-                                ?>
-                                <div class="flex items-center justify-between p-3 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
-                                    <div class="flex items-center gap-3 min-w-0">
-                                        <i class="<?php echo $icon_class; ?> shrink-0"></i>
-                                        <div class="min-w-0">
-                                            <span class="text-sm font-medium text-slate-700 block truncate" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
-                                        </div>
-                                    </div>
-                                    <div class="flex flex-col items-end gap-1 shrink-0 ml-2">
-                                        <span class="text-[9px] font-bold px-2 py-0.5 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
-                                    </div>
-                                </div>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <div class="text-center py-6 text-slate-400">
-                                    <i class="fa-solid fa-clipboard-check text-3xl mb-2 text-emerald-400 opacity-80"></i>
-                                    <p class="text-sm font-medium">All tasks completed.</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
             </div>
 
-            <div class="flex flex-col gap-6 w-full"> 
-                
-                <div class="card overflow-hidden shadow-sm border-slate-200 shrink-0 min-h-[200px]">
-                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative">
+            <div class="h-full"> 
+                <div class="card overflow-hidden shadow-sm border-slate-200 h-full">
+                    <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative shrink-0">
                         <div class="relative shrink-0">
                             <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white shadow-lg object-cover bg-white">
                             <div class="absolute bottom-0 right-0 w-4 h-4 bg-green-400 border-2 border-white rounded-full"></div>
                         </div>
                         <div class="min-w-0 text-white">
                             <h2 class="font-black text-xl truncate"><?php echo htmlspecialchars($employee_name); ?></h2>
-                            <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5"><?php echo htmlspecialchars($employee_role); ?></p>
+                            <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5"><?php echo htmlspecialchars($employee_role_title); ?></p>
                             <span class="inline-block mt-2 bg-white/20 border border-white/20 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider backdrop-blur-sm">Employee</span>
                         </div>
                     </div>
-                    <div class="p-4 bg-white border-b border-gray-100 flex-grow">
+                    
+                    <div class="p-4 bg-white border-b border-gray-100 shrink-0">
                          <div class="flex flex-col gap-2">
                             <div class="flex items-center gap-3">
                                 <i class="fa-solid fa-phone text-teal-600 w-4 text-center text-sm"></i>
@@ -617,47 +546,156 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                             </div>
                         </div>
                     </div>
-                    <div class="p-4 bg-slate-50">
-                        <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Reporting Hierarchy</p>
-                        <div class="space-y-2">
-                            <div class="flex items-center justify-between border border-slate-200 bg-white p-2 rounded-lg">
-                                <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-user-tie mr-1 text-blue-500"></i> TL</span>
-                                <span class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($tl_name); ?></span>
+                    
+                    <div class="p-4 bg-slate-50 flex-grow flex flex-col justify-between">
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Reporting Hierarchy</p>
+                            <div class="space-y-2 mb-4">
+                                <div class="flex items-center justify-between border border-slate-200 bg-white p-2.5 rounded-lg shadow-sm">
+                                    <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-user-tie mr-1 text-blue-500"></i> TL</span>
+                                    <span class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($tl_name); ?></span>
+                                </div>
+                                <div class="flex items-center justify-between border border-slate-200 bg-white p-2.5 rounded-lg shadow-sm">
+                                    <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-user-shield mr-1 text-purple-500"></i> Manager</span>
+                                    <span class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($mgr_name); ?></span>
+                                </div>
                             </div>
-                            <div class="flex items-center justify-between border border-slate-200 bg-white p-2 rounded-lg">
-                                <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-user-shield mr-1 text-purple-500"></i> Manager</span>
-                                <span class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($mgr_name); ?></span>
+
+                            <div class="grid grid-cols-2 gap-3 mb-4">
+                                <div class="bg-white p-2.5 rounded-lg border border-slate-200 text-center shadow-sm">
+                                    <p class="text-[8px] text-gray-400 font-bold uppercase">Experience</p>
+                                    <p class="text-[11px] font-bold text-slate-700 mt-0.5"><?php echo htmlspecialchars($experience_label); ?></p>
+                                </div>
+                                <div class="bg-white p-2.5 rounded-lg border border-slate-200 text-center shadow-sm">
+                                    <p class="text-[8px] text-gray-400 font-bold uppercase">Department</p>
+                                    <p class="text-[11px] font-bold text-slate-700 mt-0.5"><?php echo htmlspecialchars($department); ?></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm mt-auto shrink-0">
+                            <p class="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Company Journey</p>
+                            <div class="flex justify-between items-center">
+                                <p class="text-xs font-black text-slate-700">Joined On</p>
+                                <span class="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-1 rounded-lg"><?php echo $joining_date; ?></span>
                             </div>
                         </div>
                     </div>
                 </div>
+            </div>
 
-                <div class="card border-blue-200 shrink-0 min-h-[200px]">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-5 border-b border-blue-100 pb-3">
-                            <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2"><i class="fa-solid fa-stopwatch text-blue-500 text-lg"></i> My Time Tracker</h3>
-                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded border border-gray-100">Today</span>
-                        </div>
-                        
-                        <div class="grid grid-cols-2 gap-4 mb-5">
-                            <div>
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 block"></span> Productive</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_prod; ?></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center justify-end gap-1"><span class="w-2 h-2 rounded-full bg-amber-400 block"></span> Break</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_break; ?></p>
-                            </div>
-                            <div>
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500 block"></span> Overtime</p>
-                                <p class="text-lg font-black text-slate-800"><?php echo $str_ot; ?></p>
-                            </div>
-                            <div class="text-right">
-                                <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1">Total Hours</p>
-                                <p class="text-lg font-black text-blue-600"><?php echo $str_total; ?></p>
-                            </div>
-                        </div>
+        </div> 
 
+        <div class="dashboard-container mb-10">
+            
+            <div class="card h-[380px]">
+                <div class="card-body flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
+                        <span class="text-[9px] font-bold bg-slate-100 text-slate-500 px-2 py-1 rounded uppercase border border-slate-200">Live Feed</span>
+                    </div>
+                    <div class="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3 min-h-0">
+                        <?php if(!empty($all_notifications)): ?>
+                            <?php foreach($all_notifications as $notif): ?>
+                            <div class="flex gap-3 items-start border border-gray-100 p-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                <div class="w-8 h-8 rounded-full <?php echo $notif['color']; ?> flex items-center justify-center font-bold text-xs shrink-0">
+                                    <i class="fa-solid <?php echo $notif['icon']; ?>"></i>
+                                </div>
+                                <div class="min-w-0 flex-1">
+                                    <div class="flex justify-between items-start">
+                                        <p class="text-sm font-bold text-slate-800 truncate"><?php echo htmlspecialchars($notif['title']); ?></p>
+                                        <p class="text-[9px] text-gray-400 mt-1 shrink-0"><?php echo date("d M Y", strtotime($notif['time'])); ?></p>
+                                    </div>
+                                    <p class="text-[11px] text-gray-500 mt-1 line-clamp-2 leading-snug"><?php echo htmlspecialchars($notif['message']); ?></p>
+                                    
+                                    <div class="mt-2 text-right">
+                                        <?php if($notif['type'] == 'ticket'): ?>
+                                            <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
+                                                <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
+                                            </a>
+                                        <?php else: ?>
+                                            <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-3 py-1.5 rounded-full hover:bg-slate-100 transition shadow-sm">
+                                                View Details <i class="fa-solid fa-arrow-right ml-1"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <div class="flex flex-col items-center justify-center h-full py-10 text-slate-400">
+                                <i class="fa-regular fa-bell-slash text-4xl mb-3 opacity-80"></i>
+                                <p class='text-sm font-medium text-slate-500'>No recent updates.</p>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card h-[380px]">
+                <div class="card-body flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-teal-600"></i> My Tasks
+                        </h3>
+                        <a href="personal_task.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition border border-teal-200">View All</a>
+                    </div>
+                    
+                    <div class="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3 min-h-0">
+                        <?php if(isset($tasks_result) && mysqli_num_rows($tasks_result) > 0): ?>
+                            <?php while($task = mysqli_fetch_assoc($tasks_result)): 
+                                $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
+                                $icon_class = 'fa-regular fa-circle text-teal-600';
+                            ?>
+                            <div class="flex items-center justify-between p-3.5 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <i class="<?php echo $icon_class; ?> shrink-0 text-lg"></i>
+                                    <div class="min-w-0">
+                                        <span class="text-sm font-medium text-slate-700 block truncate" title="<?php echo htmlspecialchars($task['title']); ?>"><?php echo htmlspecialchars($task['title']); ?></span>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col items-end gap-1 shrink-0 ml-2">
+                                    <span class="text-[9px] font-bold px-2 py-1 rounded <?php echo $badge_bg; ?>"><?php echo $task['priority']; ?></span>
+                                </div>
+                            </div>
+                            <?php endwhile; ?>
+                        <?php else: ?>
+                            <div class="flex flex-col items-center justify-center h-full py-6 text-slate-400">
+                                <i class="fa-solid fa-clipboard-check text-4xl mb-3 text-emerald-400 opacity-80"></i>
+                                <p class="text-sm font-medium">All tasks completed.</p>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card border-blue-200 h-[380px]">
+                <div class="card-body flex flex-col justify-between min-h-0">
+                    <div class="flex justify-between items-center mb-5 border-b border-blue-100 pb-3 shrink-0">
+                        <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2"><i class="fa-solid fa-stopwatch text-blue-500"></i> My Time Tracker</h3>
+                        <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded border border-gray-100">Today</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-5 shrink-0">
+                        <div>
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500 block"></span> Productive</p>
+                            <p class="text-xl font-black text-slate-800"><?php echo $str_prod; ?></p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center justify-end gap-1"><span class="w-2 h-2 rounded-full bg-amber-400 block"></span> Break</p>
+                            <p class="text-xl font-black text-slate-800"><?php echo $str_break; ?></p>
+                        </div>
+                        <div>
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1 flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500 block"></span> Overtime</p>
+                            <p class="text-xl font-black text-slate-800"><?php echo $str_ot; ?></p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[9px] text-gray-500 font-bold uppercase tracking-widest mb-1">Total Hours</p>
+                            <p class="text-xl font-black text-blue-600"><?php echo $str_total; ?></p>
+                        </div>
+                    </div>
+
+                    <div class="mt-auto shrink-0">
                         <div class="w-full bg-slate-100 rounded-full h-3 flex overflow-hidden mb-5 border border-slate-200/60 shadow-inner">
                             <div class="bg-emerald-500 h-full transition-all" style="width: <?php echo $pct_prod; ?>%" title="Productive"></div>
                             <div class="bg-amber-400 h-full transition-all" style="width: <?php echo $pct_break; ?>%" title="Break"></div>
@@ -666,13 +704,13 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                         
                         <div class="pt-4 border-t border-gray-100 mt-2">
                             <p class="text-[10px] text-gray-500 font-bold uppercase tracking-widest mb-2">Total Overtime This Month</p>
-                            <div class="flex items-center justify-between bg-orange-50 border border-orange-100 p-3 rounded-lg">
-                                <span class="text-lg font-black text-orange-600"><?php echo $overtime_this_month; ?> <span class="text-xs font-bold text-orange-500">Hrs</span></span>
+                            <div class="flex items-center justify-between bg-orange-50 border border-orange-100 p-3.5 rounded-xl">
+                                <span class="text-xl font-black text-orange-600"><?php echo $overtime_this_month; ?> <span class="text-sm font-bold text-orange-500">Hrs</span></span>
+                                <i class="fa-solid fa-business-time text-orange-400 text-2xl"></i>
                             </div>
                         </div>
                     </div>
                 </div>
-
             </div>
 
         </div> 
@@ -681,9 +719,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
     <script>
         lucide.createIcons();
 
-        // CHARTS LOGIC
         document.addEventListener('DOMContentLoaded', function () {
-            
             // Personal Attendance Donut Chart
             var lateTimeStr = "<?php echo $late_time_str; ?>";
             var totalData = <?php echo $stats_ontime + $stats_late + $stats_wfh + $stats_absent + $stats_sick; ?>;

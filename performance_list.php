@@ -19,7 +19,61 @@ $dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
 if (file_exists($dbPath)) { include_once($dbPath); } 
 else { include_once('../include/db_connect.php'); }
 
-/// 4. FETCH PERFORMANCE DATA DYNAMICALLY BASED ON HIERARCHY
+// =========================================================================
+// NEW: HANDLE HR HIKE / PROMOTION SUBMISSION
+// =========================================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'approve_hike') {
+    // Only HR or Admin can process this
+    if ($user_role === 'HR' || $user_role === 'Admin') {
+        $emp_id = (int)$_POST['hike_emp_id'];
+        $new_salary = trim($_POST['new_salary']);
+        $new_designation = trim($_POST['new_designation']);
+        $effective_date = $_POST['effective_date'];
+        $remarks = trim($_POST['remarks']);
+
+        // 1. Update Employee Profile (Designation & Salary conceptually)
+        if (!empty($new_designation)) {
+            $stmt = $conn->prepare("UPDATE employee_profiles SET designation = ? WHERE user_id = ?");
+            $stmt->bind_param("si", $new_designation, $emp_id);
+            $stmt->execute();
+        }
+
+        // 2. Create Appraisal/Hike Record Table (If it doesn't exist yet)
+        $conn->query("CREATE TABLE IF NOT EXISTS salary_hikes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            approved_by INT NOT NULL,
+            new_salary VARCHAR(100),
+            new_designation VARCHAR(150),
+            effective_date DATE,
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )");
+
+        // Insert the official record
+        $h_stmt = $conn->prepare("INSERT INTO salary_hikes (user_id, approved_by, new_salary, new_designation, effective_date, remarks) VALUES (?, ?, ?, ?, ?, ?)");
+        $h_stmt->bind_param("iissss", $emp_id, $current_user_id, $new_salary, $new_designation, $effective_date, $remarks);
+        $h_stmt->execute();
+
+        // 3. Optional: Send Notification to Employee
+        // Uncomment and adjust table name if you have a notifications system
+        /*
+        $notif_title = "Congratulations! Performance Appraisal Approved";
+        $notif_msg = "Your recent performance review has been processed. " . (!empty($new_designation) ? "New Role: $new_designation. " : "") . "Effective from: " . date('d M Y', strtotime($effective_date));
+        $n_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
+        $n_stmt->bind_param("iss", $emp_id, $notif_title, $notif_msg);
+        $n_stmt->execute();
+        */
+
+        $_SESSION['success_msg'] = "Appraisal and Salary Hike successfully approved!";
+        header("Location: performance_list.php");
+        exit();
+    }
+}
+
+// =========================================================================
+// 4. FETCH PERFORMANCE DATA DYNAMICALLY BASED ON HIERARCHY
+// =========================================================================
 $performanceData = [];
 
 if ($user_role === 'HR' || $user_role === 'Admin') {
@@ -28,13 +82,13 @@ if ($user_role === 'HR' || $user_role === 'Admin') {
             per.manager_rating_pct, per.manager_comments, per.self_review 
             FROM employee_profiles ep 
             LEFT JOIN employee_performance per ON ep.user_id = per.user_id
-            WHERE ep.user_id != ?"; // Optionally exclude themselves from the list
+            WHERE ep.user_id != ?"; 
             
     $stmt = mysqli_prepare($conn, $sql);
     mysqli_stmt_bind_param($stmt, "i", $current_user_id);
 
 } elseif ($user_role === 'Manager') {
-    // LEVEL 3 (Manager): Sees their direct reports (Team Leads) AND the employees reporting to those Team Leads.
+    // LEVEL 3 (Manager): Sees direct reports (TLs) AND second-level reports.
     $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
             per.manager_rating_pct, per.manager_comments, per.self_review 
             FROM employee_profiles ep 
@@ -43,11 +97,10 @@ if ($user_role === 'HR' || $user_role === 'Admin') {
                OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE reporting_to = ?)";
                
     $stmt = mysqli_prepare($conn, $sql);
-    // Bind the Manager's ID twice (once for direct reports, once for second-level reports)
     mysqli_stmt_bind_param($stmt, "ii", $current_user_id, $current_user_id);
 
 } else {
-    // LEVEL 2 (Team Lead): Sees ONLY the employees reporting directly to them.
+    // LEVEL 2 (Team Lead): Sees ONLY employees reporting directly to them.
     $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
             per.manager_rating_pct, per.manager_comments, per.self_review 
             FROM employee_profiles ep 
@@ -62,14 +115,8 @@ if ($stmt) {
     mysqli_stmt_execute($stmt);
     $result = mysqli_stmt_get_result($stmt);
 
-    // [UPGRADE] Prepared efficient queries for the loop
-    // 1. Dynamic working days logic
     $att_stmt = $conn->prepare("SELECT COUNT(*) as total_days, SUM(CASE WHEN status = 'On Time' THEN 1 ELSE 0 END) as present_days, SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days FROM attendance WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
-    
-    // 2. Exclude cancelled tasks
     $task_stmt = $conn->prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN due_date < CURDATE() AND status != 'completed' THEN 1 ELSE 0 END) as overdue FROM personal_taskboard WHERE user_id = ? AND status != 'cancelled'");
-    
-    // 3. Strict User ID matching for Projects
     $proj_stmt = $conn->prepare("SELECT status FROM project_tasks WHERE assigned_to_user_id = ? LIMIT 10");
 
     if ($result && mysqli_num_rows($result) > 0) {
@@ -105,7 +152,7 @@ if ($stmt) {
             $proj_total = count($projects_list) > 0 ? count($projects_list) : 1;
             $project_completion_pct = round(($on_time_projects / $proj_total) * 100);
 
-            // 4. System Reliability Rating (10%) - Min Cap at 40
+            // 4. System Reliability Rating (10%)
             $automated_rating = 100 - ($late_days * 5) - ($overdue_tasks * 5);
             $automated_rating = max(40, min(100, $automated_rating));
 
@@ -113,7 +160,6 @@ if ($stmt) {
             $score = ($project_completion_pct * 0.30) + ($task_completion_pct * 0.25) + ($attendance_pct * 0.15) + ($automated_rating * 0.10) + ($mgr_pct * 0.20);
             $score = round($score, 1);
 
-            // Enterprise Grading Scale
             if($score >= 90) $grade = "Outstanding";
             elseif($score >= 75) $grade = "Exceeds Expectations";
             elseif($score >= 50) $grade = "Meets Expectations";
@@ -211,11 +257,14 @@ usort($performanceData, function($a, $b) {
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
         .modal-box { width: 100%; padding-bottom: 50px; }
-        .modal-nav { display: flex; justify-content: space-between; padding: 0 0 20px 0; }
+        .modal-nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 20px 0; }
         .back-link { display: flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 14px; cursor: pointer; font-weight: 600; }
         .back-link:hover { color: var(--text-main); }
-        .btn-evaluate { background: var(--primary); color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 6px;}
+        .btn-evaluate { background: var(--primary); color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 6px; cursor:pointer; border:none;}
         .btn-evaluate:hover { background: #0f766e; }
+        
+        .btn-hike { background: #10b981; color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor:pointer; border:none; display: flex; align-items: center; gap: 6px; transition: 0.2s;}
+        .btn-hike:hover { background: #059669; }
 
         .profile-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0 30px; }
         .profile-info { display: flex; align-items: center; gap: 15px; }
@@ -238,10 +287,18 @@ usort($performanceData, function($a, $b) {
         .info-card { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
         .card-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 20px; color: #334155; }
         
-        .list-item { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-        .list-item:last-child { border-bottom: none; }
-
         .feedback-text-box { background: #fcfcfd; padding: 20px; border-radius: 8px; border: 1px solid var(--border); font-size: 14px; color: #334155; font-style: italic; line-height: 1.6;}
+
+        /* Popup Form Modal */
+        .popup-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background: rgba(15,23,42,0.6); z-index:1000; align-items:center; justify-content:center; backdrop-filter: blur(4px);}
+        .popup-modal.active { display:flex; }
+        .popup-content { background:white; padding:30px; border-radius:12px; width:450px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); position:relative; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display:block; font-size:12px; font-weight:600; color:#475569; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;}
+        .form-group input, .form-group textarea { width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; outline:none; box-sizing:border-box;}
+        .form-group input:focus { border-color: #10b981; }
+
+        .alert-success { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 15px 20px; border-radius: 8px; margin-bottom: 25px; display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px;}
 
         @media (max-width: 992px) {
             .content-area { margin-left: 0 !important; }
@@ -261,6 +318,15 @@ usort($performanceData, function($a, $b) {
 
             <div class="main-content">
                 
+                <?php if(isset($_SESSION['success_msg'])): ?>
+                    <div class="alert-success" id="successAlert">
+                        <i data-lucide="check-circle"></i>
+                        <?= $_SESSION['success_msg'] ?>
+                        <?php unset($_SESSION['success_msg']); ?>
+                    </div>
+                    <script>setTimeout(() => document.getElementById('successAlert').style.display='none', 4000);</script>
+                <?php endif; ?>
+
                 <div id="listView">
                     <div class="page-header">
                         <div class="header-title">
@@ -340,9 +406,17 @@ usort($performanceData, function($a, $b) {
                             <a class="back-link" onclick="closeModal()">
                                 <i data-lucide="arrow-left" style="width:18px"></i> Back to Employee List
                             </a>
-                            <a href="evaluate_team.php" class="btn-evaluate">
-                                <i data-lucide="gavel" style="width:16px"></i> Evaluate & Grade
-                            </a>
+                            <div style="display:flex; gap:10px;">
+                                <a href="evaluate_team.php" class="btn-evaluate">
+                                    <i data-lucide="gavel" style="width:16px"></i> Evaluate
+                                </a>
+                                
+                                <?php if($user_role === 'HR' || $user_role === 'Admin'): ?>
+                                <button class="btn-hike" onclick="openHikeModal()">
+                                    <i data-lucide="trending-up" style="width:16px"></i> Approve Hike
+                                </button>
+                                <?php endif; ?>
+                            </div>
                         </div>
 
                         <div class="profile-header">
@@ -406,22 +480,56 @@ usort($performanceData, function($a, $b) {
 
                             <div class="info-card">
                                 <div class="card-title"><i data-lucide="user-pen" style="width:20px; color:#0d9488;"></i> Employee Self-Review</div>
-                                <div class="feedback-text-box" id="dSelfReview">
-                                    No self-review submitted by the employee yet.
-                                </div>
+                                <div class="feedback-text-box" id="dSelfReview">No self-review submitted.</div>
                             </div>
 
                             <div class="info-card">
-                                <div class="card-title"><i data-lucide="message-square-quote" style="width:20px; color:#8b5cf6;"></i> Your Official Feedback</div>
-                                <div class="feedback-text-box" id="dComments">
-                                    No official feedback provided yet.
+                                <div class="card-title"><i data-lucide="message-square-quote" style="width:20px; color:#8b5cf6;"></i> Official Feedback</div>
+                                <div class="feedback-text-box" id="dComments">No official feedback provided yet.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="popup-modal" id="hikeModal">
+                    <div class="popup-content">
+                        <button type="button" onclick="closeHikeModal()" style="position:absolute; right:20px; top:20px; background:none; border:none; cursor:pointer; color:#64748b;"><i data-lucide="x"></i></button>
+                        
+                        <h3 style="font-size:20px; font-weight:800; color:#0f172a; margin-top:0; margin-bottom:5px;">Approve Salary Hike</h3>
+                        <p style="font-size:13px; color:#64748b; margin-bottom:20px;">Granting appraisal for: <b id="hikeEmpName" style="color:#10b981;"></b></p>
+                        
+                        <form method="POST" action="">
+                            <input type="hidden" name="action" value="approve_hike">
+                            <input type="hidden" name="hike_emp_id" id="hikeEmpId" value="">
+                            
+                            <div class="form-group">
+                                <label>New Designation / Promotion (Optional)</label>
+                                <input type="text" name="new_designation" id="hikeEmpRole" placeholder="e.g. Senior Developer">
+                            </div>
+
+                            <div style="display:flex; gap:15px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label>New Annual Salary (₹)</label>
+                                    <input type="text" name="new_salary" placeholder="e.g. 800,000" required>
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label>Effective Date</label>
+                                    <input type="date" name="effective_date" required>
                                 </div>
                             </div>
 
-                        </div>
+                            <div class="form-group">
+                                <label>HR Remarks & Justification</label>
+                                <textarea name="remarks" rows="3" placeholder="Performance was excellent, moving to Senior Band..." required></textarea>
+                            </div>
 
+                            <button type="submit" class="btn-hike" style="width:100%; justify-content:center; padding:12px; font-size:15px; margin-top:10px;">
+                                <i data-lucide="check-circle" style="width:18px"></i> Finalize & Approve
+                            </button>
+                        </form>
                     </div>
                 </div>
+
             </div>
         </div>
     </div>
@@ -429,7 +537,17 @@ usort($performanceData, function($a, $b) {
     <script>
         lucide.createIcons();
 
+        // Variables to pass data between modals
+        let currentSelectedEmpId = null;
+        let currentSelectedEmpName = "";
+        let currentSelectedEmpRole = "";
+
         function openDetails(data) {
+            // Save data for the Hike modal
+            currentSelectedEmpId = data.user_id;
+            currentSelectedEmpName = data.name;
+            currentSelectedEmpRole = data.role;
+
             document.getElementById('modalName').innerText = data.name;
             
             // Format Image
@@ -492,6 +610,19 @@ usort($performanceData, function($a, $b) {
             document.getElementById('scoreCircle').setAttribute('stroke-dasharray', `0, 100`);
         }
 
+        // HIKE MODAL LOGIC
+        function openHikeModal() {
+            document.getElementById('hikeEmpId').value = currentSelectedEmpId;
+            document.getElementById('hikeEmpName').innerText = currentSelectedEmpName;
+            document.getElementById('hikeEmpRole').value = currentSelectedEmpRole;
+            document.getElementById('hikeModal').classList.add('active');
+        }
+
+        function closeHikeModal() {
+            document.getElementById('hikeModal').classList.remove('active');
+        }
+
+        // Search Filter
         document.getElementById('searchInput').addEventListener('keyup', function() {
             let filter = this.value.toUpperCase();
             let rows = document.querySelector("#performanceTable tbody").rows;

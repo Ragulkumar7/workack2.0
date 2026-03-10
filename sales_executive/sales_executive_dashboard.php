@@ -501,7 +501,7 @@ if ($conn) {
             <div class="card p-5 h-full flex flex-col">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Recent Leads</h3>
-                    <button onclick="window.location.href='crm_clients.php';" class="px-3 py-1 bg-gray-50 border rounded text-sm hover:bg-gray-100 transition cursor-pointer">View All</button>
+                    <button onclick="window.location.href='../sales_manager/client_management.php';" class="px-3 py-1 bg-gray-50 border rounded text-sm hover:bg-gray-100 transition cursor-pointer">View All</button>
                 </div>
                 <div class="overflow-x-auto flex-1">
                     <table class="w-full text-left border-collapse whitespace-nowrap">
@@ -651,7 +651,7 @@ if ($conn) {
             <div class="card p-5 overflow-hidden lg:col-span-3">
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="font-bold text-lg text-gray-900">Recent Activities</h3>
-                    <button onclick="window.location.href='sales_tasks.php';" class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm hover:bg-gray-50 transition cursor-pointer">View All</button>
+                    <button onclick="window.location.href='my_tasks.php';" class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm hover:bg-gray-50 transition cursor-pointer">View All</button>
                 </div>
                 <div class="relative pl-3 ml-3 border-l border-dashed border-gray-200 flex flex-col gap-8 mt-2 pb-2">
                     <?php if(empty($recent_activities)): ?>
