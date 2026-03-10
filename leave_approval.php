@@ -27,7 +27,7 @@ $user_role = $stmt->get_result()->fetch_assoc()['role'];
 $stmt->close();
 
 // =========================================================================
-// 2. PROCESS AJAX LEAVE ACTIONS (Approve/Reject)
+// 2. PROCESS AJAX LEAVE ACTIONS (Multi-Tier Approval Logic)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset($_POST['status'])) {
     $leave_id = intval($_POST['leave_id']);
@@ -40,30 +40,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['leave_id']) && isset(
     $curr = $fetch->get_result()->fetch_assoc();
     $fetch->close();
 
-    $tl_stat = $curr['tl_status'];
-    $mgr_stat = $curr['manager_status'];
-    $hr_stat = $curr['hr_status'];
-    $global_stat = $new_status; // Set global to whatever they clicked
-    $approved_by = $user_role;  // Track exactly who clicked the button
+    $tl_stat = $curr['tl_status'] ?? 'Pending';
+    $mgr_stat = $curr['manager_status'] ?? 'Pending';
+    $hr_stat = $curr['hr_status'] ?? 'Pending';
+    $approved_by = $user_role;  
 
-    // Update specific role statuses based on who is logged in
+    // Update specific role status
     if ($user_role === 'Team Lead') { $tl_stat = $new_status; }
-    if ($user_role === 'Manager') { $mgr_stat = $new_status; }
-    if ($user_role === 'HR' || $user_role === 'HR Executive') { $hr_stat = $new_status; }
+    elseif ($user_role === 'Manager') { $mgr_stat = $new_status; }
+    else { $hr_stat = $new_status; } 
 
-    // Update everything in the database
+    // STRICT 3-TIER DB EVALUATION
+    if ($tl_stat === 'Rejected' || $mgr_stat === 'Rejected' || $hr_stat === 'Rejected') {
+        $global_stat = 'Rejected';
+    } elseif ($tl_stat === 'Approved' && $mgr_stat === 'Approved' && $hr_stat === 'Approved') {
+        $global_stat = 'Approved';
+    } else {
+        $global_stat = 'Pending';
+    }
+
     $update_query = "UPDATE leave_requests SET tl_status=?, manager_status=?, hr_status=?, status=?, approved_by=? WHERE id=?";
     $update_stmt = $conn->prepare($update_query);
     $update_stmt->bind_param("sssssi", $tl_stat, $mgr_stat, $hr_stat, $global_stat, $approved_by, $leave_id);
 
-    if ($update_stmt->execute()) {
-        echo "success";
-    } else {
-        echo "error";
-    }
+    if ($update_stmt->execute()) { echo "success"; } else { echo "error"; }
     
     $update_stmt->close();
-    // Do not close connection here, as other scripts might need it later, just exit
     exit(); 
 }
 
@@ -86,17 +88,14 @@ $base_select = "SELECT lr.*,
 
 $query = "";
 if ($user_role === 'Team Lead') {
-    // TL sees direct reports
     $query = "$base_select WHERE ep.reporting_to = ? OR lr.tl_id = ? ORDER BY lr.created_at DESC";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("ii", $user_id, $user_id);
 } elseif ($user_role === 'Manager') {
-    // Manager sees direct reports OR reports under their TLs
     $query = "$base_select WHERE ep.manager_id = ? OR ep.reporting_to = ? OR lr.manager_id = ? ORDER BY lr.created_at DESC";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("iii", $user_id, $user_id, $user_id);
 } else {
-    // HR, Admin, Executives see everything
     $query = "$base_select ORDER BY lr.created_at DESC";
     $stmt = $conn->prepare($query);
 }
@@ -110,19 +109,38 @@ $approved_count = 0;
 $rejected_count = 0;
 
 while ($row = $result->fetch_assoc()) {
+    // CRITICAL FIX: Ignore corrupted DB data, recalculate statuses dynamically
+    $tl_stat = $row['tl_status'] ?? 'Pending';
+    $mgr_stat = $row['manager_status'] ?? 'Pending';
+    $hr_stat = $row['hr_status'] ?? 'Pending';
+    $db_global = $row['status'] ?: 'Pending';
+
+    // Auto-fix pure legacy approvals
+    if ($db_global === 'Approved' && $tl_stat === 'Pending' && $mgr_stat === 'Pending' && $hr_stat === 'Pending') {
+        $tl_stat = 'Approved'; $mgr_stat = 'Approved'; $hr_stat = 'Approved';
+        $real_global_status = 'Approved';
+    } 
+    // Strict recalculation
+    else {
+        if ($tl_stat === 'Rejected' || $mgr_stat === 'Rejected' || $hr_stat === 'Rejected') {
+            $real_global_status = 'Rejected';
+        } elseif ($tl_stat === 'Approved' && $mgr_stat === 'Approved' && $hr_stat === 'Approved') {
+            $real_global_status = 'Approved';
+        } else {
+            $real_global_status = 'Pending';
+        }
+    }
+
     $viewer_status = 'Pending';
-    if ($user_role === 'Team Lead') { $viewer_status = $row['tl_status']; } 
-    elseif ($user_role === 'Manager') { $viewer_status = $row['manager_status']; } 
-    else { $viewer_status = $row['hr_status']; }
+    if ($user_role === 'Team Lead') { $viewer_status = $tl_stat; } 
+    elseif ($user_role === 'Manager') { $viewer_status = $mgr_stat; } 
+    else { $viewer_status = $hr_stat; }
 
-    $global_status = $row['status'] ?: 'Pending';
+    // Update Top Counter Cards based on REAL status
+    if ($real_global_status === 'Pending') $pending_count++;
+    if ($real_global_status === 'Approved') $approved_count++;
+    if ($real_global_status === 'Rejected') $rejected_count++;
 
-    // Update Top Counter Cards
-    if ($global_status === 'Pending') $pending_count++;
-    if ($global_status === 'Approved') $approved_count++;
-    if ($global_status === 'Rejected') $rejected_count++;
-
-    // Format Image Source
     $imgSource = $row['profile_img'];
     if(empty($imgSource) || $imgSource === 'default_user.png') {
         $imgSource = "https://ui-avatars.com/api/?name=".urlencode($row['emp_name'])."&background=random";
@@ -143,15 +161,14 @@ while ($row = $result->fetch_assoc()) {
         'reason' => $row['reason'],
         'current_month_leaves' => $row['current_month_leaves'],
         'viewer_status' => $viewer_status, 
-        'global_status' => $global_status, 
-        'tl_status' => $row['tl_status'],
-        'mgr_status' => $row['manager_status'],
-        'hr_status' => $row['hr_status'],
+        'global_status' => $real_global_status, // Using the fixed calculation
+        'tl_status' => $tl_stat,
+        'mgr_status' => $mgr_stat,
+        'hr_status' => $hr_stat,
         'approved_by' => $row['approved_by']
     ];
 }
 $stmt->close();
-// REMOVED: $conn->close(); so the header and sidebar can still use the database connection!
 
 $sidebarPath = '../sidebars.php';
 $headerPath = '../header.php';
@@ -172,7 +189,7 @@ if (!file_exists($sidebarPath)) {
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script> 
 
     <style>
-        :root { --primary: #f97316; --primary-hover: #ea580c; --bg-body: #f8f9fa; --text-main: #1e293b; --text-muted: #64748b; --border: #e2e8f0; --white: #ffffff; --success: #10b981; --danger: #ef4444; --sidebar-width: 95px;}
+        :root { --primary: #f97316; --primary-hover: #ea580c; --bg-body: #f8f9fa; --text-main: #1e293b; --text-muted: #64748b; --border: #e2e8f0; --white: #ffffff; --sidebar-width: 95px;}
         body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; padding: 0; color: var(--text-main); overflow-x: hidden;}
         
         .main-content { margin-left: var(--sidebar-width); padding: 24px 32px; min-height: 100vh; transition: all 0.3s ease; width: calc(100% - var(--sidebar-width)); box-sizing: border-box;}
@@ -182,7 +199,7 @@ if (!file_exists($sidebarPath)) {
         .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
         
         .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid var(--border); position: relative; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
+        .stat-card { background: white; border-radius: 12px; padding: 20px; border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: flex; justify-content: space-between; align-items: center; }
         .stat-info h4 { font-size: 13px; color: var(--text-muted); margin: 0 0 5px 0; font-weight: 500; text-transform: uppercase; }
         .stat-info h2 { font-size: 28px; font-weight: 700; margin: 0; color: var(--text-main); }
         .stat-icon { width: 48px; height: 48px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
@@ -192,45 +209,48 @@ if (!file_exists($sidebarPath)) {
         .filters-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
         .search-box { flex: 2; min-width: 250px; display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
         .search-box input { border: none; outline: none; width: 100%; font-size: 13px; margin-left: 8px; }
-        .filter-select { flex: 1; min-width: 150px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; color: var(--text-main); outline: none; cursor: pointer; }
+        .filter-select { flex: 1; min-width: 150px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; }
         
-        .table-responsive { overflow-x: auto; width: 100%; }
-        table { width: 100%; border-collapse: collapse; min-width: 900px; }
+        /* STRICT RESPONSIVE TABLE CSS */
+        .table-responsive { overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; }
+        table { width: 100%; border-collapse: collapse; min-width: 1050px; }
         thead { background: #f8fafc; border-bottom: 1px solid var(--border); }
-        th { text-align: left; font-size: 12px; color: #475569; padding: 14px 20px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-        td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; font-size: 13px; vertical-align: middle; }
+        th { text-align: left; font-size: 12px; color: #475569; padding: 14px 20px; font-weight: 600; text-transform: uppercase; white-space: nowrap; }
+        td { padding: 16px 20px; border-bottom: 1px solid #f1f5f9; font-size: 13px; vertical-align: middle; white-space: nowrap; }
         tr:hover { background-color: #fcfcfc; }
         
         .emp-profile { display: flex; align-items: center; gap: 12px; }
-        .emp-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #e2e8f0; display: flex; align-items: center; justify-content: center; flex-shrink: 0;}
-        .emp-info { display: flex; flex-direction: column; gap: 2px;} .emp-name { font-weight: 600; color: #0f172a; } .emp-dept { font-size: 11px; color: #64748b; }
+        .emp-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; }
+        .emp-info { display: flex; flex-direction: column; gap: 2px; max-width: 200px; white-space: normal;} 
+        .emp-name { font-weight: 600; color: #0f172a; } 
+        .emp-dept { font-size: 11px; color: #64748b; }
         .leave-month-badge { font-size: 10px; background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px; display: inline-block; width: fit-content; margin-top: 2px; }
         
         .status-badge-container { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
         .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; width: fit-content;}
         .status-Pending { background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; } .status-Approved { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; } .status-Rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
-        .approved-by-text { font-size: 10px; color: #64748b; font-weight: 500; margin-left: 2px; }
 
         .leave-type { font-weight: 500; padding: 4px 8px; border-radius: 4px; background: #f1f5f9; color: #334155; font-size: 12px; }
         
         .action-container { display: flex; gap: 8px; }
         .btn-icon { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--border); background: white; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; color: var(--text-muted); }
-        .btn-icon:hover { background: #f8fafc; color: var(--primary); } .btn-approve:hover { background: #dcfce7; color: #166534; border-color: #bbf7d0; } .btn-reject:hover { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+        .btn-icon:hover { background: #f8fafc; color: var(--primary); } 
+        .btn-approve:hover { background: #dcfce7; color: #166534; border-color: #bbf7d0; } 
+        .btn-reject:hover { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
         
         /* Modal Transitions */
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
         .modal-overlay.active { display: flex; animation: fadeUp 0.2s ease-out; }
         @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .modal-box { background: white; width: 600px; max-width: 95%; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); overflow: hidden; }
-        .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fff; }
+        .modal-box { background: white; width: 600px; max-width: 95%; border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; max-height: 90vh; }
+        .modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fff; flex-shrink: 0; }
         .modal-header h3 { margin: 0; font-size: 16px; font-weight: 700; }
-        .modal-body { padding: 24px; } .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .modal-body { padding: 24px; overflow-y: auto; } .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         .detail-item label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; } .detail-item p { margin: 0; font-size: 14px; font-weight: 500; color: #1e293b; }
         .reason-box { background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px; } .reason-box p { font-size: 13px; color: #334155; line-height: 1.5; margin: 0; }
-        .modal-footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+        .modal-footer { padding: 16px 24px; background: #f8fafc; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; flex-shrink: 0; }
         .btn { padding: 10px 18px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; } .btn-outline { background: white; border: 1px solid var(--border); color: #334155; }
 
-        /* Approval Track UI */
         .approval-track { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 15px; margin-bottom: 20px; }
         .approval-track h6 { margin: 0 0 12px 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
         .track-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed var(--border); }
@@ -262,7 +282,7 @@ if (!file_exists($sidebarPath)) {
         <div class="stats-grid">
             <div class="stat-card card-pending">
                 <div class="stat-info">
-                    <h4>My Pending Tasks</h4>
+                    <h4>Global Pending</h4>
                     <h2><?php echo $pending_count; ?></h2>
                 </div>
                 <div class="stat-icon"><i data-lucide="clock"></i></div>
@@ -320,7 +340,7 @@ if (!file_exists($sidebarPath)) {
                             <th>Duration</th>
                             <th>Days</th>
                             <th>Applied On</th>
-                            <th>Status</th>
+                            <th>Global Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -342,6 +362,7 @@ if (!file_exists($sidebarPath)) {
                                     <td><?php echo date('d M Y', strtotime($leave['start_date'])) . ' - ' . date('d M Y', strtotime($leave['end_date'])); ?></td>
                                     <td style="font-weight: 600;"><?php echo str_pad($leave['total_days'], 2, '0', STR_PAD_LEFT); ?></td>
                                     <td><?php echo date('d M Y', strtotime($leave['created_at'])); ?></td>
+                                    
                                     <td>
                                         <?php 
                                             $badgeClass = "status-" . $leave['global_status'];
@@ -349,14 +370,18 @@ if (!file_exists($sidebarPath)) {
                                         ?>
                                         <div class="status-badge-container">
                                             <span class="status-badge <?php echo $badgeClass; ?>"><i data-lucide="<?php echo $icon; ?>" style="width:10px;"></i> <?php echo $leave['global_status']; ?></span>
-                                            <?php if($leave['global_status'] !== 'Pending' && !empty($leave['approved_by'])): ?>
-                                                <span class="approved-by-text">by <?php echo htmlspecialchars($leave['approved_by']); ?></span>
+                                            
+                                            <?php if($leave['global_status'] === 'Approved'): ?>
+                                                <span style="color: #16a34a; font-size: 10px; margin-top: 2px; font-weight: 700;">✓ Verified by All Tiers</span>
+                                            <?php elseif($leave['global_status'] === 'Pending' && $leave['viewer_status'] === 'Approved'): ?>
+                                                <span style="color: #0284c7; font-size: 10px; margin-top: 2px; font-weight: 700;">✓ You Approved (Awaiting Others)</span>
                                             <?php endif; ?>
                                         </div>
                                     </td>
+                                    
                                     <td>
                                         <div class="action-container">
-                                            <?php if($leave['global_status'] === 'Pending'): ?>
+                                            <?php if($leave['global_status'] === 'Pending' && $leave['viewer_status'] === 'Pending'): ?>
                                                 <button class="btn-icon btn-approve" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Approved')" title="Approve"><i data-lucide="check" style="width:16px;"></i></button>
                                                 <button class="btn-icon btn-reject" onclick="updateLeave(<?php echo $leave['id']; ?>, 'Rejected')" title="Reject"><i data-lucide="x" style="width:16px;"></i></button>
                                             <?php endif; ?>
@@ -401,17 +426,17 @@ if (!file_exists($sidebarPath)) {
             <div class="modal-body">
                 
                 <div class="approval-track" id="approvalTrackBox">
-                    <h6>Approval Chain Status</h6>
+                    <h6>Multi-Tier Approval Chain</h6>
                     <div class="track-item" id="trackTL">
-                        <span>Team Lead</span>
+                        <span>1. Team Lead</span>
                         <span id="mTlStatus" class="status-badge">--</span>
                     </div>
                     <div class="track-item" id="trackMgr">
-                        <span>Manager</span>
+                        <span>2. Manager</span>
                         <span id="mMgrStatus" class="status-badge">--</span>
                     </div>
                     <div class="track-item" id="trackHR">
-                        <span>HR Admin</span>
+                        <span>3. HR Admin</span>
                         <span id="mHrStatus" class="status-badge">--</span>
                     </div>
                 </div>
@@ -459,7 +484,6 @@ if (!file_exists($sidebarPath)) {
     <script>
         lucide.createIcons();
 
-        // Responsive Sidebar logic 
         function setupLayoutObserver() {
             const primarySidebar = document.querySelector('.sidebar-primary');
             const secondarySidebar = document.querySelector('.sidebar-secondary');
@@ -499,7 +523,6 @@ if (!file_exists($sidebarPath)) {
         }
         document.addEventListener('DOMContentLoaded', setupLayoutObserver);
 
-        // Filter functionality
         function filterTable() {
             const search = document.getElementById('searchInput').value.toLowerCase();
             const type = document.getElementById('typeFilter').value.toLowerCase();
@@ -512,7 +535,6 @@ if (!file_exists($sidebarPath)) {
                 const name = row.querySelector('.emp-name').innerText.toLowerCase();
                 const lType = row.querySelector('td:nth-child(2)').innerText.toLowerCase();
                 
-                // Get the text from the status badge container
                 const statusContainer = row.querySelector('.status-badge-container');
                 const lStatus = statusContainer ? statusContainer.innerText.toLowerCase() : '';
 
@@ -528,10 +550,8 @@ if (!file_exists($sidebarPath)) {
             });
         }
 
-        // Modal Functionality
         const modal = document.getElementById('approvalModal');
 
-        // Helper to set badge colors dynamically
         function setBadge(elementId, status) {
             const el = document.getElementById(elementId);
             el.innerText = status;
@@ -546,28 +566,19 @@ if (!file_exists($sidebarPath)) {
             document.getElementById('mDays').innerText = days + " Day(s)";
             document.getElementById('mMonthLeaves').innerText = monthLeaves + " Day(s)";
             
-            // Set Approval Track Badges
             setBadge('mTlStatus', tlStat);
             setBadge('mMgrStatus', mgrStat);
             setBadge('mHrStatus', hrStat);
 
-            // Hide pending tracks
-            document.getElementById('trackTL').style.display = (tlStat === 'Pending') ? 'none' : 'flex';
-            document.getElementById('trackMgr').style.display = (mgrStat === 'Pending') ? 'none' : 'flex';
-            document.getElementById('trackHR').style.display = (hrStat === 'Pending') ? 'none' : 'flex';
-
-            // Hide the entire box if no one has approved/rejected yet
-            const approvalBox = document.getElementById('approvalTrackBox');
-            if (tlStat === 'Pending' && mgrStat === 'Pending' && hrStat === 'Pending') {
-                approvalBox.style.display = 'none';
-            } else {
-                approvalBox.style.display = 'block';
-            }
-
             let statusText = status;
-            if(status !== 'Pending' && approvedBy !== '') {
-                statusText += " (by " + approvedBy + ")";
+            if(status === 'Pending') {
+                statusText = "Pending (Awaiting Full Approval)";
+            } else if(status === 'Approved') {
+                statusText = "Approved (Verified by All Tiers)";
+            } else {
+                statusText = "Rejected (Denied by " + approvedBy + ")";
             }
+            
             document.getElementById('mStatus').innerText = statusText;
             
             modal.classList.add('active');
@@ -579,11 +590,10 @@ if (!file_exists($sidebarPath)) {
             document.body.style.overflow = 'auto';
         }
 
-        // Leave Update Action
         function updateLeave(leaveId, newStatus) {
             Swal.fire({
-                title: 'Are you sure?',
-                text: "You are about to mark this leave as " + newStatus,
+                title: 'Confirm ' + newStatus,
+                text: "Are you sure you want to mark your step of this leave as " + newStatus + "?",
                 icon: 'warning',
                 showCancelButton: true,
                 confirmButtonColor: newStatus === 'Approved' ? '#10b981' : '#ef4444',
@@ -599,7 +609,7 @@ if (!file_exists($sidebarPath)) {
                     .then(response => response.text())
                     .then(data => {
                         if(data.trim() === 'success') {
-                            Swal.fire('Success!', 'The leave has been ' + newStatus + '.', 'success')
+                            Swal.fire('Success!', 'Your approval status has been updated.', 'success')
                             .then(() => { location.reload(); }); 
                         } else {
                             Swal.fire('Error', 'Something went wrong processing the request.', 'error');
