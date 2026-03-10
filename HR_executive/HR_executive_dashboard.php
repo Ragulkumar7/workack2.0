@@ -20,9 +20,11 @@ $current_year = date('Y');
 $user_role = $_SESSION['role'] ?? 'HR Executive';
 
 // =========================================================================
-// ACTION: MARK TICKET AS VIEWED
+// ACTION: MARK TICKET AS VIEWED & AUTO-UPDATE TABLES
 // =========================================================================
 $conn->query("ALTER TABLE tickets ADD COLUMN IF NOT EXISTS user_read_status TINYINT(1) DEFAULT 0");
+// Added to automatically fix missing meeting_link column in teammate's DB
+$conn->query("ALTER TABLE meetings ADD COLUMN IF NOT EXISTS meeting_link VARCHAR(255) DEFAULT NULL");
 
 if (isset($_GET['dismiss_ticket'])) {
     $dismiss_id = intval($_GET['dismiss_ticket']);
@@ -258,22 +260,15 @@ while ($cl_row = $curr_leave_res->fetch_assoc()) {
 $curr_leave_stmt->close();
 
 // =========================================================================
-// 5. LEAVE BALANCE (CARRY-FORWARD)
+// 5. LEAVE BALANCE (CARRY-FORWARD) - CORRECTED FIXED 2 DAYS
 // =========================================================================
 $base_leaves_per_month = 2;
 $raw_join_date = $joining_date !== "Not Set" ? $row['joining_date'] : date('Y-m-01');
 $calc_join_date = date('Y-m-d', strtotime($raw_join_date));
 $display_join_month_year = date('M Y', strtotime($raw_join_date));
 
-$d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
-$d2 = new DateTime('now'); $d2->modify('first day of this month');
-
-$months_worked = 0;
-if ($d2 >= $d1) {
-    $interval = $d1->diff($d2);
-    $months_worked = ($interval->y * 12) + $interval->m + 1; 
-}
-$total_earned_leaves = $months_worked * $base_leaves_per_month;
+// Fixed to strictly 2 leaves earned limit, as requested
+$total_earned_leaves = 2;
 
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
@@ -414,6 +409,57 @@ if($r_announcements) {
 
 usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
 $all_notifications = array_slice($all_notifications, 0, 10); 
+
+// =========================================================================
+// 8. NEW ADDITIONS: MEETINGS, LATE/MISSING LOGINS, CELEBRATIONS
+// =========================================================================
+
+// A. Meetings
+$meetings_list = [];
+$q_meetings = "SELECT title, meeting_time, meeting_link FROM meetings WHERE meeting_date >= '$today' ORDER BY meeting_date ASC, meeting_time ASC LIMIT 3";
+$r_meetings = @mysqli_query($conn, $q_meetings);
+if ($r_meetings) {
+    while ($row = mysqli_fetch_assoc($r_meetings)) {
+        $meetings_list[] = $row;
+    }
+}
+
+// B. Late / Not Logged In Today
+$late_employees = [];
+$not_logged_employees = [];
+
+// Late Today
+$q_late_today = "SELECT u.username, a.punch_in FROM attendance a LEFT JOIN users u ON a.user_id = u.id WHERE a.date = '$today' AND a.status = 'Late' LIMIT 4";
+$r_late_today = @mysqli_query($conn, $q_late_today);
+if ($r_late_today) {
+    while ($row = mysqli_fetch_assoc($r_late_today)) {
+        $late_employees[] = $row;
+    }
+}
+
+// Not Logged In Today
+$q_not_logged = "SELECT u.username FROM users u WHERE u.id NOT IN (SELECT user_id FROM attendance WHERE date = '$today') AND u.role != 'Admin' LIMIT 4";
+$r_not_logged = @mysqli_query($conn, $q_not_logged);
+if ($r_not_logged) {
+    while ($row = mysqli_fetch_assoc($r_not_logged)) {
+        $not_logged_employees[] = $row;
+    }
+}
+
+// C. Celebrations (Birthdays / Anniversaries) - BUG FIXED HERE (Changed date_of_birth to dob)
+$celebrations = [];
+$q_celeb = "SELECT u.username, ep.dob, ep.joining_date FROM employee_profiles ep LEFT JOIN users u ON ep.user_id = u.id WHERE MONTH(ep.dob) = '$current_month' OR MONTH(ep.joining_date) = '$current_month' LIMIT 4";
+$r_celeb = @mysqli_query($conn, $q_celeb);
+if ($r_celeb) {
+    while ($row = mysqli_fetch_assoc($r_celeb)) {
+        if (!empty($row['dob']) && date('m', strtotime($row['dob'])) == $current_month) {
+            $celebrations[] = ['name' => $row['username'], 'type' => 'Birthday', 'date' => date('d M', strtotime($row['dob'])), 'icon' => 'fa-cake-candles', 'color' => 'text-pink-500 bg-pink-100'];
+        }
+        if (!empty($row['joining_date']) && date('m', strtotime($row['joining_date'])) == $current_month && date('Y', strtotime($row['joining_date'])) != $current_year) {
+            $celebrations[] = ['name' => $row['username'], 'type' => 'Work Anniversary', 'date' => date('d M', strtotime($row['joining_date'])), 'icon' => 'fa-award', 'color' => 'text-amber-500 bg-amber-100'];
+        }
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -688,6 +734,47 @@ $all_notifications = array_slice($all_notifications, 0, 10);
                     </div>
                 </div>
 
+                <div class="card border-red-200">
+                    <div class="p-6">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-user-clock text-red-500"></i> Today's Attendance Alerts
+                            </h3>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Late Logins</h4>
+                                <?php if(!empty($late_employees)): ?>
+                                    <div class="space-y-2">
+                                        <?php foreach($late_employees as $emp): ?>
+                                            <div class="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+                                                <p class="text-sm font-semibold text-slate-700 truncate"><?= htmlspecialchars($emp['username']) ?></p>
+                                                <span class="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded"><?= date('h:i A', strtotime($emp['punch_in'])) ?></span>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <p class="text-xs text-gray-400 italic">No late logins today.</p>
+                                <?php endif; ?>
+                            </div>
+                            <div class="pt-2 border-t border-gray-100">
+                                <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span> Not Logged In Yet</h4>
+                                <?php if(!empty($not_logged_employees)): ?>
+                                    <div class="flex flex-wrap gap-2">
+                                        <?php foreach($not_logged_employees as $emp): ?>
+                                            <span class="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-md">
+                                                <?= htmlspecialchars($emp['username']) ?>
+                                            </span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php else: ?>
+                                    <p class="text-xs text-gray-400 italic">All employees logged in.</p>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <div class="flex flex-col gap-6 w-full"> 
@@ -823,6 +910,71 @@ $all_notifications = array_slice($all_notifications, 0, 10);
                                 <div class="text-center py-6 text-slate-400">
                                     <i class="fa-solid fa-check-double text-3xl mb-2 text-emerald-400 opacity-80"></i>
                                     <p class="text-sm font-medium">No active job requests.</p>
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-pink-200 min-h-[260px]">
+                    <div class="p-6 flex flex-col h-full flex-grow">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-cake-candles text-pink-500"></i> This Month's Celebrations
+                            </h3>
+                        </div>
+                        <div class="custom-scroll overflow-y-auto pr-2 flex-grow flex flex-col justify-center">
+                            <?php if(!empty($celebrations)): ?>
+                                <div class="space-y-3 h-full">
+                                <?php foreach($celebrations as $celeb): ?>
+                                    <div class="flex gap-3 items-center border border-gray-100 p-2.5 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                        <div class="w-8 h-8 rounded-full <?= $celeb['color'] ?> flex items-center justify-center font-bold text-xs shrink-0">
+                                            <i class="fa-solid <?= $celeb['icon'] ?>"></i>
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="text-sm font-bold text-slate-800 truncate"><?= htmlspecialchars($celeb['name']) ?></p>
+                                            <p class="text-[10px] text-gray-500 font-medium"><?= htmlspecialchars($celeb['type']) ?></p>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <span class="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200"><?= htmlspecialchars($celeb['date']) ?></span>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="text-center text-slate-400 text-sm font-medium my-auto">
+                                    No birthdays or work anniversaries this month.
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card border-purple-200 min-h-[260px]">
+                    <div class="p-6 flex flex-col h-full flex-grow">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-video text-purple-500"></i> Upcoming Meetings
+                            </h3>
+                        </div>
+                        <div class="custom-scroll overflow-y-auto pr-2 flex-grow flex flex-col justify-center">
+                            <?php if(!empty($meetings_list)): ?>
+                                <div class="space-y-3 h-full">
+                                <?php foreach($meetings_list as $meeting): ?>
+                                    <div class="bg-purple-50 p-3 rounded-xl border border-purple-100 hover:shadow-sm transition">
+                                        <p class="font-bold text-sm text-slate-800 mb-1"><?= htmlspecialchars($meeting['title']) ?></p>
+                                        <div class="flex justify-between items-center text-xs text-purple-700 font-medium">
+                                            <span><i class="fa-regular fa-clock mr-1"></i> <?= date('h:i A', strtotime($meeting['meeting_time'])) ?></span>
+                                            <?php if(!empty($meeting['meeting_link'])): ?>
+                                                <a href="<?= htmlspecialchars($meeting['meeting_link']) ?>" target="_blank" class="bg-purple-600 text-white px-2.5 py-1 rounded-md hover:bg-purple-700 transition">Join</a>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="text-center text-slate-400 text-sm font-medium my-auto">
+                                    No upcoming meetings scheduled.
                                 </div>
                             <?php endif; ?>
                         </div>

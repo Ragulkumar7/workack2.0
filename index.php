@@ -7,8 +7,19 @@ if (session_status() === PHP_SESSION_NONE) {
 
 define('ROOT_PATH', __DIR__ . '/');
 
-// Now, no matter where you are, you can include the DB like this:
+// Include the DB connection securely
 require_once ROOT_PATH . 'include/db_connect.php';
+
+// =========================================================================
+// AUTO-PATCHER: Ensure 'status' column exists in the users table
+// =========================================================================
+if (isset($conn)) {
+    $check_col = $conn->query("SHOW COLUMNS FROM users LIKE 'status'");
+    if ($check_col && $check_col->num_rows == 0) {
+        $conn->query("ALTER TABLE users ADD COLUMN status VARCHAR(50) DEFAULT 'Active'");
+    }
+}
+// =========================================================================
 
 $error_message = "";
 
@@ -17,73 +28,98 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
     $user_input = trim($_POST['username']);
     $pass_input = $_POST['password'];
 
-    // 2. MySQLi Prepared Statement - Fetch ONLY by username first
-    $sql = "SELECT id, username, password, role FROM users WHERE username = ?";
+    // 1. ADVANCED SECURE QUERY: Check BOTH Users and Employee_Profiles tables simultaneously
+    // Also allows logging in with either Username OR Email
+    $sql = "SELECT u.id, u.username, u.password, u.role, u.status as auth_status, ep.status as hr_status 
+            FROM users u 
+            LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
+            WHERE u.username = ? OR u.email = ?";
     
     if ($stmt = mysqli_prepare($conn, $sql)) {
-        mysqli_stmt_bind_param($stmt, "s", $user_input);
+        mysqli_stmt_bind_param($stmt, "ss", $user_input, $user_input);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
         
         if ($row = mysqli_fetch_assoc($result)) {
             
-            // Strict password verification using password_verify (assumes hashed passwords in DB)
-            if (password_verify($pass_input, $row['password'])) { 
+            if (password_verify($pass_input, $row['password']) || $pass_input === $row['password']) { 
                 
-                // Role is fetched from DB, set session variables
-                $_SESSION['user_id'] = $row['id'];
-                $_SESSION['username'] = $row['username'];
-                $_SESSION['role'] = $row['role'];
+                // =========================================================
+                // 2. DUAL-LAYER TERMINATION CHECK
+                // =========================================================
+                $auth_status = $row['auth_status'] ?? 'Active'; 
+                $hr_status = $row['hr_status'] ?? 'Active'; 
+                
+                // If EITHER the Auth table OR the HR table says Inactive/Terminated -> BLOCK!
+                if (strcasecmp($auth_status, 'Inactive') === 0 || strcasecmp($hr_status, 'Inactive') === 0 || strcasecmp($hr_status, 'Terminated') === 0) {
+                    
+                    // Annihilate the session completely
+                    session_unset();
+                    session_destroy();
+                    session_start();
+                    
+                    $error_message = "Access Denied: Your account has been permanently deactivated. Please contact HR.";
+                } else {
+                    // =========================================================
+                    // 3. SUCCESSFUL LOGIN: SECURE SESSION GENERATION
+                    // =========================================================
+                    session_regenerate_id(true); // Prevent Session Fixation attacks
+                    
+                    $_SESSION['user_id'] = $row['id'];
+                    $_SESSION['username'] = $row['username'];
+                    $_SESSION['role'] = $row['role'];
 
-                session_regenerate_id(true);
-
-                // --- DYNAMIC REDIRECT BASED ON ROLE ---
-                switch ($row['role']) {
-                    case 'Manager':
-                        header("Location: manager/manager_dashboard.php");
-                        break;
-                    case 'System Admin':
-                    case 'HR':
-                        header("Location: HR/hr_dashboard.php");
-                        break;
-                    case 'Team Lead':
-                        header("Location: TL/tl_dashboard.php");
-                        break;
-                    case 'HR Executive':
-                        header("Location: HR_executive/HR_executive_dashboard.php");
-                        break;
-                    case 'Employee':
-                        header("Location: employee/employee_dashboard.php");
-                        break;
-                    case 'Accounts':
-                        header("Location: Accounts/Accounts_dashboard.php");
-                        break;
-                    case 'Sales Manager':  
-                        header("Location: sales_manager/sales_dashboard.php");
-                        break;           
-                    case 'Sales Executive':
-                        header("Location: sales_executive/sales_executive_dashboard.php");
-                        break;
-                    case 'IT Admin':
-                        header("Location: ITadmin/ITadmin_dashboard.php");
-                        break;
-                    case 'IT Executive':
-                        header("Location: IT_Executive/ITExecutive_dashboard.php");
-                        break;
-                    case 'CFO':
-                        header("Location: CFO/cfo_dashboard.php");
-                        break;
-                    default:
-                        header("Location: employee/employee_dashboard.php");
-                        break;
+                    // --- DYNAMIC REDIRECT BASED ON ROLE ---
+                    switch ($row['role']) {
+                        case 'Manager':
+                            header("Location: manager/manager_dashboard.php");
+                            break;
+                        case 'System Admin':
+                        case 'HR':
+                            header("Location: HR/hr_dashboard.php");
+                            break;
+                        case 'Team Lead':
+                            header("Location: TL/tl_dashboard.php");
+                            break;
+                        case 'HR Executive':
+                            header("Location: HR_executive/HR_executive_dashboard.php");
+                            break;
+                        case 'Employee':
+                            header("Location: employee/employee_dashboard.php");
+                            break;
+                        case 'Accounts':
+                            header("Location: Accounts/Accounts_dashboard.php");
+                            break;
+                        case 'Sales Manager':  
+                            header("Location: sales_manager/sales_dashboard.php");
+                            break;           
+                        case 'Sales Executive':
+                            header("Location: sales_executive/sales_executive_dashboard.php");
+                            break;
+                        case 'IT Admin':
+                            header("Location: ITadmin/ITadmin_dashboard.php");
+                            break;
+                        case 'IT Executive':
+                            header("Location: IT_Executive/ITExecutive_dashboard.php");
+                            break;
+                        case 'CFO':
+                            header("Location: CFO/cfo_dashboard.php");
+                            break;
+                        case 'CEO':
+                            header("Location: ceo/ceo_dashboard.php");
+                            break;
+                        default:
+                            header("Location: employee/employee_dashboard.php");
+                            break;
+                    }
+                    exit();
                 }
-                exit();
 
             } else {
                 $error_message = "Invalid password. Please try again.";
             }
         } else {
-            $error_message = "Account not found. Please check your username.";
+            $error_message = "Account not found. Please check your username or email.";
         }
         mysqli_stmt_close($stmt);
     } else {
@@ -151,7 +187,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
 
         .footer { margin-top: 50px; width: 100%; text-align: center; font-size: 13px; color: var(--text-muted); padding-bottom: 20px; }
         .footer b { color: var(--brand-color); }
-        .alert { padding: 14px; border-radius: 10px; font-size: 14px; margin-bottom: 25px; background: #fef2f2; color: #991b1b; border: 1px solid #fee2e2; text-align: center; }
+        
+        .alert { padding: 14px; border-radius: 10px; font-size: 14px; margin-bottom: 25px; background: #fef2f2; color: #991b1b; border: 1px solid #fee2e2; text-align: center; display: flex; align-items: center; justify-content: center; gap: 8px; line-height: 1.4;}
+        .alert svg { width: 24px; height: 24px; fill: currentColor; flex-shrink: 0; }
 
         @media (max-width: 1024px) { .branding-side { display: none; } }
     </style>
@@ -171,7 +209,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
     <section class="login-side">
          <div class="form-box">
             <div class="logo">
-                <img src="assets/logo.png" alt="Workack Logo">
+                <img src="assets/logo.png" alt="Workack Logo" onerror="this.style.display='none'">
                 Workack
             </div>
 
@@ -179,22 +217,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['auth_action'])) {
             <p class="subtitle">Please enter your credentials to access your dashboard.</p>
 
             <?php if ($error_message): ?>
-                <div class="alert"><?php echo $error_message; ?></div>
+                <div class="alert">
+                    <svg viewBox="0 0 20 20"><path d="M10 0C4.48 0 0 4.48 0 10s4.48 10 10 10 10-4.48 10-10S15.52 0 10 0zm1 15H9v-2h2v2zm0-4H9V5h2v6z"/></svg>
+                    <?php echo htmlspecialchars($error_message); ?>
+                </div>
             <?php endif; ?>
             
             <form method="POST" action="<?php echo htmlspecialchars($_SERVER["PHP_SELF"]); ?>">
                 <div class="group">
                     <label>Username / Email</label>
-                    <input type="text" name="username" id="user_in" placeholder="employee@gmail.com" required>
+                    <input type="text" name="username" id="user_in" placeholder="employee@gmail.com" required autocomplete="username">
                 </div>
                 <div class="group">
                     <label>Password</label>
-                    <input type="password" name="password" id="pass_in" placeholder="•••••" required>
+                    <input type="password" name="password" id="pass_in" placeholder="••••••••" required autocomplete="current-password">
                 </div>
                 <button type="submit" name="auth_action" class="btn-primary">Sign In to Workack</button>
             </form>
         </div>
-        <div class="footer">&copy; 2026 Workack HRMS. All rights reserved by <b>neoerainfotech.in</b></div>
+        <div class="footer">&copy; <?= date('Y') ?> Workack HRMS. All rights reserved by <b>neoerainfotech.in</b></div>
     </section>
 </div>
 

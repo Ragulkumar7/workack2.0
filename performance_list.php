@@ -1,80 +1,202 @@
 <?php
-// 1. OUTPUT BUFFERING - Prevents "Headers already sent" by holding output in memory
+// 1. OUTPUT BUFFERING - Prevents "Headers already sent"
 ob_start();
 
-// 2. SESSION & SECURITY - Must be at the very top
+// 2. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { 
     session_start(); 
 }
 
-// Ensure the user is logged in
 if (!isset($_SESSION['user_id'])) { 
     header("Location: index.php"); 
     exit(); 
 }
 $current_user_id = $_SESSION['user_id'];
+$user_role = $_SESSION['role'] ?? 'Manager';
 
-// 3. DB CONNECTION
-require_once 'include/db_connect.php'; 
+// 3. DB CONNECTION (Dynamic Path mapping)
+$dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
+if (file_exists($dbPath)) { include_once($dbPath); } 
+else { include_once('../include/db_connect.php'); }
 
-// 4. FETCH PERFORMANCE DATA (Filtered strictly for the logged-in Manager or Team Lead)
+// =========================================================================
+// NEW: HANDLE HR HIKE / PROMOTION SUBMISSION
+// =========================================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'approve_hike') {
+    // Only HR or Admin can process this
+    if ($user_role === 'HR' || $user_role === 'Admin') {
+        $emp_id = (int)$_POST['hike_emp_id'];
+        $new_salary = trim($_POST['new_salary']);
+        $new_designation = trim($_POST['new_designation']);
+        $effective_date = $_POST['effective_date'];
+        $remarks = trim($_POST['remarks']);
+
+        // 1. Update Employee Profile (Designation & Salary conceptually)
+        if (!empty($new_designation)) {
+            $stmt = $conn->prepare("UPDATE employee_profiles SET designation = ? WHERE user_id = ?");
+            $stmt->bind_param("si", $new_designation, $emp_id);
+            $stmt->execute();
+        }
+
+        // 2. Create Appraisal/Hike Record Table (If it doesn't exist yet)
+        $conn->query("CREATE TABLE IF NOT EXISTS salary_hikes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            approved_by INT NOT NULL,
+            new_salary VARCHAR(100),
+            new_designation VARCHAR(150),
+            effective_date DATE,
+            remarks TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )");
+
+        // Insert the official record
+        $h_stmt = $conn->prepare("INSERT INTO salary_hikes (user_id, approved_by, new_salary, new_designation, effective_date, remarks) VALUES (?, ?, ?, ?, ?, ?)");
+        $h_stmt->bind_param("iissss", $emp_id, $current_user_id, $new_salary, $new_designation, $effective_date, $remarks);
+        $h_stmt->execute();
+
+        // 3. Optional: Send Notification to Employee
+        // Uncomment and adjust table name if you have a notifications system
+        /*
+        $notif_title = "Congratulations! Performance Appraisal Approved";
+        $notif_msg = "Your recent performance review has been processed. " . (!empty($new_designation) ? "New Role: $new_designation. " : "") . "Effective from: " . date('d M Y', strtotime($effective_date));
+        $n_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
+        $n_stmt->bind_param("iss", $emp_id, $notif_title, $notif_msg);
+        $n_stmt->execute();
+        */
+
+        $_SESSION['success_msg'] = "Appraisal and Salary Hike successfully approved!";
+        header("Location: performance_list.php");
+        exit();
+    }
+}
+
+// =========================================================================
+// 4. FETCH PERFORMANCE DATA DYNAMICALLY BASED ON HIERARCHY
+// =========================================================================
 $performanceData = [];
 
-// This query checks if the employee reports to the logged-in user either as a TL or Manager
-$sql = "SELECT 
-            ep.user_id,
-            ep.emp_id_code as employee_id, 
-            ep.full_name, 
-            ep.designation, 
-            ep.profile_img as profile_image, 
-            COALESCE(per.performance_grade, 'Average') as performance_status,
-            COALESCE(per.total_score, 0) as performance_score,
-            COALESCE(per.project_completion_pct, 0) as project_completion_rate,
-            COALESCE(per.task_completion_pct, 0) as task_completion_rate,
-            COALESCE(per.attendance_pct, 0) as attendance_rate,
-            COALESCE(per.soft_skills, 0) as soft_skills,
-            per.manager_comments
-        FROM employee_profiles ep
-        LEFT JOIN employee_performance per ON ep.user_id = per.user_id
-        WHERE ep.reporting_to = ? OR ep.manager_id = ?
-        ORDER BY per.total_score DESC";
+if ($user_role === 'HR' || $user_role === 'Admin') {
+    // LEVEL 4 (HR/Admin): Sees EVERYONE in the company.
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
+            per.manager_rating_pct, per.manager_comments, per.self_review 
+            FROM employee_profiles ep 
+            LEFT JOIN employee_performance per ON ep.user_id = per.user_id
+            WHERE ep.user_id != ?"; 
+            
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $current_user_id);
 
-// Using prepared statements for security
-$stmt = mysqli_prepare($conn, $sql);
-if ($stmt) {
+} elseif ($user_role === 'Manager') {
+    // LEVEL 3 (Manager): Sees direct reports (TLs) AND second-level reports.
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
+            per.manager_rating_pct, per.manager_comments, per.self_review 
+            FROM employee_profiles ep 
+            LEFT JOIN employee_performance per ON ep.user_id = per.user_id 
+            WHERE ep.reporting_to = ? 
+               OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE reporting_to = ?)";
+               
+    $stmt = mysqli_prepare($conn, $sql);
     mysqli_stmt_bind_param($stmt, "ii", $current_user_id, $current_user_id);
+
+} else {
+    // LEVEL 2 (Team Lead): Sees ONLY employees reporting directly to them.
+    $sql = "SELECT ep.user_id, ep.emp_id_code as employee_id, ep.full_name, ep.designation, ep.profile_img as profile_image, 
+            per.manager_rating_pct, per.manager_comments, per.self_review 
+            FROM employee_profiles ep 
+            LEFT JOIN employee_performance per ON ep.user_id = per.user_id 
+            WHERE ep.reporting_to = ?";
+            
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $current_user_id);
+}
+
+if ($stmt) {
     mysqli_stmt_execute($stmt);
     $result = mysqli_stmt_get_result($stmt);
 
+    $att_stmt = $conn->prepare("SELECT COUNT(*) as total_days, SUM(CASE WHEN status = 'On Time' THEN 1 ELSE 0 END) as present_days, SUM(CASE WHEN status = 'Late' THEN 1 ELSE 0 END) as late_days FROM attendance WHERE user_id = ? AND date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+    $task_stmt = $conn->prepare("SELECT COUNT(*) as total, SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed, SUM(CASE WHEN due_date < CURDATE() AND status != 'completed' THEN 1 ELSE 0 END) as overdue FROM personal_taskboard WHERE user_id = ? AND status != 'cancelled'");
+    $proj_stmt = $conn->prepare("SELECT status FROM project_tasks WHERE assigned_to_user_id = ? LIMIT 10");
+
     if ($result && mysqli_num_rows($result) > 0) {
         while($row = mysqli_fetch_assoc($result)) {
-            // Determine badge status fallback
-            $status = ($row['performance_status'] !== 'N/A' && !empty($row['performance_status'])) 
-                      ? $row['performance_status'] 
-                      : 'Average';
+            $emp_id = $row['user_id'];
+            $emp_full_name = $row['full_name'];
+            $mgr_pct = $row['manager_rating_pct'] ?? 0;
+
+            // 1. Attendance Calculation (15%)
+            $att_stmt->bind_param("i", $emp_id);
+            $att_stmt->execute();
+            $att_data = $att_stmt->get_result()->fetch_assoc();
+            $total_att_days = $att_data['total_days'] > 0 ? $att_data['total_days'] : 1; 
+            $present_days = $att_data['present_days'] ?? 0;
+            $late_days = $att_data['late_days'] ?? 0;
+            $attendance_pct = min(100, round(($present_days / $total_att_days) * 100));
+
+            // 2. Task Calculation (25%)
+            $task_stmt->bind_param("i", $emp_id);
+            $task_stmt->execute();
+            $task_res = $task_stmt->get_result()->fetch_assoc();
+            $task_total = $task_res['total'] > 0 ? $task_res['total'] : 1;
+            $completed_tasks = $task_res['completed'] ?? 0;
+            $overdue_tasks = $task_res['overdue'] ?? 0;
+            $task_completion_pct = round(($completed_tasks / $task_total) * 100);
+
+            // 3. Project Calculation (30%)
+            $proj_stmt->bind_param("i", $emp_id);
+            $proj_stmt->execute();
+            $projects_list = $proj_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $on_time_projects = 0;
+            foreach($projects_list as $p) { if($p['status'] == 'Completed') $on_time_projects++; }
+            $proj_total = count($projects_list) > 0 ? count($projects_list) : 1;
+            $project_completion_pct = round(($on_time_projects / $proj_total) * 100);
+
+            // 4. System Reliability Rating (10%)
+            $automated_rating = 100 - ($late_days * 5) - ($overdue_tasks * 5);
+            $automated_rating = max(40, min(100, $automated_rating));
+
+            // FINAL ENTERPRISE AGGREGATION
+            $score = ($project_completion_pct * 0.30) + ($task_completion_pct * 0.25) + ($attendance_pct * 0.15) + ($automated_rating * 0.10) + ($mgr_pct * 0.20);
+            $score = round($score, 1);
+
+            if($score >= 90) $grade = "Outstanding";
+            elseif($score >= 75) $grade = "Exceeds Expectations";
+            elseif($score >= 50) $grade = "Meets Expectations";
+            else $grade = "Needs Improvement";
 
             $performanceData[] = [
-                "user_id" => $row['user_id'],
+                "user_id" => $emp_id,
                 "id" => $row['employee_id'],
-                "name" => $row['full_name'],
+                "name" => $emp_full_name,
                 "role" => $row['designation'],
                 "img" => $row['profile_image'],
-                "tasks_total" => 100, 
-                "tasks_done" => (float)$row['task_completion_rate'],
-                "attendance" => (float)$row['attendance_rate'],
-                "speed" => (float)$row['performance_score'],
-                "quality" => (float)$row['project_completion_rate'],
-                "soft_skills" => (float)$row['soft_skills'],
+                "tasks_total" => $task_res['total'], 
+                "tasks_done" => $task_completion_pct,
+                "completed_on_time" => $completed_tasks,
+                "overdue" => $overdue_tasks,
+                "attendance" => $attendance_pct,
+                "present_days" => $present_days,
+                "total_att_days" => $total_att_days,
+                "speed" => $score,
+                "quality" => $project_completion_pct,
+                "on_time_proj" => $on_time_projects,
+                "total_proj" => count($projects_list),
+                "sys_score" => $automated_rating,
+                "mgr_score" => $mgr_pct,
                 "comments" => $row['manager_comments'],
-                "status" => $status
+                "self_review" => $row['self_review'],
+                "status" => $grade
             ];
         }
     }
     mysqli_stmt_close($stmt);
-} else {
-    // Debugging if the query fails
-    die("Database Query Failed: " . mysqli_error($conn));
 }
+
+// Sort dynamically calculated data by score (Highest to lowest)
+usort($performanceData, function($a, $b) {
+    return $b['speed'] <=> $a['speed'];
+});
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -82,7 +204,6 @@ if ($stmt) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Performance Overview</title>
-    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -93,81 +214,25 @@ if ($stmt) {
             --text-muted: #64748b;
             --border: #e2e8f0;
             --white: #ffffff;
-            --primary: #f97316;
+            --primary: #0d9488;
             --sidebar-width: 100px; 
         }
 
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: var(--bg-body); 
-            margin: 0; 
-            color: var(--text-main);
-            overflow-x: hidden;
-        }
-
-        .layout-wrapper {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        .content-area {
-            flex: 1;
-            margin-left: var(--sidebar-width); 
-            display: flex;
-            flex-direction: column;
-            transition: all 0.3s ease;
-        }
-
-        .main-content { 
-            padding: 30px; 
-            width: 100%; 
-            box-sizing: border-box;
-            position: relative; 
-        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-body); margin: 0; color: var(--text-main); overflow-x: hidden; }
+        .layout-wrapper { display: flex; min-height: 100vh; }
+        .content-area { flex: 1; margin-left: var(--sidebar-width); display: flex; flex-direction: column; transition: all 0.3s ease; }
+        .main-content { padding: 30px; width: 100%; box-sizing: border-box; position: relative; }
 
         .page-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 30px; }
         .header-title h1 { font-size: 28px; font-weight: 700; margin: 0; color: #0f172a; }
         .header-title p { color: var(--text-muted); margin: 5px 0 0; font-size: 14px; }
 
-        .table-header-tools {
-            display: flex;
-            justify-content: flex-end;
-            padding: 20px 24px;
-            gap: 12px;
-            align-items: center;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .search-box { 
-            position: relative; 
-            display: flex; 
-            align-items: center;
-            border: 1px solid ; 
-            border-radius: 8px; 
-        }
-        
-        .search-box i { 
-            position: absolute; 
-            left: 14px; 
-            width: 18px; 
-            height: 18px;
-            color: var(--text-muted); 
-            pointer-events: none;
-            z-index: 1;
-        }
-
-        .form-control { 
-            padding: 10px 15px 10px 42px; 
-            border: 1px solid var(--border); 
-             
-            font-size: 14px; 
-            background: var(--white); 
-            outline: none; 
-            min-width: 280px; 
-            transition: border 0.2s; 
-        }
+        .table-header-tools { display: flex; justify-content: flex-end; padding: 20px 24px; border-bottom: 1px solid #f1f5f9; }
+        .search-box { position: relative; display: flex; align-items: center; }
+        .search-box i { position: absolute; left: 14px; width: 18px; height: 18px; color: var(--text-muted); pointer-events: none; z-index: 1; }
+        .form-control { padding: 10px 15px 10px 42px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; min-width: 280px; outline: none; }
         .form-control:focus { border-color: var(--primary); }
-        
+
         .table-container { background: white; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; width: 100%; }
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 16px 24px; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; background: #fcfcfd; border-bottom: 1px solid var(--border); }
@@ -179,95 +244,67 @@ if ($stmt) {
         .emp-role { font-size: 12px; color: var(--text-muted); }
 
         .grade-badge { padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-block; }
-        .status-Excellent, .status-High { background: #ecfdf5; color: #10b981; }
-        .status-Good { background: #eff6ff; color: #3b82f6; }
-        .status-Average { background: #fff7ed; color: #f59e0b; }
-        .status-Poor, .status-Low { background: #fef2f2; color: #ef4444; }
+        .status-Outstanding { background: #ecfdf5; color: #10b981; }
+        .status-Exceeds { background: #eff6ff; color: #3b82f6; }
+        .status-Meets { background: #fff7ed; color: #f59e0b; }
+        .status-Needs { background: #fef2f2; color: #ef4444; }
 
-        .btn-view { background: #1e293b; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+        .btn-view { background: #1e293b; color: white; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; transition: 0.2s;}
+        .btn-view:hover { background: var(--primary); }
         
-        .modal-overlay { 
-            display: none; 
-            width: 100%; 
-            background: var(--bg-body); 
-            animation: fadeIn 0.3s ease;
-        }
-        
+        .modal-overlay { display: none; width: 100%; animation: fadeIn 0.3s ease; }
         .modal-overlay.active { display: block; }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
         .modal-box { width: 100%; padding-bottom: 50px; }
-        .modal-nav { padding: 0 0 20px 0; display: flex; justify-content: space-between; align-items: center; }
-        .back-link { display: flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 14px; cursor: pointer; font-weight: 500; }
+        .modal-nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 20px 0; }
+        .back-link { display: flex; align-items: center; gap: 8px; color: var(--text-muted); text-decoration: none; font-size: 14px; cursor: pointer; font-weight: 600; }
+        .back-link:hover { color: var(--text-main); }
+        .btn-evaluate { background: var(--primary); color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 6px; cursor:pointer; border:none;}
+        .btn-evaluate:hover { background: #0f766e; }
+        
+        .btn-hike { background: #10b981; color: white; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor:pointer; border:none; display: flex; align-items: center; gap: 6px; transition: 0.2s;}
+        .btn-hike:hover { background: #059669; }
 
         .profile-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 0 30px; }
         .profile-info { display: flex; align-items: center; gap: 15px; }
         .profile-info img { width: 55px; height: 55px; border-radius: 50%; }
 
         .grid-dashboard { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; padding: 0; }
-        .card-wide { grid-column: span 2; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; }
+        .card-wide { grid-column: span 2; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
         .grade-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-        .metrics-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 10px; }
-        .metric-item { background: #fcfcfd; border: 1px solid var(--border); padding: 20px; border-radius: 12px; }
-        .metric-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: 8px; }
-        .metric-value { font-size: 24px; font-weight: 700; margin: 5px 0; display: block; }
-        .metric-sub { font-size: 12px; color: var(--text-muted); }
+        
+        .metrics-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-top: 10px; }
+        .metric-item { background: #fcfcfd; border: 1px solid var(--border); padding: 15px; border-radius: 12px; }
+        .metric-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: 8px; }
+        .metric-value { font-size: 20px; font-weight: 700; margin: 5px 0; display: block; color: #0f172a;}
+        .metric-sub { font-size: 11px; color: var(--text-muted); }
 
         .score-circle-container { position: relative; width: 110px; height: 110px; }
         .score-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .score-num { font-size: 26px; font-weight: 800; color: #1e293b; }
 
-        .info-card { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 25px; }
+        .info-card { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);}
         .card-title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 20px; color: #334155; }
         
-        .list-item { display: flex; justify-content: space-between; padding: 15px 0; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-        .status-pill { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .on-time { background: #ecfdf5; color: #10b981; }
-        .delayed { background: #fef2f2; color: #ef4444; }
+        .feedback-text-box { background: #fcfcfd; padding: 20px; border-radius: 8px; border: 1px solid var(--border); font-size: 14px; color: #334155; font-style: italic; line-height: 1.6;}
 
-        .feedback-section { margin-top: 25px; background: white; border-radius: 12px; border: 1px solid var(--border); padding: 30px; position: relative; }
-        .feedback-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 20px; }
-        .feedback-title { font-size: 16px; font-weight: 600; color: #334155; display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        
-        .slider-wrapper { margin-top: 20px; }
-        .slider-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-muted); margin-top: 8px; font-weight: 500; }
-        .slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
-        .slider-header span { font-size: 14px; font-weight: 500; color: var(--text-muted); }
-        .slider-header .val { color: #1e293b; font-weight: 700; font-size: 18px; }
+        /* Popup Form Modal */
+        .popup-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background: rgba(15,23,42,0.6); z-index:1000; align-items:center; justify-content:center; backdrop-filter: blur(4px);}
+        .popup-modal.active { display:flex; }
+        .popup-content { background:white; padding:30px; border-radius:12px; width:450px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); position:relative; }
+        .form-group { margin-bottom: 15px; }
+        .form-group label { display:block; font-size:12px; font-weight:600; color:#475569; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px;}
+        .form-group input, .form-group textarea { width:100%; padding:10px 14px; border:1px solid var(--border); border-radius:8px; font-family:inherit; font-size:14px; outline:none; box-sizing:border-box;}
+        .form-group input:focus { border-color: #10b981; }
 
-        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
-        input[type=range]:focus { outline: none; }
-        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cursor: pointer; background: #e2e8f0; border-radius: 10px; }
-        input[type=range]::-webkit-slider-thumb { height: 18px; width: 18px; border-radius: 50%; background: #3b82f6; cursor: pointer; -webkit-appearance: none; margin-top: -6px; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
-
-        .comments-area { display: flex; flex-direction: column; gap: 10px; }
-        .feedback-textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 15px; font-family: inherit; font-size: 14px; color: var(--text-main); resize: none; min-height: 100px; box-sizing: border-box; }
-        .feedback-textarea:focus { outline: none; border-color: #3b82f6; }
-        
-        .btn-update { 
-            margin-top: 20px;
-            margin-left: auto;
-            display: block;
-            background: #1e293b; 
-            color: white; 
-            border: none; 
-            padding: 12px 24px; 
-            border-radius: 8px; 
-            cursor: pointer; 
-            font-weight: 600; 
-            font-size: 14px; 
-            transition: opacity 0.2s; 
-        }
-        .btn-update:hover { opacity: 0.9; }
+        .alert-success { background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 15px 20px; border-radius: 8px; margin-bottom: 25px; display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px;}
 
         @media (max-width: 992px) {
             .content-area { margin-left: 0 !important; }
-            .grid-dashboard, .feedback-grid { grid-template-columns: 1fr; }
+            .grid-dashboard { grid-template-columns: 1fr; }
             .card-wide { grid-column: span 1; }
+            .metrics-row { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
@@ -281,11 +318,20 @@ if ($stmt) {
 
             <div class="main-content">
                 
+                <?php if(isset($_SESSION['success_msg'])): ?>
+                    <div class="alert-success" id="successAlert">
+                        <i data-lucide="check-circle"></i>
+                        <?= $_SESSION['success_msg'] ?>
+                        <?php unset($_SESSION['success_msg']); ?>
+                    </div>
+                    <script>setTimeout(() => document.getElementById('successAlert').style.display='none', 4000);</script>
+                <?php endif; ?>
+
                 <div id="listView">
                     <div class="page-header">
                         <div class="header-title">
                             <h1>Performance Overview</h1>
-                            <p>Track and manage your team's performance ratings</p>
+                            <p>Track and review synchronized dynamic team metrics</p>
                         </div>
                     </div>
 
@@ -301,9 +347,9 @@ if ($stmt) {
                             <thead>
                                 <tr>
                                     <th>Employee Name</th>
-                                    <th>Department</th>
-                                    <th>Projects</th>
-                                    <th>Attendance</th>
+                                    <th>Designation</th>
+                                    <th>Project Score</th>
+                                    <th>Task Score</th>
                                     <th>Overall Score</th>
                                     <th>Grade</th>
                                     <th>Action</th>
@@ -324,18 +370,26 @@ if ($stmt) {
                                                 <img src="<?= !empty($row['img']) && strpos($row['img'], 'http') === 0 ? $row['img'] : 'assets/profiles/'.(!empty($row['img']) ? $row['img'] : 'default.png') ?>" class="emp-img" onerror="this.src='https://ui-avatars.com/api/?name=<?= urlencode($row['name']) ?>&background=random'">
                                                 <div>
                                                     <span class="emp-name"><?= htmlspecialchars($row['name']) ?></span>
-                                                    <span class="emp-role"><?= htmlspecialchars($row['role']) ?></span>
+                                                    <span class="emp-role">ID: <?= htmlspecialchars($row['id'] ?? 'N/A') ?></span>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td style="color: var(--text-muted);">Web Development</td>
+                                        <td style="color: var(--text-muted); font-weight: 500;"><?= htmlspecialchars($row['role']) ?></td>
                                         <td><?= $row['quality'] ?>%</td>
-                                        <td><?= $row['attendance'] ?>%</td>
-                                        <td><span style="font-weight:700;"><?= rtrim(rtrim($row['speed'], '0'), '.') ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
-                                        <td><span class="grade-badge status-<?= $row['status'] ?>"><?= $row['status'] ?></span></td>
+                                        <td><?= $row['tasks_done'] ?>%</td>
+                                        <td><span style="font-weight:700; color: #0f172a;"><?= rtrim(rtrim($row['speed'], '0'), '.') ?></span><span style="color:var(--text-muted); font-size:12px;">/100</span></td>
+                                        <td>
+                                            <?php 
+                                                $b_class = 'status-Needs';
+                                                if (strpos($row['status'], 'Outstanding') !== false) $b_class = 'status-Outstanding';
+                                                elseif (strpos($row['status'], 'Exceeds') !== false) $b_class = 'status-Exceeds';
+                                                elseif (strpos($row['status'], 'Meets') !== false) $b_class = 'status-Meets';
+                                            ?>
+                                            <span class="grade-badge <?= $b_class ?>"><?= $row['status'] ?></span>
+                                        </td>
                                         <td>
                                             <button class="btn-view" onclick='openDetails(<?= htmlspecialchars(json_encode($row), ENT_QUOTES, "UTF-8") ?>)'>
-                                                <i data-lucide="eye" style="width:14px"></i> View
+                                                <i data-lucide="eye" style="width:14px"></i> Review
                                             </button>
                                         </td>
                                     </tr>
@@ -352,14 +406,25 @@ if ($stmt) {
                             <a class="back-link" onclick="closeModal()">
                                 <i data-lucide="arrow-left" style="width:18px"></i> Back to Employee List
                             </a>
+                            <div style="display:flex; gap:10px;">
+                                <a href="evaluate_team.php" class="btn-evaluate">
+                                    <i data-lucide="gavel" style="width:16px"></i> Evaluate
+                                </a>
+                                
+                                <?php if($user_role === 'HR' || $user_role === 'Admin'): ?>
+                                <button class="btn-hike" onclick="openHikeModal()">
+                                    <i data-lucide="trending-up" style="width:16px"></i> Approve Hike
+                                </button>
+                                <?php endif; ?>
+                            </div>
                         </div>
 
                         <div class="profile-header">
                             <div class="profile-info">
                                 <img id="modalImg" src="">
                                 <div>
-                                    <h2 id="modalName" style="margin:0; font-size:24px;"></h2>
-                                    <p id="modalRole" style="margin:4px 0 0; color:var(--text-muted); font-size:14px;"></p>
+                                    <h2 id="modalName" style="margin:0; font-size:24px; font-weight: 700; color: #0f172a;"></h2>
+                                    <p id="modalRole" style="margin:4px 0 0; color:var(--primary); font-size:13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;"></p>
                                 </div>
                             </div>
                         </div>
@@ -367,13 +432,13 @@ if ($stmt) {
                         <div class="grid-dashboard">
                             <div class="card-wide">
                                 <div class="grade-header">
-                                    <span style="font-weight:600; font-size:16px;">Performance Grade</span>
-                                    <span id="dStatusLabel" style="font-weight:700; color:var(--primary); font-size:18px;">Good</span>
+                                    <span style="font-weight:600; font-size:16px;">Enterprise Performance Grade</span>
+                                    <span id="dStatusLabel" style="font-weight:800; font-size:20px;">Meets Expectations</span>
                                 </div>
                                 
-                                <div style="display:flex; align-items:center; gap:50px;">
+                                <div style="display:flex; align-items:center; gap:40px;">
                                     <div class="score-circle-container">
-                                        <svg viewBox="0 0 36 36" style="width:110px; height:110px;">
+                                        <svg viewBox="0 0 36 36" style="width:110px; height:110px; transform: rotate(-90deg);">
                                             <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#eee" stroke-width="3" />
                                             <path id="scoreCircle" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="var(--primary)" stroke-width="3" stroke-dasharray="0, 100" style="transition: stroke-dasharray 1s ease-out;" />
                                         </svg>
@@ -385,22 +450,27 @@ if ($stmt) {
 
                                     <div class="metrics-row" style="flex:1;">
                                         <div class="metric-item">
-                                            <span class="metric-label">Projects <span style="font-weight:400">40%</span></span>
+                                            <span class="metric-label">Projects <span style="font-weight:400">30%</span></span>
                                             <span class="metric-value" id="dQual">0%</span>
-                                            <span class="metric-sub">2/4 On Time</span>
+                                            <span class="metric-sub" id="dQualSub">0/0 Completed</span>
                                         </div>
                                         <div class="metric-item">
-                                            <span class="metric-label">Tasks <span style="font-weight:400">30%</span></span>
+                                            <span class="metric-label">Tasks <span style="font-weight:400">25%</span></span>
                                             <span class="metric-value" id="dDone">0%</span>
-                                            <span class="metric-sub">30 Completed</span>
+                                            <span class="metric-sub" id="dDoneSub">0 Completed</span>
                                         </div>
                                         <div class="metric-item">
-                                            <span class="metric-label">Attendance <span style="font-weight:400">20%</span></span>
+                                            <span class="metric-label">Attendance <span style="font-weight:400">15%</span></span>
                                             <span class="metric-value" id="dAtt">0%</span>
-                                            <span class="metric-sub">4 Days Leave</span>
+                                            <span class="metric-sub" id="dAttSub">0/0 Days</span>
                                         </div>
                                         <div class="metric-item">
-                                            <span class="metric-label">Manager <span style="font-weight:400">10%</span></span>
+                                            <span class="metric-label">System <span style="font-weight:400">10%</span></span>
+                                            <span class="metric-value" id="dSys">0%</span>
+                                            <span class="metric-sub">Reliability</span>
+                                        </div>
+                                        <div class="metric-item">
+                                            <span class="metric-label">Manager <span style="font-weight:400">20%</span></span>
                                             <span class="metric-value" id="dManager">0%</span>
                                             <span class="metric-sub">Soft Skills</span>
                                         </div>
@@ -409,22 +479,57 @@ if ($stmt) {
                             </div>
 
                             <div class="info-card">
-                                <div class="card-title"><i data-lucide="layers" style="width:18px; color:#3b82f6;"></i> Project Timelines</div>
-                                <div class="list-item"><span>HRMS Portal v2</span> <span style="color:var(--text-muted)">10 Feb 2026</span> <span class="status-pill on-time">On Time</span></div>
-                                <div class="list-item"><span>E-Commerce App</span> <span style="color:var(--text-muted)">01 Feb 2026</span> <span class="status-pill delayed">Delayed</span></div>
-                                <div class="list-item" style="border:none;"><span>Client API Integ.</span> <span style="color:var(--text-muted)">15 Jan 2026</span> <span class="status-pill on-time">On Time</span></div>
+                                <div class="card-title"><i data-lucide="user-pen" style="width:20px; color:#0d9488;"></i> Employee Self-Review</div>
+                                <div class="feedback-text-box" id="dSelfReview">No self-review submitted.</div>
                             </div>
 
                             <div class="info-card">
-                                <div class="card-title"><i data-lucide="list-checks" style="width:18px; color:var(--primary);"></i> Task Efficiency</div>
-                                <div class="list-item"><span>Total Tasks Assigned</span> <span style="font-weight:700;">40</span></div>
-                                <div class="list-item"><span>Completed On Time</span> <span style="font-weight:700; color:#10b981;">30</span></div>
-                                <div class="list-item" style="border:none;"><span>Overdue / Pending</span> <span style="font-weight:700; color:#ef4444;">10</span></div>
+                                <div class="card-title"><i data-lucide="message-square-quote" style="width:20px; color:#8b5cf6;"></i> Official Feedback</div>
+                                <div class="feedback-text-box" id="dComments">No official feedback provided yet.</div>
                             </div>
                         </div>
-
                     </div>
                 </div>
+
+                <div class="popup-modal" id="hikeModal">
+                    <div class="popup-content">
+                        <button type="button" onclick="closeHikeModal()" style="position:absolute; right:20px; top:20px; background:none; border:none; cursor:pointer; color:#64748b;"><i data-lucide="x"></i></button>
+                        
+                        <h3 style="font-size:20px; font-weight:800; color:#0f172a; margin-top:0; margin-bottom:5px;">Approve Salary Hike</h3>
+                        <p style="font-size:13px; color:#64748b; margin-bottom:20px;">Granting appraisal for: <b id="hikeEmpName" style="color:#10b981;"></b></p>
+                        
+                        <form method="POST" action="">
+                            <input type="hidden" name="action" value="approve_hike">
+                            <input type="hidden" name="hike_emp_id" id="hikeEmpId" value="">
+                            
+                            <div class="form-group">
+                                <label>New Designation / Promotion (Optional)</label>
+                                <input type="text" name="new_designation" id="hikeEmpRole" placeholder="e.g. Senior Developer">
+                            </div>
+
+                            <div style="display:flex; gap:15px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label>New Annual Salary (₹)</label>
+                                    <input type="text" name="new_salary" placeholder="e.g. 800,000" required>
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label>Effective Date</label>
+                                    <input type="date" name="effective_date" required>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label>HR Remarks & Justification</label>
+                                <textarea name="remarks" rows="3" placeholder="Performance was excellent, moving to Senior Band..." required></textarea>
+                            </div>
+
+                            <button type="submit" class="btn-hike" style="width:100%; justify-content:center; padding:12px; font-size:15px; margin-top:10px;">
+                                <i data-lucide="check-circle" style="width:18px"></i> Finalize & Approve
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -432,32 +537,46 @@ if ($stmt) {
     <script>
         lucide.createIcons();
 
-        function updateSliderVal(val) {
-            document.getElementById('softSkillVal').innerText = val;
-        }
+        // Variables to pass data between modals
+        let currentSelectedEmpId = null;
+        let currentSelectedEmpName = "";
+        let currentSelectedEmpRole = "";
 
         function openDetails(data) {
+            // Save data for the Hike modal
+            currentSelectedEmpId = data.user_id;
+            currentSelectedEmpName = data.name;
+            currentSelectedEmpRole = data.role;
+
             document.getElementById('modalName').innerText = data.name;
             
-            // Fix Profile Image Loading
+            // Format Image
             let imgSource = data.img;
             if(!imgSource || imgSource === 'default.png') {
-                imgSource = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=random`;
+                imgSource = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=0d9488&color=fff`;
             } else if (!imgSource.startsWith('http')) {
                 imgSource = "assets/profiles/" + imgSource;
             }
             document.getElementById('modalImg').src = imgSource;
+            document.getElementById('modalRole').innerText = data.role;
             
-            document.getElementById('modalRole').innerText = data.role + " • Web Development";
-            
+            // Metric Percentages
+            document.getElementById('dQual').innerText = data.quality + "%";
             document.getElementById('dDone').innerText = data.tasks_done + "%";
             document.getElementById('dAtt').innerText = data.attendance + "%";
-            document.getElementById('dQual').innerText = data.quality + "%";
+            document.getElementById('dSys').innerText = data.sys_score + "%";
+            document.getElementById('dManager').innerText = data.mgr_score + "%";
             
-            // Populate the dynamic Manager Score
-            document.getElementById('dManager').innerText = data.soft_skills + "%";
-            
-            // Format score to drop trailing decimals
+            // Metric Subtexts
+            document.getElementById('dQualSub').innerText = data.on_time_proj + "/" + data.total_proj + " Completed";
+            document.getElementById('dDoneSub').innerText = data.completed_on_time + " Completed";
+            document.getElementById('dAttSub').innerText = data.present_days + "/" + data.total_att_days + " Days";
+
+            // Reviews
+            document.getElementById('dSelfReview').innerText = data.self_review ? '"' + data.self_review + '"' : 'Employee has not submitted a self-review yet.';
+            document.getElementById('dComments').innerText = data.comments ? '"' + data.comments + '"' : 'No official feedback provided yet.';
+
+            // Score Formatting
             let rawScore = parseFloat(data.speed);
             let formattedScore = Number.isInteger(rawScore) ? rawScore : rawScore.toFixed(1);
             document.getElementById('dSpeed').innerText = formattedScore;
@@ -465,20 +584,14 @@ if ($stmt) {
             const scoreLabel = document.getElementById('dStatusLabel');
             scoreLabel.innerText = data.status;
             
-            // Color formatting for modal
-            if(rawScore >= 90 || data.status === 'High' || data.status === 'Excellent') {
-                scoreLabel.style.color = '#10b981'; // Green
-                document.getElementById('scoreCircle').setAttribute('stroke', '#10b981');
-            } else if (rawScore >= 75 || data.status === 'Good') {
-                scoreLabel.style.color = '#3b82f6'; // Blue
-                document.getElementById('scoreCircle').setAttribute('stroke', '#3b82f6');
-            } else if (rawScore >= 50 || data.status === 'Average') {
-                scoreLabel.style.color = '#f97316'; // Orange
-                document.getElementById('scoreCircle').setAttribute('stroke', '#f97316');
-            } else {
-                scoreLabel.style.color = '#ef4444'; // Red
-                document.getElementById('scoreCircle').setAttribute('stroke', '#ef4444');
-            }
+            // Dynamic Coloring based on Enterprise Grades
+            let color = '#ef4444'; // Red (Needs Improvement)
+            if(rawScore >= 90) color = '#10b981'; // Green (Outstanding)
+            else if (rawScore >= 75) color = '#3b82f6'; // Blue (Exceeds)
+            else if (rawScore >= 50) color = '#f97316'; // Orange (Meets)
+
+            scoreLabel.style.color = color;
+            document.getElementById('scoreCircle').setAttribute('stroke', color);
             
             // Animation for Ring
             setTimeout(() => {
@@ -494,17 +607,28 @@ if ($stmt) {
         function closeModal() {
             document.getElementById('detailModal').classList.remove('active');
             document.getElementById('listView').style.display = 'block';
-            
-            // Reset ring for next animation
             document.getElementById('scoreCircle').setAttribute('stroke-dasharray', `0, 100`);
         }
 
+        // HIKE MODAL LOGIC
+        function openHikeModal() {
+            document.getElementById('hikeEmpId').value = currentSelectedEmpId;
+            document.getElementById('hikeEmpName').innerText = currentSelectedEmpName;
+            document.getElementById('hikeEmpRole').value = currentSelectedEmpRole;
+            document.getElementById('hikeModal').classList.add('active');
+        }
+
+        function closeHikeModal() {
+            document.getElementById('hikeModal').classList.remove('active');
+        }
+
+        // Search Filter
         document.getElementById('searchInput').addEventListener('keyup', function() {
             let filter = this.value.toUpperCase();
             let rows = document.querySelector("#performanceTable tbody").rows;
             for (let i = 0; i < rows.length; i++) {
                 let nameCell = rows[i].querySelector('.emp-name');
-                if(nameCell) { // Prevent error on empty row
+                if(nameCell) { 
                     let name = nameCell.textContent.toUpperCase();
                     rows[i].style.display = name.includes(filter) ? "" : "none";
                 }

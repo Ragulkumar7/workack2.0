@@ -19,7 +19,7 @@ $current_view = $_GET['view'] ?? '';
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
 // Added 'hr_executive' to ensure paths correctly use '../' to go to root.
-if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo','sales_manager','sales_executive'])) {
+if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo','sales_manager','sales_executive','ceo'])) {
     $base = '../';
 } else {
     $base = '';
@@ -36,6 +36,12 @@ $sections = [
                 'path' => $base . 'manager/manager_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['Manager'] 
+            ],
+            [
+                'name' => 'Dashboard', 
+                'path' => $base . 'ceo/ceo_dashboard.php', 
+                'icon' => 'layout-dashboard', 
+                'allowed' => ['CEO'] 
             ],
             [
                 'name' => 'Dashboard', 
@@ -104,7 +110,7 @@ $sections = [
                'name' => 'Team Chat', 
                 'path' => $base . 'team_chat.php', 
                'icon' => 'message-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR', 'Sales Manager', 'Sales Executive']
+                'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR', 'Sales Manager', 'Sales Executive', 'CEO']
             ],
             
             // --- ATTENDANCE (HR& HR Executive) ---
@@ -115,6 +121,18 @@ $sections = [
                 'subItems' => [
                     ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'HR/shift_swap_approval_hr.php', 'icon' => 'arrow-left-right'],
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
+                    ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
+                ]
+            ],
+             [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['CEO'],
+                'subItems' => [
+                    ['name' => 'Attendance (Admin)', 'path' => $base . 'admin_attendance.php', 'icon' => 'user-check'],
                     ['name' => 'Timesheets', 'path' => $base . 'timesheets.php', 'icon' => 'clock'],
                     ['name' => 'Shift Swap', 'path' => $base . 'HR/shift_swap_approval_hr.php', 'icon' => 'arrow-left-right'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
@@ -171,9 +189,21 @@ $sections = [
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Employee', 'IT Admin', 'IT Executive', 'Accounts', 'CFO', 'Sales Manager', 'Sales Executive'],
+                'allowed' => ['Employee', 'IT Executive', 'Accounts', 'CFO', 'Sales Manager', 'Sales Executive'],
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
+                ]
+            ],
+            [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['IT Admin'],
+                'subItems' => [
+                    ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Team Attendance', 'path' => $base . 'ITadmin/it_team_attendance.php', 'icon' => 'users'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
@@ -240,7 +270,7 @@ $sections = [
                 'name' => 'Stock Maintenance', 
                 'path' => $base . 'IT_Executive/stock_maintenance.php', // File path-ai check seithu kollungal
                 'icon' => 'package', // Lucide icon for stock/package
-                'allowed' => ['IT Admin', 'IT Executive']
+                'allowed' => ['IT Admin', 'IT Executive',"CFO"]
             ],
             // --- TASK MANAGEMENT ---
             [
@@ -307,13 +337,6 @@ $sections = [
                 'icon' => 'trending-up', 
                 'allowed' => ['Team Lead'],
             ],
-            // --- TL PERFORMANCE (TEAM LEAD ROLE) ---
-            [
-                'name' => 'Team Performance', 
-                'path' => $base . 'TL/tl_performance.php', 
-                'icon' => 'trending-up', // Lucide icon for performance
-                'allowed' => ['Team Lead']
-            ],
             [
                 'name' => 'Performance', 
                 'path' => $base . 'HR/all_performance.php', 
@@ -371,7 +394,7 @@ $sections = [
                 'name' => 'Announcement', 
                 'path' => $base . 'announcement.php',
                 'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR']
+                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR', 'CEO']
             ],
             [
                 'name' => 'Announcement', 
@@ -542,13 +565,13 @@ $sections = [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
                 'icon' => 'help-circle', 
-                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive']
+                'allowed' => ['Manager', 'System Admin', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive', 'CEO']
             ],
             [
                 'name' => 'Settings', 
                 'path' => $base . 'settings.php', 
                 'icon' => 'settings', 
-                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive']
+                'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'Accounts', 'HR Executive', 'CFO','Sales Manager','Sales Executive', 'CEO']
             ],
         ]
     ]

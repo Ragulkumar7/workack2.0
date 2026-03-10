@@ -51,6 +51,37 @@ if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user
     $avatar = str_starts_with($profile['profile_img'], 'http') ? $profile['profile_img'] : '../assets/profiles/' . $profile['profile_img'];
 }
 
+// Grab Manager ID for later
+$reporting_id = !empty($profile['manager_id']) ? $profile['manager_id'] : ($profile['reporting_to'] ?? 0);
+
+$shift_timings = $profile['shift_timings'] ?? '09:00 AM - 06:00 PM';
+$time_parts = explode('-', $shift_timings);
+$shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
+$regular_shift_hours = 9;
+
+// =========================================================================
+// FETCH REPORTING MANAGER DATA (Variables correctly defined here)
+// =========================================================================
+$mgr_name = "System Admin";
+$mgr_phone = "Not Assigned";
+$mgr_email = "admin@company.com";
+$mgr_role = "ADMINISTRATOR";
+
+if ($reporting_id > 0) {
+    $hm_sql = "SELECT p.full_name, p.phone, u.email, u.role FROM employee_profiles p JOIN users u ON p.user_id = u.id WHERE p.user_id = ?";
+    $hm_stmt = $conn->prepare($hm_sql);
+    $hm_stmt->bind_param("i", $reporting_id);
+    $hm_stmt->execute();
+    $hm_res = $hm_stmt->get_result();
+    if ($hm_info = $hm_res->fetch_assoc()) {
+        $mgr_name = !empty($hm_info['full_name']) ? $hm_info['full_name'] : "Manager";
+        $mgr_phone = !empty($hm_info['phone']) ? $hm_info['phone'] : "Not Set";
+        $mgr_email = !empty($hm_info['email']) ? $hm_info['email'] : "Not Set";
+        $mgr_role = strtoupper($hm_info['role'] ?? 'MANAGER'); 
+    }
+    $hm_stmt->close();
+}
+
 // =========================================================================
 // 3. HANDLE ATTENDANCE ACTIONS (PUNCH IN/OUT/BREAK)
 // =========================================================================
@@ -106,7 +137,7 @@ $stmt->bind_param("is", $user_id, $today);
 $stmt->execute();
 $attendance = $stmt->get_result()->fetch_assoc();
 
-// GLOBALLY DEFINED VARIABLES (Fixes the undefined variable error on line 321)
+// GLOBALLY DEFINED VARIABLES
 $att_status = "Not Punched In";
 $display_punch_in = "--:--";
 $is_punched_in = false;
@@ -244,6 +275,20 @@ $perf_score = 92; $perf_grade = "A+";
         }
 
         .dashboard-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1.5rem; }
+        
+        /* Container for Top Row Cards */
+        .dashboard-container { 
+            display: grid; 
+            grid-template-columns: repeat(1, minmax(0, 1fr)); 
+            gap: 1.5rem; 
+            align-items: stretch;
+        }
+        @media (min-width: 1024px) {
+            .dashboard-container {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
         .card { background: white; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0,0,0,0.02); display: flex; flex-direction: column; overflow: hidden; transition: 0.2s;}
         .card:hover { box-shadow: 0 4px 15px rgba(0,0,0,0.05); transform: translateY(-2px);}
         .card-body { padding: 1.5rem; flex: 1; }
@@ -303,109 +348,149 @@ $perf_score = 92; $perf_grade = "A+";
                 </div>
             </div>
 
-            <div class="dashboard-grid mb-6 items-stretch">
-                <div class="col-span-12 lg:col-span-3 h-full">
-                    <div class="card h-full">
-                        <div class="profile-header-bg">
-                            <h4 class="text-xs font-bold uppercase tracking-widest opacity-80"><?php echo htmlspecialchars($emp_dept); ?></h4>
+            <div class="dashboard-container mb-6">
+                
+                <div class="flex flex-col gap-6 w-full">
+                    <?php 
+                // Auto-heal missing closing tags from attendance_card.php during "Break" state
+                ob_start();
+                include '../attendance_card.php'; 
+                $att_card_html = ob_get_clean();
+                echo $att_card_html;
+                
+                $div_open = substr_count(strtolower($att_card_html), '<div');
+                $div_close = substr_count(strtolower($att_card_html), '</div');
+                if ($div_open > $div_close) {
+                    echo str_repeat('</div>', $div_open - $div_close);
+                }
+                ?>
+                </div>
+
+                <div class="flex flex-col gap-6 w-full">
+                    <div class="card shrink-0">
+                        <div class="p-6">
+                            <div class="flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
+                                <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
+                                <span class="text-[10px] font-bold bg-slate-100 text-gray-500 px-2 py-1 rounded uppercase"><?php echo date('M Y'); ?></span>
+                            </div>
+                            <div class="flex flex-col xl:flex-row items-center justify-between gap-6">
+                                <div class="space-y-3.5 w-full pr-2">
+                                    <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div><span class="text-xs text-gray-600 font-semibold">On Time</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_ontime; ?></span></div>
+                                    
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-emerald-500"></div><span class="text-xs text-gray-600 font-semibold">Late</span></div>
+                                        <div class="text-right">
+                                            <span class="font-bold text-slate-800 text-sm block"><?php echo $stats_late; ?></span>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-amber-500"></div><span class="text-xs text-gray-600 font-semibold">WFH</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_wfh; ?></span></div>
+                                    <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-rose-500"></div><span class="text-xs text-gray-600 font-semibold">Absent</span></div><span class="font-bold text-slate-800 text-sm">0</span></div>
+                                    
+                                    <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+                                        <div class="flex items-center gap-2"><i data-lucide="plane-takeoff" class="text-rose-400 w-3 h-3"></i><span class="text-xs text-slate-800 font-bold uppercase">Leaves Taken</span></div>
+                                        <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs">0 Days</span>
+                                    </div>
+                                </div>
+                                <div class="relative flex-shrink-0 w-28 h-28 mx-auto">
+                                    <div id="attendanceChart" class="w-full h-full"></div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="card-body">
-                            <div class="profile-img-box">
-                                <img src="<?php echo $avatar; ?>" alt="Profile">
-                                <div class="status-dot"></div>
-                            </div>
-                            <div class="text-center mb-5">
-                                <h2 class="font-bold text-lg text-slate-800"> <?php echo htmlspecialchars($emp_name); ?> </h2>
-                                <p class="text-slate-500 text-xs font-medium"><?php echo htmlspecialchars($emp_role); ?></p>
-                                <span class="inline-block mt-2 bg-slate-100 px-3 py-1 rounded-md text-[10px] font-bold text-slate-600 border border-slate-200"><?php echo htmlspecialchars($emp_dept); ?></span>
-                            </div>
-                            <div class="text-left space-y-3 pt-4 border-t border-slate-100">
-                                <div class="flex items-center gap-3"><i data-lucide="smartphone" class="w-4 h-4 text-teal-600"></i><span class="text-xs font-semibold text-slate-600"><?php echo htmlspecialchars($emp_phone); ?></span></div>
-                                <div class="flex items-center gap-3"><i data-lucide="mail" class="w-4 h-4 text-teal-600"></i><span class="text-xs font-semibold text-slate-600 truncate" title="<?php echo htmlspecialchars($emp_email); ?>"><?php echo htmlspecialchars($emp_email); ?></span></div>
-                                <div class="flex items-center gap-3"><i data-lucide="calendar" class="w-4 h-4 text-teal-600"></i><span class="text-xs font-semibold text-slate-600">Joined: <?php echo $joined_date; ?></span></div>
+                    </div>
+                    
+                    <div class="card flex-grow justify-center">
+                        <div class="p-6">
+                            <h3 class="font-bold text-slate-800 text-sm mb-4 uppercase tracking-wider">Quick Actions</h3>
+                            <div class="grid grid-cols-2 gap-3">
+                                <a href="it_exec_ticket_action.php" class="bg-indigo-50 hover:bg-indigo-100 border border-indigo-100 p-3 rounded-xl flex flex-col items-center justify-center transition shadow-sm text-indigo-700">
+                                    <i data-lucide="ticket" class="w-5 h-5 mb-1"></i>
+                                    <span class="text-xs font-bold mt-1">My Tickets</span>
+                                </a>
+                                <a href="stock_maintenance.php" class="bg-teal-50 hover:bg-teal-100 border border-teal-100 p-3 rounded-xl flex flex-col items-center justify-center transition shadow-sm text-teal-700">
+                                    <i data-lucide="box" class="w-5 h-5 mb-1"></i>
+                                    <span class="text-xs font-bold mt-1">Inventory</span>
+                                </a>
+                                <a href="../employee/leave_request.php" class="bg-rose-50 hover:bg-rose-100 border border-rose-100 p-3 rounded-xl flex flex-col items-center justify-center transition shadow-sm text-rose-700">
+                                    <i data-lucide="calendar" class="w-5 h-5 mb-1"></i>
+                                    <span class="text-xs font-bold mt-1">Apply Leave</span>
+                                </a>
+                                <a href="../employee/work_from_home_request.php" class="bg-amber-50 hover:bg-amber-100 border border-amber-100 p-3 rounded-xl flex flex-col items-center justify-center transition shadow-sm text-amber-700">
+                                    <i data-lucide="laptop" class="w-5 h-5 mb-1"></i>
+                                    <span class="text-xs font-bold mt-1">Apply WFH</span>
+                                </a>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="col-span-12 lg:col-span-4 h-full">
-                    <div class="card h-full">
-                        <div class="card-body flex flex-col">
-                            <div class="text-center border-b border-slate-100 pb-3 mb-2">
-                                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">My Attendance</span>
-                                <p class="font-bold text-sm mt-1 text-slate-800"><?php echo date('h:i A') . ' • ' . date('d M Y'); ?></p>
+                <div class="flex flex-col gap-6 w-full">
+                    <div class="card overflow-hidden shadow-sm border-slate-200 shrink-0 h-full">
+                        <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-10 flex items-center gap-8 relative">
+                            <div class="relative shrink-0">
+                                <img src="<?php echo $avatar; ?>" class="w-20 h-20 rounded-full border-2 border-white shadow-lg object-cover bg-white">
+                                <div class="absolute bottom-0 right-0 w-5 h-5 bg-emerald-400 border-2 border-white rounded-full"></div>
                             </div>
-                            
-                            <div class="progress-circle-box flex-grow">
-                                <svg class="w-full h-full transform -rotate-90" style="position:absolute; top:0; left:0;">
-                                    <circle cx="70" cy="70" r="62" stroke="#f1f5f9" stroke-width="8" fill="transparent"></circle>
-                                    <?php 
-                                        $pct = min(1, $total_seconds_worked / 32400); // 9 Hrs Target
-                                        $dashoffset = 390 - ($pct * 390); // 2*pi*62 ≈ 390
-                                        $ringColor = $is_on_break ? '#f59e0b' : '#0d9488';
-                                    ?>
-                                    <circle id="progressRing" cx="70" cy="70" r="62" stroke="<?php echo $ringColor; ?>" stroke-width="8" fill="transparent" stroke-dasharray="390" stroke-dashoffset="<?php echo $is_punched_out ? '0' : max(0, $dashoffset); ?>" stroke-linecap="round" style="transition: 0.5s;"></circle>
-                                </svg>
-                                <span class="text-[10px] font-bold text-gray-400 uppercase mt-2">Logged In</span>
-                                <span class="text-2xl font-black text-slate-800 leading-none mt-1" id="liveTimer" data-running="<?php echo ($is_punched_in && !$is_punched_out && !$is_on_break) ? 'true' : 'false'; ?>" data-total="<?php echo $total_seconds_worked; ?>"><?php echo $total_hours_today; ?></span>
+                            <div class="min-w-0 text-white">
+                                <h2 class="font-black text-xl truncate"><?php echo htmlspecialchars($emp_name); ?></h2>
+                                <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5"><?php echo htmlspecialchars($emp_role); ?></p>
+                                <span class="inline-block mt-2 bg-white/20 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/10">Verified IT</span>
                             </div>
-                            
-                            <div class="text-center mb-4 text-[10px] font-bold text-teal-700 bg-teal-50 px-3 py-1 rounded-full border border-teal-100 mx-auto">
-                                Status: <?php echo $att_status; ?>
+                            <div class="absolute top-4 right-4 flex gap-2">
+                                <a href="../settings.php" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
+                                    <i data-lucide="pencil" class="w-4 h-4"></i>
+                                </a>
                             </div>
-
-                            <form method="POST" class="mt-auto">
-                                <?php if (!$is_punched_in): ?>
-                                    <button type="submit" name="action" value="punch_in" class="btn-punch"><i data-lucide="fingerprint" class="w-5 h-5"></i> Punch In</button>
-                                <?php elseif (!$is_punched_out): ?>
-                                    <div class="flex gap-2">
-                                        <button type="submit" name="action" value="<?php echo $is_on_break ? 'break_end' : 'break_start'; ?>" class="btn-punch w-1/2" style="background:<?php echo $is_on_break ? '#10b981' : '#f59e0b'; ?>;">
-                                            <i data-lucide="<?php echo $is_on_break ? 'play' : 'coffee'; ?>" class="w-4 h-4"></i> <?php echo $is_on_break ? 'End Break' : 'Break'; ?>
-                                        </button>
-                                        <button type="submit" name="action" value="punch_out" class="btn-punch w-1/2" style="background:#ef4444;">
-                                            <i data-lucide="log-out" class="w-4 h-4"></i> Punch Out
-                                        </button>
-                                    </div>
-                                <?php else: ?>
-                                    <button disabled class="w-full bg-slate-100 text-slate-400 font-bold py-3 rounded-lg text-xs cursor-not-allowed flex justify-center items-center gap-2 border border-slate-200">
-                                        <i data-lucide="check-circle" class="w-4 h-4"></i> Shift Completed
-                                    </button>
-                                <?php endif; ?>
-                            </form>
                         </div>
-                    </div>
-                </div>
+                        
+                        <div class="p-6 space-y-4">
+                            <div class="flex flex-col gap-3">
+                                
+                                <div class="flex items-center gap-4 border border-slate-100 p-3 rounded-xl bg-slate-50 hover:bg-white transition">
+                                    <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                        <i data-lucide="phone" class="w-5 h-5"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Phone Number</p>
+                                        <p class="text-sm font-bold text-slate-800 mt-0.5"><?php echo htmlspecialchars($emp_phone); ?></p>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-center gap-4 border border-slate-100 p-3 rounded-xl bg-slate-50 hover:bg-white transition">
+                                    <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                        <i data-lucide="mail" class="w-5 h-5"></i>
+                                    </div>
+                                    <div class="min-w-0 w-full">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Email Address</p>
+                                        <p class="text-sm font-bold text-slate-800 mt-0.5 truncate w-full" title="<?php echo htmlspecialchars($emp_email); ?>">
+                                            <?php echo htmlspecialchars($emp_email); ?>
+                                        </p>
+                                    </div>
+                                </div>
+                                
+                                <div class="flex items-center gap-4 border border-slate-100 p-3 rounded-xl bg-slate-50 hover:bg-white transition">
+                                    <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                        <i data-lucide="calendar" class="w-5 h-5"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Joining Date</p>
+                                        <p class="text-sm font-bold text-slate-800 mt-0.5"><?php echo htmlspecialchars($joined_date); ?></p>
+                                    </div>
+                                </div>
 
-                <div class="col-span-12 lg:col-span-5 h-full">
-                    <div class="card h-full">
-                        <div class="card-body flex flex-col">
-                            <h3 class="font-bold text-slate-800 text-lg mb-4">Monthly Performance</h3>
-                            <div class="flex items-center justify-between flex-grow">
-                                <div class="space-y-4 w-full">
-                                    <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-                                        <div class="flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-teal-600"></div><span class="text-sm text-slate-600 font-medium">On Time</span></div>
-                                        <span class="text-sm font-bold text-slate-800"><?php echo $stats_ontime; ?> Days</span>
+                                <div class="flex items-center gap-4 border border-slate-100 p-3 rounded-xl bg-slate-50 hover:bg-white transition">
+                                    <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600 shrink-0">
+                                        <i data-lucide="user-check" class="w-5 h-5"></i>
                                     </div>
-                                    <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-                                        <div class="flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-emerald-500"></div><span class="text-sm text-slate-600 font-medium">Late</span></div>
-                                        <span class="text-sm font-bold text-slate-800"><?php echo $stats_late; ?> Days</span>
-                                    </div>
-                                    <div class="flex items-center justify-between px-3 py-2 bg-slate-50 rounded-lg">
-                                        <div class="flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-amber-500"></div><span class="text-sm text-slate-600 font-medium">WFH / Leaves</span></div>
-                                        <span class="text-sm font-bold text-slate-800"><?php echo $stats_wfh; ?> Days</span>
+                                    <div class="min-w-0 w-full">
+                                        <p class="text-[9px] text-gray-500 font-bold uppercase tracking-wider">Reporting To</p>
+                                        <div class="flex items-center justify-between mt-0.5">
+                                            <p class="text-sm font-bold text-slate-800 truncate"><?php echo htmlspecialchars($mgr_name); ?></p>
+                                            <span class="text-[8px] font-black text-teal-700 bg-teal-100 px-2 py-0.5 rounded uppercase tracking-wider shrink-0 border border-teal-200"><?php echo htmlspecialchars($mgr_role); ?></span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div class="w-32 h-32 shrink-0 ml-4">
-                                    <div id="attendanceChart"></div>
-                                </div>
-                            </div>
-                            <hr class="my-4 border-slate-100">
-                            <div class="flex justify-between items-center mt-auto">
-                                <div>
-                                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Resolution Score</p>
-                                    <p class="text-2xl font-black text-teal-700"><?php echo $perf_score; ?>% <span class="text-sm font-bold text-slate-500">(<?php echo $perf_grade; ?>)</span></p>
-                                </div>
-                                <div id="miniPerfChart" style="width:100px;"></div>
+
                             </div>
                         </div>
                     </div>
@@ -470,7 +555,7 @@ $perf_score = 92; $perf_grade = "A+";
                                             <td class="font-medium text-slate-800 max-w-[150px] truncate" title="<?php echo htmlspecialchars($t['subject']); ?>"><?php echo htmlspecialchars($t['subject']); ?></td>
                                             <td class="text-xs text-slate-500"><?php echo htmlspecialchars($t['raised_by']); ?></td>
                                             <td><span class="badge-status <?php echo $st_class; ?>"><?php echo htmlspecialchars($t['status']); ?></span></td>
-                                            <td class="text-right"><a href="assigned_tickets.php" class="text-xs font-bold text-teal-600 hover:text-teal-800 bg-teal-50 px-2 py-1 rounded">Open</a></td>
+                                            <td class="text-right"><a href="it_exec_ticket_action.php" class="text-xs font-bold text-teal-600 hover:text-teal-800 bg-teal-50 px-2 py-1 rounded border border-teal-200 transition">Open</a></td>
                                         </tr>
                                         <?php endforeach; endif; ?>
                                     </tbody>
@@ -518,39 +603,8 @@ $perf_score = 92; $perf_grade = "A+";
     }
     document.addEventListener('DOMContentLoaded', setupLayoutObserver);
 
-    // Live Timer Logic
+    // Apex Charts Initialization
     document.addEventListener('DOMContentLoaded', function () {
-        const timerElement = document.getElementById('liveTimer');
-        const progressRing = document.getElementById('progressRing');
-        if(!timerElement) return;
-
-        const isRunning = timerElement.getAttribute('data-running') === 'true';
-        let totalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-        const startTime = new Date().getTime();
-
-        function updateTimer() {
-            if (!isRunning) return;
-
-            const now = new Date().getTime();
-            const diffSeconds = Math.floor((now - startTime) / 1000);
-            const currentTotal = totalSeconds + diffSeconds;
-            
-            const hours = Math.floor(currentTotal / 3600);
-            const minutes = Math.floor((currentTotal % 3600) / 60);
-            const seconds = currentTotal % 60;
-            
-            timerElement.innerText = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
-
-            const maxSeconds = 32400; // 9 hours
-            const circumference = 390; // 2 * pi * 62
-            const progress = Math.min(currentTotal / maxSeconds, 1);
-            const offset = circumference - (progress * circumference);
-            if(progressRing) progressRing.style.strokeDashoffset = offset;
-        }
-
-        if (isRunning) setInterval(updateTimer, 1000);
-
-        // Apex Charts Initialization
         if(document.querySelector("#attendanceChart")) {
             new ApexCharts(document.querySelector("#attendanceChart"), {
                 series: [<?php echo $stats_ontime; ?>, <?php echo $stats_late; ?>, <?php echo $stats_wfh; ?>],
@@ -558,17 +612,6 @@ $perf_score = 92; $perf_grade = "A+";
                 colors: ['#0d9488', '#10b981', '#f59e0b'],
                 stroke: { width: 0 },
                 tooltip: { enabled: true, y: { formatter: function(val) { return val + " Days" } } }
-            }).render();
-        }
-
-        if(document.querySelector("#miniPerfChart")) {
-            new ApexCharts(document.querySelector("#miniPerfChart"), {
-                series: [{ name: 'Score', data: [75, 80, 85, 82, 88, 90, 92] }],
-                chart: { type: 'area', height: 40, sparkline: { enabled: true } },
-                stroke: { curve: 'smooth', width: 2 },
-                fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0, stops: [0, 100] } },
-                colors: ['#0d9488'],
-                tooltip: { fixed: { enabled: false }, x: { show: false }, y: { title: { formatter: function (seriesName) { return '' } } }, marker: { show: false } }
             }).render();
         }
     });

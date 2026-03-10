@@ -19,6 +19,12 @@ $current_month = date('m');
 $current_year = date('Y');
 $user_role = $_SESSION['role'] ?? 'HR Executive';
 
+// --- FIX: PREVENT 2 PAGES OVERLAPPING GLITCH DURING AJAX CARD RELOAD ---
+if (isset($_GET['ajax_card']) && $_GET['ajax_card'] == '1') {
+    include '../attendance_card.php';
+    exit(); // Stops loading the rest of the dashboard UI
+}
+
 // =========================================================================
 // ACTION: MARK TICKET AS VIEWED
 // =========================================================================
@@ -76,7 +82,7 @@ $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
 $regular_shift_hours = 9;
 
 // =========================================================================
-// FETCH REPORTING MANAGER DATA (RESTORED FIX)
+// FETCH REPORTING MANAGER DATA
 // =========================================================================
 $mgr_name = "System Admin";
 $mgr_phone = "Not Assigned";
@@ -119,6 +125,7 @@ $break_time_str = "00:00:00";
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     $response = ['status' => 'error', 'message' => 'Unknown action'];
     $now = date('Y-m-d H:i:s');
+    
     if ($_POST['action'] === 'punch_in') {
         $status = (date('H:i') > '09:30') ? 'Late' : 'On Time';
         $stmt = $conn->prepare("INSERT INTO attendance (user_id, date, punch_in, status) VALUES (?, ?, ?, ?)");
@@ -129,24 +136,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $att_rec = $conn->query("SELECT id, punch_in FROM attendance WHERE user_id = $current_user_id AND date = '$today'")->fetch_assoc();
         $break_sec = 0;
         $br_q = $conn->query("SELECT * FROM attendance_breaks WHERE attendance_id = " . $att_rec['id']);
-        while($br = $br_q->fetch_assoc()){ if($br['break_end']) $break_sec += strtotime($br['break_end']) - strtotime($br['break_start']); }
+        while($br = $br_q->fetch_assoc()){ 
+            if($br['break_end']) {
+                $break_sec += strtotime($br['break_end']) - strtotime($br['break_start']); 
+            } else {
+                $conn->query("UPDATE attendance_breaks SET break_end = '$now' WHERE id = " . $br['id']);
+                $break_sec += strtotime($now) - strtotime($br['break_start']); 
+            }
+        }
         $prod_hours = max(0, (time() - strtotime($att_rec['punch_in'])) - $break_sec) / 3600;
         $stmt = $conn->prepare("UPDATE attendance SET punch_out = ?, production_hours = ? WHERE user_id = ? AND date = ?");
         $stmt->bind_param("sdis", $now, $prod_hours, $current_user_id, $today);
         if ($stmt->execute()) $response = ['status' => 'success'];
     } elseif ($_POST['action'] === 'take_break') {
+        $b_type = $_POST['break_type'] ?? 'General';
         $att_rec = $conn->query("SELECT id FROM attendance WHERE user_id = $current_user_id AND date = '$today'")->fetch_assoc();
-        $stmt = $conn->prepare("INSERT INTO attendance_breaks (attendance_id, break_start) VALUES (?, ?)");
-        $stmt->bind_param("is", $att_rec['id'], $now);
-        if($stmt->execute()) {
-            $conn->query("UPDATE attendance SET break_time = '1' WHERE id = " . $att_rec['id']);
-            $response = ['status' => 'success'];
+        if ($att_rec) {
+            $stmt = $conn->prepare("INSERT INTO attendance_breaks (attendance_id, break_start, break_type) VALUES (?, ?, ?)");
+            $stmt->bind_param("iss", $att_rec['id'], $now, $b_type);
+            if($stmt->execute()) {
+                $conn->query("UPDATE attendance SET break_time = '1' WHERE id = " . $att_rec['id']);
+                $response = ['status' => 'success'];
+            }
         }
-    } elseif ($_POST['action'] === 'end_break') {
+    } elseif (in_array($_POST['action'], ['end_break', 'resume_work', 'break_end'])) { // --- FIX: ACCEPT ALL BREAK ACTIONS ---
         $att_rec = $conn->query("SELECT id FROM attendance WHERE user_id = $current_user_id AND date = '$today'")->fetch_assoc();
-        $stmt = $conn->prepare("UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL");
-        $stmt->bind_param("si", $now, $att_rec['id']);
-        if($stmt->execute()) $response = ['status' => 'success'];
+        if ($att_rec) {
+            $stmt = $conn->prepare("UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL");
+            $stmt->bind_param("si", $now, $att_rec['id']);
+            if($stmt->execute()) $response = ['status' => 'success'];
+        }
     }
     echo json_encode($response); exit; 
 }
@@ -279,7 +298,6 @@ $pending_wfh = safe_count($conn, "SELECT COUNT(*) as cnt FROM wfh_requests WHERE
 
 $total_hr_actions = $pending_leaves + $pending_jobs + $pending_swaps + $pending_wfh;
 
-// CANDIDATE COUNT RESTORED
 $cand_count = safe_count($conn, "SELECT COUNT(*) as cnt FROM candidates");
 
 // Department Mapping for Graph
@@ -369,21 +387,13 @@ while ($cl_row = $curr_leave_res->fetch_assoc()) {
 }
 $curr_leave_stmt->close();
 
-// LEAVE BALANCE
+// LEAVE BALANCE (HR Profile)
 $base_leaves_per_month = 2;
 $raw_join_date = $joining_date !== "Not Set" ? $row['joining_date'] : date('Y-m-01');
 $calc_join_date = date('Y-m-d', strtotime($raw_join_date));
 $display_join_month_year = date('M Y', strtotime($raw_join_date));
 
-$d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
-$d2 = new DateTime('now'); $d2->modify('first day of this month');
-
-$months_worked = 0;
-if ($d2 >= $d1) {
-    $interval = $d1->diff($d2);
-    $months_worked = ($interval->y * 12) + $interval->m + 1; 
-}
-$total_earned_leaves = $months_worked * $base_leaves_per_month;
+$total_earned_leaves = 2; // FIXED FOR HR EXECUTIVE
 
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
@@ -403,15 +413,23 @@ $late_q = $conn->query("SELECT ep.full_name, ep.department, a.punch_in FROM atte
 if($late_q) { while($r = $late_q->fetch_assoc()) $late_list[] = $r; }
 
 $lop_list = [];
-$lop_q = $conn->query("SELECT ep.user_id, ep.full_name, ep.department, ep.joining_date, SUM(lr.total_days) as taken_leaves FROM employee_profiles ep LEFT JOIN leave_requests lr ON ep.user_id = lr.user_id AND lr.status = 'Approved' GROUP BY ep.user_id");
+$lop_q = $conn->query("SELECT ep.user_id, ep.full_name, ep.department, ep.joining_date, u.role, SUM(lr.total_days) as taken_leaves FROM employee_profiles ep LEFT JOIN users u ON ep.user_id = u.id LEFT JOIN leave_requests lr ON ep.user_id = lr.user_id AND lr.status = 'Approved' GROUP BY ep.user_id");
 if ($lop_q) {
     while ($r = $lop_q->fetch_assoc()) {
-        $jd = $r['joining_date'] ?: date('Y-m-01');
-        $d1 = new DateTime($jd); $d1->modify('first day of this month'); 
-        $d2 = new DateTime('now'); $d2->modify('first day of this month');
-        $mw = ($d2 >= $d1) ? (($d1->diff($d2)->y * 12) + $d1->diff($d2)->m + 1) : 0;
-        $earned = $mw * 2;
         $taken = floatval($r['taken_leaves']);
+        
+        // CHECK IF IT IS HR EXECUTIVE OR OTHER EMPLOYEES
+        if (strtolower($r['role']) === 'hr executive' || stripos($r['department'], 'human resource') !== false) {
+            $earned = 2; // FIXED 2 DAYS FOR HR
+        } else {
+            // NORMAL EMPLOYEES (Month based calculation)
+            $jd = $r['joining_date'] ?: date('Y-m-01');
+            $d1 = new DateTime($jd); $d1->modify('first day of this month'); 
+            $d2 = new DateTime('now'); $d2->modify('first day of this month');
+            $mw = ($d2 >= $d1) ? (($d1->diff($d2)->y * 12) + $d1->diff($d2)->m + 1) : 0;
+            $earned = $mw * 2;
+        }
+
         if ($taken > $earned) {
             $r['lop_days'] = $taken - $earned;
             $lop_list[] = $r;
@@ -419,7 +437,7 @@ if ($lop_q) {
     }
 }
 
-// Active Jobs (Crash Proof Sorting by ID)
+// Active Jobs
 $jobs_cond = "WHERE hr.status IN ('Approved', 'In Progress')";
 $jobs_query = "SELECT hr.*, u.name as requested_by FROM hiring_requests hr LEFT JOIN users u ON hr.manager_id = u.id $jobs_cond ORDER BY hr.id DESC LIMIT 5";
 $jobs_res = mysqli_query($conn, $jobs_query);
@@ -454,7 +472,7 @@ if($r_swaps_pend) {
             'message' => htmlspecialchars($row['full_name']) . ' requested a shift swap.',
             'time' => $row['created_at'] ?? $row['request_date'] ?? date('Y-m-d H:i:s'), 
             'icon' => 'fa-people-arrows', 'color' => 'text-blue-600 bg-blue-100',
-            'link' => '../shift_swap_approval_hr.php'
+            'link' => 'shift_swap_management.php' 
         ];
     }
 }
@@ -469,13 +487,25 @@ if($r_wfh_pend) {
             'message' => htmlspecialchars($row['full_name']) . ' requested Work From Home.',
             'time' => $row['created_at'] ?? $row['start_date'] ?? date('Y-m-d H:i:s'), 
             'icon' => 'fa-house-laptop', 'color' => 'text-indigo-600 bg-indigo-100',
-            'link' => '../work_from_home.php'
+            'link' => '../wfh_management.php' 
         ];
     }
 }
 
 usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
 $all_notifications = array_slice($all_notifications, 0, 15); 
+
+// =========================================================================
+// 7. RECENT NEW JOINERS 
+// =========================================================================
+$new_joiners = [];
+$nj_q = "SELECT full_name, department, joining_date FROM employee_profiles WHERE status = 'Active' AND joining_date IS NOT NULL ORDER BY joining_date DESC LIMIT 4";
+$nj_res = @mysqli_query($conn, $nj_q);
+if($nj_res) {
+    while($row = mysqli_fetch_assoc($nj_res)) {
+        $new_joiners[] = $row;
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -501,12 +531,11 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         
         .stat-badge { font-size: 1.5rem; font-weight: 900; line-height: 1; color: #1e293b; }
 
-        /* The Grid Framework for exact square alignment with stretch */
         .dashboard-container { 
             display: grid; 
             grid-template-columns: repeat(1, minmax(0, 1fr)); 
             gap: 1.5rem; 
-            align-items: stretch; /* Forces equal height columns */
+            align-items: stretch; 
         }
         @media (min-width: 1024px) {
             .dashboard-container {
@@ -519,7 +548,6 @@ $all_notifications = array_slice($all_notifications, 0, 15);
             #mainContent { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px;}
         }
 
-        /* Progress ring SVG */
         .progress-ring-circle {
             transition: stroke-dashoffset 0.35s;
             transform: rotate(-90deg);
@@ -568,17 +596,21 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         <div class="dashboard-container">
 
             <div class="flex flex-col gap-6 w-full"> 
-                <div class="col-span-12 lg:col-span-4 card overflow-hidden p-5 flex flex-col">
-                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
-                            <i class="fa-solid fa-clock text-teal-500"></i> Today's Attendance
-                        </h3>
-                        <a href="admin_attendance.php" class="bg-teal-50 text-teal-600 border border-teal-100 px-3 py-1 rounded-lg text-[10px] font-bold uppercase hover:bg-teal-100 transition">View All</a>
-                    </div>
-                <?php include '../attendance_card.php'; ?>
-            </div>
-
                 
+                <?php 
+                // Auto-heal missing closing tags from attendance_card.php during "Break" state
+                ob_start();
+                include '../attendance_card.php'; 
+                $att_card_html = ob_get_clean();
+                echo $att_card_html;
+                
+                $div_open = substr_count(strtolower($att_card_html), '<div');
+                $div_close = substr_count(strtolower($att_card_html), '</div');
+                if ($div_open > $div_close) {
+                    echo str_repeat('</div>', $div_open - $div_close);
+                }
+                ?>
+            
              <div class="card border-blue-200 shrink-0">
                     <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
@@ -843,7 +875,7 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                 
                
 
-           
+            
 
                 <div class="card flex flex-col shrink-0 mt-10">
                     <div class="p-6 flex flex-col h-full">
@@ -875,6 +907,41 @@ $all_notifications = array_slice($all_notifications, 0, 15);
                         </div>
                     </div>
                 </div>
+                
+                <div class="card border-indigo-200 flex-grow mt-6">
+                    <div class="p-6 flex flex-col h-full">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                                <i class="fa-solid fa-user-plus text-indigo-500"></i> New Joiners
+                            </h3>
+                            <span class="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-1 rounded font-bold border border-indigo-100">Recent</span>
+                        </div>
+                        <div class="space-y-3 custom-scroll overflow-y-auto pr-2 flex-grow flex flex-col justify-center">
+                            <?php if(!empty($new_joiners)): ?>
+                                <div class="space-y-3 h-full">
+                                <?php foreach($new_joiners as $nj): ?>
+                                    <div class="flex gap-3 items-center border border-gray-100 p-2.5 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
+                                            <i class="fa-solid fa-user-check"></i>
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="text-sm font-bold text-slate-800 truncate"><?= htmlspecialchars($nj['full_name']) ?></p>
+                                            <p class="text-[10px] text-gray-500 font-medium"><?= htmlspecialchars($nj['department']) ?></p>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <span class="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200"><?= date('d M Y', strtotime($nj['joining_date'])) ?></span>
+                                        </div>
+                                    </div>
+                                <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="text-center text-slate-400 text-sm font-medium my-auto">
+                                    No recent joiners found.
+                                </div>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
 
             </div>
 
@@ -885,58 +952,14 @@ $all_notifications = array_slice($all_notifications, 0, 15);
         lucide.createIcons();
 
         // -------------------------------------------------------------
-        // Personal Time Tracker logic
-        // -------------------------------------------------------------
-        document.addEventListener('DOMContentLoaded', function() {
-            const timerElement = document.getElementById('liveTimer');
-            const progressRing = document.getElementById('progressRing');
-            const breakTimerElement = document.getElementById('breakTimer');
-
-            if(!timerElement) return;
-
-            const isWorkRunning = timerElement.getAttribute('data-running') === 'true';
-            const isBreakRunning = breakTimerElement ? breakTimerElement.getAttribute('data-break-running') === 'true' : false;
-            
-            let workTotalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
-            let breakTotalSeconds = breakTimerElement ? (parseInt(breakTimerElement.getAttribute('data-break-total')) || 0) : 0;
-            const startTime = new Date().getTime(); 
-
-            function formatTime(totalSecs) {
-                const h = Math.floor(totalSecs / 3600);
-                const m = Math.floor((totalSecs % 3600) / 60);
-                return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0'); 
-            }
-
-            function updateTimer() {
-                const now = new Date().getTime();
-                const diffSeconds = Math.floor((now - startTime) / 1000);
-                
-                if (isWorkRunning) {
-                    const currentWork = workTotalSeconds + diffSeconds;
-                    timerElement.innerText = formatTime(currentWork);
-                    const progress = Math.min(currentWork / 32400, 1);
-                    if(progressRing) progressRing.style.strokeDashoffset = 490 - (progress * 490);
-                }
-
-                if (isBreakRunning && breakTimerElement) {
-                    const currentBreak = breakTotalSeconds + diffSeconds;
-                    breakTimerElement.innerText = formatTime(currentBreak);
-                }
-            }
-
-            if (isWorkRunning || isBreakRunning) {
-                setInterval(updateTimer, 1000);
-                updateTimer();
-            }
-        });
-
         // AJAX ACTION HANDLERS
+        // -------------------------------------------------------------
         function punchAction(action) {
             let btnId = '';
             if(action === 'punch_in') btnId = 'btnPunchIn';
             else if(action === 'punch_out') btnId = 'btnPunchOut';
             else if(action === 'take_break') btnId = 'btnBreak';
-            else if(action === 'end_break') btnId = 'btnEndBreak';
+            else if(action === 'end_break' || action === 'resume_work' || action === 'break_end') btnId = 'btnEndBreak'; // FIX APPLIED HERE
             
             const btn = document.getElementById(btnId);
             if(btn) {

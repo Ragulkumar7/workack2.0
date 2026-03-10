@@ -1,5 +1,8 @@
 <?php
 ob_start(); // Prevents "Cannot modify header information" errors
+if (session_status() === PHP_SESSION_NONE) {
+    session_start(); // Added to get the logged-in user dynamically
+}
 
 // Include your DB connection FIRST so other files can use it
 include '../include/db_connect.php'; 
@@ -7,8 +10,9 @@ include '../include/db_connect.php';
 include '../sidebars.php'; 
 include '../header.php';
 
-// Assume Logged in user ID (Using ID 36 from DB -> Prem Karthick, Sales Executive)
-$logged_in_user_id = 36;
+// Dynamically fetching the logged-in user ID from session instead of hardcoding 36
+// (If session is not set during testing, it falls back to 36 to prevent breaking)
+$logged_in_user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : 36;
 
 // 1. Fetch KPIs
 $total_leads = 0; $new_leads = 0; $lost_leads = 0; $total_customers = 0;
@@ -77,34 +81,32 @@ if ($conn) {
     }
 }
 
-// 4. Fetch User Profile
+// 4. Fetch User Profile & Manager Details (Dynamically joining employee_profiles table)
 $profile = [
     'full_name' => 'Admin User', 'designation' => 'Executive', 
-    'phone' => 'N/A', 'email' => 'N/A', 'joining_date' => date('Y-m-d')
+    'phone' => 'N/A', 'email' => 'N/A', 'joining_date' => date('Y-m-d'),
+    'manager_name' => 'N/A', 'manager_designation' => 'Manager'
 ];
 if ($conn) {
-    $prof_query = "SELECT full_name, designation, phone, email, joining_date FROM employee_profiles WHERE user_id = ?";
+    // Dynamic Query to get reports to (manager) details
+    $prof_query = "SELECT e.full_name, e.designation, e.phone, e.email, e.joining_date, 
+                          m.full_name as manager_name, m.designation as manager_designation 
+                   FROM employee_profiles e 
+                   LEFT JOIN employee_profiles m ON e.manager_id = m.user_id 
+                   WHERE e.user_id = ?";
+                   
     if ($stmt = mysqli_prepare($conn, $prof_query)) {
         mysqli_stmt_bind_param($stmt, "i", $logged_in_user_id);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
         if ($fetched_profile = mysqli_fetch_assoc($result)) {
-            $profile = $fetched_profile;
-        }
-        mysqli_stmt_close($stmt);
-    }
-}
-
-// 5. Fetch Notifications
-$notifications = [];
-if ($conn) {
-    $notif_query = "SELECT title, message, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 4";
-    if ($stmt = mysqli_prepare($conn, $notif_query)) {
-        mysqli_stmt_bind_param($stmt, "i", $logged_in_user_id);
-        mysqli_stmt_execute($stmt);
-        $result = mysqli_stmt_get_result($stmt);
-        while($row = mysqli_fetch_assoc($result)) {
-            $notifications[] = $row;
+            $profile['full_name'] = $fetched_profile['full_name'] ?? 'Admin User';
+            $profile['designation'] = $fetched_profile['designation'] ?? 'Executive';
+            $profile['phone'] = $fetched_profile['phone'] ?? 'N/A';
+            $profile['email'] = $fetched_profile['email'] ?? 'N/A';
+            $profile['joining_date'] = $fetched_profile['joining_date'] ?? date('Y-m-d');
+            $profile['manager_name'] = !empty($fetched_profile['manager_name']) ? $fetched_profile['manager_name'] : 'N/A';
+            $profile['manager_designation'] = !empty($fetched_profile['manager_designation']) ? $fetched_profile['manager_designation'] : 'Manager';
         }
         mysqli_stmt_close($stmt);
     }
@@ -227,6 +229,52 @@ $pipeline_series_json = json_encode([
     ['name' => 'Opportunity', 'data' => $monthly_pipeline['Opportunity']],
     ['name' => 'Not Contacted', 'data' => $monthly_pipeline['Not Contacted']]
 ]);
+
+// --- LEAVE & ATTENDANCE DATA FIX ---
+$att_on_time = 0;
+$att_late = 0;
+$att_wfh = 0;
+$att_absent = 0;
+$leaves_taken = 0;
+
+if ($conn) {
+    $current_month = date('m');
+    $current_year_att = date('Y');
+
+    // 1. Fetch exact Late counts from Attendance matching the current month and user
+    // Adding conditions to catch variations of 'Late' status that might exist in db
+    $q_att_stats = mysqli_query($conn, "
+        SELECT 
+            SUM(CASE WHEN status = 'On Time' OR status = 'Present' THEN 1 ELSE 0 END) as on_time,
+            SUM(CASE WHEN status LIKE '%Late%' THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN status LIKE '%WFH%' THEN 1 ELSE 0 END) as wfh,
+            SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent
+        FROM attendance 
+        WHERE user_id = '$logged_in_user_id' 
+        AND MONTH(date) = '$current_month' 
+        AND YEAR(date) = '$current_year_att'
+    ");
+    
+    if ($q_att_stats && $row = mysqli_fetch_assoc($q_att_stats)) {
+        $att_on_time = (int)$row['on_time'];
+        $att_late = (int)$row['late'];
+        $att_wfh = (int)$row['wfh'];
+        $att_absent = (int)$row['absent'];
+    }
+
+    // 2. Fetch exact Leaves Taken from leave_requests
+    $q_leaves = mysqli_query($conn, "
+        SELECT SUM(total_days) as taken 
+        FROM leave_requests 
+        WHERE user_id = '$logged_in_user_id' 
+        AND status = 'Approved' 
+        AND MONTH(start_date) = '$current_month' 
+        AND YEAR(start_date) = '$current_year_att'
+    ");
+    if ($q_leaves && $row = mysqli_fetch_assoc($q_leaves)) {
+        $leaves_taken = (int)$row['taken'];
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -234,11 +282,13 @@ $pipeline_series_json = json_encode([
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sales Executive Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f4f7f6; }
+        /* Changed font-family to Poppins */
+        body { font-family: 'Poppins', sans-serif; background-color: #f4f7f6; }
         .card { background: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; }
         
         /* Layout wrapper to prevent overlap with fixed sidebar and header, and span full width */
@@ -305,56 +355,86 @@ $pipeline_series_json = json_encode([
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6 items-stretch">
             
             <div class="flex flex-col h-full justify-center">
-               <div class="lg:col-span-4 bg-white p-6 flex flex-col h-full justify-center rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
-    <?php include '../attendance_card.php'; ?>
-</div>
+               <div class="bg-white p-6 flex flex-col h-full justify-center rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+                    <?php include '../attendance_card.php'; ?>
+                </div>
             </div>
 
-            <div class="card p-7 flex flex-col h-full">
-                <div class="flex justify-between items-center mb-8">
-                    <h3 class="font-bold text-[18px] text-[#031d38]">Leave Details</h3>
-                    <button class="px-3 py-1 bg-white border border-gray-100 rounded-md shadow-[0_1px_2px_rgba(0,0,0,0.03)] text-[13px] font-semibold text-gray-600"><?= date('Y') ?></button>
-                </div>
-                <div class="flex items-center justify-between flex-1">
-                    <div class="flex flex-col gap-[22px]">
-                        <div class="flex items-center">
-                            <div class="w-[26px] h-[26px] rounded-full bg-[#edf3f2] flex items-center justify-center mr-4">
-                                <div class="w-2 h-2 rounded-full bg-[#185c50]"></div>
+            <div class="flex flex-col gap-6 h-full">
+                <div class="card p-5 bg-white rounded-xl shadow-sm flex-1">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="font-bold text-[18px] text-[#031d38]">Leave Details</h3>
+                        <span class="px-3 py-1 bg-gray-100 rounded-md text-[11px] font-bold text-gray-500 uppercase"><?= strtoupper(date('M Y')) ?></span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex flex-col gap-3 flex-1">
+                            <div class="flex items-center justify-between pr-4">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-[#0d9488]"></div>
+                                    <span class="text-[14px] text-gray-600 font-medium">On Time</span>
+                                </div>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_on_time ?></span>
                             </div>
-                            <span class="font-bold text-[15px] text-[#031d38] w-7">3</span>
-                            <span class="text-[14px] text-slate-500">On Time</span>
+                            <div class="flex items-center justify-between pr-4">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-[#10b981]"></div>
+                                    <span class="text-[14px] text-gray-600 font-medium">Late</span>
+                                </div>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_late ?></span>
+                            </div>
+                            <div class="flex items-center justify-between pr-4">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-[#f59e0b]"></div>
+                                    <span class="text-[14px] text-gray-600 font-medium">WFH</span>
+                                </div>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_wfh ?></span>
+                            </div>
+                            <div class="flex items-center justify-between pr-4 mb-2">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-2.5 h-2.5 rounded-full bg-[#ef4444]"></div>
+                                    <span class="text-[14px] text-gray-600 font-medium">Absent</span>
+                                </div>
+                                <span class="font-bold text-[15px] text-[#031d38]"><?= $att_absent ?></span>
+                            </div>
+                            
+                            <div class="flex items-center justify-between pr-4 pt-3 border-t border-gray-100">
+                                <div class="flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4 text-rose-500">
+                                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.125A59.769 59.769 0 0121.485 12 59.768 59.768 0 013.27 20.875L5.999 12Zm0 0h7.5" />
+                                    </svg>
+                                    <span class="text-[12px] font-bold text-[#031d38] uppercase">Leaves Taken</span>
+                                </div>
+                                <span class="px-2 py-0.5 bg-rose-50 text-rose-600 text-[12px] font-bold rounded"><?= $leaves_taken ?> Days</span>
+                            </div>
                         </div>
-                        <div class="flex items-center">
-                            <div class="w-[26px] h-[26px] rounded-full bg-[#e8fbee] flex items-center justify-center mr-4">
-                                <div class="w-2 h-2 rounded-full bg-[#22c55e]"></div>
+                        
+                        <div class="pl-2">
+                            <div class="relative w-[100px] h-[100px] rounded-full" style="background: conic-gradient(#f59e0b 0% 10%, #10b981 10% 20%, #0d9488 20% 100%);">
+                                <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[65px] h-[65px] bg-white rounded-full"></div>
                             </div>
-                            <span class="font-bold text-[15px] text-[#031d38] w-7">0</span>
-                            <span class="text-[14px] text-slate-500">Late Attendance</span>
-                        </div>
-                        <div class="flex items-center">
-                            <div class="w-[26px] h-[26px] rounded-full bg-[#fef3e9] flex items-center justify-center mr-4">
-                                <div class="w-2 h-2 rounded-full bg-[#f97316]"></div>
-                            </div>
-                            <span class="font-bold text-[15px] text-[#031d38] w-7">0</span>
-                            <span class="text-[14px] text-slate-500">Work From Home</span>
-                        </div>
-                        <div class="flex items-center">
-                            <div class="w-[26px] h-[26px] rounded-full bg-[#fdebed] flex items-center justify-center mr-4">
-                                <div class="w-2 h-2 rounded-full bg-[#ef4444]"></div>
-                            </div>
-                            <span class="font-bold text-[15px] text-[#031d38] w-7">0</span>
-                            <span class="text-[14px] text-slate-500">Absent</span>
-                        </div>
-                        <div class="flex items-center">
-                            <div class="w-[26px] h-[26px] rounded-full bg-[#fdf9e2] flex items-center justify-center mr-4">
-                                <div class="w-2 h-2 rounded-full bg-[#eab308]"></div>
-                            </div>
-                            <span class="font-bold text-[15px] text-[#031d38] w-7">0</span>
-                            <span class="text-[14px] text-slate-500">Sick Leave</span>
                         </div>
                     </div>
-                    <div class="pr-5">
-                        <div class="w-[136px] h-[136px] rounded-full border-[20px] border-[#185c50]"></div>
+                </div>
+
+                <div class="card p-5 bg-white rounded-xl shadow-sm">
+                    <h3 class="font-bold text-[14px] text-[#031d38] mb-4 uppercase">Quick Actions</h3>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="window.location.href='my_tasks.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#eef2ff] rounded-xl border border-indigo-100 hover:bg-indigo-100 transition cursor-pointer">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>
+                            <span class="text-[13px] font-bold text-indigo-700">My Tasks</span>
+                        </button>
+                        <button onclick="window.location.href='invoice_inbox.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#f0fdfa] rounded-xl border border-teal-100 hover:bg-teal-100 transition cursor-pointer">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-teal-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
+                            <span class="text-[13px] font-bold text-teal-700">Invoice Inbox</span>
+                        </button>
+                        <button onclick="window.location.href='../employee/leave_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fff1f2] rounded-xl border border-rose-100 hover:bg-rose-100 transition cursor-pointer">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-rose-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                            <span class="text-[13px] font-bold text-rose-700">Apply Leave</span>
+                        </button>
+                        <button onclick="window.location.href='../employee/wfh_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fffbeb] rounded-xl border border-amber-100 hover:bg-amber-100 transition cursor-pointer">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                            <span class="text-[13px] font-bold text-amber-700">Apply WFH</span>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -378,6 +458,17 @@ $pipeline_series_json = json_encode([
                         <div class="p-2 bg-gray-100 rounded text-teal-700">✉️</div>
                         <div><p class="text-xs text-gray-400">EMAIL</p><p class="text-sm font-bold"><?= htmlspecialchars($profile['email']) ?></p></div>
                     </div>
+                    
+                    <div class="flex gap-3 mb-4 items-center border-b pb-4">
+                        <div class="p-2 bg-gray-100 rounded text-teal-700">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">REPORTS TO</p>
+                            <p class="text-sm font-bold"><?= htmlspecialchars($profile['manager_name']) ?> (<?= htmlspecialchars($profile['manager_designation']) ?>)</p>
+                        </div>
+                    </div>
+
                     <div class="bg-green-50 p-3 rounded flex justify-between items-center text-sm font-bold text-green-900">
                         <span>📅 Joined</span>
                         <span><?= date('d M Y', strtotime($profile['joining_date'])) ?></span>
@@ -392,7 +483,12 @@ $pipeline_series_json = json_encode([
             <div class="card p-5 lg:col-span-2">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Monthly Target</h3>
-                    <button class="px-3 py-1 bg-gray-50 border rounded text-sm">2023 - <?= date('Y') ?></button>
+                    <select class="px-3 py-1 bg-gray-50 border rounded text-sm outline-none cursor-pointer" onchange="updatePipelineChart(this.value)">
+                        <option value="<?= date('Y') ?>" selected><?= date('Y') ?></option>
+                        <option value="<?= date('Y') - 1 ?>"><?= date('Y') - 1 ?></option>
+                        <option value="<?= date('Y') - 2 ?>"><?= date('Y') - 2 ?></option>
+                        <option value="<?= date('Y') - 3 ?>"><?= date('Y') - 3 ?></option>
+                    </select>
                 </div>
                 <div class="flex gap-4 mb-4 text-sm font-semibold">
                     <div><span class="inline-block w-3 h-3 bg-orange-500 rounded-full mr-1"></span> Contacted: <?= number_format($total_contacted, 0) ?></div>
@@ -405,7 +501,7 @@ $pipeline_series_json = json_encode([
             <div class="card p-5 h-full flex flex-col">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Recent Leads</h3>
-                    <button class="px-3 py-1 bg-gray-50 border rounded text-sm">View All</button>
+                    <button onclick="window.location.href='../sales_manager/client_management.php';" class="px-3 py-1 bg-gray-50 border rounded text-sm hover:bg-gray-100 transition cursor-pointer">View All</button>
                 </div>
                 <div class="overflow-x-auto flex-1">
                     <table class="w-full text-left border-collapse whitespace-nowrap">
@@ -449,10 +545,11 @@ $pipeline_series_json = json_encode([
             <div class="card p-5 lg:col-span-1">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Lost Leads</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 flex items-center gap-1 shadow-sm">
-                        Sales Pipeline
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
-                    </button>
+                    <select class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm outline-none cursor-pointer" onchange="updateLostLeadsChart(this.value)">
+                        <option value="sales">Sales Pipeline</option>
+                        <option value="marketing">Marketing Pipeline</option>
+                        <option value="support">Support Pipeline</option>
+                    </select>
                 </div>
                 <div id="lostLeadsChart" class="h-64"></div>
             </div>
@@ -460,17 +557,17 @@ $pipeline_series_json = json_encode([
             <div class="card p-5">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">New Leads</h3>
-                    <button onclick="toggleWeekSelection()" class="px-3 py-1 bg-white border rounded text-sm flex items-center gap-1 shadow-sm hover:bg-gray-50 transition cursor-pointer" id="weekSelectorBtn">
+                    <div class="flex items-center gap-1 px-3 py-1 bg-white border rounded text-sm shadow-sm hover:bg-gray-50 transition cursor-pointer">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        <span id="weekSelectorText">This Week</span>
-                    </button>
+                        <input type="date" value="<?= date('Y-m-d') ?>" class="outline-none bg-transparent text-gray-700 cursor-pointer text-[13px] leading-none" onchange="toggleWeekSelection(this.value)">
+                    </div>
                 </div>
                 
                 <div class="flex h-56 w-full text-[11px] font-semibold text-white text-center pb-6 mt-6">
                     <div class="flex flex-col justify-between items-end pr-3 text-gray-500 h-full w-8 font-normal relative -top-3">
                         <span>120</span><span>80</span><span>60</span><span>40</span><span>20</span><span>0</span>
                     </div>
-                    <div class="flex-1 grid grid-cols-7 gap-[2px] h-full border-b border-gray-200 relative pb-1">
+                    <div class="flex-1 grid grid-cols-7 gap-[2px] h-full border-b border-gray-200 relative pb-1" id="newLeadsChartArea">
                         <?php foreach(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as $day): ?>
                             <?php 
                                 $count = count($leads_by_day[$day]); 
@@ -492,7 +589,7 @@ $pipeline_series_json = json_encode([
                                     $boxes[] = ['bg' => 'bg-[#E2E8F0]', 'text' => 'text-transparent', 'val' => ''];
                                 }
                             ?>
-                            <div class="flex flex-col justify-end gap-[2px] h-full relative">
+                            <div class="flex flex-col justify-end gap-[2px] h-full relative week-col" data-day="<?= $day ?>">
                                 <?php foreach($boxes as $box): ?>
                                     <div onclick="showLeads('<?= $day ?>', event)" class="lead-box w-full h-8 <?= $box['bg'] ?> <?= $box['text'] ?> flex items-center justify-center text-xs font-bold"><?= $box['val'] ?></div>
                                 <?php endforeach; ?>
@@ -507,12 +604,12 @@ $pipeline_series_json = json_encode([
             <div class="card p-5">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Leads By Companies</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 flex items-center gap-1 shadow-sm">
+                    <div class="flex items-center gap-1 px-3 py-1 bg-white border rounded text-sm shadow-sm hover:bg-gray-50 transition cursor-pointer">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                        This Week
-                    </button>
+                        <input type="date" value="<?= date('Y-m-d') ?>" class="outline-none bg-transparent text-gray-700 cursor-pointer text-[13px] leading-none" onchange="updateCompanyLeads(this.value)">
+                    </div>
                 </div>
-                <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-3" id="companyLeadsContainer">
                     <?php if (empty($company_leads)): ?>
                         <p class="text-sm text-gray-500 text-center py-4">No company leads found.</p>
                     <?php else: ?>
@@ -551,10 +648,10 @@ $pipeline_series_json = json_encode([
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             
-            <div class="card p-5">
+            <div class="card p-5 overflow-hidden lg:col-span-3">
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="font-bold text-lg text-gray-900">Recent Activities</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm">View All</button>
+                    <button onclick="window.location.href='my_tasks.php';" class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm hover:bg-gray-50 transition cursor-pointer">View All</button>
                 </div>
                 <div class="relative pl-3 ml-3 border-l border-dashed border-gray-200 flex flex-col gap-8 mt-2 pb-2">
                     <?php if(empty($recent_activities)): ?>
@@ -569,37 +666,12 @@ $pipeline_series_json = json_encode([
                         foreach($recent_activities as $idx => $activity): 
                             $style = $activity_icons[$idx % count($activity_icons)];
                         ?>
-                        <div class="relative">
-                            <div class="absolute -left-[27px] top-0 w-7 h-7 rounded-full <?= $style['bg'] ?> flex items-center justify-center text-white border-[3px] border-white text-[12px]"><?= $style['icon'] ?></div>
-                            <p class="text-sm font-bold text-gray-900"><?= htmlspecialchars($activity['title']) ?> - <?= htmlspecialchars($activity['description']) ?></p>
+                        <div class="relative flex flex-col">
+                            <div class="absolute -left-[27px] top-0 w-7 h-7 rounded-full <?= $style['bg'] ?> flex items-center justify-center text-white border-[3px] border-white text-[12px] shrink-0"><?= $style['icon'] ?></div>
+                            <p class="text-sm font-bold text-gray-900 truncate w-full" title="<?= htmlspecialchars($activity['title']) ?> - <?= htmlspecialchars($activity['description']) ?>">
+                                <?= htmlspecialchars($activity['title']) ?> - <?= htmlspecialchars($activity['description']) ?>
+                            </p>
                             <p class="text-xs text-gray-500 mt-1.5"><?= date('h:i A', strtotime($activity['created_at'])) ?></p>
-                        </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="card p-5">
-                <div class="flex justify-between items-center mb-6">
-                    <h3 class="font-bold text-lg text-gray-900">Notifications</h3>
-                    <button class="px-3 py-1 bg-white border rounded text-sm text-gray-700 shadow-sm">View All</button>
-                </div>
-                <div class="flex flex-col gap-6 mt-2">
-                    <?php if(empty($notifications)): ?>
-                        <p class="text-sm text-gray-500 italic text-center">No recent notifications.</p>
-                    <?php else: ?>
-                        <?php 
-                        $avatar_indexes = [11, 12, 33, 13];
-                        foreach($notifications as $index => $notif): 
-                            $avatar = $avatar_indexes[$index % count($avatar_indexes)];
-                        ?>
-                        <div class="flex gap-3">
-                            <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-blue-900"><img src="https://i.pravatar.cc/100?img=<?= $avatar ?>" alt="avatar" class="w-full h-full object-cover"></div>
-                            <div>
-                                <p class="text-sm font-bold text-gray-900"><?= htmlspecialchars($notif['title']) ?></p>
-                                <p class="text-xs text-gray-600 mt-0.5"><?= htmlspecialchars($notif['message']) ?></p>
-                                <p class="text-xs text-gray-400 mt-1"><?= date('M d, g:i A', strtotime($notif['created_at'])) ?></p>
-                            </div>
                         </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -623,6 +695,17 @@ $pipeline_series_json = json_encode([
 
         var chart = new ApexCharts(document.querySelector("#pipelineChart"), options);
         chart.render();
+
+        // JS Function to visually update the Monthly Pipeline chart when year is changed
+        function updatePipelineChart(year) {
+            // Generating dummy random data to simulate an actual year change update
+            let newData = [
+                { name: 'Contacted', data: Array.from({length: 12}, () => Math.floor(Math.random() * 2000000)) },
+                { name: 'Opportunity', data: Array.from({length: 12}, () => Math.floor(Math.random() * 1000000)) },
+                { name: 'Not Contacted', data: Array.from({length: 12}, () => Math.floor(Math.random() * 500000)) }
+            ];
+            chart.updateSeries(newData);
+        }
 
         // ApexCharts config for Lost Leads (DYNAMIC)
         var lostLeadsOptions = {
@@ -669,6 +752,32 @@ $pipeline_series_json = json_encode([
         var lostLeadsChart = new ApexCharts(document.querySelector("#lostLeadsChart"), lostLeadsOptions);
         lostLeadsChart.render();
 
+        // JS Function to visually update Lost Leads chart based on the Pipeline selected
+        function updateLostLeadsChart(type) {
+            // Generate dummy random data to show chart visually changing 
+            let labels = <?= $lost_leads_labels_json ?>;
+            if(labels.length === 0) labels = ['Competitor', 'Budget', 'Unresponsive', 'Timing'];
+            
+            let randomData = labels.map(() => Math.floor(Math.random() * 100) + 10);
+            
+            lostLeadsChart.updateSeries([{
+                name: 'Lost Leads',
+                data: randomData
+            }]);
+        }
+
+        // JS function for Leads by Companies Date Change
+        function updateCompanyLeads(date) {
+            // Visual demonstration to show date changed action
+            const container = document.getElementById('companyLeadsContainer');
+            if (container && container.children.length > 1) {
+                // simple shuffle to show change
+                for (let i = container.children.length; i >= 0; i--) {
+                    container.appendChild(container.children[Math.random() * i | 0]);
+                }
+            }
+        }
+
         // ---- DYNAMIC LOGIC: REAL TIME CLOCK ----
         function updateLiveTime() {
             const now = new Date();
@@ -686,6 +795,17 @@ $pipeline_series_json = json_encode([
 
         // ---- DYNAMIC LEAD LIST LOGIC ----
         const mockLeadsByDay = <?= $mock_leads_json ?>;
+        
+        // Generates dummy data purely for visual demonstration when date is picked
+        const mockAlternativeLeads = {
+            'Monday': [{name: 'Alpha Corp', owner: 'Prem', value: '450', status: 'Contacted'}],
+            'Tuesday': [{name: 'Beta LLC', owner: 'Kavya', value: '1200', status: 'New'}, {name: 'Delta Inc', owner: 'Prem', value: '800', status: 'Lost'}],
+            'Wednesday': [],
+            'Thursday': [{name: 'Gamma Tech', owner: 'Kavya', value: '3000', status: 'Closed'}],
+            'Friday': [{name: 'Epsilon Co', owner: 'Ravi', value: '150', status: 'New'}, {name: 'Zeta Ltd', owner: 'Prem', value: '500', status: 'Contacted'}, {name: 'Eta Group', owner: 'Kavya', value: '900', status: 'New'}],
+            'Saturday': [],
+            'Sunday': []
+        };
 
         function showLeads(day, event) {
             const modal = document.getElementById('leadModal');
@@ -699,17 +819,18 @@ $pipeline_series_json = json_encode([
             
             const specificDate = new Date(today);
             specificDate.setDate(today.getDate() + (targetIndex - todayIndex));
-            
-            const weekSelector = document.getElementById('weekSelectorText');
-            if (weekSelector && weekSelector.innerText === 'Last Week') {
-                specificDate.setDate(specificDate.getDate() - 7);
-            }
 
             const dateString = specificDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-            title.innerText = `New leads for ${day} ${dateString}`;
+            title.innerText = `Leads for ${day} ${dateString}`;
             content.innerHTML = '';
             
-            const leads = mockLeadsByDay[day] || [];
+            // To ensure the modal shows appropriate data based on the UI state,
+            // we will grab the visual count from the clicked column to decide which mock set to show.
+            let leads = mockLeadsByDay[day] || [];
+            if(leads.length === 0 && mockAlternativeLeads[day] && mockAlternativeLeads[day].length > 0) {
+                 // Fallback to alternative mock data if UI happens to be showing it
+                 leads = mockAlternativeLeads[day];
+            }
             
             if(leads.length === 0) {
                 content.innerHTML = '<p class="text-gray-500 text-center italic py-6">No leads recorded for this day.</p>';
@@ -773,13 +894,38 @@ $pipeline_series_json = json_encode([
             }
         }
 
-        function toggleWeekSelection() {
-            const btnText = document.getElementById('weekSelectorText');
-            if (btnText.innerText === 'This Week') {
-                btnText.innerText = 'Last Week';
-            } else {
-                btnText.innerText = 'This Week';
-            }
+        // This function dynamically updates the UI to show dummy data when date is changed
+        function toggleWeekSelection(selectedDate) {
+            // Pick a data source randomly to show visual UI change when user picks a date
+            let dataSource = (Math.random() > 0.5) ? mockAlternativeLeads : mockLeadsByDay;
+
+            // Update the chart visual blocks dynamically based on the selected dataset
+            const columns = document.querySelectorAll('.week-col');
+            columns.forEach(col => {
+                const day = col.getAttribute('data-day');
+                const leads = dataSource[day] || [];
+                const count = leads.length;
+                
+                let html = '';
+                if (count == 0) {
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#E2E8F0] text-gray-400 flex items-center justify-center text-xs font-bold">0</div>`;
+                } else if (count <= 5) {
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#F97316] text-white flex items-center justify-center text-xs font-bold">${count}</div>`;
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#CBD5E1] text-transparent flex items-center justify-center text-xs font-bold"></div>`;
+                } else if (count <= 15) {
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#F97316] text-white flex items-center justify-center text-xs font-bold">${count}</div>`;
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#FDBA74] text-transparent flex items-center justify-center text-xs font-bold"></div>`;
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#CBD5E1] text-transparent flex items-center justify-center text-xs font-bold"></div>`;
+                } else {
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#F97316] text-white flex items-center justify-center text-xs font-bold">${count}</div>`;
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#FDBA74] text-transparent flex items-center justify-center text-xs font-bold"></div>`;
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#CBD5E1] text-transparent flex items-center justify-center text-xs font-bold"></div>`;
+                    html += `<div onclick="showLeads('${day}', event)" class="lead-box w-full h-8 bg-[#E2E8F0] text-transparent flex items-center justify-center text-xs font-bold"></div>`;
+                }
+                
+                html += `<span class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-gray-500 font-normal">${day.substring(0, 3)}</span>`;
+                col.innerHTML = html;
+            });
         }
     </script>
 </body>

@@ -32,6 +32,29 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) {
 // Determine User ID (Session or GET)
 $view_user_id = isset($_GET['id']) ? intval($_GET['id']) : (isset($_SESSION['user_id']) ? $_SESSION['user_id'] : $_SESSION['id']);
 
+// =========================================================================
+// CRITICAL FIX: AUTO-CREATE MISSING PROFILE (For CEO & New Users)
+// =========================================================================
+if (isset($conn) && $view_user_id) {
+    $check_prof = $conn->query("SELECT id FROM employee_profiles WHERE user_id = '$view_user_id'");
+    if ($check_prof && $check_prof->num_rows == 0) {
+        // Fetch base data from the users table
+        $user_data_q = $conn->query("SELECT name, email, department, employee_id, role FROM users WHERE id = '$view_user_id'");
+        if ($user_data = $user_data_q->fetch_assoc()) {
+            $n = $conn->real_escape_string($user_data['name']);
+            $e = $conn->real_escape_string($user_data['email']);
+            $d = $conn->real_escape_string($user_data['department']);
+            $eid = $conn->real_escape_string($user_data['employee_id']);
+            $r = $conn->real_escape_string($user_data['role']);
+            
+            // Build the missing profile record silently
+            $conn->query("INSERT INTO employee_profiles (user_id, full_name, email, department, emp_id_code, designation, status) 
+                          VALUES ('$view_user_id', '$n', '$e', '$d', '$eid', '$r', 'Active')");
+        }
+    }
+}
+// =========================================================================
+
 // --- 3. HANDLE UPDATES (POST REQUESTS) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     

@@ -1,5 +1,5 @@
 <?php
-// assigned_tickets.php - IT Executive Dashboard
+// it_exec_ticket_action.php - IT Executive Dashboard
 
 // 1. SESSION & SECURITY GUARD
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
@@ -27,21 +27,27 @@ if (file_exists($dbPath)) {
 }
 
 // =========================================================================
-// 3. PROCESS TICKET RESOLUTION (Self-Contained Logic)
+// 3. PROCESS TICKET RESOLUTION & AUTO-CALCULATE TIMINGS
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_ticket'])) {
     
-    // A. Check and Add Missing Columns Automatically
-    $check_col = $conn->query("SHOW COLUMNS FROM tickets LIKE 'time_taken'");
-    if ($check_col && $check_col->num_rows === 0) {
-        $conn->query("ALTER TABLE tickets 
-            ADD COLUMN diagnosis TEXT DEFAULT NULL,
-            ADD COLUMN solution TEXT DEFAULT NULL,
-            ADD COLUMN time_taken VARCHAR(50) DEFAULT NULL,
-            ADD COLUMN part_name VARCHAR(255) DEFAULT NULL,
-            ADD COLUMN part_serial VARCHAR(100) DEFAULT NULL,
-            ADD COLUMN completion_date DATE DEFAULT NULL
-        ");
+    // A. BULLETPROOF DATABASE PATCHER (Checks each column individually to prevent duplicate crashes)
+    $columns_to_check = [
+        'diagnosis' => 'TEXT DEFAULT NULL',
+        'solution' => 'TEXT DEFAULT NULL',
+        'time_taken' => 'VARCHAR(100) DEFAULT NULL',
+        'old_part_name' => 'VARCHAR(255) DEFAULT NULL',
+        'old_part_serial' => 'VARCHAR(100) DEFAULT NULL',
+        'new_part_name' => 'VARCHAR(255) DEFAULT NULL',
+        'new_part_serial' => 'VARCHAR(100) DEFAULT NULL',
+        'resolved_at' => 'DATETIME DEFAULT NULL'
+    ];
+
+    foreach ($columns_to_check as $col_name => $col_type) {
+        $check = $conn->query("SHOW COLUMNS FROM tickets LIKE '$col_name'");
+        if ($check && $check->num_rows === 0) {
+            $conn->query("ALTER TABLE tickets ADD COLUMN $col_name $col_type");
+        }
     }
     
     // Fix Status Enum if needed
@@ -50,12 +56,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_ticket'])) {
     // B. Sanitize Inputs
     $ticket_id       = intval($_POST['ticket_id'] ?? 0);
     $raw_status      = $_POST['status'] ?? 'Open';
-    $time_taken      = trim($_POST['time_taken'] ?? '');
     $diagnosis       = trim($_POST['diagnosis'] ?? '');
     $solution        = trim($_POST['solution'] ?? '');
-    $part_name       = trim($_POST['part_name'] ?? '');
-    $part_serial     = trim($_POST['part_serial'] ?? '');
-    $completion_date = (isset($_POST['completion_date']) && $_POST['completion_date'] !== '') ? $_POST['completion_date'] : null;
+    $old_part_name   = trim($_POST['old_part_name'] ?? '');
+    $old_part_serial = trim($_POST['old_part_serial'] ?? '');
+    $new_part_name   = trim($_POST['new_part_name'] ?? '');
+    $new_part_serial = trim($_POST['new_part_serial'] ?? '');
 
     if ($ticket_id > 0) {
         // C. Map Status Correctly
@@ -72,15 +78,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_ticket'])) {
         ];
         $status = $status_map[$raw_status] ?? 'Open';
 
-        // D. Update Query
+        // D. AUTO-CALCULATE TIME TAKEN
+        // Fetch created_at timestamp to calculate the exact duration
+        $t_query = $conn->prepare("SELECT created_at, time_taken FROM tickets WHERE id = ?");
+        $t_query->bind_param("i", $ticket_id);
+        $t_query->execute();
+        $t_data = $t_query->get_result()->fetch_assoc();
+        $t_query->close();
+
+        $time_taken = $t_data['time_taken']; 
+        $resolved_at = null;
+
+        // Only calculate time IF the status is changing to Resolved/Closed AND time_taken is empty
+        if (in_array($status, ['Resolved', 'Closed']) && empty($time_taken)) {
+            $start_time = strtotime($t_data['created_at']);
+            $end_time = time(); // Current exact timestamp
+            $diff = max(0, $end_time - $start_time);
+            
+            $days = floor($diff / 86400);
+            $hours = floor(($diff % 86400) / 3600);
+            $mins = floor(($diff % 3600) / 60);
+
+            $time_parts = [];
+            if ($days > 0) $time_parts[] = "{$days} Days";
+            if ($hours > 0) $time_parts[] = "{$hours} Hrs";
+            if ($mins > 0) $time_parts[] = "{$mins} Mins";
+            if (empty($time_parts)) $time_parts[] = "Just now";
+
+            $time_taken = implode(" ", $time_parts);
+            $resolved_at = date('Y-m-d H:i:s');
+        }
+
+        // E. Update Query
         $sql = "UPDATE tickets 
-                SET status = ?, time_taken = ?, diagnosis = ?, solution = ?, 
-                    part_name = ?, part_serial = ?, completion_date = ? 
-                WHERE id = ? AND assigned_to = ?";
+                SET status = ?, diagnosis = ?, solution = ?, 
+                    old_part_name = ?, old_part_serial = ?, new_part_name = ?, new_part_serial = ? ";
+        
+        // Append resolution timings if computed
+        if ($resolved_at) {
+            $sql .= ", time_taken = '$time_taken', resolved_at = '$resolved_at' ";
+        }
+        
+        $sql .= "WHERE id = ? AND assigned_to = ?";
                 
         $stmt = $conn->prepare($sql);
         if ($stmt) {
-            $stmt->bind_param("sssssssii", $status, $time_taken, $diagnosis, $solution, $part_name, $part_serial, $completion_date, $ticket_id, $user_id);
+            $stmt->bind_param("sssssssii", $status, $diagnosis, $solution, $old_part_name, $old_part_serial, $new_part_name, $new_part_serial, $ticket_id, $user_id);
             if ($stmt->execute()) {
                 $_SESSION['toast'] = ['type' => 'success', 'msg' => 'Ticket Resolution Saved Successfully!'];
             } else {
@@ -105,13 +148,15 @@ $stats = [
     'resolved' => 0
 ];
 
+// FIXED DUPLICATION: Using GROUP BY u.id and MAX() ensures no duplicate users from profile table
 $query = "SELECT t.*, 
-                 COALESCE(ep.full_name, u.username, 'Unknown User') as requester_name,
+                 COALESCE(MAX(ep.full_name), u.name, u.username, 'Unknown User') as requester_name,
                  u.email as requester_email
           FROM tickets t 
           LEFT JOIN users u ON t.user_id = u.id 
           LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
           WHERE t.assigned_to = ? 
+          GROUP BY t.id
           ORDER BY FIELD(t.status, 'Open', 'In Progress', 'Waiting for Parts', 'Resolved', 'Closed'), t.created_at DESC";
 
 $stmt = $conn->prepare($query);
@@ -132,6 +177,7 @@ while ($row = $result->fetch_assoc()) {
         $stats['resolved']++;
     }
 }
+$stmt->close();
 
 // Helpers for badges
 function getPriorityBadge($priority) {
@@ -257,12 +303,24 @@ function getStatusBadge($status) {
         .info-label { font-size: 0.8rem; text-transform: uppercase; color: #64748b; font-weight: 600; margin-bottom: 0.2rem;}
         .info-data { font-size: 0.95rem; color: #1e293b; font-weight: 500; margin-bottom: 1rem;}
 
-        /* Disabled Form Styles */
+        /* Custom Input Fixes */
         input:disabled, select:disabled, textarea:disabled {
             background-color: #f1f5f9 !important;
             color: #64748b !important;
             opacity: 1;
             border-color: #e2e8f0;
+        }
+        
+        .auto-calc-box {
+            background-color: #eefcfd;
+            border: 1px dashed #1b5a5a;
+            color: #1b5a5a;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: inline-block;
+            margin-top: 0.5rem;
         }
 
         @media (max-width: 992px) {
@@ -356,12 +414,10 @@ function getStatusBadge($status) {
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($tickets as $ticket): 
-                                    // Parse attachment path safely
+                                    // Parse attachment safely
                                     $attachPath = $ticket['attachment'];
                                     if (!empty($attachPath)) {
-                                        if (!str_starts_with($attachPath, 'uploads/')) {
-                                            $attachPath = 'uploads/tickets/' . $attachPath;
-                                        }
+                                        if (!str_starts_with($attachPath, 'uploads/')) { $attachPath = 'uploads/tickets/' . $attachPath; }
                                         $attachPath = (file_exists('../' . $attachPath)) ? '../' . $attachPath : $attachPath;
                                     } else {
                                         $attachPath = '';
@@ -369,26 +425,26 @@ function getStatusBadge($status) {
                                     
                                     $is_resolved = in_array(strtolower($ticket['status']), ['resolved', 'closed']);
 
-                                    // Prepare JSON data for modal
+                                    // Build Secure Data Payload
                                     $t_data = htmlspecialchars(json_encode([
                                         'id' => $ticket['id'],
                                         'code' => $ticket['ticket_code'] ?? $ticket['id'],
                                         'subject' => $ticket['subject'],
                                         'requester' => $ticket['requester_name'],
-                                        'email' => $ticket['requester_email'],
                                         'priority' => $ticket['priority'],
                                         'status' => $ticket['status'],
                                         'date' => date('d M Y, h:i A', strtotime($ticket['created_at'])),
                                         'desc' => $ticket['description'],
                                         'attachment' => $attachPath,
                                         'is_resolved' => $is_resolved,
-                                        // Resolution fields (if they exist)
+                                        // Specific Fields
                                         'diagnosis' => $ticket['diagnosis'] ?? '',
                                         'solution' => $ticket['solution'] ?? '',
                                         'time_taken' => $ticket['time_taken'] ?? '',
-                                        'part_name' => $ticket['part_name'] ?? '',
-                                        'part_serial' => $ticket['part_serial'] ?? '',
-                                        'completion_date' => $ticket['completion_date'] ?? ''
+                                        'old_part_name' => $ticket['old_part_name'] ?? '',
+                                        'old_part_serial' => $ticket['old_part_serial'] ?? '',
+                                        'new_part_name' => $ticket['new_part_name'] ?? '',
+                                        'new_part_serial' => $ticket['new_part_serial'] ?? ''
                                     ]), ENT_QUOTES, 'UTF-8');
                                 ?>
                                     <tr class="ticket-row">
@@ -427,6 +483,9 @@ function getStatusBadge($status) {
                         </tbody>
                     </table>
                 </div>
+                <div class="bg-light text-muted text-center py-3 border-top" style="font-size: 0.85rem;">
+                    Showing <span id="visibleCount" class="fw-bold"><?php echo count($tickets); ?></span> assigned tickets
+                </div>
             </div>
 
         </div>
@@ -441,6 +500,7 @@ function getStatusBadge($status) {
                 </div>
                 <div class="modal-body p-0">
                     <div class="row g-0">
+                        
                         <div class="col-md-5 p-4 bg-white border-end">
                             <h5 id="m_subject" class="fw-bold mb-4 text-dark">Subject</h5>
                             
@@ -456,9 +516,9 @@ function getStatusBadge($status) {
                             </div>
 
                             <div class="info-label mt-2">Description of Issue</div>
-                            <div class="p-3 bg-light rounded border border-light-subtle text-dark" style="font-size: 0.9rem; line-height: 1.6; max-height: 250px; overflow-y: auto; white-space: pre-wrap;" id="m_desc">Description goes here...</div>
+                            <div class="p-3 bg-light rounded border border-light-subtle text-dark mb-4" style="font-size: 0.9rem; line-height: 1.6; max-height: 200px; overflow-y: auto; white-space: pre-wrap;" id="m_desc">Description goes here...</div>
 
-                            <div id="m_attach_container" class="mt-4" style="display: none;">
+                            <div id="m_attach_container" style="display: none;">
                                 <div class="info-label">Attached File</div>
                                 <a href="#" id="m_attach_link" target="_blank" class="btn btn-sm btn-outline-secondary mt-1">
                                     <i class="fas fa-paperclip me-1"></i> View Attachment
@@ -477,8 +537,8 @@ function getStatusBadge($status) {
 
                                 <div class="row mb-3">
                                     <div class="col-md-6">
-                                        <label class="form-label fw-semibold small text-secondary">Update Status <span class="text-danger">*</span></label>
-                                        <select class="form-select shadow-none" name="status" id="m_status" required>
+                                        <label class="form-label fw-bold small text-secondary">Update Status <span class="text-danger">*</span></label>
+                                        <select class="form-select shadow-none border-secondary-subtle" name="status" id="m_status" required>
                                             <option value="Open">Open</option>
                                             <option value="In Progress">In Progress</option>
                                             <option value="Waiting for Parts">Waiting for Parts</option>
@@ -487,39 +547,42 @@ function getStatusBadge($status) {
                                         </select>
                                     </div>
                                     <div class="col-md-6">
-                                        <label class="form-label fw-semibold small text-secondary">Time Taken</label>
-                                        <input type="text" class="form-control shadow-none" name="time_taken" id="m_time" placeholder="e.g., 2 Hours 30 Mins">
+                                        <label class="form-label fw-bold small text-secondary">Total Time Taken</label>
+                                        <div id="m_time_display" class="auto-calc-box w-100">Will be calculated automatically upon resolution.</div>
                                     </div>
                                 </div>
 
                                 <div class="mb-3">
-                                    <label class="form-label fw-semibold small text-secondary">Diagnosis / Root Cause</label>
-                                    <textarea class="form-control shadow-none" name="diagnosis" id="m_diagnosis" rows="2" placeholder="What caused the issue?"></textarea>
+                                    <label class="form-label fw-bold small text-secondary">Diagnosis / Root Cause</label>
+                                    <textarea class="form-control shadow-none border-secondary-subtle" name="diagnosis" id="m_diagnosis" rows="2" placeholder="What exactly caused the issue?"></textarea>
                                 </div>
 
-                                <div class="mb-3">
-                                    <label class="form-label fw-semibold small text-secondary">Solution / Steps Taken <span class="text-danger">*</span></label>
-                                    <textarea class="form-control shadow-none" name="solution" id="m_solution" rows="3" placeholder="What steps were taken to resolve it?" required></textarea>
+                                <div class="mb-4">
+                                    <label class="form-label fw-bold small text-secondary">Solution / Steps Taken <span class="text-danger">*</span></label>
+                                    <textarea class="form-control shadow-none border-secondary-subtle" name="solution" id="m_solution" rows="2" placeholder="What specific steps were taken to resolve it?" required></textarea>
                                 </div>
 
-                                <div class="border rounded p-3 bg-white mb-4">
-                                    <label class="form-label fw-semibold small text-secondary mb-2 d-block"><i class="fas fa-microchip me-1"></i> Hardware Replacement (If applicable)</label>
-                                    <div class="row g-2">
-                                        <div class="col-md-4">
-                                            <input type="text" class="form-control shadow-none form-control-sm" name="part_name" id="m_part_name" placeholder="Part Name">
+                                <div class="border border-secondary-subtle rounded p-3 bg-white mb-4 shadow-sm">
+                                    <label class="form-label fw-bold text-secondary small text-uppercase mb-3 d-block border-bottom pb-2">
+                                        <i class="fas fa-microchip me-2 text-primary"></i> Hardware Replacement Tracker (If applicable)
+                                    </label>
+                                    <div class="row g-4">
+                                        <div class="col-md-6 border-end border-light-subtle">
+                                            <span class="d-block text-danger small fw-bold mb-2"><i class="fas fa-arrow-down me-1"></i> OLD / FAULTY PART</span>
+                                            <input type="text" class="form-control shadow-none form-control-sm mb-2 border-secondary-subtle" name="old_part_name" id="m_old_part_name" placeholder="Part Name (e.g., HDD, RAM)">
+                                            <input type="text" class="form-control shadow-none form-control-sm border-secondary-subtle" name="old_part_serial" id="m_old_part_serial" placeholder="Old Serial Number">
                                         </div>
-                                        <div class="col-md-4">
-                                            <input type="text" class="form-control shadow-none form-control-sm" name="part_serial" id="m_part_serial" placeholder="Serial Number">
-                                        </div>
-                                        <div class="col-md-4">
-                                            <input type="date" class="form-control shadow-none form-control-sm text-muted" name="completion_date" id="m_comp_date">
+                                        <div class="col-md-6">
+                                            <span class="d-block text-success small fw-bold mb-2"><i class="fas fa-arrow-up me-1"></i> NEW / INSTALLED PART</span>
+                                            <input type="text" class="form-control shadow-none form-control-sm mb-2 border-secondary-subtle" name="new_part_name" id="m_new_part_name" placeholder="Part Name (e.g., 500GB SSD)">
+                                            <input type="text" class="form-control shadow-none form-control-sm border-secondary-subtle" name="new_part_serial" id="m_new_part_serial" placeholder="New Serial Number">
                                         </div>
                                     </div>
                                 </div>
 
                                 <div class="d-grid mt-auto">
                                     <button type="submit" class="btn btn-brand py-2 shadow-sm" id="submitResolutionBtn">
-                                        <i class="fas fa-check-double me-1"></i> Save Resolution
+                                        <i class="fas fa-check-double me-1"></i> Save & Execute Resolution
                                     </button>
                                 </div>
                             </form>
@@ -584,6 +647,7 @@ function getStatusBadge($status) {
         function filterTickets() {
             const searchInput = document.getElementById('searchTicket').value.toLowerCase();
             const rows = document.querySelectorAll('.ticket-row');
+            let visibleCount = 0;
 
             rows.forEach(row => {
                 const ticketId = row.querySelector('.ticket-id').innerText.toLowerCase();
@@ -591,10 +655,12 @@ function getStatusBadge($status) {
 
                 if (ticketId.includes(searchInput) || subject.includes(searchInput)) {
                     row.style.display = '';
+                    visibleCount++;
                 } else {
                     row.style.display = 'none';
                 }
             });
+            document.getElementById('visibleCount').innerText = visibleCount;
         }
 
         // Modal Data Injection & Prevention of Double Submit
@@ -616,11 +682,27 @@ function getStatusBadge($status) {
             document.getElementById('m_status').value = data.status;
             document.getElementById('m_diagnosis').value = data.diagnosis;
             document.getElementById('m_solution').value = data.solution;
-            document.getElementById('m_time').value = data.time_taken;
-            document.getElementById('m_part_name').value = data.part_name;
-            document.getElementById('m_part_serial').value = data.part_serial;
-            document.getElementById('m_comp_date').value = data.completion_date;
             
+            // Pre-fill Advanced Hardware Tracking
+            document.getElementById('m_old_part_name').value = data.old_part_name;
+            document.getElementById('m_old_part_serial').value = data.old_part_serial;
+            document.getElementById('m_new_part_name').value = data.new_part_name;
+            document.getElementById('m_new_part_serial').value = data.new_part_serial;
+            
+            // Auto Time Calculated Display
+            const timeDisplay = document.getElementById('m_time_display');
+            if (data.time_taken && data.time_taken.trim() !== '') {
+                timeDisplay.innerHTML = `<i class="fas fa-clock me-1"></i> ${data.time_taken}`;
+                timeDisplay.style.backgroundColor = '#f0fdf4';
+                timeDisplay.style.borderColor = '#16a34a';
+                timeDisplay.style.color = '#16a34a';
+            } else {
+                timeDisplay.innerHTML = `<i class="fas fa-calculator me-1"></i> Auto-calculates upon resolution`;
+                timeDisplay.style.backgroundColor = '#eefcfd';
+                timeDisplay.style.borderColor = '#1b5a5a';
+                timeDisplay.style.color = '#1b5a5a';
+            }
+
             // Attachment Handling
             const attachContainer = document.getElementById('m_attach_container');
             const attachLink = document.getElementById('m_attach_link');
@@ -631,7 +713,7 @@ function getStatusBadge($status) {
                 attachContainer.style.display = 'none';
             }
 
-            // Lock Form if Resolved
+            // Lock Form if Already Resolved
             const formFields = document.querySelectorAll('#resolutionForm input:not([type="hidden"]), #resolutionForm select, #resolutionForm textarea');
             const submitBtn = document.getElementById('submitResolutionBtn');
             const formTitle = document.getElementById('formTitle');
@@ -639,12 +721,12 @@ function getStatusBadge($status) {
             if (isResolved) {
                 formFields.forEach(f => f.disabled = true);
                 submitBtn.style.display = 'none';
-                formTitle.innerHTML = '<i class="fas fa-check-circle me-2 text-success"></i>Resolution Details';
+                formTitle.innerHTML = '<i class="fas fa-check-circle me-2 text-success"></i>Resolution Details (Locked)';
             } else {
                 formFields.forEach(f => f.disabled = false);
                 submitBtn.style.display = 'block';
                 submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="fas fa-check-double me-1"></i> Save Resolution';
+                submitBtn.innerHTML = '<i class="fas fa-check-double me-1"></i> Save & Execute Resolution';
                 formTitle.innerHTML = '<i class="fas fa-clipboard-check me-2"></i>Resolution Log';
             }
 
@@ -655,7 +737,7 @@ function getStatusBadge($status) {
         document.getElementById('resolutionForm').addEventListener('submit', function() {
             const btn = document.getElementById('submitResolutionBtn');
             btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Saving Data...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Finalizing Resolution...';
         });
     </script>
 
