@@ -12,13 +12,19 @@ if (!$salary_id) {
     die("Invalid request.");
 }
 
-// FIXED: Fetch Salary & Employee Details from 'employee_onboarding' table
+// Fetch Salary & Employee Details from 'employee_onboarding' table
 $query = "SELECT s.*, 
                  CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as name, 
                  e.emp_id_code as emp_code, 
                  e.designation, 
-                 e.phone, 
-                 e.email 
+                 e.department,
+                 e.joining_date,
+                 e.bank_acc_no,
+                 e.pan_no,
+                 e.pf_no,
+                 e.esi_no,
+                 e.salary as ctc,
+                 e.salary_type
           FROM employee_salary s 
           JOIN employee_onboarding e ON s.user_id = e.id 
           WHERE s.id = ?";
@@ -68,15 +74,37 @@ function getIndianCurrency($number) {
 }
 
 $month_formatted = date('F Y', strtotime($data['salary_month'] . '-01'));
-$payslip_no = "#PS" . str_pad($data['id'], 4, '0', STR_PAD_LEFT);
 $amount_in_words = getIndianCurrency($data['net_salary']);
 
-// Aggregate minor allowances and deductions for a cleaner layout
-$other_allowances = floatval($data['allowance'] ?? 0) + floatval($data['medical'] ?? 0) + floatval($data['others_earnings'] ?? 0);
-$other_deductions = floatval($data['leave_deduction'] ?? 0) + floatval($data['professional_tax'] ?? 0) + floatval($data['labour_welfare'] ?? 0) + floatval($data['others_deductions'] ?? 0);
+// Aggregate minor allowances and deductions
+$other_allowances = floatval($data['allowance'] ?? 0) + floatval($data['others_earnings'] ?? 0);
+$other_deductions = floatval($data['professional_tax'] ?? 0) + floatval($data['labour_welfare'] ?? 0) + floatval($data['others_deductions'] ?? 0);
 
-// FIXED: Calculate total deductions for the UI
-$total_deductions = floatval($data['tds']) + floatval($data['pf']) + floatval($data['esi']) + $other_deductions;
+$total_deductions = floatval($data['tds']) + floatval($data['pf']) + floatval($data['esi']) + floatval($data['leave_deduction']) + $other_deductions;
+
+// Calculate Fixed Gross (Assuming full month without LOP)
+$fixed_basic = $data['basic'] + ($data['leave_deduction'] * 0.5); // Approximation for fixed
+$fixed_da = $data['da'] + ($data['leave_deduction'] * 0.4);
+$fixed_hra = $data['hra'] + ($data['leave_deduction'] * 0.1);
+$fixed_gross = $data['gross_salary'] + $data['leave_deduction'];
+
+// Days calculation
+$days_in_month = date('t', strtotime($data['salary_month'] . '-01'));
+$lop_days = 0;
+// Reverse engineer LOP days if a deduction exists
+if($data['leave_deduction'] > 0 && $fixed_gross > 0) {
+    $per_day = $fixed_gross / $days_in_month;
+    $lop_days = round($data['leave_deduction'] / $per_day, 1);
+}
+$paid_days = $days_in_month - $lop_days;
+
+// Employer Contributions (Usually equal to employee, adjust if different)
+$employer_pf = $data['pf'];
+$employer_esi = $data['esi'];
+$total_benefits = $employer_pf + $employer_esi;
+
+$earned_ctc = $data['gross_salary'] + $total_benefits;
+$fixed_ctc = $fixed_gross + $total_benefits;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -84,306 +112,232 @@ $total_deductions = floatval($data['tds']) + floatval($data['pf']) + floatval($d
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payslip - <?= htmlspecialchars($data['name']) ?> - <?= $month_formatted ?></title>
-    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    
     <style>
-        :root {
-            --text-main: #1e293b;
-            --text-muted: #64748b;
-            --border-color: #e2e8f0;
-            --bg-light: #f8fafc;
-            --primary: #f97316;
-        }
         body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: #cbd5e1; 
+            font-family: 'Times New Roman', Times, serif; /* Classic professional font */
+            background: #e2e8f0; 
             margin: 0; 
-            padding: 20px 10px; 
-            color: var(--text-main);
+            padding: 20px 0; 
+            color: #000;
         }
         
-        /* Top Navigation Bar */
-        .top-nav {
-            max-width: 900px;
-            margin: 0 auto 15px auto;
-            display: flex;
-            justify-content: flex-start;
-        }
-        .btn-back {
-            background: #fff;
-            color: var(--text-main);
-            border: 1px solid #94a3b8;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 14px;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            transition: 0.2s;
-            text-decoration: none;
-        }
+        .top-nav { max-width: 900px; margin: 0 auto 15px auto; display: flex; justify-content: flex-start; }
+        .btn-back { background: #fff; border: 1px solid #94a3b8; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; font-size: 14px; text-decoration: none; color: #000;}
         .btn-back:hover { background: #f1f5f9; }
 
-        /* Main Payslip Container */
         .payslip-wrapper { 
             max-width: 900px; 
             margin: 0 auto; 
             background: #fff; 
-            padding: 40px; 
-            border-radius: 8px; 
+            padding: 30px; 
             box-shadow: 0 10px 25px rgba(0,0,0,0.1); 
             box-sizing: border-box;
+            border: 1px solid #ccc;
         }
         
         /* Header Section */
-        .top-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 35px; border-bottom: 2px solid var(--bg-light); padding-bottom: 20px;}
-        .logo-section h1 { margin: 0; color: var(--text-main); font-size: 26px; display: flex; align-items: center; gap: 8px; font-weight: 800;}
-        .logo-section h1 span { color: var(--primary); }
-        .logo-section p { margin: 8px 0 0; color: var(--text-muted); font-size: 13px; line-height: 1.6; }
-        .meta-details { text-align: right; font-size: 14px; }
-        .meta-details .ps-no { font-weight: 800; color: var(--text-main); font-size: 16px;}
-        .meta-details .ps-no span { color: var(--primary); }
+        .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 15px; position: relative; }
+        .header img { position: absolute; left: 0; top: 0; height: 60px; }
+        .header h2 { margin: 0 0 5px 0; font-size: 20px; font-weight: bold; }
+        .header p { margin: 2px 0; font-size: 12px; }
+        .header h3 { margin: 10px 0 0 0; font-size: 14px; font-weight: bold; text-transform: uppercase; }
+
+        /* Meta Information Table */
+        .meta-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; }
+        .meta-table td { padding: 4px 8px; vertical-align: top; }
+        .meta-table .label { width: 20%; font-weight: normal; }
+        .meta-table .value { width: 30%; }
+
+        /* Main Salary Table */
+        .salary-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 0; }
+        .salary-table th, .salary-table td { border: 1px solid #000; padding: 6px 8px; }
+        .salary-table th { font-weight: bold; text-align: left; }
+        .salary-table .right-align { text-align: right; }
+        .salary-table .border-none { border-top: none; border-bottom: none; }
+        .salary-table .border-top-none { border-top: none; }
+        .salary-table .border-bottom-none { border-bottom: none; }
+
+        /* Footer Section */
+        .footer-table { width: 100%; border-collapse: collapse; font-size: 12px; border: 1px solid #000; border-top: none; margin-bottom: 15px;}
+        .footer-table td { padding: 6px 8px; }
+        .footer-table .label { width: 25%; }
+        .footer-table .val { width: 25%; }
         
-        /* Flexbox Address Section (Replaces Grid to fix html2pdf bug) */
-        .address-flex { display: flex; justify-content: space-between; gap: 30px; margin-bottom: 30px; }
-        .address-block { flex: 1; }
-        .address-block h3 { margin: 0 0 10px; font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
-        .address-block strong { font-size: 16px; color: var(--text-main); display: block; margin-bottom: 6px; }
-        .address-block p { margin: 4px 0; font-size: 13px; color: #475569; }
-        
-        /* Title */
-        .payslip-title { text-align: center; font-size: 16px; font-weight: 800; color: var(--text-main); margin: 30px 0 20px 0; padding: 10px; background: var(--bg-light); border-radius: 6px; border: 1px solid var(--border-color);}
-        
-        /* Flexbox Tables Section (Replaces Grid to fix html2pdf bug) */
-        .tables-flex { display: flex; justify-content: space-between; gap: 20px; margin-bottom: 30px; align-items: flex-start; }
-        .table-box { flex: 1; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; width: 48%; }
-        
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 12px 15px; font-size: 13px; }
-        th { background: var(--bg-light); text-align: left; font-weight: 700; color: var(--text-main); border-bottom: 1px solid var(--border-color); }
-        td { border-bottom: 1px solid var(--border-color); color: #475569; }
-        td.amount { text-align: right; font-weight: 600; color: var(--text-main); }
-        
-        tr:last-child td { border-bottom: none; }
-        .total-row { background: var(--bg-light); border-top: 2px solid var(--border-color); }
-        .total-row td { font-weight: 800; color: var(--text-main); font-size: 14px; }
-        
-        /* Net Salary Footer */
-        .net-salary-box { padding: 20px; font-size: 14px; color: #475569; background: #fffbeb; border: 1px solid #fef3c7; border-radius: 8px; text-align: center; margin-bottom: 40px;}
-        .net-salary-box strong { color: #d97706; font-size: 18px; display: block; margin-bottom: 5px;}
-        
-        /* Signatures */
-        .signature-flex { display: flex; justify-content: space-between; margin-top: 50px; padding-top: 20px;}
-        .sig-box { width: 200px; text-align: center; border-top: 1px solid var(--border-color); font-size: 12px; color: var(--text-muted); padding-top: 8px; font-weight: 600;}
+        .disclaimer { text-align: center; font-size: 11px; margin-top: 20px; font-style: italic; }
 
         /* Action Buttons */
         .action-buttons { text-align: center; margin-top: 30px; display: flex; gap: 15px; justify-content: center; margin-bottom: 40px;}
-        .btn { padding: 12px 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s;}
-        .btn-print { background: var(--text-main); color: #fff; }
-        .btn-download { background: var(--primary); color: #fff; }
-        .btn:hover { opacity: 0.9; transform: translateY(-2px); }
-        .btn:disabled { opacity: 0.7; cursor: wait; transform: none; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; transition: 0.2s;}
+        .btn-print { background: #1e293b; color: #fff; }
+        .btn-download { background: #f97316; color: #fff; }
+        .btn:hover { opacity: 0.9; }
 
-        /* --- PRINT STYLES --- */
         @media print {
-            @page { size: A4 portrait; margin: 10mm; } /* Forces 1 page and removes browser URLs/Dates */
-            
+            @page { size: A4 portrait; margin: 10mm; }
             body { background: #fff; padding: 0; margin: 0; }
-            .payslip-wrapper { box-shadow: none; padding: 0; max-width: 100%; border: none; }
-            
-            /* Hide UI components during print */
+            .payslip-wrapper { box-shadow: none; border: none; padding: 0; }
             .top-nav, .action-buttons { display: none !important; }
-            
-            /* Ensure layout stays intact during print */
-            .address-flex, .tables-flex { display: flex !important; flex-direction: row !important; }
-            .address-block, .table-box { width: 48% !important; break-inside: avoid; }
-            
-            th, .total-row { background: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-            .net-salary-box { background: #fffbeb !important; border: 1px solid #fef3c7 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        }
-        
-        /* Mobile View */
-        @media (max-width: 768px) {
-            .tables-flex, .address-flex { flex-direction: column; gap: 20px; }
-            .table-box, .address-block { width: 100%; }
-            .top-header { flex-direction: column; gap: 15px; align-items: center; text-align: center; }
-            .meta-details { text-align: center; }
-            .signature-flex { flex-direction: column; align-items: center; gap: 40px; }
         }
     </style>
 </head>
 <body>
 
     <div class="top-nav">
-        <button class="btn-back" onclick="goBack()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Back to Dashboard
-        </button>
+        <a href="javascript:void(0)" class="btn-back" onclick="goBack()">← Back</a>
     </div>
 
     <div class="payslip-wrapper" id="payslip-content">
         
-        <div class="top-header">
-            <div class="logo-section">
-                <h1>
-                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                    <span>Work</span>Ack
-                </h1>
-                <p>9/96 h, Post, Village Nagar, SSKulam<br>Coimbatore, TN 641107</p>
-            </div>
-            <div class="meta-details">
-                <div class="ps-no">Payslip No <span><?= $payslip_no ?></span></div>
-                <div style="margin-top: 8px; color: var(--text-muted);">Salary Month: <strong style="color:var(--text-main);"><?= $month_formatted ?></strong></div>
-            </div>
+        <div class="header">
+            <img src="../assets/logo.png" alt="Logo" onerror="this.style.display='none'">
+            <h2>NEOERA INFOTECH</h2>
+            <p>9/96 h, Post, Village Nagar, SSKulam, Coimbatore, Tamil Nadu-641107</p>
+            <h3>PAYSLIP FOR THE MONTH OF <?= strtoupper($month_formatted) ?></h3>
         </div>
 
-        <div class="address-flex">
-            <div class="address-block">
-                <h3>From</h3>
-                <strong>Neoera Infotech</strong>
-                <p>9/96 h, Post, Village Nagar, SSKulam</p>
-                <p>Coimbatore, TN 641107</p>
-                <p>Email: info@neoerait.com</p>
-            </div>
-            <div class="address-block">
-                <h3>To</h3>
-                <strong><?= htmlspecialchars($data['name']) ?></strong>
-                <p><?= htmlspecialchars($data['designation'] ?? 'Employee') ?></p>
-                <p>Emp ID: <?= htmlspecialchars($data['emp_code'] ?? 'N/A') ?></p>
-                <p>Email: <?= htmlspecialchars($data['email'] ?? 'N/A') ?></p>
-                <p>Phone: <?= htmlspecialchars($data['phone'] ?? 'N/A') ?></p>
-            </div>
-        </div>
+        <table class="meta-table">
+            <tr>
+                <td class="label">Employee Code :</td>
+                <td class="value"><?= htmlspecialchars($data['emp_code'] ?: 'N/A') ?></td>
+                <td class="label">First Name :</td>
+                <td class="value"><?= htmlspecialchars($data['name']) ?></td>
+            </tr>
+            <tr>
+                <td class="label">Designation :</td>
+                <td class="value"><?= htmlspecialchars($data['designation'] ?: 'N/A') ?></td>
+                <td class="label">Department :</td>
+                <td class="value"><?= htmlspecialchars($data['department'] ?: 'N/A') ?></td>
+            </tr>
+            <tr>
+                <td class="label">Date of Joining :</td>
+                <td class="value"><?= !empty($data['joining_date']) ? date('d/m/Y', strtotime($data['joining_date'])) : 'N/A' ?></td>
+                <td class="label">PF ACCOUNT NO. :</td>
+                <td class="value"><?= htmlspecialchars($data['pf_no'] ?: 'N/A') ?></td>
+            </tr>
+            <tr>
+                <td class="label">Bank Account Number :</td>
+                <td class="value"><?= htmlspecialchars($data['bank_acc_no'] ?: 'N/A') ?></td>
+                <td class="label">ESI No. :</td>
+                <td class="value"><?= htmlspecialchars($data['esi_no'] ?: 'N/A') ?></td>
+            </tr>
+            <tr>
+                <td class="label">MONTH DAYS :</td>
+                <td class="value"><?= number_format($days_in_month, 2) ?></td>
+                <td class="label">PAID DAYS :</td>
+                <td class="value"><?= number_format($paid_days, 2) ?></td>
+            </tr>
+            <tr>
+                <td class="label">PAN/GIR No.(TDS) :</td>
+                <td class="value"><?= htmlspecialchars($data['pan_no'] ?: 'N/A') ?></td>
+                <td class="label"></td>
+                <td class="value"></td>
+            </tr>
+        </table>
 
-        <div class="payslip-title">
-            Payslip for the month of <?= $month_formatted ?>
-        </div>
+        <table class="salary-table">
+            <tr>
+                <th style="width: 35%;">EARNINGS</th>
+                <th style="width: 15%; text-align: right;">FIXED</th>
+                <th style="width: 15%; text-align: right;">EARNED</th>
+                <th style="width: 20%;">DEDUCTIONS</th>
+                <th style="width: 15%; text-align: right;">AMOUNT</th>
+            </tr>
+            <tr>
+                <td class="border-bottom-none">BASIC</td>
+                <td class="border-bottom-none right-align"><?= number_format($fixed_basic, 2) ?></td>
+                <td class="border-bottom-none right-align"><?= number_format($data['basic'], 2) ?></td>
+                <td class="border-bottom-none">ESI</td>
+                <td class="border-bottom-none right-align"><?= number_format($data['esi'], 2) ?></td>
+            </tr>
+            <tr>
+                <td class="border-none">DA</td>
+                <td class="border-none right-align"><?= number_format($fixed_da, 2) ?></td>
+                <td class="border-none right-align"><?= number_format($data['da'], 2) ?></td>
+                <td class="border-none">PF AMOUNT</td>
+                <td class="border-none right-align"><?= number_format($data['pf'], 2) ?></td>
+            </tr>
+            <tr>
+                <td class="border-none">HRA</td>
+                <td class="border-none right-align"><?= number_format($fixed_hra, 2) ?></td>
+                <td class="border-none right-align"><?= number_format($data['hra'], 2) ?></td>
+                <td class="border-none">TDS</td>
+                <td class="border-none right-align"><?= number_format($data['tds'], 2) ?></td>
+            </tr>
+            <tr>
+                <td class="border-none">MEDICAL ALLOWANCE</td>
+                <td class="border-none right-align"><?= number_format($data['medical'], 2) ?></td>
+                <td class="border-none right-align"><?= number_format($data['medical'], 2) ?></td>
+                <td class="border-none">LOSS OF PAY (LOP)</td>
+                <td class="border-none right-align"><?= number_format($data['leave_deduction'], 2) ?></td>
+            </tr>
+            <tr>
+                <td class="border-top-none">OTHER ALLOWANCE</td>
+                <td class="border-top-none right-align"><?= number_format($other_allowances, 2) ?></td>
+                <td class="border-top-none right-align"><?= number_format($other_allowances, 2) ?></td>
+                <td class="border-top-none">OTHER DEDUCTIONS</td>
+                <td class="border-top-none right-align"><?= number_format($other_deductions, 2) ?></td>
+            </tr>
+            <tr>
+                <th>TOTAL GROSS PAY</th>
+                <th class="right-align"><?= number_format($fixed_gross, 2) ?></th>
+                <th class="right-align"><?= number_format($data['gross_salary'], 2) ?></th>
+                <th>DEDUCTION TOTAL</th>
+                <th class="right-align"><?= number_format($total_deductions, 2) ?></th>
+            </tr>
+            <tr>
+                <th colspan="2">NET PAY :</th>
+                <th colspan="3" class="right-align" style="font-size: 14px;"><?= number_format($data['net_salary'], 2) ?></th>
+            </tr>
+            <tr>
+                <td colspan="5" style="text-align: center; font-weight: bold;">(Rupees <?= $amount_in_words ?>)</td>
+            </tr>
+        </table>
 
-        <div class="tables-flex">
-            <div class="table-box">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Earnings</th>
-                            <th style="text-align: right;">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Basic Salary</td>
-                            <td class="amount">₹<?= number_format($data['basic'], 2) ?></td>
-                        </tr>
-                        <tr>
-                            <td>House Rent Allowance (H.R.A.)</td>
-                            <td class="amount">₹<?= number_format($data['hra'], 2) ?></td>
-                        </tr>
-                        <tr>
-                            <td>Conveyance</td>
-                            <td class="amount">₹<?= number_format($data['conveyance'], 2) ?></td>
-                        </tr>
-                        <?php if($other_allowances > 0): ?>
-                        <tr>
-                            <td>Other Allowances</td>
-                            <td class="amount">₹<?= number_format($other_allowances, 2) ?></td>
-                        </tr>
-                        <?php endif; ?>
-                        
-                        <?php if($other_allowances <= 0): ?>
-                        <tr><td style="color:transparent; border:none; user-select:none;">-</td><td style="border:none;"></td></tr>
-                        <?php endif; ?>
+        <table class="footer-table">
+            <tr>
+                <td class="label">PF EMPLOYER :</td>
+                <td class="val"><?= number_format($employer_pf, 2) ?></td>
+                <td class="label">ESI EMPLOYER :</td>
+                <td class="val right-align"><?= number_format($employer_esi, 2) ?></td>
+            </tr>
+            <tr>
+                <td class="label">FIXED CTC :</td>
+                <td class="val"><?= number_format($fixed_ctc, 2) ?></td>
+                <td class="label">TOTAL BENEFITS :</td>
+                <td class="val right-align"><?= number_format($total_benefits, 2) ?></td>
+            </tr>
+            <tr>
+                <td class="label">EARNED CTC :</td>
+                <td class="val"><?= number_format($earned_ctc, 2) ?></td>
+                <td colspan="2"></td>
+            </tr>
+        </table>
 
-                        <tr class="total-row">
-                            <td>Total Earnings</td>
-                            <td class="amount">₹<?= number_format($data['gross_salary'], 2) ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="table-box">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Deductions</th>
-                            <th style="text-align: right;">Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>Tax Deducted at Source (T.D.S.)</td>
-                            <td class="amount">₹<?= number_format($data['tds'], 2) ?></td>
-                        </tr>
-                        <tr>
-                            <td>Provident Fund (P.F.)</td>
-                            <td class="amount">₹<?= number_format($data['pf'], 2) ?></td>
-                        </tr>
-                        <tr>
-                            <td>ESI</td>
-                            <td class="amount">₹<?= number_format($data['esi'], 2) ?></td>
-                        </tr>
-                        <?php if($other_deductions > 0): ?>
-                        <tr>
-                            <td>Other Deductions / LOP</td>
-                            <td class="amount">₹<?= number_format($other_deductions, 2) ?></td>
-                        </tr>
-                        <?php endif; ?>
-                        
-                        <?php if($other_deductions <= 0): ?>
-                        <tr><td style="color:transparent; border:none; user-select:none;">-</td><td style="border:none;"></td></tr>
-                        <?php endif; ?>
-
-                        <tr class="total-row">
-                            <td>Total Deductions</td>
-                            <td class="amount">₹<?= number_format($total_deductions, 2) ?></td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
-        <div class="net-salary-box">
-            <strong>₹<?= number_format($data['net_salary'], 2) ?></strong>
-            Net Salary: <?= $amount_in_words ?>
-        </div>
-
-        <div class="signature-flex">
-            <div class="sig-box">Employer Signature</div>
-            <div class="sig-box">Employee Signature</div>
+        <div class="disclaimer">
+            This is computer generated payslip. Hence signature not required.
         </div>
 
     </div>
 
     <div class="action-buttons">
-        <button class="btn btn-print" onclick="window.print()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2-2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
-            Print Payslip
-        </button>
-        <button class="btn btn-download" id="downloadBtn" onclick="downloadPDF()">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-            Download PDF
-        </button>
+        <button class="btn btn-print" onclick="window.print()">Print Payslip</button>
+        <button class="btn btn-download" id="downloadBtn" onclick="downloadPDF()">Download PDF</button>
     </div>
 
     <script>
-        // Go back safely
         function goBack() {
             if (window.history.length > 1) {
                 window.history.back();
             } else {
-                window.close(); // Closes tab if opened via target="_blank"
+                window.close();
             }
         }
 
-        // Direct PDF Download Logic (Fixes the missing data bug)
         function downloadPDF() {
             var btn = document.getElementById('downloadBtn');
             var originalText = btn.innerHTML;
-            
-            // Show loading state
-            btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> Generating...';
+            btn.innerHTML = 'Generating...';
             btn.disabled = true;
 
             var element = document.getElementById('payslip-content');
@@ -391,18 +345,15 @@ $total_deductions = floatval($data['tds']) + floatval($data['pf']) + floatval($d
             var month = "<?= str_replace(' ', '_', $month_formatted) ?>";
             var filename = "Payslip_" + employeeName + "_" + month + ".pdf";
 
-            // Options optimized for perfect rendering
             var opt = {
-                margin:       [10, 10, 10, 10], // Margin in mm
+                margin:       [10, 10, 10, 10],
                 filename:     filename,
                 image:        { type: 'jpeg', quality: 1.0 },
                 html2canvas:  { scale: 2, useCORS: true, letterRendering: true, scrollY: 0 },
                 jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
             };
 
-            // Generate and save
             html2pdf().set(opt).from(element).save().then(function() {
-                // Restore button state after download
                 btn.innerHTML = originalText;
                 btn.disabled = false;
             });

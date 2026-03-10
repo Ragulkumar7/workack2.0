@@ -32,7 +32,7 @@ $stmt->close();
 $employeeName = $profile_data['full_name'] ?? "Unknown Employee";
 $employeeID   = $profile_data['emp_id_code'] ?? "EMP-0000";
 $designation  = $profile_data['designation'] ?? "Staff";
-$joining_date = $profile_data['joining_date'] ?? date('Y-m-01');
+$joining_date = !empty($profile_data['joining_date']) ? $profile_data['joining_date'] : '2000-01-01'; // Fallback
 $shift_timings = $profile_data['shift_timings'] ?? '09:00 AM - 06:00 PM';
 
 $profile_img = $profile_data['profile_img'] ?? '';
@@ -43,131 +43,198 @@ if(empty($profile_img) || $profile_img === 'default_user.png') {
 }
 
 // =========================================================================================
-// FILTER LOGIC (Daily, Monthly, Range)
+// FILTER LOGIC & DATE BOUNDARIES
 // =========================================================================================
 $filter_type = isset($_GET['filter_type']) ? $_GET['filter_type'] : 'monthly';
 
-// Default Values
 $filter_date  = isset($_GET['filter_date']) && !empty($_GET['filter_date']) ? $_GET['filter_date'] : date('Y-m-d'); 
 $filter_month = isset($_GET['filter_month']) && !empty($_GET['filter_month']) ? $_GET['filter_month'] : date('Y-m');
 $from_date    = isset($_GET['from_date']) && !empty($_GET['from_date']) ? $_GET['from_date'] : date('Y-m-01');
 $to_date      = isset($_GET['to_date']) && !empty($_GET['to_date']) ? $_GET['to_date'] : date('Y-m-d');
 
-// Determine Query Based on Filter Type
+$today = date('Y-m-d');
+
+// Determine Start and End Dates based on the filter
 if ($filter_type === 'daily') {
-    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY date DESC";
+    $start_date = $filter_date;
+    $end_date = $filter_date;
     $currentDisplay = date('d M Y', strtotime($filter_date));
 } elseif ($filter_type === 'monthly') {
-    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND DATE_FORMAT(date, '%Y-%m') = ? ORDER BY date DESC";
-    $currentDisplay = date('F Y', strtotime($filter_month . '-01'));
+    $start_date = $filter_month . '-01';
+    $end_date = date('Y-m-t', strtotime($start_date));
+    $currentDisplay = date('F Y', strtotime($start_date));
 } elseif ($filter_type === 'range') {
     if (strtotime($to_date) < strtotime($from_date)) {
         $temp = $from_date; $from_date = $to_date; $to_date = $temp;
     }
-    $sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date DESC";
-    $currentDisplay = date('d M Y', strtotime($from_date)) . " to " . date('d M Y', strtotime($to_date));
+    $start_date = $from_date;
+    $end_date = $to_date;
+    $currentDisplay = date('d M Y', strtotime($start_date)) . " to " . date('d M Y', strtotime($end_date));
 }
 
-// Prepare Statement
+// B. Fetch DB Attendance Records
+$sql_att = "SELECT * FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
 $stmt = $conn->prepare($sql_att);
-if ($filter_type === 'daily') {
-    $stmt->bind_param("is", $view_user_id, $filter_date);
-} elseif ($filter_type === 'monthly') {
-    $stmt->bind_param("is", $view_user_id, $filter_month);
-} elseif ($filter_type === 'range') {
-    $stmt->bind_param("iss", $view_user_id, $from_date, $to_date);
-}
+$stmt->bind_param("iss", $view_user_id, $start_date, $end_date);
+$stmt->execute();
+$result = $stmt->get_result();
 
-// B. Fetch Attendance Records based on Date Range
+$db_attendance = [];
+while ($row = $result->fetch_assoc()) {
+    $db_attendance[$row['date']] = $row;
+}
+$stmt->close();
+
+// Fetch Approved Leaves to correctly mark "On Leave" instead of "Absent"
+$sql_leaves = "SELECT start_date, end_date FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND end_date >= ? AND start_date <= ?";
+$stmt_leaves = $conn->prepare($sql_leaves);
+$stmt_leaves->bind_param("iss", $view_user_id, $start_date, $end_date);
+$stmt_leaves->execute();
+$res_leaves = $stmt_leaves->get_result();
+$approved_leaves = [];
+while ($l_row = $res_leaves->fetch_assoc()) {
+    $l_start = strtotime($l_row['start_date']);
+    $l_end = strtotime($l_row['end_date']);
+    for ($i = $l_start; $i <= $l_end; $i += 86400) {
+        $approved_leaves[date('Y-m-d', $i)] = true;
+    }
+}
+$stmt_leaves->close();
+
+// =========================================================================================
+// CALENDAR MAPPING & AUTO-ABSENT LOGIC
+// =========================================================================================
 $attendanceRecords = [];
 $total_production = 0;
 $late_days = 0;
 $total_overtime = 0;
-$days_count = 0;
+$present_count = 0;
 
-$stmt->execute();
-$result = $stmt->get_result();
-
-// --- LATE LOGIC PREP ---
 $time_parts = explode('-', $shift_timings);
 $shift_start_str = trim($time_parts[0]);
+$joining_dt = new DateTime($joining_date);
 
-while ($row = $result->fetch_assoc()) {
-    $days_count++;
-    
-    // Accurate break fetching directly from the breaks table
-    $b_q = $conn->query("SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as t_break FROM attendance_breaks WHERE attendance_id = " . $row['id'] . " AND break_end IS NOT NULL");
-    $b_sec = $b_q->fetch_assoc()['t_break'] ?? 0;
-    
-    if ($b_sec == 0 && !empty($row['break_time'])) {
-        $b_sec = intval($row['break_time']) * 60;
-    }
-    $break_min = floor($b_sec / 60);
+// Loop through dates from END to START (Descending order for the UI)
+$current_dt = new DateTime($end_date);
+$start_dt = new DateTime($start_date);
 
-    // Calculate exact production based on punch records if missing
-    $prod = floatval($row['production_hours']);
-    if ($prod == 0 && !empty($row['punch_in']) && !empty($row['punch_out'])) {
-        $in = strtotime($row['punch_in']);
-        $out = strtotime($row['punch_out']);
-        $prod = max(0, (($out - $in) - $b_sec) / 3600);
-    }
-    
-    $total_production += $prod;
-    $overtime = ($prod > 9) ? ($prod - 9) : 0;
-    $total_overtime += $overtime;
+while ($current_dt >= $start_dt) {
+    $date_str = $current_dt->format('Y-m-d');
+    $is_future = ($date_str > $today);
+    $is_before_joining = ($current_dt < $joining_dt);
+    $day_of_week = $current_dt->format('N'); // 1 (Mon) - 7 (Sun)
 
-    // --- LATE CALCULATION LOGIC ---
-    $late_msg = "-";
-    $is_late = false;
-    if (!empty($row['punch_in']) && stripos($row['status'], 'Absent') === false) {
-        $shift_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
-        $punch_in_ts = strtotime($row['punch_in']);
+    if (isset($db_attendance[$date_str])) {
+        // --- RECORD EXISTS IN DB ---
+        $row = $db_attendance[$date_str];
+        
+        $b_q = $conn->query("SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) as t_break FROM attendance_breaks WHERE attendance_id = " . $row['id'] . " AND break_end IS NOT NULL");
+        $b_sec = $b_q->fetch_assoc()['t_break'] ?? 0;
+        if ($b_sec == 0 && !empty($row['break_time'])) { $b_sec = intval($row['break_time']) * 60; }
+        $break_min = floor($b_sec / 60);
 
-        if ($punch_in_ts > ($shift_start_ts + 60)) { // 1 min grace
-            $delay_mins = round(($punch_in_ts - $shift_start_ts) / 60);
-            if ($delay_mins >= 60) {
-                $late_msg = floor($delay_mins / 60) . "h " . ($delay_mins % 60) . "m";
-            } else {
-                $late_msg = $delay_mins . " mins";
+        $prod = floatval($row['production_hours']);
+        if ($prod == 0 && !empty($row['punch_in']) && !empty($row['punch_out'])) {
+            $in = strtotime($row['punch_in']);
+            $out = strtotime($row['punch_out']);
+            $prod = max(0, (($out - $in) - $b_sec) / 3600);
+        }
+        
+        $total_production += $prod;
+        $overtime = ($prod > 9) ? ($prod - 9) : 0;
+        $total_overtime += $overtime;
+
+        $late_msg = "-";
+        $is_late = false;
+        $is_absent_db = stripos($row['status'], 'Absent') !== false;
+
+        if (!$is_absent_db) { $present_count++; }
+
+        if (!empty($row['punch_in']) && !$is_absent_db) {
+            $shift_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
+            $punch_in_ts = strtotime($row['punch_in']);
+
+            if ($punch_in_ts > ($shift_start_ts + 60)) { // 1 min grace
+                $delay_mins = round(($punch_in_ts - $shift_start_ts) / 60);
+                if ($delay_mins >= 60) {
+                    $late_msg = floor($delay_mins / 60) . "h " . ($delay_mins % 60) . "m";
+                } else {
+                    $late_msg = $delay_mins . " mins";
+                }
+                $late_days++;
+                $is_late = true;
             }
-            $late_days++;
-            $is_late = true;
+        }
+
+        $status_raw = $row['status'];
+        $pillClass = 'bg-slate-100 text-slate-600 border-slate-200';
+        if(stripos($status_raw, 'Time') !== false) $pillClass = 'bg-emerald-50 text-emerald-600 border-emerald-200';
+        if(stripos($status_raw, 'Late') !== false || $is_late) { 
+            $pillClass = 'bg-amber-50 text-amber-600 border-amber-200'; 
+            if(stripos($status_raw, 'Late') === false) $status_raw = 'Late';
+        }
+        if(stripos($status_raw, 'Absent') !== false) $pillClass = 'bg-rose-50 text-rose-600 border-rose-200';
+        if(stripos($status_raw, 'WFH') !== false) $pillClass = 'bg-indigo-50 text-indigo-600 border-indigo-200';
+
+        $prod_class = ($prod > 0 && $prod < 8) ? "text-rose-500 font-bold" : "text-slate-700 font-bold";
+
+        $attendanceRecords[] = [
+            "date" => $current_dt->format('d M Y'),
+            "checkin" => !empty($row['punch_in']) ? date('h:i A', strtotime($row['punch_in'])) : "-",
+            "checkout" => !empty($row['punch_out']) ? date('h:i A', strtotime($row['punch_out'])) : "-",
+            "status" => $status_raw,
+            "status_class" => $pillClass,
+            "break" => ($break_min > 0) ? $break_min . " m" : "-",
+            "late" => $late_msg,
+            "overtime" => ($overtime > 0) ? number_format($overtime, 2) . " h" : "-",
+            "production" => number_format($prod, 2) . " h",
+            "prod_class" => $prod_class
+        ];
+
+    } else {
+        // --- NO DB RECORD: AUTO-ABSENT LOGIC ---
+        if (!$is_future && !$is_before_joining) {
+            if ($day_of_week == 7) {
+                // Sunday -> Weekly Off
+                $attendanceRecords[] = [
+                    "date" => $current_dt->format('d M Y'),
+                    "checkin" => "-", "checkout" => "-",
+                    "status" => "Weekly Off",
+                    "status_class" => "bg-slate-100 text-slate-400 border-slate-200",
+                    "break" => "-", "late" => "-", "overtime" => "-",
+                    "production" => "-", "prod_class" => "text-slate-400"
+                ];
+            } elseif (isset($approved_leaves[$date_str])) {
+                // Approved Leave
+                $attendanceRecords[] = [
+                    "date" => $current_dt->format('d M Y'),
+                    "checkin" => "-", "checkout" => "-",
+                    "status" => "On Leave",
+                    "status_class" => "bg-purple-50 text-purple-600 border-purple-200",
+                    "break" => "-", "late" => "-", "overtime" => "-",
+                    "production" => "-", "prod_class" => "text-slate-400"
+                ];
+            } else {
+                // Working Day, Past, Not on Leave -> Absent
+                $attendanceRecords[] = [
+                    "date" => $current_dt->format('d M Y'),
+                    "checkin" => "-", "checkout" => "-",
+                    "status" => "Absent",
+                    "status_class" => "bg-rose-50 text-rose-600 border-rose-200",
+                    "break" => "-", "late" => "-", "overtime" => "-",
+                    "production" => "0.00 h", "prod_class" => "text-rose-500 font-bold"
+                ];
+            }
         }
     }
-
-    // Dynamic UI Styling
-    $status_raw = $row['status'];
-    $pillClass = 'bg-slate-100 text-slate-600 border-slate-200';
-    if(stripos($status_raw, 'Time') !== false) $pillClass = 'bg-emerald-50 text-emerald-600 border-emerald-200';
-    if(stripos($status_raw, 'Late') !== false || $is_late) { 
-        $pillClass = 'bg-amber-50 text-amber-600 border-amber-200'; 
-        $status_raw = 'Late'; 
-    }
-    if(stripos($status_raw, 'Absent') !== false) $pillClass = 'bg-rose-50 text-rose-600 border-rose-200';
-    if(stripos($status_raw, 'WFH') !== false) $pillClass = 'bg-blue-50 text-blue-600 border-blue-200';
-
-    $prod_class = ($prod > 0 && $prod < 8) ? "text-rose-500 font-bold" : "text-slate-700 font-bold";
-
-    $attendanceRecords[] = [
-        "date" => date('d M Y', strtotime($row['date'])),
-        "checkin" => !empty($row['punch_in']) ? date('h:i A', strtotime($row['punch_in'])) : "-",
-        "checkout" => !empty($row['punch_out']) ? date('h:i A', strtotime($row['punch_out'])) : "-",
-        "status" => $status_raw,
-        "status_class" => $pillClass,
-        "break" => ($break_min > 0) ? $break_min . " m" : "-",
-        "late" => $late_msg,
-        "overtime" => ($overtime > 0) ? number_format($overtime, 2) . " h" : "-",
-        "production" => number_format($prod, 2) . " h",
-        "prod_class" => $prod_class
-    ];
+    
+    $current_dt->modify('-1 day');
 }
-$stmt->close();
 
-// C. Calculate Final Averages
-$avg_production = ($days_count > 0) ? number_format($total_production / $days_count, 1) : 0;
+$avg_production = ($present_count > 0) ? number_format($total_production / $present_count, 1) : 0;
 
 // =========================================================================================
-// D. LEAVE CARRY-FORWARD LOGIC
+// LEAVE CARRY-FORWARD LOGIC
 // =========================================================================================
 $base_leaves_per_month = 2;
 $d1 = new DateTime($joining_date); $d1->modify('first day of this month'); 
@@ -299,7 +366,7 @@ $leave_stmt->close();
                     </div>
                     <div class="card p-5 border-b-4 border-b-emerald-500 hover:shadow-md transition">
                         <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-calendar-check text-emerald-500 mr-1"></i> Present</p>
-                        <h3 class="text-2xl font-black text-slate-800"><?php echo sprintf("%02d", $days_count); ?> <span class="text-sm font-bold text-slate-400">Days</span></h3>
+                        <h3 class="text-2xl font-black text-slate-800"><?php echo sprintf("%02d", $present_count); ?> <span class="text-sm font-bold text-slate-400">Days</span></h3>
                     </div>
                     <div class="card p-5 border-b-4 border-b-purple-500 hover:shadow-md transition">
                         <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-bolt text-purple-500 mr-1"></i> Overtime</p>
@@ -366,8 +433,8 @@ $leave_stmt->close();
                                     ?>
                                     <tr class="hover:bg-slate-50/50 transition-colors">
                                         <td class="px-6 py-4 font-bold text-slate-700"><?php echo $row['date']; ?></td>
-                                        <td class="px-6 py-4 font-medium text-slate-600"><?php echo $row['checkin']; ?></td>
-                                        <td class="px-6 py-4 font-medium text-slate-600"><?php echo $row['checkout']; ?></td>
+                                        <td class="px-6 py-4 font-medium text-slate-400"><?php echo $row['checkin']; ?></td>
+                                        <td class="px-6 py-4 font-medium text-slate-400"><?php echo $row['checkout']; ?></td>
                                         <td class="px-6 py-4">
                                             <span class="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded-md border <?php echo $row['status_class']; ?>">
                                                 <?php echo htmlspecialchars($row['status']); ?>
@@ -376,7 +443,7 @@ $leave_stmt->close();
                                         <td class="px-6 py-4 text-amber-600 font-bold"><?php echo $row['break']; ?></td>
                                         <td class="px-6 py-4 <?php echo $row['prod_class']; ?>"><?php echo $row['production']; ?></td>
                                         <td class="px-6 py-4 font-bold <?php echo $row['late'] != '-' ? 'text-rose-500' : 'text-slate-300'; ?>"><?php echo $row['late']; ?></td>
-                                        <td class="px-6 py-4 font-bold <?php echo $row['overtime'] != '-' ? 'text-blue-500' : 'text-slate-300'; ?>"><?php echo $row['overtime']; ?></td>
+                                        <td class="px-6 py-4 font-bold <?php echo $row['overtime'] != '-' ? 'text-purple-500' : 'text-slate-300'; ?>"><?php echo $row['overtime']; ?></td>
                                         <td class="px-6 py-4 text-center">
                                             <button onclick="openReportModal(<?php echo $json_data; ?>)" class="text-slate-400 hover:text-teal-600 bg-white hover:bg-teal-50 border border-slate-200 hover:border-teal-200 p-2 rounded-lg transition-all shadow-sm">
                                                 <i class="fa-solid fa-expand"></i>

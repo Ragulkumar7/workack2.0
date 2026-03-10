@@ -27,10 +27,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_leave'])) {
     $total_days = intval($_POST['total_days']);
     $reason = mysqli_real_escape_string($conn, $_POST['reason']);
 
-    if ($leave_type && $start_date && $end_date && $total_days > 0) {
+    // Ensure only valid types are submitted
+    if (($leave_type === 'Medical' || $leave_type === 'Casual') && $start_date && $end_date && $total_days > 0) {
         
-        $tl_id = null;
-        $manager_id = null;
+        $tl_id = 0;
+        $manager_id = 0;
         
         $get_managers_sql = "SELECT reporting_to, manager_id FROM employee_profiles WHERE user_id = ?";
         $stmt_managers = mysqli_prepare($conn, $get_managers_sql);
@@ -39,8 +40,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_leave'])) {
             mysqli_stmt_execute($stmt_managers);
             $manager_res = mysqli_stmt_get_result($stmt_managers);
             if ($m_row = mysqli_fetch_assoc($manager_res)) {
-                $tl_id = isset($m_row['reporting_to']) ? $m_row['reporting_to'] : null;
-                $manager_id = isset($m_row['manager_id']) ? $m_row['manager_id'] : null;
+                $tl_id = !empty($m_row['reporting_to']) ? intval($m_row['reporting_to']) : 0;
+                $manager_id = !empty($m_row['manager_id']) ? intval($m_row['manager_id']) : 0;
             }
             mysqli_stmt_close($stmt_managers);
         }
@@ -66,9 +67,29 @@ if (isset($_GET['msg']) && $_GET['msg'] == 'success') {
     $message = "<div class='bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 rounded-lg mb-4 text-sm font-bold flex items-center gap-2'><i data-lucide='check-circle' style='width:18px;'></i> Leave request submitted successfully!</div>";
 }
 
-// --- 3. FETCH LEAVE STATISTICS ---
-$quotas = ['Annual' => 12, 'Medical' => 12, 'Casual' => 12, 'Other' => 12];
+// --- 3. FETCH STRICT DYNAMIC LEAVE STATISTICS ---
 
+// 3A. Fetch User Email to link with Onboarding table
+$u_sql = $conn->prepare("SELECT email FROM users WHERE id = ?");
+$u_sql->bind_param("i", $user_id);
+$u_sql->execute();
+$user_email = $u_sql->get_result()->fetch_assoc()['email'] ?? '';
+$u_sql->close();
+
+// 3B. Fetch exact total leaves allocated from employee_onboarding table
+$total_entitled = 12; // Standard fallback
+$o_sql = $conn->prepare("SELECT total_leaves FROM employee_onboarding WHERE email = ? LIMIT 1");
+$o_sql->bind_param("s", $user_email);
+$o_sql->execute();
+$o_res = $o_sql->get_result();
+if ($o_row = $o_res->fetch_assoc()) {
+    if(intval($o_row['total_leaves']) > 0) {
+        $total_entitled = intval($o_row['total_leaves']);
+    }
+}
+$o_sql->close();
+
+// 3C. Calculate Used Leaves per category (Restricted to Medical/Casual)
 $stats_sql = "SELECT leave_type, SUM(total_days) as used_days 
               FROM leave_requests 
               WHERE user_id = ? AND status = 'Approved' 
@@ -78,16 +99,16 @@ mysqli_stmt_bind_param($stmt_stats, "i", $user_id);
 mysqli_stmt_execute($stmt_stats);
 $result_stats = mysqli_stmt_get_result($stmt_stats);
 
-$used = ['Annual' => 0, 'Medical' => 0, 'Casual' => 0, 'Other' => 0];
+$used = ['Medical' => 0, 'Casual' => 0];
 while ($row = mysqli_fetch_assoc($result_stats)) {
     if (isset($used[$row['leave_type']])) {
         $used[$row['leave_type']] = $row['used_days'];
     }
 }
 
-$total_entitled = array_sum($quotas);
 $total_used = array_sum($used);
-$total_remaining = $total_entitled - $total_used;
+$total_remaining = max(0, $total_entitled - $total_used);
+
 
 // --- 4. FETCH LEAVE HISTORY ---
 $history_sql = "
@@ -138,7 +159,7 @@ if (!file_exists($sidebarPath)) {
         .main-content { margin-left: var(--sidebar-width); padding: 24px 32px; min-height: 100vh; transition: all 0.3s ease; width: calc(100% - var(--sidebar-width)); box-sizing: border-box; }
 
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; gap: 15px; flex-wrap: wrap; }
-        .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; }
+        .header-title h1 { font-size: 24px; font-weight: 700; margin: 0; color: #0f172a;}
         .breadcrumb { display: flex; align-items: center; font-size: 13px; color: var(--text-muted); gap: 8px; margin-top: 5px; }
         
         .btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 16px; font-size: 13px; font-weight: 600; border-radius: 8px; border: 1px solid var(--border); background: var(--white); color: var(--text-main); cursor: pointer; transition: 0.2s; gap: 8px; }
@@ -154,19 +175,16 @@ if (!file_exists($sidebarPath)) {
         .stat-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; }
         .card-decoration { position: absolute; right: -15px; top: 50%; transform: translateY(-50%); width: 80px; height: 80px; border-radius: 50%; display: flex; align-items: center; justify-content: center; opacity: 0.1; }
         
-        .card-annual .stat-badge { background: #eefcfd; color: #16636B; } .card-annual .card-decoration { background: #16636B; color: #16636B; opacity: 1; } .card-annual .card-decoration i { color: white; position: relative; z-index: 2; }
-        .card-medical .stat-badge { background: #dbeafe; color: #2563eb; } .card-medical .card-decoration { background: #3b82f6; }
-        .card-casual .stat-badge { background: #f3e8ff; color: #9333ea; } .card-casual .card-decoration { background: #a855f7; }
-        .card-other .stat-badge { background: #fce7f3; color: #db2777; } .card-other .card-decoration { background: #ec4899; }
+        .card-total .stat-badge { background: #e0f2fe; color: #0284c7; } .card-total .card-decoration { background: #0ea5e9; opacity: 1; } .card-total .card-decoration i { color: white; position: relative; z-index: 2; }
+        .card-medical .stat-badge { background: #fee2e2; color: #b91c1c; } .card-medical .card-decoration { background: #ef4444; }
+        .card-casual .stat-badge { background: #ffedd5; color: #c2410c; } .card-casual .card-decoration { background: #f97316; }
+        .card-remain .stat-badge { background: #dcfce7; color: #15803d; } .card-remain .card-decoration { background: #10b981; }
         .card-icon { width: 28px; height: 28px; color: white; }
 
         /* List Section */
         .list-section { background: white; border-radius: 12px; border: 1px solid var(--border); padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .list-header { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; }
         .list-title { font-size: 16px; font-weight: 700; margin-right: auto; color: #0f172a;}
-        .badge-pill { padding: 6px 12px; border-radius: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;}
-        .badge-orange { background: #fff7ed; color: #c2410c; border: 1px solid #ffedd5;}
-        .badge-cyan { background: #f0fdfa; color: #0f766e; border: 1px solid #ccfbf1;}
 
         .filters-row { display: flex; gap: 12px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
         .input-group { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #f8fafc; color: var(--text-muted); font-size: 13px; flex: 1; min-width: 150px; }
@@ -186,28 +204,33 @@ if (!file_exists($sidebarPath)) {
         .status-Rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca;}
         .awaiting-text { font-size: 10px; color: #64748b; font-weight: 600; margin-left: 2px;}
 
-        /* --- RESPONSIVE MODAL --- */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+        /* --- PERFECT RESPONSIVE MODAL --- */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(4px); padding: 20px;}
         .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         
+        /* Flex column ensures header/footer lock and only body scrolls */
         .modal-box { 
-            background: white; width: 500px; max-width: 95%; border-radius: 16px; 
+            background: white; width: 500px; max-width: 100%; border-radius: 16px; 
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); 
-            display: flex; flex-direction: column; max-height: 90vh; /* Prevents top/bottom overflow */
+            display: flex; flex-direction: column; 
+            max-height: 85vh; /* Prevents touching screen edges */
         }
         .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
         .modal-header h3 { margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;}
-        .modal-body { padding: 24px; overflow-y: auto; }
+        
+        .modal-body { padding: 24px; overflow-y: auto; flex: 1 1 auto; }
+        
         .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
         .full-width { grid-column: span 2; }
         .form-group label { display: block; font-size: 12px; font-weight: 700; margin-bottom: 8px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;}
-        .form-control { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; outline: none; transition: 0.2s; font-family: inherit;}
+        .form-control { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; outline: none; transition: 0.2s; font-family: inherit; box-sizing: border-box;}
         .form-control:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1);}
+        
         .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; background: #f8fafc; flex-shrink: 0; border-radius: 0 0 16px 16px;}
 
         @media (max-width: 992px) {
-            .main-content { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px;} /* Accommodate mobile header */
+            .main-content { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px;}
         }
         @media (max-width: 640px) {
             .form-grid { grid-template-columns: 1fr; }
@@ -241,39 +264,35 @@ if (!file_exists($sidebarPath)) {
         <?php echo $message; ?>
 
         <div class="stats-grid">
-            <div class="stat-card card-annual">
-                <div class="stat-title">Annual Leaves</div>
-                <div class="stat-value"><?php echo $used['Annual']; ?></div>
-                <div class="stat-badge">Remaining: <?php echo $quotas['Annual'] - $used['Annual']; ?></div>
-                <div class="card-decoration"><i data-lucide="calendar" class="card-icon"></i></div>
+            <div class="stat-card card-total">
+                <div class="stat-title">Total Entitled</div>
+                <div class="stat-value"><?php echo $total_entitled; ?></div>
+                <div class="stat-badge">Annual Quota</div>
+                <div class="card-decoration"><i data-lucide="award" class="card-icon"></i></div>
             </div>
             <div class="stat-card card-medical">
                 <div class="stat-title">Medical Leaves</div>
                 <div class="stat-value"><?php echo $used['Medical']; ?></div>
-                <div class="stat-badge">Remaining: <?php echo $quotas['Medical'] - $used['Medical']; ?></div>
-                <div class="card-decoration"><i data-lucide="syringe" class="card-icon"></i></div>
+                <div class="stat-badge">Days Taken</div>
+                <div class="card-decoration"><i data-lucide="activity" class="card-icon"></i></div>
             </div>
             <div class="stat-card card-casual">
                 <div class="stat-title">Casual Leaves</div>
                 <div class="stat-value"><?php echo $used['Casual']; ?></div>
-                <div class="stat-badge">Remaining: <?php echo $quotas['Casual'] - $used['Casual']; ?></div>
-                <div class="card-decoration"><i data-lucide="hexagon" class="card-icon"></i></div>
+                <div class="stat-badge">Days Taken</div>
+                <div class="card-decoration"><i data-lucide="coffee" class="card-icon"></i></div>
             </div>
-            <div class="stat-card card-other">
-                <div class="stat-title">Other Leaves</div>
-                <div class="stat-value"><?php echo $used['Other']; ?></div>
-                <div class="stat-badge">Remaining: <?php echo $quotas['Other'] - $used['Other']; ?></div>
-                <div class="card-decoration"><i data-lucide="package-plus" class="card-icon"></i></div>
+            <div class="stat-card card-remain">
+                <div class="stat-title">Overall Remaining</div>
+                <div class="stat-value"><?php echo $total_remaining; ?></div>
+                <div class="stat-badge">Available Days</div>
+                <div class="card-decoration"><i data-lucide="calendar-check-2" class="card-icon"></i></div>
             </div>
         </div>
 
         <div class="list-section">
             <div class="list-header">
                 <span class="list-title">Leave History</span>
-                <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                    <span class="badge-pill badge-orange">Total Entitled: <?php echo $total_entitled; ?></span>
-                    <span class="badge-pill badge-cyan">Overall Remaining: <?php echo $total_remaining; ?></span>
-                </div>
             </div>
 
             <div class="filters-row">
@@ -285,10 +304,8 @@ if (!file_exists($sidebarPath)) {
                     <i data-lucide="filter" style="width:16px;"></i>
                     <select id="filterType" onchange="filterTable()">
                         <option value="">All Leave Types</option>
-                        <option value="Annual">Annual Leave</option>
                         <option value="Medical">Medical Leave</option>
                         <option value="Casual">Casual Leave</option>
-                        <option value="Other">Other</option>
                     </select>
                 </div>
                 <div class="input-group">
@@ -323,13 +340,20 @@ if (!file_exists($sidebarPath)) {
                                 $m = $row['manager_status'] ?? 'Pending';
                                 $h = $row['hr_status'] ?? 'Pending';
                                 $db_stat = $row['status'];
+
+                                $tl_id = intval($row['tl_id'] ?? 0);
+                                $mgr_id = intval($row['manager_id'] ?? 0);
                                 
                                 if ($db_stat === 'Approved' && $t === 'Pending' && $m === 'Pending') {
                                     $real_status = 'Approved'; // Legacy fix
                                 } else {
                                     if ($t === 'Rejected' || $m === 'Rejected' || $h === 'Rejected') {
                                         $real_status = 'Rejected';
-                                    } elseif ($t === 'Approved' && $m === 'Approved' && $h === 'Approved') {
+                                    } elseif (
+                                        ($t === 'Approved' || $tl_id === 0) && 
+                                        ($m === 'Approved' || $mgr_id === 0) && 
+                                        $h === 'Approved'
+                                    ) {
                                         $real_status = 'Approved';
                                     } else {
                                         $real_status = 'Pending';
@@ -340,12 +364,18 @@ if (!file_exists($sidebarPath)) {
                                     'Approved' => 'check', 'Rejected' => 'x', default => 'clock'
                                 };
 
-                                // Awaiting Logic
+                                // SMARTER AWAITING LOGIC (Skips missing hierarchies)
                                 $awaiting = '';
                                 if ($real_status === 'Pending') {
-                                    if ($t === 'Pending') $awaiting = 'Awaiting Team Lead';
-                                    elseif ($m === 'Pending') $awaiting = 'Awaiting Manager';
-                                    elseif ($h === 'Pending') $awaiting = 'Awaiting HR';
+                                    if ($tl_id !== 0 && $t === 'Pending') {
+                                        $awaiting = 'Awaiting Team Lead';
+                                    } elseif ($mgr_id !== 0 && $m === 'Pending') {
+                                        $awaiting = 'Awaiting Manager';
+                                    } elseif ($h === 'Pending') {
+                                        $awaiting = 'Awaiting HR';
+                                    } else {
+                                        $awaiting = 'Awaiting Final Approval';
+                                    }
                                 } elseif ($real_status === 'Rejected') {
                                     $awaiting = 'Denied by ' . htmlspecialchars($row['approved_by'] ?? 'Management');
                                 }
@@ -386,54 +416,50 @@ if (!file_exists($sidebarPath)) {
         </div>
     </div>
 
-    <div class="modal-overlay" id="leaveModal">
-        <div class="modal-box">
-            <form method="POST" action="">
-                <div class="modal-header">
-                    <h3>Apply for Leave</h3>
-                    <i data-lucide="x" style="cursor:pointer; color:#94a3b8;" onclick="closeModal()"></i>
-                </div>
-                
-                <div class="modal-body">
-                    <div class="form-grid">
-                        <div class="form-group full-width">
-                            <label>Leave Type <span class="text-red-500">*</span></label>
-                            <select name="leave_type" class="form-control" required>
-                                <option value="">Select Type</option>
-                                <option value="Annual">Annual Leave</option>
-                                <option value="Medical">Medical Leave</option>
-                                <option value="Casual">Casual Leave</option>
-                                <option value="Other">Other</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>From Date <span class="text-red-500">*</span></label>
-                            <input type="date" name="start_date" id="dateFrom" class="form-control" required onchange="calculateDays()">
-                        </div>
-                        <div class="form-group">
-                            <label>To Date <span class="text-red-500">*</span></label>
-                            <input type="date" name="end_date" id="dateTo" class="form-control" required onchange="calculateDays()">
-                        </div>
-                        <div class="form-group full-width">
-                            <label>Total Number of Days</label>
-                            <input type="number" name="total_days" id="noOfDays" class="form-control bg-slate-50 border-slate-200 text-slate-500 font-bold" readonly>
-                        </div>
-                        <div class="form-group full-width">
-                            <label>Reason for Leave <span class="text-red-500">*</span></label>
-                            <textarea name="reason" class="form-control custom-scroll" rows="3" required maxlength="250" placeholder="Briefly explain the reason for your leave request..." oninput="updateCharCount(this)"></textarea>
-                            <div style="text-align:right; font-size:11px; color:#94a3b8; font-weight:600; margin-top:4px;">
-                                <span id="charCount">0</span>/250
-                            </div>
+   <div class="modal-overlay" id="leaveModal">
+        <form method="POST" action="" class="modal-box" style="overflow: hidden;">
+            <div class="modal-header">
+                <h3>Apply for Leave</h3>
+                <i data-lucide="x" style="cursor:pointer; color:#94a3b8;" onclick="closeModal()"></i>
+            </div>
+            
+            <div class="modal-body">
+                <div class="form-grid">
+                    <div class="form-group full-width">
+                        <label>Leave Type <span class="text-red-500">*</span></label>
+                        <select name="leave_type" class="form-control" required>
+                            <option value="">Select Type</option>
+                            <option value="Medical">Medical Leave</option>
+                            <option value="Casual">Casual Leave</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>From Date <span class="text-red-500">*</span></label>
+                        <input type="date" name="start_date" id="dateFrom" class="form-control" required onchange="calculateDays()">
+                    </div>
+                    <div class="form-group">
+                        <label>To Date <span class="text-red-500">*</span></label>
+                        <input type="date" name="end_date" id="dateTo" class="form-control" required onchange="calculateDays()">
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Total Number of Days</label>
+                        <input type="number" name="total_days" id="noOfDays" class="form-control bg-slate-50 border-slate-200 text-slate-500 font-bold" readonly>
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Reason for Leave <span class="text-red-500">*</span></label>
+                        <textarea name="reason" class="form-control custom-scroll" rows="3" required maxlength="250" placeholder="Briefly explain the reason for your leave request..." oninput="updateCharCount(this)"></textarea>
+                        <div style="text-align:right; font-size:11px; color:#94a3b8; font-weight:600; margin-top:4px;">
+                            <span id="charCount">0</span>/250
                         </div>
                     </div>
                 </div>
-                
-                <div class="modal-footer">
-                    <button type="button" class="btn" onclick="closeModal()">Cancel</button>
-                    <button type="submit" name="submit_leave" class="btn btn-primary"><i data-lucide="send" style="width:14px;"></i> Submit Request</button>
-                </div>
-            </form>
-        </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+                <button type="submit" name="submit_leave" class="btn btn-primary"><i data-lucide="send" style="width:14px;"></i> Submit Request</button>
+            </div>
+        </form>
     </div>
 
     <script>
@@ -480,6 +506,13 @@ if (!file_exists($sidebarPath)) {
             document.getElementById('leaveModal').classList.remove('active');
             document.body.style.overflow = 'auto';
         }
+
+        // Close on clicking outside the box
+        document.getElementById('leaveModal').addEventListener('click', function(e) {
+            if(e.target === this) {
+                closeModal();
+            }
+        });
 
         // 3. UTILITIES
         function updateCharCount(textarea) {

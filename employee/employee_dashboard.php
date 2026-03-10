@@ -86,7 +86,7 @@ $time_parts = explode('-', $shift_timings);
 $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
 $regular_shift_hours = 9;
 
-// Fetch Reporting Details (TL & Manager Names)
+// Fetch Reporting Details
 $tl_name = "Not Assigned";
 $mgr_name = "Not Assigned";
 
@@ -98,6 +98,22 @@ if ($manager_id > 0) {
     $mgr_res = $conn->query("SELECT full_name FROM employee_profiles WHERE user_id = $manager_id")->fetch_assoc();
     if($mgr_res) $mgr_name = $mgr_res['full_name'];
 }
+
+// =========================================================================
+// CRITICAL FIX: FETCH 'TOTAL_LEAVES' FROM employee_onboarding DB TABLE
+// =========================================================================
+$allocated_leaves = 12; // Fallback default
+$sql_onboarding = "SELECT total_leaves FROM employee_onboarding WHERE email = ? LIMIT 1";
+$stmt_onb = $conn->prepare($sql_onboarding);
+$stmt_onb->bind_param("s", $employee_email);
+$stmt_onb->execute();
+$res_onb = $stmt_onb->get_result();
+if ($row_onb = $res_onb->fetch_assoc()) {
+    // Override the fallback with the exact value from the database
+    $allocated_leaves = intval($row_onb['total_leaves']);
+}
+$stmt_onb->close();
+// =========================================================================
 
 // =========================================================================
 // 3. ADVANCED TIME TRACKER (TODAY'S SUMMARY FOR UI)
@@ -250,16 +266,8 @@ while ($cl_row = $curr_leave_res->fetch_assoc()) {
 }
 $curr_leave_stmt->close();
 
-$base_leaves_per_month = 2;
-$raw_join_date = $joining_date !== "Not Set" ? $row['joining_date'] : date('Y-m-01');
-$calc_join_date = date('Y-m-d', strtotime($raw_join_date));
-$display_join_month_year = date('M Y', strtotime($raw_join_date));
-
-$d1 = new DateTime($calc_join_date); $d1->modify('first day of this month'); 
-$d2 = new DateTime('now'); $d2->modify('first day of this month');
-
-$months_worked = ($d2 >= $d1) ? (($d1->diff($d2)->y * 12) + $d1->diff($d2)->m + 1) : 0;
-$total_earned_leaves = $months_worked * $base_leaves_per_month;
+// DB-Driven Leave Math
+$total_earned_leaves = $allocated_leaves; // Takes exact value from DB table
 
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
@@ -274,7 +282,7 @@ $tasks_result = $conn->query("SELECT * FROM personal_taskboard WHERE user_id = $
 $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskboard WHERE user_id = $current_user_id AND status != 'completed'")->fetch_assoc()['cnt'] ?? 0;
 
 // =========================================================================
-// 7. UNIFIED NOTIFICATIONS (Newest First)
+// 7. UNIFIED NOTIFICATIONS
 // =========================================================================
 $all_notifications = [];
 
@@ -343,11 +351,9 @@ if($r_announcements) {
     }
 }
 
-usort($all_notifications, function($a, $b) { 
-    return strtotime($b['time']) - strtotime($a['time']); 
-});
+usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
 $all_notifications = array_slice($all_notifications, 0, 6); 
-
+session_write_close();
 ?>
 
 <!DOCTYPE html>
@@ -364,7 +370,6 @@ $all_notifications = array_slice($all_notifications, 0, 6);
     <style>
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; overflow-x: hidden; }
         
-        /* Strict boundary management for perfectly aligned cards */
         .card { 
             background: white; 
             border-radius: 1rem; 
@@ -376,8 +381,6 @@ $all_notifications = array_slice($all_notifications, 0, 6);
             overflow: hidden; 
         }
         .card:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); border-color: #cbd5e1; transform: translateY(-2px); }
-        
-        /* Card body must flex-grow but have min-height: 0 so internal scrolls work */
         .card-body { padding: 1.5rem; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;}
 
         .custom-scroll::-webkit-scrollbar { width: 4px; }
@@ -386,12 +389,11 @@ $all_notifications = array_slice($all_notifications, 0, 6);
         
         .stat-badge { font-size: 1.5rem; font-weight: 900; line-height: 1; color: #1e293b; }
 
-        /* PERFECT 3-COLUMN FLEX GRID */
         .dashboard-container { 
             display: grid; 
             grid-template-columns: repeat(1, minmax(0, 1fr)); 
             gap: 1.5rem; 
-            align-items: stretch; /* Forces equal heights */
+            align-items: stretch;
         }
         @media (min-width: 1024px) {
             .dashboard-container {
@@ -446,7 +448,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
         <div class="dashboard-container mb-6">
 
             <div class="h-full"> 
-                <?php include $path_to_root . 'attendance_card.php'; ?>
+                <?php if (file_exists($path_to_root . 'attendance_card.php')) { include $path_to_root . 'attendance_card.php'; } ?>
             </div>
 
             <div class="flex flex-col gap-6 h-full"> 
@@ -481,11 +483,11 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                     <div class="card-body flex flex-col justify-between">
                         <div class="flex justify-between items-center border-b border-gray-100 pb-3 mb-4 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
-                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
+                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Dynamic Quota</span>
                         </div>
                         <div class="grid grid-cols-3 gap-3 mb-4 shrink-0">
                             <div class="bg-teal-50 p-4 rounded-xl text-center border border-teal-100 flex flex-col justify-center">
-                                <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
+                                <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Total</p>
                                 <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
                             </div>
                             <div class="bg-blue-50 p-4 rounded-xl text-center border border-blue-100 flex flex-col justify-center">
@@ -638,7 +640,7 @@ $all_notifications = array_slice($all_notifications, 0, 6);
                         <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
                             <i class="fa-solid fa-list-check text-teal-600"></i> My Tasks
                         </h3>
-                        <a href="personal_task.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition border border-teal-200">View All</a>
+                        <a href="../self_task.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition border border-teal-200">View All</a>
                     </div>
                     
                     <div class="flex-1 overflow-y-auto custom-scroll pr-2 space-y-3 min-h-0">
