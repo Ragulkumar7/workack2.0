@@ -294,7 +294,7 @@ if (isset($conn)) {
                 
                 $conn->begin_transaction();
                 try {
-                    // SMART FIX: Count actual Present days instead of Absent rows
+                    // Count actual Present days
                     $pres_stmt = $conn->prepare("SELECT user_id, COUNT(*) as cnt FROM attendance WHERE date >= ? AND date <= ? AND status != 'Absent' GROUP BY user_id");
                     $pres_stmt->bind_param("ss", $month_db, $month_end);
                     $pres_stmt->execute();
@@ -400,7 +400,7 @@ $employees_data = []; $grouped_data = [];
 $tot_payroll = 0; $tot_credited = 0; $tot_pending = 0; $tot_deductions = 0;
 
 if (isset($conn)) {
-    // Note: We now fetch `present_days` instead of `absent_days` to perfectly calculate Un-punched LOPs
+    // Fetch `present_days` to dynamically calculate Un-punched LOPs
     $query = "SELECT e.id as user_id, CONCAT(e.first_name, ' ', IFNULL(e.last_name, '')) as name, 
                      e.emp_id_code as emp_code, e.profile_img, e.designation, e.department, 
                      e.salary as ctc, IFNULL(e.salary_type, 'Annual') as salary_type, IFNULL(e.total_leaves, 12) as total_leaves,
@@ -446,12 +446,12 @@ if (isset($conn)) {
             $present = (int)$row['present_days'];
             $leaves = (int)$row['approved_leaves'];
             $payable = $present + $leaves + $sundays;
-            if ($payable > $days_in_month) $payable = $days_in_month; // Cap to max days
+            if ($payable > $days_in_month) $payable = $days_in_month; 
             
             $lop = $days_in_month - $payable;
             if ($lop < 0) $lop = 0;
 
-            // Push to row so JS can use it dynamically
+            // Store pure data to be used securely by JavaScript
             $row['days_in_month'] = $days_in_month;
             $row['sundays'] = $sundays;
             $row['payable_days'] = $payable;
@@ -895,6 +895,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         });
     }
 
+    // CLEANED LOP AUTO-CALCULATOR
     function recalcSalary() {
         let basic = parseFloat(document.getElementById('form_basic').value) || 0;
         let da = parseFloat(document.getElementById('form_da').value) || 0;
@@ -909,7 +910,6 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         let daysInMonth = parseInt(document.getElementById('form_days_in_month').value) || 30;
         let lopDays = parseFloat(document.getElementById('form_lop_days').value) || 0;
         
-        // Exact LOP math based on dynamic missing days
         let perDaySalary = grossPay / daysInMonth;
         let leave_deduction = perDaySalary * lopDays;
         
@@ -962,6 +962,7 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         if(selectAllCb) { selectAllCb.checked = false; toggleAllCheckboxes(selectAllCb); }
     }
 
+    // FIXED: REMOVED DUPLICATE VARIABLES
     function generateManual(userId) {
         const item = serverData.find(d => d.user_id == userId);
         if(!item) return;
@@ -998,37 +999,27 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         let hraPay = basicPay * 0.15;
         let allowancePay = monthlyGross - (basicPay + daPay + hraPay);
         if(allowancePay < 0) allowancePay = 0;
-        
-        let grossPay = basicPay + daPay + hraPay + allowancePay;
-        let perDaySalary = grossPay / daysInMonth;
-        let lopDeduct = perDaySalary * lopDays;
-
-        let pfDeduct = basicPay * 0.12;
-        let esiDeduct = grossPay <= 21000 ? (grossPay * 0.0075) : 0;
-        let ptDeduct = grossPay > 15000 ? 200 : 0;
 
         document.getElementById('form_basic').value = basicPay.toFixed(2);
         document.getElementById('form_da').value = daPay.toFixed(2);
         document.getElementById('form_hra').value = hraPay.toFixed(2);
         document.getElementById('form_allowance').value = allowancePay.toFixed(2);
         
-        document.getElementById('form_conveyance').value = 0;
-        document.getElementById('form_medical').value = 0;
-        document.getElementById('form_others_earnings').value = 0;
+        document.getElementById('form_conveyance').value = "0.00";
+        document.getElementById('form_medical').value = "0.00";
+        document.getElementById('form_others_earnings').value = "0.00";
 
-        document.getElementById('form_pf').value = pfDeduct.toFixed(2);
-        document.getElementById('form_esi').value = esiDeduct.toFixed(2);
-        document.getElementById('form_professional_tax').value = ptDeduct.toFixed(2);
+        // Instantly force calculation so LOP is visible before saving
+        recalcSalary();
 
-        document.getElementById('form_leave_deduction').value = lopDeduct.toFixed(2);
-        
-        document.getElementById('form_tds').value = 0;
-        document.getElementById('form_labour_welfare').value = 0;
-        document.getElementById('form_others_deductions').value = 0;
+        document.getElementById('form_tds').value = "0.00";
+        document.getElementById('form_labour_welfare').value = "0.00";
+        document.getElementById('form_others_deductions').value = "0.00";
         
         openModal();
     }
 
+    // FIXED: REMOVED DUPLICATE VARIABLES & FORCED RECALC
     function editSalary(salaryId) {
         const item = serverData.find(d => d.salary_id == salaryId);
         if(!item) return;
@@ -1052,7 +1043,6 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         toggleDate(item.credit_status);
         updateSubmitButtonText(item.credit_status || 'Pending');
         
-        // Feed the smartly calculated LOP values into the UI
         let daysInMonth = parseInt(item.days_in_month) || 30;
         let lopDays = parseFloat(item.lop_days) || 0;
         let payableDays = parseFloat(item.payable_days) || daysInMonth;
@@ -1064,8 +1054,13 @@ if (!empty($headerPath) && file_exists($headerPath)) require_once $headerPath;
         const fields = ['basic', 'da', 'hra', 'conveyance', 'allowance', 'medical', 'others_earnings', 'tds', 'esi', 'pf', 'leave_deduction', 'professional_tax', 'labour_welfare', 'others_deductions'];
         fields.forEach(f => {
             const el = document.getElementById('form_' + f);
-            if(el) el.value = item[f] ? parseFloat(item[f]).toFixed(2) : 0;
+            if(el) el.value = item[f] ? parseFloat(item[f]).toFixed(2) : "0.00";
         });
+        
+        // Force calculation if LOP was previously bugged at 0
+        if (parseFloat(item.leave_deduction) === 0 && lopDays > 0) {
+            recalcSalary();
+        }
         
         openModal();
     }
