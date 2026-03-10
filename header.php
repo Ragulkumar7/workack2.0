@@ -106,159 +106,60 @@ if (isset($conn) && $current_user_id > 0) {
     }
 
     // =========================================================================
-    // B. BULLETPROOF SYNC ENGINE (SELECT * prevents all SQL Column Errors)
+    // B. ULTRA-FAST BULK SYNC ENGINE (Loads in Split Seconds without PHP Loops)
     // =========================================================================
     if (!isset($_SESSION['last_notif_sync']) || (time() - $_SESSION['last_notif_sync']) > 5) { // 5-second fast sync
         $uid_safe = (int)$current_user_id;
-        $username_safe = $user_email; 
-        $fullname_safe = $full_name; 
-        
-        $u_name_db = '';
-        $u_q = $conn->query("SELECT name FROM users WHERE id = $uid_safe LIMIT 1");
-        if($u_q && $u_row = $u_q->fetch_assoc()) {
-            $u_name_db = $u_row['name'];
-        }
-        
-        function createNotif($conn, $uid, $role, $title, $msg, $type, $link, $srcType, $srcId) {
-            $uid_val = $uid ? (int)$uid : "NULL";
-            $role_val = $role ? "'".$conn->real_escape_string($role)."'" : "NULL";
-            $title_val = "'".$conn->real_escape_string($title)."'";
-            $msg_val = "'".$conn->real_escape_string($msg)."'";
-            
-            $uid_check = $uid ? "= $uid_val" : "IS NULL";
-            $role_check = $role ? "= $role_val" : "IS NULL";
-            
-            $check = $conn->query("SELECT id FROM notifications WHERE source_id = $srcId AND source_type = '$srcType' AND user_id $uid_check AND target_role $role_check LIMIT 1");
-            if ($check && $check->num_rows == 0) {
-                $conn->query("INSERT INTO notifications (user_id, target_role, title, message, type, link, source_type, source_id) 
-                              VALUES ($uid_val, $role_val, $title_val, $msg_val, '$type', '$link', '$srcType', $srcId)");
-            }
+
+        function syncSafe($conn, $table, $sql) {
+            try {
+                $chk = $conn->query("SHOW TABLES LIKE '$table'");
+                if($chk && $chk->num_rows > 0) $conn->query($sql); 
+            } catch (Exception $e) { /* Silently catch if table structure differs slightly */ }
         }
 
-        // 1. ANNOUNCEMENTS
-        $chk = $conn->query("SHOW TABLES LIKE 'announcements'");
-        if ($chk && $chk->num_rows > 0) {
-            $anns = $conn->query("SELECT * FROM announcements WHERE is_archived = 0 ORDER BY id DESC LIMIT 15");
-            if($anns) while($a = $anns->fetch_assoc()) {
-                $target = $a['target_audience'] ?? 'All';
-                if(strtolower($target) == 'all' || strtolower($target) == 'all employees') $target = 'All';
-                createNotif($conn, null, $target, '📢 ' . ($a['category'] ?? 'Announcement'), $a['title'] ?? 'New Update', 'announcement', '../view_announcements.php', 'ann', $a['id']);
-            }
-        }
+        // 1. ANNOUNCEMENTS (Declared / Active)
+        syncSafe($conn, 'announcements', "
+            INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) 
+            SELECT IF(target_audience IN ('All', 'All Employees', ''), 'All', target_audience), 
+                   CONCAT('📢 ', IFNULL(category, 'Announcement')), 
+                   IFNULL(title, 'New Update'), 
+                   'announcement', 
+                   '../view_announcements.php', 
+                   'ann', 
+                   id, 
+                   IFNULL(created_at, CURRENT_TIMESTAMP)
+            FROM announcements a 
+            WHERE is_archived = 0 
+              AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = a.id AND n.source_type = 'ann')
+        ");
 
-        // 2. WFH & LEAVES & PAYSLIPS
-        $chk = $conn->query("SHOW TABLES LIKE 'wfh_requests'");
-        if ($chk && $chk->num_rows > 0) {
-            $wfh = $conn->query("SELECT * FROM wfh_requests WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
-            if($wfh) while($w = $wfh->fetch_assoc()) {
-                $st = $w['status'] ?? 'Pending';
-                if ($st != 'Pending') createNotif($conn, $uid_safe, null, '🏠 WFH ' . $st, 'Your WFH request was ' . $st, $st == 'Approved' ? 'success' : 'danger', '../work_from_home.php', 'wfh_emp_'.$st, $w['id']);
-            }
-        }
+        // 2. WFH APPROVED (Only Approved)
+        syncSafe($conn, 'wfh_requests', "
+            INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) 
+            SELECT user_id, '🏠 WFH Approved', 'Your WFH request was Approved', 'success', '../work_from_home.php', 'wfh_emp_Approved', id, CURRENT_TIMESTAMP 
+            FROM wfh_requests w 
+            WHERE user_id = $uid_safe AND status = 'Approved' 
+              AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = w.id AND n.source_type = 'wfh_emp_Approved')
+        ");
 
-        $chk = $conn->query("SHOW TABLES LIKE 'leave_requests'");
-        if ($chk && $chk->num_rows > 0) {
-            $lvs = $conn->query("SELECT * FROM leave_requests WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
-            if($lvs) while($l = $lvs->fetch_assoc()) {
-                $st = $l['status'] ?? 'Pending';
-                if ($st != 'Pending') createNotif($conn, $uid_safe, null, '✈️ Leave ' . $st, 'Your ' . ($l['leave_type']??'Leave') . ' was ' . $st, $st == 'Approved' ? 'success' : 'danger', '../leave_request.php', 'lv_emp_'.$st, $l['id']);
-            }
-        }
+        // 3. LEAVES APPROVED (Only Approved)
+        syncSafe($conn, 'leave_requests', "
+            INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) 
+            SELECT user_id, '✈️ Leave Approved', CONCAT('Your ', IFNULL(leave_type, 'Leave'), ' was Approved'), 'success', '../leave_request.php', 'lv_emp_Approved', id, CURRENT_TIMESTAMP 
+            FROM leave_requests l 
+            WHERE user_id = $uid_safe AND status = 'Approved' 
+              AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = l.id AND n.source_type = 'lv_emp_Approved')
+        ");
 
-        $chk = $conn->query("SHOW TABLES LIKE 'payslip_requests'");
-        if ($chk && $chk->num_rows > 0) {
-            $pays = $conn->query("SELECT * FROM payslip_requests WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
-            if($pays) while($p = $pays->fetch_assoc()) {
-                $st = $p['status'] ?? 'Pending';
-                if (in_array($st, ['Approved', 'Sent', 'Completed', 'Sent to Emp'])) {
-                    createNotif($conn, $uid_safe, null, '📄 Payslip Ready', 'Your requested payslip is ready.', 'success', '../payslip_request.php', 'pay_emp_ready', $p['id']);
-                }
-            }
-        }
-
-        $chk = $conn->query("SHOW TABLES LIKE 'sales_expenses'");
-        if ($chk && $chk->num_rows > 0) {
-            $exps = $conn->query("SELECT * FROM sales_expenses WHERE user_id = $uid_safe ORDER BY id DESC LIMIT 10");
-            if($exps) while($e = $exps->fetch_assoc()) {
-                $st = $e['status'] ?? 'Pending';
-                if ($st != 'Pending') createNotif($conn, $uid_safe, null, '💸 Expense ' . $st, 'Your expense claim was ' . $st, $st == 'Approved' ? 'success' : 'danger', '../sales_executive/my_expenses.php', 'exp_emp_'.$st, $e['id']);
-            }
-        }
-
-        // 3. TASKS (Bulletproof Dynamic Column Checking)
-        $task_tables = [
-            'team_tasks' => '../my_tasks.php',
-            'project_tasks' => '../my_tasks.php',
-            'tasks' => '../my_tasks.php',
-            'sales_tasks' => '../sales_executive/my_tasks.php',
-            'personal_taskboard' => '../my_tasks.php'
-        ];
-
-        foreach ($task_tables as $tbl => $link) {
-            $chk = $conn->query("SHOW TABLES LIKE '$tbl'");
-            if ($chk && $chk->num_rows > 0) {
-                $res = $conn->query("SELECT * FROM `$tbl` ORDER BY id DESC LIMIT 20");
-                if ($res) {
-                    while ($row = $res->fetch_assoc()) {
-                        $status = $row['status'] ?? $row['task_status'] ?? '';
-                        if (strtolower($status) == 'completed') continue;
-
-                        $assigned = $row['assigned_to'] ?? $row['user_id'] ?? '';
-                        
-                        $is_mine = false;
-                        if ((string)$assigned === (string)$uid_safe) $is_mine = true;
-                        elseif (strcasecmp((string)$assigned, $username_safe) === 0) $is_mine = true;
-                        elseif (strcasecmp((string)$assigned, $fullname_safe) === 0) $is_mine = true;
-                        elseif (!empty($u_name_db) && strcasecmp((string)$assigned, $u_name_db) === 0) $is_mine = true;
-
-                        if ($is_mine) {
-                            $tname = $row['task_name'] ?? $row['task_title'] ?? $row['title'] ?? 'New Task';
-                            createNotif($conn, $uid_safe, null, '📋 Task Assigned', $tname, 'task', $link, $tbl.'_emp', $row['id']);
-                        }
-                    }
-                }
-            }
-        }
-
-        // 4. APPROVER NOTIFICATIONS (HR, Manager, Accounts)
-        $combined_str = strtolower($user_role . ' ' . $db_designation . ' ' . $db_department);
-        $is_approver = strpos($combined_str, 'hr') !== false || strpos($combined_str, 'manager') !== false || strpos($combined_str, 'lead') !== false || strpos($combined_str, 'tl') !== false || strpos($combined_str, 'account') !== false || strpos($combined_str, 'cfo') !== false;
-        
-        if ($is_approver) {
-            // Safe Leave Approvals
-            $chk = $conn->query("SHOW TABLES LIKE 'leave_requests'");
-            if ($chk && $chk->num_rows > 0) {
-                $pend = $conn->query("SELECT * FROM leave_requests WHERE status = 'Pending' ORDER BY id DESC LIMIT 5");
-                if($pend) while($l = $pend->fetch_assoc()) {
-                    $u = $l['user_id'] ?? 0;
-                    $name = "Employee";
-                    if ($u) {
-                        $uq = $conn->query("SELECT name, username FROM users WHERE id = $u LIMIT 1");
-                        if ($uq && $ur = $uq->fetch_assoc()) $name = $ur['name'] ?? $ur['username'] ?? "Employee";
-                    }
-                    $msg = $name . ' applied for ' . ($l['leave_type'] ?? 'Leave');
-                    createNotif($conn, null, 'HR', '✈️ Leave Request', $msg, 'warning', '../HR/leave_approval.php', 'lv_hr', $l['id']);
-                    createNotif($conn, null, 'Manager', '✈️ Team Leave', $msg, 'warning', '../leave_approval.php', 'lv_mgr', $l['id']);
-                }
-            }
-
-            // Safe WFH Approvals
-            $chk = $conn->query("SHOW TABLES LIKE 'wfh_requests'");
-            if ($chk && $chk->num_rows > 0) {
-                $pend = $conn->query("SELECT * FROM wfh_requests WHERE status = 'Pending' ORDER BY id DESC LIMIT 5");
-                if($pend) while($w = $pend->fetch_assoc()) {
-                    $u = $w['user_id'] ?? 0;
-                    $name = "Employee";
-                    if ($u) {
-                        $uq = $conn->query("SELECT name, username FROM users WHERE id = $u LIMIT 1");
-                        if ($uq && $ur = $uq->fetch_assoc()) $name = $ur['name'] ?? $ur['username'] ?? "Employee";
-                    }
-                    $msg = $name . ' requested WFH';
-                    createNotif($conn, null, 'HR', '🏠 WFH Request', $msg, 'info', '../HR/wfh_approvals.php', 'wfh_hr', $w['id']);
-                    createNotif($conn, null, 'Manager', '🏠 Team WFH', $msg, 'info', '../work_from_home.php', 'wfh_mgr', $w['id']);
-                }
-            }
-        }
+        // 4. PAYSLIP APPROVED (Only Approved)
+        syncSafe($conn, 'payslip_requests', "
+            INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) 
+            SELECT user_id, '📄 Payslip Ready', 'Your requested payslip is Approved.', 'success', '../payslip_request.php', 'pay_emp_Approved', id, CURRENT_TIMESTAMP 
+            FROM payslip_requests p 
+            WHERE user_id = $uid_safe AND status = 'Approved' 
+              AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = p.id AND n.source_type = 'pay_emp_Approved')
+        ");
 
         $_SESSION['last_notif_sync'] = time();
     }
