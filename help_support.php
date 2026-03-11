@@ -689,7 +689,7 @@ if (empty($kb_data)) {
                 <div id="topicDescription" style="color: #475569; font-size: 15px; margin-bottom: 32px; line-height: 1.6;">
                 </div>
                 <div style="border-top: 1px solid #e2e8f0; padding-top: 24px; text-align: right;">
-                    <button onclick="closeModal()" class="btn-primary">Got it, thanks!</button>
+                    <button onclick="closeModal()" class="btn-primary">Got it !</button>
                 </div>
             </div>
         </div>
