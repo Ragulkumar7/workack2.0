@@ -14,10 +14,13 @@ if (!isset($_SESSION['user_id'])) {
 $current_user_id = $_SESSION['user_id'];
 $user_role = $_SESSION['role'] ?? 'Manager';
 
-// 3. DB CONNECTION (Dynamic Path mapping)
-$dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
-if (file_exists($dbPath)) { include_once($dbPath); } 
-else { include_once('../include/db_connect.php'); }
+// 3. DB CONNECTION (Bulletproof Dynamic Path)
+$dbPath = __DIR__ . '/include/db_connect.php';
+if (file_exists($dbPath)) { 
+    include_once($dbPath); 
+} else { 
+    include_once('include/db_connect.php'); 
+}
 
 // =========================================================================
 // NEW: HANDLE HR HIKE / PROMOTION SUBMISSION
@@ -54,16 +57,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $h_stmt = $conn->prepare("INSERT INTO salary_hikes (user_id, approved_by, new_salary, new_designation, effective_date, remarks) VALUES (?, ?, ?, ?, ?, ?)");
         $h_stmt->bind_param("iissss", $emp_id, $current_user_id, $new_salary, $new_designation, $effective_date, $remarks);
         $h_stmt->execute();
-
-        // 3. Optional: Send Notification to Employee
-        // Uncomment and adjust table name if you have a notifications system
-        /*
-        $notif_title = "Congratulations! Performance Appraisal Approved";
-        $notif_msg = "Your recent performance review has been processed. " . (!empty($new_designation) ? "New Role: $new_designation. " : "") . "Effective from: " . date('d M Y', strtotime($effective_date));
-        $n_stmt = $conn->prepare("INSERT INTO notifications (user_id, title, message) VALUES (?, ?, ?)");
-        $n_stmt->bind_param("iss", $emp_id, $notif_title, $notif_msg);
-        $n_stmt->execute();
-        */
 
         $_SESSION['success_msg'] = "Appraisal and Salary Hike successfully approved!";
         header("Location: performance_list.php");
@@ -125,31 +118,45 @@ if ($stmt) {
             $emp_full_name = $row['full_name'];
             $mgr_pct = $row['manager_rating_pct'] ?? 0;
 
-            // 1. Attendance Calculation (15%)
+            // 1. Attendance Calculation (15%) - FIXED safely
             $att_stmt->bind_param("i", $emp_id);
             $att_stmt->execute();
-            $att_data = $att_stmt->get_result()->fetch_assoc();
-            $total_att_days = $att_data['total_days'] > 0 ? $att_data['total_days'] : 1; 
+            $att_res_obj = $att_stmt->get_result();
+            $att_data = $att_res_obj ? $att_res_obj->fetch_assoc() : null;
+            
+            $total_att_days = (!empty($att_data['total_days'])) ? $att_data['total_days'] : 1; 
             $present_days = $att_data['present_days'] ?? 0;
             $late_days = $att_data['late_days'] ?? 0;
             $attendance_pct = min(100, round(($present_days / $total_att_days) * 100));
 
-            // 2. Task Calculation (25%)
+            // 2. Task Calculation (25%) - FIXED safely
             $task_stmt->bind_param("i", $emp_id);
             $task_stmt->execute();
-            $task_res = $task_stmt->get_result()->fetch_assoc();
-            $task_total = $task_res['total'] > 0 ? $task_res['total'] : 1;
+            $task_res_obj = $task_stmt->get_result();
+            $task_res = $task_res_obj ? $task_res_obj->fetch_assoc() : null;
+            
+            $task_total = (!empty($task_res['total'])) ? $task_res['total'] : 1;
             $completed_tasks = $task_res['completed'] ?? 0;
             $overdue_tasks = $task_res['overdue'] ?? 0;
             $task_completion_pct = round(($completed_tasks / $task_total) * 100);
 
-            // 3. Project Calculation (30%)
+            // 3. Project Calculation (30%) - FIXED fetch_all error safely
             $proj_stmt->bind_param("i", $emp_id);
             $proj_stmt->execute();
-            $projects_list = $proj_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $proj_res_obj = $proj_stmt->get_result();
+            
+            $projects_list = [];
+            if ($proj_res_obj) {
+                while($p_row = $proj_res_obj->fetch_assoc()) {
+                    $projects_list[] = $p_row;
+                }
+            }
+            
             $on_time_projects = 0;
-            foreach($projects_list as $p) { if($p['status'] == 'Completed') $on_time_projects++; }
-            $proj_total = count($projects_list) > 0 ? count($projects_list) : 1;
+            foreach($projects_list as $p) { 
+                if($p['status'] == 'Completed') $on_time_projects++; 
+            }
+            $proj_total = (count($projects_list) > 0) ? count($projects_list) : 1;
             $project_completion_pct = round(($on_time_projects / $proj_total) * 100);
 
             // 4. System Reliability Rating (10%)
@@ -171,13 +178,13 @@ if ($stmt) {
                 "name" => $emp_full_name,
                 "role" => $row['designation'],
                 "img" => $row['profile_image'],
-                "tasks_total" => $task_res['total'], 
+                "tasks_total" => $task_res['total'] ?? 0, 
                 "tasks_done" => $task_completion_pct,
                 "completed_on_time" => $completed_tasks,
                 "overdue" => $overdue_tasks,
                 "attendance" => $attendance_pct,
                 "present_days" => $present_days,
-                "total_att_days" => $total_att_days,
+                "total_att_days" => (!empty($att_data['total_days'])) ? $att_data['total_days'] : 0,
                 "speed" => $score,
                 "quality" => $project_completion_pct,
                 "on_time_proj" => $on_time_projects,
