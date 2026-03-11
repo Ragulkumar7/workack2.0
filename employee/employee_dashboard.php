@@ -44,7 +44,7 @@ if (isset($_GET['dismiss_ticket'])) {
 }
 
 // -------------------------------------------------------------------------
-// 2. FETCH EMPLOYEE PROFILE DATA & REPORTING HIERARCHY
+// 2. FETCH EMPLOYEE PROFILE DATA
 // -------------------------------------------------------------------------
 $employee_name = "Employee";
 $employee_role_title = "Staff";
@@ -72,6 +72,7 @@ if ($row = $stmt_p->get_result()->fetch_assoc()) {
     $experience_label = $row['experience_label'] ?? 'Fresher';
     $shift_timings = $row['shift_timings'] ?? $shift_timings;
     
+    // Fetch Exact Supervisor IDs from DB
     $tl_id = intval($row['reporting_to'] ?? 0);
     $manager_id = intval($row['manager_id'] ?? 0);
     
@@ -86,21 +87,38 @@ $time_parts = explode('-', $shift_timings);
 $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
 $regular_shift_hours = 9;
 
-// Fetch Reporting Details
+// =========================================================================
+// STRICT DIRECT LOOKUP FOR TL AND MANAGER
+// =========================================================================
 $tl_name = "Not Assigned";
 $mgr_name = "Not Assigned";
 
 if ($tl_id > 0) {
-    $tl_res = $conn->query("SELECT full_name FROM employee_profiles WHERE user_id = $tl_id")->fetch_assoc();
-    if($tl_res) $tl_name = $tl_res['full_name'];
-}
-if ($manager_id > 0) {
-    $mgr_res = $conn->query("SELECT full_name FROM employee_profiles WHERE user_id = $manager_id")->fetch_assoc();
-    if($mgr_res) $mgr_name = $mgr_res['full_name'];
+    $stmt_tl = $conn->prepare("SELECT COALESCE(ep.full_name, u.username, 'Admin') as full_name FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?");
+    $stmt_tl->bind_param("i", $tl_id);
+    $stmt_tl->execute();
+    $tl_res = $stmt_tl->get_result()->fetch_assoc();
+    if ($tl_res) {
+        $tl_name = $tl_res['full_name'];
+    }
+    $stmt_tl->close();
 }
 
+if ($manager_id > 0) {
+    $stmt_mgr = $conn->prepare("SELECT COALESCE(ep.full_name, u.username, 'Admin') as full_name FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?");
+    $stmt_mgr->bind_param("i", $manager_id);
+    $stmt_mgr->execute();
+    $mgr_res = $stmt_mgr->get_result()->fetch_assoc();
+    if ($mgr_res) {
+        $mgr_name = $mgr_res['full_name'];
+    }
+    $stmt_mgr->close();
+}
 // =========================================================================
-// CRITICAL FIX: FETCH 'TOTAL_LEAVES' FROM employee_onboarding DB TABLE
+
+
+// =========================================================================
+// LEAVES FETCH FROM ONBOARDING
 // =========================================================================
 $allocated_leaves = 12; // Fallback default
 $sql_onboarding = "SELECT total_leaves FROM employee_onboarding WHERE email = ? LIMIT 1";
@@ -109,11 +127,9 @@ $stmt_onb->bind_param("s", $employee_email);
 $stmt_onb->execute();
 $res_onb = $stmt_onb->get_result();
 if ($row_onb = $res_onb->fetch_assoc()) {
-    // Override the fallback with the exact value from the database
     $allocated_leaves = intval($row_onb['total_leaves']);
 }
 $stmt_onb->close();
-// =========================================================================
 
 // =========================================================================
 // 3. ADVANCED TIME TRACKER (TODAY'S SUMMARY FOR UI)
@@ -266,8 +282,7 @@ while ($cl_row = $curr_leave_res->fetch_assoc()) {
 }
 $curr_leave_stmt->close();
 
-// DB-Driven Leave Math
-$total_earned_leaves = $allocated_leaves; // Takes exact value from DB table
+$total_earned_leaves = $allocated_leaves; 
 
 $leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
 $leave_stmt = $conn->prepare($leave_sql);
@@ -282,27 +297,30 @@ $tasks_result = $conn->query("SELECT * FROM personal_taskboard WHERE user_id = $
 $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskboard WHERE user_id = $current_user_id AND status != 'completed'")->fetch_assoc()['cnt'] ?? 0;
 
 // =========================================================================
-// 7. UNIFIED NOTIFICATIONS
+// 7. UNIFIED NOTIFICATIONS (Fetching timestamps for real-time sorting)
 // =========================================================================
 $all_notifications = [];
 
-$q_tickets = "SELECT id, ticket_code, subject FROM tickets WHERE user_id = $current_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY id DESC LIMIT 3";
+// 1. IT Tickets
+$q_tickets = "SELECT id, ticket_code, subject, updated_at, created_at FROM tickets WHERE user_id = $current_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY updated_at DESC LIMIT 3";
 $r_tickets = mysqli_query($conn, $q_tickets);
 if($r_tickets) {
     while($row = mysqli_fetch_assoc($r_tickets)) {
+        $timestamp = !empty($row['updated_at']) ? $row['updated_at'] : $row['created_at'];
         $all_notifications[] = [
             'type' => 'ticket', 
             'id' => $row['id'],
             'title' => 'Ticket Solved: #' . ($row['ticket_code'] ?? $row['id']),
             'message' => 'IT Team resolved: ' . htmlspecialchars($row['subject']),
-            'time' => date('Y-m-d H:i:s'), 
+            'time' => $timestamp ?? date('Y-m-d H:i:s'), 
             'icon' => 'fa-check-double', 'color' => 'text-emerald-600 bg-emerald-100',
             'link' => '?dismiss_ticket=' . $row['id']
         ];
     }
 }
 
-$q_leaves = "SELECT leave_type, status FROM leave_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 3";
+// 2. Leave Requests
+$q_leaves = "SELECT leave_type, status, created_at FROM leave_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 3";
 $r_leaves = mysqli_query($conn, $q_leaves);
 if($r_leaves) {
     while($row = mysqli_fetch_assoc($r_leaves)) {
@@ -311,15 +329,16 @@ if($r_leaves) {
         $all_notifications[] = [
             'type' => 'leave',
             'title' => 'Leave ' . $row['status'],
-            'message' => 'Your ' . htmlspecialchars($row['leave_type']) . ' request was ' . strtolower($row['status']) . '.',
-            'time' => date('Y-m-d H:i:s'), 
+            'message' => 'Your ' . htmlspecialchars($row['leave_type']) . ' leave request was ' . strtolower($row['status']) . '.',
+            'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
             'icon' => $icon, 'color' => $color,
             'link' => 'leave_request.php'
         ];
     }
 }
 
-$q_swaps = "SELECT status FROM shift_swap_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY id DESC LIMIT 2";
+// 3. Shift Swaps
+$q_swaps = "SELECT status, created_at FROM shift_swap_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY created_at DESC LIMIT 3";
 $r_swaps = mysqli_query($conn, $q_swaps);
 if($r_swaps) {
     while($row = mysqli_fetch_assoc($r_swaps)) {
@@ -329,14 +348,33 @@ if($r_swaps) {
             'type' => 'swap',
             'title' => 'Shift Swap ' . $row['status'],
             'message' => 'Your shift swap request was ' . strtolower($row['status']) . '.',
-            'time' => date('Y-m-d H:i:s'), 
+            'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
             'icon' => $icon, 'color' => $color,
             'link' => 'shift_swap_request.php'
         ];
     }
 }
 
-$q_announcements = "SELECT id, title, message FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 5"; 
+// 4. WFH Requests (NEW ADDITION)
+$q_wfh = "SELECT status, applied_date FROM wfh_requests WHERE user_id = $current_user_id AND status IN ('Approved', 'Rejected') ORDER BY applied_date DESC LIMIT 3";
+$r_wfh = mysqli_query($conn, $q_wfh);
+if($r_wfh) {
+    while($row = mysqli_fetch_assoc($r_wfh)) {
+        $icon = $row['status'] == 'Approved' ? 'fa-house-laptop' : 'fa-times-circle';
+        $color = $row['status'] == 'Approved' ? 'text-emerald-600 bg-emerald-100' : 'text-rose-600 bg-rose-100';
+        $all_notifications[] = [
+            'type' => 'wfh',
+            'title' => 'WFH ' . $row['status'],
+            'message' => 'Your Work From Home request was ' . strtolower($row['status']) . '.',
+            'time' => $row['applied_date'] ?? date('Y-m-d H:i:s'), 
+            'icon' => $icon, 'color' => $color,
+            'link' => 'work_from_home.php'
+        ];
+    }
+}
+
+// 5. Announcements
+$q_announcements = "SELECT id, title, message, created_at FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY created_at DESC LIMIT 5"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
     while($row = mysqli_fetch_assoc($r_announcements)) {
@@ -344,15 +382,19 @@ if($r_announcements) {
             'type' => 'announcement',
             'title' => 'Announcement: ' . htmlspecialchars($row['title']),
             'message' => htmlspecialchars(substr($row['message'], 0, 50)) . '...',
-            'time' => date('Y-m-d H:i:s'), 
+            'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
             'icon' => 'fa-bullhorn', 'color' => 'text-orange-600 bg-orange-100',
             'link' => $path_to_root . 'view_announcements.php'
         ];
     }
 }
 
-usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
-$all_notifications = array_slice($all_notifications, 0, 6); 
+// Sort all fetched notifications exactly by their real database timestamp
+usort($all_notifications, function($a, $b) { 
+    return strtotime($b['time']) - strtotime($a['time']); 
+});
+// Slice to show the 8 most recent updates across all categories
+$all_notifications = array_slice($all_notifications, 0, 8); 
 session_write_close();
 ?>
 
@@ -555,11 +597,11 @@ session_write_close();
                             <div class="space-y-2 mb-4">
                                 <div class="flex items-center justify-between border border-slate-200 bg-white p-2.5 rounded-lg shadow-sm">
                                     <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-user-tie mr-1 text-blue-500"></i> TL</span>
-                                    <span class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($tl_name); ?></span>
+                                    <span class="text-xs font-bold text-slate-800" title="<?php echo htmlspecialchars($tl_name); ?>"><?php echo htmlspecialchars($tl_name); ?></span>
                                 </div>
                                 <div class="flex items-center justify-between border border-slate-200 bg-white p-2.5 rounded-lg shadow-sm">
                                     <span class="text-[10px] font-bold text-slate-500"><i class="fa-solid fa-user-shield mr-1 text-purple-500"></i> Manager</span>
-                                    <span class="text-xs font-bold text-slate-800"><?php echo htmlspecialchars($mgr_name); ?></span>
+                                    <span class="text-xs font-bold text-slate-800" title="<?php echo htmlspecialchars($mgr_name); ?>"><?php echo htmlspecialchars($mgr_name); ?></span>
                                 </div>
                             </div>
 

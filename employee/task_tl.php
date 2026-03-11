@@ -28,7 +28,7 @@ if (isset($_GET['update_id']) && isset($_GET['new_status'])) {
     exit;
 }
 
-// --- HANDLE TASK COMPLETION & RE-UPLOAD VIA POST ---
+// --- HANDLE TASK COMPLETION VIA POST ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['complete_task_id'])) {
     $tid = intval($_POST['complete_task_id']);
     
@@ -49,7 +49,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['complete_task_id'])) 
         if (move_uploaded_file($_FILES['task_file']['tmp_name'], $targetFilePath)) {
             $dbFilePath = 'uploads/tasks/' . $fileName;
             
-            // Delete old file logic
+            // Delete old file logic (Just in case they had an old one)
             $check_stmt = $conn->prepare("SELECT completed_file FROM project_tasks WHERE id = ?");
             $check_stmt->bind_param("i", $tid);
             $check_stmt->execute();
@@ -68,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['complete_task_id'])) 
             $stmt->execute();
             $stmt->close();
             
-            $_SESSION['success'] = "Task completed! File uploaded successfully.";
+            $_SESSION['success'] = "Task completed! File uploaded successfully and locked.";
         } else {
             $_SESSION['error'] = "Failed to move the uploaded file. Check folder permissions.";
         }
@@ -88,7 +88,7 @@ $name_res = $name_stmt->get_result()->fetch_assoc();
 $current_user_name = $name_res['full_name'] ?? '';
 $name_stmt->close();
 
-// 3. FETCH TASK STATISTICS [CRITICAL UPGRADE: Using assigned_to_user_id instead of Name]
+// 3. FETCH TASK STATISTICS [Using assigned_to_user_id]
 $stats_query = "SELECT 
     COUNT(*) as total,
     SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed,
@@ -101,7 +101,7 @@ $stmt->execute();
 $stats = $stmt->get_result()->fetch_assoc();
 $stmt->close();
 
-// 4. FETCH TASKS [CRITICAL UPGRADE: Using assigned_to_user_id]
+// 4. FETCH TASKS [Using assigned_to_user_id]
 $tasks_query = "SELECT pt.*, 
                 COALESCE(ep.full_name, u.username, 'Admin') as assigned_by_name,
                 COALESCE(ep.designation, u.role, 'Team Lead') as assigned_by_role
@@ -213,8 +213,6 @@ $stmt->close();
         
         .submit-btn { background: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(16,185,129,0.2); transition: 0.2s;}
         .submit-btn:hover { background: #059669; }
-        .update-btn { background: #3b82f6; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow: 0 2px 4px rgba(59,130,246,0.2); transition: 0.2s;}
-        .update-btn:hover { background: #2563eb; }
         
         .completed-item { display: flex; flex-direction: column; padding: 16px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); }
         .completed-header { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 12px; }
@@ -395,15 +393,10 @@ $stmt->close();
                     <?php endif; ?>
                 </div>
 
-                <div style="margin-top: 14px; border-top: 1px dashed #e2e8f0; padding-top: 14px;">
-                    <p style="font-size: 11px; color: #64748b; margin-bottom: 8px; font-weight: 700; text-transform: uppercase;"><i class="fa-solid fa-rotate-right mr-1"></i> Re-Upload File</p>
-                    <form action="" method="POST" enctype="multipart/form-data" class="upload-form" style="background: transparent; padding: 0; border: none;">
-                        <input type="hidden" name="complete_task_id" value="<?php echo $task['id']; ?>">
-                        <input type="file" name="task_file" required class="file-input" style="padding: 4px;">
-                        <button type="submit" class="update-btn">
-                            Update
-                        </button>
-                    </form>
+                <div style="margin-top: 14px; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
+                    <span style="font-size: 11px; color: #64748b; font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                        <i class="fa-solid fa-lock text-slate-400"></i> Submitted & Locked
+                    </span>
                 </div>
 
             </div>
