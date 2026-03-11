@@ -37,6 +37,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         exit(); 
     }
 }
+
+// Helper function to render status badges
+if (!function_exists('renderSwapBadge')) {
+    function renderSwapBadge($status) {
+        if ($status === '-') {
+            return '<span class="text-slate-300 font-black text-xl leading-none select-none">-</span>';
+        }
+        $cls = 'badge-' . strtolower($status);
+        return "<span class=\"status-badge {$cls}\">{$status}</span>";
+    }
+}
 ?>
 
 <!DOCTYPE html>
@@ -135,6 +146,21 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                     WHERE r.user_id = $user_id ORDER BY r.id DESC";
                             $res = $conn->query($sql);
                             while($row = $res->fetch_assoc()):
+                                
+                                // CASCADING REJECTION LOGIC
+                                $tl_stat = $row['tl_approval'];
+                                $mgr_stat = $row['manager_approval'];
+                                $hr_stat = $row['hr_approval'];
+                                $final_stat = $row['status'];
+
+                                if ($tl_stat === 'Rejected') {
+                                    $mgr_stat = '-';
+                                    $hr_stat = '-';
+                                    $final_stat = 'Rejected';
+                                } elseif ($mgr_stat === 'Rejected') {
+                                    $hr_stat = '-';
+                                    $final_stat = 'Rejected';
+                                }
                             ?>
                             <tr class="text-slate-700">
                                 <td class="px-6 font-semibold"><?php echo date('d M Y', strtotime($row['request_date'])); ?></td>
@@ -146,19 +172,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                                     </div>
                                 </td>
                                 <td>
-                                    <span class="status-badge badge-<?php echo strtolower($row['tl_approval']); ?>"><?php echo $row['tl_approval']; ?></span>
+                                    <?php echo renderSwapBadge($tl_stat); ?>
                                     <p class="text-[9px] mt-1 text-slate-400 font-bold"><?php echo $row['tl_name'] ?? '---'; ?></p>
                                 </td>
                                 <td>
-                                    <span class="status-badge badge-<?php echo strtolower($row['manager_approval']); ?>"><?php echo $row['manager_approval']; ?></span>
-                                    <p class="text-[9px] mt-1 text-slate-400 font-bold"><?php echo $row['manager_name'] ?? '---'; ?></p>
+                                    <?php echo renderSwapBadge($mgr_stat); ?>
+                                    <p class="text-[9px] mt-1 text-slate-400 font-bold">
+                                        <?php echo ($mgr_stat === '-') ? '---' : ($row['manager_name'] ?? '---'); ?>
+                                    </p>
                                 </td>
                                 <td>
-                                    <span class="status-badge badge-<?php echo strtolower($row['hr_approval']); ?>"><?php echo $row['hr_approval']; ?></span>
-                                    <p class="text-[9px] mt-1 text-slate-400 font-bold"><?php echo $row['hr_name'] ?? '---'; ?></p>
+                                    <?php echo renderSwapBadge($hr_stat); ?>
+                                    <p class="text-[9px] mt-1 text-slate-400 font-bold">
+                                        <?php echo ($hr_stat === '-') ? '---' : ($row['hr_name'] ?? '---'); ?>
+                                    </p>
                                 </td>
                                 <td>
-                                    <span class="status-badge badge-<?php echo strtolower($row['status']); ?>"><?php echo $row['status']; ?></span>
+                                    <?php echo renderSwapBadge($final_stat); ?>
                                 </td>
                             </tr>
                             <?php endwhile; ?>
