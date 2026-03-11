@@ -330,7 +330,7 @@ $stmt->close();
         </div>
     </div>
 
-    <div style="font-weight: 800; margin-top: 30px; margin-bottom: 10px; color: #0f172a; font-size: 20px;">Kanban Execution Board</div>
+    <div style="font-weight: 800; margin-top: 30px; margin-bottom: 10px; color: #0f172a; font-size: 20px;">Execution Board</div>
     
     <div class="kanban-board">
         
