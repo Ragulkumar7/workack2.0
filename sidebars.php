@@ -177,7 +177,7 @@ $sections = [
                 'subItems' => [
                     ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
-                    ['name' => 'Shift Swap', 'path' => $base . 'tl/shift_swap_approval_tl.php', 'icon' => 'replace'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'TL/shift_swap_approval_tl.php', 'icon' => 'replace'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
