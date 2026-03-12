@@ -11,30 +11,45 @@ $user_id = $_SESSION['user_id'];
 // Login aagiruka employee oda department-a edukkurom
 $user_dept = $_SESSION['department'] ?? ''; 
 
-// HR potta 'All Employees' post-um, Employee-oda department post-um mattum filter panrom
-$sql = "SELECT * FROM announcements 
-        WHERE target_audience = 'All Employees' 
-        OR target_audience = 'All'
-        OR target_audience = '$user_dept' 
-        ORDER BY id DESC";
+// Fetch exact username and full_name to match with meeting attendees list
+$username = $_SESSION['username'] ?? '';
+$full_name = '';
+$stmt_u = $conn->prepare("SELECT u.username, ep.full_name FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?");
+if ($stmt_u) {
+    $stmt_u->bind_param("i", $user_id);
+    $stmt_u->execute();
+    $res_u = $stmt_u->get_result()->fetch_assoc();
+    if ($res_u) {
+        $username = $res_u['username'];
+        $full_name = $res_u['full_name'] ?? $username;
+    }
+    $stmt_u->close();
+}
 
-// Fetch Active Announcements with Creator Details
+// ---------------------------------------------------------
+// 1. Fetch ONLY Announcements (Exclude Meetings) for Top Section
+// ---------------------------------------------------------
 if (in_array($user_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
-    // Admins and HR see all announcements
     $sql = "SELECT a.*, u.username as creator_name, u.role as creator_role
             FROM announcements a
             LEFT JOIN users u ON a.created_by = u.id
+            WHERE a.category != 'Meeting'
             ORDER BY a.is_pinned DESC, a.publish_date DESC";
     $stmt = $conn->prepare($sql);
 } else {
-    // Others see 'All', 'All Employees', their specific role, or announcements they created
     $sql = "SELECT a.*, u.username as creator_name, u.role as creator_role
             FROM announcements a
             LEFT JOIN users u ON a.created_by = u.id
-            WHERE (a.target_audience = 'All' OR a.target_audience = 'All Employees' OR a.target_audience = ? OR a.created_by = ?) 
+            WHERE a.category != 'Meeting' AND (
+                a.target_audience = 'All' 
+                OR a.target_audience = 'All Employees' 
+                OR a.target_audience = ? 
+                OR a.target_audience = ? 
+                OR a.created_by = ?
+            ) 
             ORDER BY a.is_pinned DESC, a.publish_date DESC";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("si", $user_role, $user_id);
+    $stmt->bind_param("ssi", $user_role, $user_dept, $user_id);
 }
 
 $stmt->execute();
@@ -44,11 +59,9 @@ $announcements = [];
 if ($result->num_rows > 0) {
     while($row = $result->fetch_assoc()) {
         $img = $row['image_path'];
-        // Remove random fallback images; leave empty if no image exists
         if (empty($img) || !file_exists($img)) {
             $img = '';
         }
-
         $badgeClass = 'bg-event';
         if ($row['is_pinned'] == 1) $badgeClass = 'bg-urgent'; 
         elseif ($row['category'] == 'Holiday') $badgeClass = 'bg-holiday';
@@ -59,7 +72,7 @@ if ($result->num_rows > 0) {
     }
 }
 
-// Default Item
+// Default Item for Top Section
 $latest = !empty($announcements) ? $announcements[0] : [
     'title' => 'No Announcements', 
     'message' => 'Check back later for updates.', 
@@ -73,6 +86,32 @@ $latest = !empty($announcements) ? $announcements[0] : [
     'creator_name' => 'System',
     'creator_role' => 'Admin'
 ];
+
+
+// ---------------------------------------------------------
+// 2. Fetch ONLY Meetings for the Bottom Table
+// ---------------------------------------------------------
+if (in_array($user_role, ['System Admin', 'HR', 'CFO', 'HR Executive'])) {
+    $meet_sql = "SELECT a.*, u.username as creator_name FROM announcements a LEFT JOIN users u ON a.created_by = u.id WHERE a.category = 'Meeting' ORDER BY a.publish_date DESC";
+    $stmt_meet = $conn->prepare($meet_sql);
+} else {
+    $meet_sql = "SELECT a.*, u.username as creator_name FROM announcements a LEFT JOIN users u ON a.created_by = u.id 
+                 WHERE a.category = 'Meeting' AND (
+                     a.target_audience = 'All' 
+                     OR a.target_audience = 'All Employees' 
+                     OR a.target_audience = ? 
+                     OR a.target_audience = ? 
+                     OR a.target_audience LIKE CONCAT('%', ?, '%')
+                     OR a.message LIKE CONCAT('%', ?, '%')
+                     OR a.message LIKE CONCAT('%', ?, '%')
+                     OR a.created_by = ?
+                 ) ORDER BY a.publish_date DESC";
+    $stmt_meet = $conn->prepare($meet_sql);
+    $stmt_meet->bind_param("sssssi", $user_role, $user_dept, $username, $username, $full_name, $user_id);
+}
+$stmt_meet->execute();
+$meet_res = $stmt_meet->get_result();
+
 ?>
 
 <!DOCTYPE html>
@@ -135,9 +174,14 @@ $latest = !empty($announcements) ? $announcements[0] : [
     <?php include('header.php'); ?>
 
     <div id="mainContent">
-        <div class="mb-4">
-            <h1 class="text-2xl font-bold text-slate-800">Company Updates</h1>
-            <div class="text-sm text-slate-500">Latest news and announcements</div>
+        <div class="mb-6 flex items-center gap-4">
+            <a href="javascript:history.back()" class="w-10 h-10 bg-white border border-slate-300 rounded-xl flex items-center justify-center text-slate-600 hover:bg-teal-50 hover:text-teal-600 hover:border-teal-200 transition-all shadow-sm" title="Go Back">
+                <i class="fa-solid fa-arrow-left"></i>
+            </a>
+            <div>
+                <h1 class="text-2xl font-bold text-slate-800">Company Updates</h1>
+                <div class="text-sm text-slate-500">Latest news and announcements</div>
+            </div>
         </div>
 
         <div class="announcement-layout">
@@ -223,6 +267,41 @@ $latest = !empty($announcements) ? $announcements[0] : [
 
             </aside>
         </div>
+        
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mt-8 mb-8">
+            <div class="p-4 border-b border-slate-100 flex items-center gap-2 bg-slate-50">
+                <i class="fa-solid fa-handshake text-amber-600"></i>
+                <h2 class="font-bold text-slate-700">Scheduled Meetings</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-slate-100 text-slate-600 font-bold uppercase text-xs border-b border-slate-200">
+                        <tr>
+                            <th class="px-6 py-4">Meeting Title</th>
+                            <th class="px-6 py-4">Date & Details</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        <?php if(!$meet_res || $meet_res->num_rows == 0): ?>
+                            <tr><td colspan="2" class="p-10 text-center text-slate-400">No meetings scheduled for you.</td></tr>
+                        <?php else: ?>
+                        <?php while($row = $meet_res->fetch_assoc()): 
+                            // Hide the "Attendees: ..." line from the message
+                            $clean_message = preg_replace('/Attendees:.*$/is', '', $row['message']);
+                        ?>
+                        <tr class="hover:bg-amber-50/30 transition-colors">
+                            <td class="px-6 py-4 font-bold text-slate-800"><?php echo htmlspecialchars($row['title']); ?></td>
+                            <td class="px-6 py-4">
+                                <div class="text-teal-700 font-bold"><?php echo date('d M Y', strtotime($row['publish_date'])); ?></div>
+                                <div class="text-xs text-slate-500 whitespace-pre-line mt-1"><?php echo htmlspecialchars(trim($clean_message)); ?></div>
+                            </td>
+                        </tr>
+                        <?php endwhile; endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
     </div>
 
     <script>

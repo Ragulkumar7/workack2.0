@@ -46,6 +46,7 @@ if (isset($_GET['dismiss_ticket'])) {
 // -------------------------------------------------------------------------
 // 2. FETCH EMPLOYEE PROFILE DATA
 // -------------------------------------------------------------------------
+$employee_username = "Employee";
 $employee_name = "Employee";
 $employee_role_title = "Staff";
 $employee_phone = "Not Set";
@@ -65,6 +66,7 @@ $stmt_p = $conn->prepare($sql_profile);
 $stmt_p->bind_param("i", $current_user_id);
 $stmt_p->execute();
 if ($row = $stmt_p->get_result()->fetch_assoc()) {
+    $employee_username = $row['username'] ?? '';
     $employee_name = $row['full_name'] ?? $row['username'];
     $employee_role_title = $row['designation'] ?? $user_role;
     $employee_phone = $row['phone'] ?? 'Not Set';
@@ -432,7 +434,8 @@ if($r_wfh) {
     }
 }
 
-$q_announcements = "SELECT id, title, message, created_at FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY created_at DESC LIMIT 5"; 
+// Modified to exclude 'Meeting' category here, handled below
+$q_announcements = "SELECT id, title, message, created_at FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = 'All Employees' OR target_audience = '$user_role') AND category != 'Meeting' ORDER BY created_at DESC LIMIT 5"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
     while($row = mysqli_fetch_assoc($r_announcements)) {
@@ -443,6 +446,71 @@ if($r_announcements) {
             'icon' => 'fa-bullhorn', 'color' => 'text-orange-600 bg-orange-100',
             'link' => $path_to_root . 'view_announcements.php'
         ];
+    }
+}
+
+// -------------------------------------------------------------------------
+// FETCH MEETINGS (Announcements & Calendar) FOR "MY UPDATES"
+// -------------------------------------------------------------------------
+
+// 1. Fetch from Announcements table (Manager Scheduled)
+$q_ann_meets = "SELECT a.id, a.title, a.publish_date as meet_date, a.message, a.created_at, COALESCE(u.username, 'Manager') as host_name 
+                FROM announcements a 
+                LEFT JOIN users u ON a.created_by = u.id 
+                WHERE a.category = 'Meeting' AND a.is_archived = 0 
+                AND (a.target_audience = 'All' 
+                     OR a.target_audience = 'All Employees' 
+                     OR a.target_audience LIKE '%" . $conn->real_escape_string($employee_username) . "%' 
+                     OR a.message LIKE '%" . $conn->real_escape_string($employee_username) . "%'
+                     OR a.message LIKE '%" . $conn->real_escape_string($employee_name) . "%')";
+$r_ann_meets = mysqli_query($conn, $q_ann_meets);
+if($r_ann_meets) {
+    while($row = mysqli_fetch_assoc($r_ann_meets)) {
+        $all_notifications[] = [
+            'type' => 'meeting',
+            'title' => 'Meeting Scheduled: ' . htmlspecialchars($row['title']),
+            'message' => 'Meeting scheduled by ' . htmlspecialchars($row['host_name']),
+            'time' => $row['created_at'] ?? ($row['meet_date'] . ' 00:00:00'), 
+            'icon' => 'fa-handshake', 
+            'color' => 'text-indigo-600 bg-indigo-100',
+            'link' => $path_to_root . 'view_announcements.php'
+        ];
+    }
+}
+
+// 2. Fetch from Calendar Meetings table (Teammate / Instant Chat)
+$check_meetings = $conn->query("SHOW TABLES LIKE 'calendar_meetings'");
+if ($check_meetings && $check_meetings->num_rows > 0) {
+    $q_meet_feed = "SELECT cm.id, cm.title, cm.meet_date, cm.meet_time, cm.meet_link, cm.created_at, COALESCE(ep.full_name, 'A team member') as host_name 
+                    FROM calendar_meetings cm 
+                    JOIN calendar_meeting_participants cmp ON cm.id = cmp.meeting_id 
+                    LEFT JOIN employee_profiles ep ON cm.created_by = ep.user_id 
+                    WHERE cmp.user_id = $current_user_id 
+                    ORDER BY cm.created_at DESC LIMIT 4";
+    $r_meet_feed = mysqli_query($conn, $q_meet_feed);
+    if($r_meet_feed) {
+        while($row = mysqli_fetch_assoc($r_meet_feed)) {
+            $meet_datetime = date('d M Y', strtotime($row['meet_date'])) . ' at ' . date('h:i A', strtotime($row['meet_time']));
+            
+            $actual_link = trim($row['meet_link']);
+            if (strpos($actual_link, '.') !== false) {
+                if (!preg_match("~^(?:f|ht)tps?://~i", $actual_link) && strpos($actual_link, '/') !== 0) {
+                    $actual_link = "https://" . $actual_link;
+                }
+            } else {
+                $actual_link = $path_to_root . "team_chat.php?room_id=" . urlencode($actual_link);
+            }
+
+            $all_notifications[] = [
+                'type' => 'meeting_chat',
+                'title' => 'Meeting Invite: ' . htmlspecialchars($row['title']),
+                'message' => htmlspecialchars($row['host_name']) . ' invited you to a meeting on ' . $meet_datetime . '.',
+                'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
+                'icon' => 'fa-video', 
+                'color' => 'text-indigo-600 bg-indigo-100',
+                'link' => $actual_link 
+            ];
+        }
     }
 }
 
@@ -717,6 +785,10 @@ session_write_close();
                                         <?php if($notif['type'] == 'ticket'): ?>
                                             <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
                                                 <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
+                                            </a>
+                                        <?php elseif($notif['type'] == 'meeting_chat'): ?>
+                                            <a href="<?php echo $notif['link']; ?>" target="_blank" class="inline-flex items-center text-[9px] bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold px-3 py-1.5 rounded-full hover:bg-indigo-100 transition shadow-sm">
+                                                <i class="fa-solid fa-video mr-1"></i> Join Meeting
                                             </a>
                                         <?php else: ?>
                                             <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-3 py-1.5 rounded-full hover:bg-slate-100 transition shadow-sm">

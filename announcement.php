@@ -176,11 +176,16 @@ if (isset($_GET['delete_id'])) {
 }
 
 // Fetch employees for Meeting Attendees
-// We bring back the 'role' to identify Team Leads, and user ID to map relationships if needed
 $employees = $conn->query("SELECT id, username, department, role FROM users WHERE role != 'System Admin' ORDER BY department");
 $emp_data = [];
+$teams_array = []; // Array to hold unique teams/departments
 if ($employees) {
-    while($e = $employees->fetch_assoc()) { $emp_data[] = $e; }
+    while($e = $employees->fetch_assoc()) { 
+        $emp_data[] = $e; 
+        if (!empty($e['department']) && !in_array($e['department'], $teams_array)) {
+            $teams_array[] = $e['department'];
+        }
+    }
 }
 
 // Fetch Announcements
@@ -229,6 +234,9 @@ $meet_res = $conn->query($meet_sql);
             </div>
             
             <div class="flex gap-3">
+                <a href="view_announcements.php" class="flex items-center gap-2 bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:bg-slate-50 transition-all">
+                    <i class="fa-solid fa-eye text-teal-600"></i> View Announcements
+                </a>
                 <button onclick="toggleMeetingModal(true)" class="flex items-center gap-2 bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium shadow-sm hover:bg-slate-50 transition-all">
                     <i class="fa-solid fa-calendar-plus text-teal-600"></i> Arrange Meeting
                 </button>
@@ -419,8 +427,9 @@ $meet_res = $conn->query($meet_sql);
                     <label class="text-xs font-bold uppercase">Filter Department</label>
                     <select onchange="filterAttendees(this.value)" class="w-full border p-2 rounded-lg mt-1 text-sm">
                         <option value="All">All Departments</option>
-                        <option value="Development Team">Development Team</option>
-                        <option value="Human Resources">Human Resources</option>
+                        <?php foreach($teams_array as $team): ?>
+                            <option value="<?php echo htmlspecialchars($team); ?>"><?php echo htmlspecialchars($team); ?></option>
+                        <?php endforeach; ?>
                     </select>
                 </div>
                 <div class="col-span-2">
@@ -467,26 +476,14 @@ $meet_res = $conn->query($meet_sql);
             container.innerHTML = '';
             
             employees.filter(e => dept === 'All' || e.department === dept).forEach(e => {
-                // Automatically select checkbox if a specific department is filtered
-                let isChecked = (dept !== 'All' && e.department === dept) ? 'checked' : '';
-                
-                // Add auto-select logic for clicking a Team Lead
-                let onClickLogic = e.role === 'Team Lead' ? `onchange="toggleTeamMembers(this, '${e.department}')"` : '';
-
-                container.innerHTML += `<label class="flex items-center gap-2 p-1 cursor-pointer"><input type="checkbox" name="attendees[]" value="${e.username}" class="dept-${e.department.replace(/\s+/g, '-')}" ${isChecked} ${onClickLogic}> <span class="text-xs">${e.username} (${e.role})</span></label>`;
+                // FIXED: Do NOT auto-check checkboxes when filtering departments
+                // Just display the filtered employees
+                container.innerHTML += `<label class="flex items-center gap-2 p-1 cursor-pointer"><input type="checkbox" name="attendees[]" value="${e.username}" class="dept-${e.department.replace(/\s+/g, '-')}"> <span class="text-xs">${e.username} (${e.role})</span></label>`;
             });
         }
 
-        // Feature: Auto-select teammates when a Team Lead is checked
-        function toggleTeamMembers(tlCheckbox, department) {
-            if (!tlCheckbox.checked) return; // Only auto-select when checking, not unchecking
-            
-            const sanitizedDept = department.replace(/\s+/g, '-');
-            const checkboxes = document.querySelectorAll(`.dept-${sanitizedDept}`);
-            checkboxes.forEach(cb => {
-                cb.checked = true;
-            });
-        }
+        // Feature removed as requested (auto-select teammates when TL is checked)
+        // Checkboxes will only be checked if explicitly clicked by the user
         
         function openModal(id, mode = 'add', data = null) {
             document.getElementById(id).classList.remove('hidden');

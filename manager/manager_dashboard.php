@@ -30,6 +30,7 @@ $today = date('Y-m-d');
 $current_month = date('m');
 $current_year = date('Y');
 $user_role = $_SESSION['role'] ?? 'Manager';
+$mgr_username = $_SESSION['username'] ?? ''; // Added to identify Manager for meetings
 
 // =========================================================================
 // ACTION: MARK TICKET AS VIEWED
@@ -64,6 +65,7 @@ $stmt_p = $conn->prepare($profile_query);
 $stmt_p->bind_param("i", $mgr_user_id);
 $stmt_p->execute();
 if ($row = $stmt_p->get_result()->fetch_assoc()) {
+    $mgr_username = $row['username'];
     $mgr_name = $row['full_name'] ?? $row['username'];
     $mgr_phone = $row['phone'] ?? 'Not Set';
     $mgr_email = !empty($row['email']) ? $row['email'] : $row['username'];
@@ -336,9 +338,10 @@ if ($stmt_tlp) {
 }
 
 // =========================================================================
-// UNIFIED NOTIFICATIONS
+// UNIFIED NOTIFICATIONS & MEETINGS LOGIC
 // =========================================================================
 $all_notifications = [];
+$all_today_meetings = []; 
 
 $q_tickets = "SELECT id, ticket_code, subject FROM tickets WHERE user_id = $mgr_user_id AND status IN ('Resolved', 'Closed') AND user_read_status = 0 ORDER BY id DESC LIMIT 3";
 $r_tickets = mysqli_query($conn, $q_tickets);
@@ -389,7 +392,7 @@ if($r_swaps) {
     }
 }
 
-$q_announcements = "SELECT id, title, message FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 5"; 
+$q_announcements = "SELECT id, title, message FROM announcements WHERE is_archived = 0 AND category != 'Meeting' AND (target_audience = 'All' OR target_audience = '$user_role' OR target_audience = 'All Employees') ORDER BY id DESC LIMIT 5"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
     while($row = mysqli_fetch_assoc($r_announcements)) {
@@ -404,15 +407,74 @@ if($r_announcements) {
     }
 }
 
+// FETCH MEETINGS FOR MANAGER (Scheduled by HR / Others or by Manager himself)
+$q_ann_meets = "SELECT a.id, a.title, a.publish_date as meet_date, '' as meet_link, u.department, a.message, a.created_at, COALESCE(u.username, 'Admin') as host_name 
+                FROM announcements a 
+                LEFT JOIN users u ON a.created_by = u.id 
+                WHERE a.category = 'Meeting' AND a.is_archived = 0 
+                AND (a.target_audience = 'All' 
+                     OR a.target_audience = 'All Employees' 
+                     OR a.target_audience = '$user_role'
+                     OR a.target_audience LIKE '%" . $conn->real_escape_string($mgr_username) . "%' 
+                     OR a.message LIKE '%" . $conn->real_escape_string($mgr_username) . "%'
+                     OR a.message LIKE '%" . $conn->real_escape_string($mgr_name) . "%'
+                     OR a.created_by = $mgr_user_id)";
+$r_ann_meets = mysqli_query($conn, $q_ann_meets);
+if($r_ann_meets) {
+    while($row = mysqli_fetch_assoc($r_ann_meets)) {
+        $time = "00:00:00"; 
+        if (preg_match('/Time:\s*([^\n]+)/', $row['message'], $matches)) {
+            $time = trim($matches[1]);
+        }
+        $row['meet_time'] = $time;
+        
+        // Push to My Updates (Live Feed)
+        $all_notifications[] = [
+            'type' => 'meeting_announcement',
+            'title' => 'Meeting Scheduled: ' . htmlspecialchars($row['title']),
+            'message' => 'Meeting scheduled by ' . htmlspecialchars($row['host_name']),
+            'time' => $row['created_at'] ?? ($row['meet_date'] . ' 00:00:00'), 
+            'icon' => 'fa-handshake', 
+            'color' => 'text-indigo-600 bg-indigo-100',
+            'link' => '../view_announcements.php' 
+        ];
+
+        // Push to array if meeting is TODAY OR IN THE FUTURE
+        if ($row['meet_date'] >= $today) {
+            $all_today_meetings[] = $row;
+        }
+    }
+}
+
+// Fetch old Calendar Meetings if table exists
+$check_meetings = $conn->query("SHOW TABLES LIKE 'calendar_meetings'");
+if ($check_meetings && $check_meetings->num_rows > 0) {
+    $q_today_meets = "SELECT cm.id, cm.title, cm.meet_date, cm.meet_time, cm.meet_link, ep.department 
+                      FROM calendar_meetings cm 
+                      JOIN calendar_meeting_participants cmp ON cm.id = cmp.meeting_id 
+                      LEFT JOIN employee_profiles ep ON cm.created_by = ep.user_id
+                      WHERE cmp.user_id = $mgr_user_id AND cm.meet_date >= CURDATE()";
+    $r_today = mysqli_query($conn, $q_today_meets);
+    if($r_today) {
+        while($row = mysqli_fetch_assoc($r_today)) {
+            $all_today_meetings[] = $row;
+        }
+    }
+}
+
+usort($all_today_meetings, function($a, $b) {
+    $timeA = strtotime($a['meet_date'] . ' ' . $a['meet_time']);
+    $timeB = strtotime($b['meet_date'] . ' ' . $b['meet_time']);
+    return $timeA - $timeB;
+});
+
 usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
 $all_notifications = array_slice($all_notifications, 0, 6); 
 
-// TASKS & MEETINGS
+// TASKS
 $task_sql = "SELECT * FROM personal_taskboard WHERE user_id = $mgr_user_id ORDER BY id DESC LIMIT 5";
 $tasks_result = mysqli_query($conn, $task_sql);
 $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskboard WHERE user_id = $mgr_user_id AND status != 'completed'")->fetch_assoc()['cnt'] ?? 0;
-
-$meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 5");
 
 ?>
 <!DOCTYPE html>
@@ -537,6 +599,10 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                             <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
                                                 <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
                                                     <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
+                                                </a>
+                                            <?php elseif(isset($notif['type']) && ($notif['type'] == 'meeting' || $notif['type'] == 'meeting_announcement')): ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold px-3 py-1.5 rounded-full hover:bg-indigo-100 transition shadow-sm">
+                                                    <i class="fa-solid fa-video mr-1"></i> View Details
                                                 </a>
                                             <?php else: ?>
                                                 <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-3 py-1.5 rounded-full hover:bg-slate-100 transition shadow-sm">
@@ -871,31 +937,44 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                 <div class="p-6 flex flex-col h-full">
                     <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
                         <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
-                        <button class="text-[10px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Today</button>
+                        <button class="text-[10px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Upcoming</button>
                     </div>
                     <div class="meeting-timeline space-y-6 pt-2 custom-scroll overflow-y-auto flex-grow pr-2">
-                        <?php if($meet_result && mysqli_num_rows($meet_result) > 0) {
-                            while($meet = mysqli_fetch_assoc($meet_result)): 
-                                $dot_color = ($meet['type_color']=='orange') ? 'bg-orange-500' : (($meet['type_color']=='teal') ? 'bg-teal-500' : 'bg-yellow-500');
+                        <?php if(!empty($all_today_meetings)) {
+                            $color_palette = ['bg-teal-500', 'bg-indigo-500', 'bg-rose-500', 'bg-orange-500'];
+                            $c_idx = 0;
+                            foreach($all_today_meetings as $meet): 
+                                $dot_color = $color_palette[$c_idx % 4];
+                                $c_idx++;
                         ?>
                         <div class="meeting-row-wrapper">
                             <div class="meeting-dot <?php echo $dot_color; ?>"></div>
-                            <div class="meeting-flex-container">
+                            <div class="meeting-flex-container gap-4">
                                 <div class="meeting-time-label">
-                                    <?php echo date("h:i A", strtotime($meet['meeting_time'])); ?>
+                                    <span class="block text-[10px] text-teal-600 mb-0.5"><?php echo ($meet['meet_date'] == $today) ? 'Today' : date("d M", strtotime($meet['meet_date'])); ?></span>
+                                    <?php echo date("h:i A", strtotime($meet['meet_time'])); ?>
                                 </div>
-                                <div class="meeting-content-box shadow-sm">
-                                    <p class="text-sm font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
-                                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1"><?php echo htmlspecialchars($meet['department']); ?></p>
+                                <div class="meeting-content-box shadow-sm py-2 px-3">
+                                    <p class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
+                                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department'] ?? 'Team Meeting'); ?></p>
+                                    <?php if(!empty($meet['meet_link'])): 
+                                        $actual_link = trim($meet['meet_link']);
+                                        if (strpos($actual_link, '.') !== false) {
+                                            if (!preg_match("~^(?:f|ht)tps?://~i", $actual_link) && strpos($actual_link, '/') !== 0) {
+                                                $actual_link = "https://" . $actual_link;
+                                            }
+                                        } else {
+                                            $actual_link = $path_to_root . "team_chat.php?room_id=" . urlencode($actual_link);
+                                        }
+                                    ?>
+                                        <a href="<?php echo htmlspecialchars($actual_link); ?>" <?php echo (strpos($actual_link, 'team_chat.php') === false) ? 'target="_blank"' : ''; ?> class="text-[10px] text-indigo-600 font-bold mt-1 inline-block hover:underline">
+                                            <i class="fa-solid fa-video"></i> Join Meeting
+                                        </a>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </div>
-                        <?php endwhile; } else { ?>
-                            <div class="flex flex-col items-center justify-center h-full text-slate-400">
-                                <i class="fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50"></i>
-                                <p class="text-sm mt-2">No meetings scheduled today.</p>
-                            </div>
-                        <?php } ?>
+                        <?php endforeach; } else { echo "<div class='text-center py-8 text-slate-400'><i class='fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50'></i><p class='text-xs font-medium'>No meetings scheduled.</p></div>"; } ?>
                     </div>
                 </div>
             </div>
