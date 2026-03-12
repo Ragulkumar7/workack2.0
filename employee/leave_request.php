@@ -15,6 +15,7 @@ if (!isset($_SESSION['user_id'])) {
 }
 
 $user_id = $_SESSION['user_id'];
+$user_role = $_SESSION['role'] ?? 'Employee'; // Fetch role for strict role-bypassing
 session_write_close(); // Prevent Session Locking for performance
 
 $message = "";
@@ -33,6 +34,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_leave'])) {
         $tl_id = 0;
         $manager_id = 0;
         
+        // Find who this employee reports to
         $get_managers_sql = "SELECT reporting_to, manager_id FROM employee_profiles WHERE user_id = ?";
         $stmt_managers = mysqli_prepare($conn, $get_managers_sql);
         if ($stmt_managers) {
@@ -46,11 +48,38 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_leave'])) {
             mysqli_stmt_close($stmt_managers);
         }
 
+        // =========================================================
+        // SMART HIERARCHY BYPASS LOGIC (ROLE-BASED)
+        // =========================================================
+        $tl_status = ($tl_id > 0) ? 'Pending' : 'Approved';
+        $manager_status = ($manager_id > 0) ? 'Pending' : 'Approved';
+        $hr_status = 'Pending';
+        $final_status = 'Pending';
+
+        // 1. Team Leads bypass the TL approval phase
+        if (in_array($user_role, ['Team Lead', 'TL'])) {
+            $tl_status = 'Approved';
+        }
+        
+        // 2. Managers and HR Executives bypass both TL and Manager approval phases
+        if (in_array($user_role, ['Manager', 'Project Manager', 'General Manager', 'HR', 'HR Executive'])) {
+            $tl_status = 'Approved';
+            $manager_status = 'Approved';
+        }
+
+        // 3. Top-Level Management Auto-Approval (Instant Approval)
+        if (in_array($user_role, ['Admin', 'System Admin', 'CFO', 'CEO'])) {
+            $tl_status = 'Approved';
+            $manager_status = 'Approved';
+            $hr_status = 'Approved';
+            $final_status = 'Approved';
+        }
+
         $sql = "INSERT INTO leave_requests (user_id, tl_id, manager_id, leave_type, start_date, end_date, total_days, reason, status, tl_status, manager_status, hr_status) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending', 'Pending', 'Pending', 'Pending')";
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         
         $stmt = mysqli_prepare($conn, $sql);
-        mysqli_stmt_bind_param($stmt, "iiisssis", $user_id, $tl_id, $manager_id, $leave_type, $start_date, $end_date, $total_days, $reason);
+        mysqli_stmt_bind_param($stmt, "iiisssisssss", $user_id, $tl_id, $manager_id, $leave_type, $start_date, $end_date, $total_days, $reason, $final_status, $tl_status, $manager_status, $hr_status);
         
         if (mysqli_stmt_execute($stmt)) {
             header("Location: " . $_SERVER['PHP_SELF'] . "?msg=success");
@@ -89,7 +118,7 @@ if ($o_row = $o_res->fetch_assoc()) {
 }
 $o_sql->close();
 
-// 3C. Calculate Used Leaves per category (Restricted to Medical/Casual)
+// 3C. Calculate Used Leaves per category
 $stats_sql = "SELECT leave_type, SUM(total_days) as used_days 
               FROM leave_requests 
               WHERE user_id = ? AND status = 'Approved' 
@@ -192,11 +221,12 @@ if (!file_exists($sidebarPath)) {
 
         /* Table */
         .table-container { overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; }
-        table { width: 100%; border-collapse: collapse; min-width: 850px; }
+        table { width: 100%; border-collapse: collapse; min-width: 900px; }
         th { text-align: left; font-size: 11px; color: #64748b; padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background: #f8fafc;}
         td { font-size: 13px; color: #334155; padding: 16px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; font-weight: 500;}
         tr:hover { background-color: #fcfcfc; }
         
+        /* UI Elements */
         .status-badge-container { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
         .status-badge { padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px; }
         .status-Approved { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0;}
@@ -204,17 +234,24 @@ if (!file_exists($sidebarPath)) {
         .status-Rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca;}
         .awaiting-text { font-size: 10px; color: #64748b; font-weight: 600; margin-left: 2px;}
 
+        /* APPROVAL CHAIN UI */
+        .chain-wrapper { display: inline-flex; align-items: center; background: #f8fafc; padding: 6px 12px; border-radius: 20px; border: 1px solid #e2e8f0; }
+        .chain-node { width: 24px; height: 24px; border-radius: 50%; display: flex; justify-content: center; align-items: center; color: white; font-size: 11px; font-weight: 800; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.1); position: relative; z-index: 2; text-shadow: 0px 1px 1px rgba(0,0,0,0.2);}
+        .chain-line { width: 16px; height: 2px; background-color: #cbd5e1; margin: 0 -2px; z-index: 1; }
+        .node-approved { background-color: #10b981; }
+        .node-pending { background-color: #f59e0b; }
+        .node-rejected { background-color: #ef4444; }
+
         /* --- PERFECT RESPONSIVE MODAL --- */
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; align-items: center; justify-content: center; backdrop-filter: blur(4px); padding: 20px;}
         .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         
-        /* Flex column ensures header/footer lock and only body scrolls */
         .modal-box { 
             background: white; width: 500px; max-width: 100%; border-radius: 16px; 
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); 
             display: flex; flex-direction: column; 
-            max-height: 85vh; /* Prevents touching screen edges */
+            max-height: 85vh; 
         }
         .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
         .modal-header h3 { margin: 0; font-size: 16px; font-weight: 800; color: #0f172a;}
@@ -327,6 +364,7 @@ if (!file_exists($sidebarPath)) {
                             <th>Date Range</th>
                             <th>Total Days</th>
                             <th>Reason</th>
+                            <th>Approval Chain</th>
                             <th>Global Status</th>
                         </tr>
                     </thead>
@@ -335,49 +373,67 @@ if (!file_exists($sidebarPath)) {
                         if (mysqli_num_rows($history_result) > 0) {
                             while($row = mysqli_fetch_assoc($history_result)) { 
                                 
-                                // Recalculate strict global status safely
                                 $t = $row['tl_status'] ?? 'Pending';
                                 $m = $row['manager_status'] ?? 'Pending';
                                 $h = $row['hr_status'] ?? 'Pending';
                                 $db_stat = $row['status'];
 
-                                $tl_id = intval($row['tl_id'] ?? 0);
-                                $mgr_id = intval($row['manager_id'] ?? 0);
-                                
-                                if ($db_stat === 'Approved' && $t === 'Pending' && $m === 'Pending') {
-                                    $real_status = 'Approved'; // Legacy fix
+                                // Determine which nodes to SHOW dynamically
+                                $show_t_node = true;
+                                $show_m_node = true;
+
+                                // DYNAMIC UI FIX: Override display logic for old/legacy rows based on current user role
+                                if (in_array($user_role, ['Team Lead', 'TL'])) { 
+                                    $t = 'Approved'; 
+                                    $show_t_node = false; // Hide TL circle
+                                }
+                                if (in_array($user_role, ['Manager', 'Project Manager', 'General Manager', 'HR', 'HR Executive'])) { 
+                                    $t = 'Approved'; 
+                                    $m = 'Approved'; 
+                                    $show_t_node = false; // Hide TL circle
+                                    $show_m_node = false; // Hide Manager circle
+                                }
+                                if (in_array($user_role, ['Admin', 'System Admin', 'CFO', 'CEO'])) { 
+                                    $t = 'Approved'; 
+                                    $m = 'Approved'; 
+                                    $h = 'Approved'; 
+                                    $db_stat = 'Approved';
+                                    $show_t_node = false; // Hide TL circle
+                                    $show_m_node = false; // Hide Manager circle
+                                }
+
+                                // Calculate real overall status
+                                if ($db_stat === 'Approved' || ($t === 'Approved' && $m === 'Approved' && $h === 'Approved')) {
+                                    $real_status = 'Approved';
+                                } elseif ($t === 'Rejected' || $m === 'Rejected' || $h === 'Rejected' || $db_stat === 'Rejected') {
+                                    $real_status = 'Rejected';
                                 } else {
-                                    if ($t === 'Rejected' || $m === 'Rejected' || $h === 'Rejected') {
-                                        $real_status = 'Rejected';
-                                    } elseif (
-                                        ($t === 'Approved' || $tl_id === 0) && 
-                                        ($m === 'Approved' || $mgr_id === 0) && 
-                                        $h === 'Approved'
-                                    ) {
-                                        $real_status = 'Approved';
-                                    } else {
-                                        $real_status = 'Pending';
-                                    }
+                                    $real_status = 'Pending';
                                 }
 
                                 $statusIcon = match($real_status) {
                                     'Approved' => 'check', 'Rejected' => 'x', default => 'clock'
                                 };
 
-                                // SMARTER AWAITING LOGIC (Skips missing hierarchies)
+                                // Calculate Colors for Approval Chain UI Nodes
+                                $tl_node = ($t === 'Approved') ? 'node-approved' : (($t === 'Rejected') ? 'node-rejected' : 'node-pending');
+                                $mgr_node = ($m === 'Approved') ? 'node-approved' : (($m === 'Rejected') ? 'node-rejected' : 'node-pending');
+                                $hr_node = ($h === 'Approved') ? 'node-approved' : (($h === 'Rejected') ? 'node-rejected' : 'node-pending');
+
+                                // STRICT AWAITING LOGIC (Shows exact next step without displaying skipped steps)
                                 $awaiting = '';
                                 if ($real_status === 'Pending') {
-                                    if ($tl_id !== 0 && $t === 'Pending') {
+                                    if ($t === 'Pending' && $show_t_node) {
                                         $awaiting = 'Awaiting Team Lead';
-                                    } elseif ($mgr_id !== 0 && $m === 'Pending') {
+                                    } elseif ($m === 'Pending' && $show_m_node) {
                                         $awaiting = 'Awaiting Manager';
                                     } elseif ($h === 'Pending') {
-                                        $awaiting = 'Awaiting HR';
+                                        $awaiting = 'Awaiting HR Approval';
                                     } else {
-                                        $awaiting = 'Awaiting Final Approval';
+                                        $awaiting = 'Processing...';
                                     }
                                 } elseif ($real_status === 'Rejected') {
-                                    $awaiting = 'Denied by ' . htmlspecialchars($row['approved_by'] ?? 'Management');
+                                    $awaiting = 'Denied by Management';
                                 }
                         ?>
                         <tr>
@@ -390,6 +446,21 @@ if (!file_exists($sidebarPath)) {
                             <td><span style="font-weight: 800; color:#0f172a;"><?php echo str_pad($row['total_days'], 2, '0', STR_PAD_LEFT); ?></span></td>
                             <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="<?php echo htmlspecialchars($row['reason']); ?>">
                                 <?php echo htmlspecialchars($row['reason']); ?>
+                            </td>
+                            <td>
+                                <div class="chain-wrapper" title="TL: <?php echo $t; ?> | Mgr: <?php echo $m; ?> | HR: <?php echo $h; ?>">
+                                    <?php if($show_t_node): ?>
+                                    <div class="chain-node <?php echo $tl_node; ?>">T</div>
+                                    <div class="chain-line"></div>
+                                    <?php endif; ?>
+                                    
+                                    <?php if($show_m_node): ?>
+                                    <div class="chain-node <?php echo $mgr_node; ?>">M</div>
+                                    <div class="chain-line"></div>
+                                    <?php endif; ?>
+                                    
+                                    <div class="chain-node <?php echo $hr_node; ?>">H</div>
+                                </div>
                             </td>
                             <td>
                                 <div class="status-badge-container">
@@ -407,7 +478,7 @@ if (!file_exists($sidebarPath)) {
                         <?php 
                             } 
                         } else {
-                            echo "<tr><td colspan='5' style='text-align:center; padding: 40px; color:#64748b;'><i data-lucide='file-x-2' style='width:40px; height:40px; margin: 0 auto 10px auto; opacity:0.5;'></i>You haven't requested any leaves yet.</td></tr>";
+                            echo "<tr><td colspan='6' style='text-align:center; padding: 40px; color:#64748b;'><i data-lucide='file-x-2' style='width:40px; height:40px; margin: 0 auto 10px auto; opacity:0.5;'></i>You haven't requested any leaves yet.</td></tr>";
                         }
                         ?>
                     </tbody>
@@ -555,7 +626,7 @@ if (!file_exists($sidebarPath)) {
                 const typeTd = tr[i].getElementsByTagName("td")[0];
                 const dateTd = tr[i].getElementsByTagName("td")[1];
                 const reasonTd = tr[i].getElementsByTagName("td")[3];
-                const statusTd = tr[i].getElementsByTagName("td")[4];
+                const statusTd = tr[i].getElementsByTagName("td")[5]; // Adjusted for new Approval Chain column
                 
                 if (typeTd && statusTd && dateTd && reasonTd) {
                     const typeTxt = typeTd.textContent || typeTd.innerText;
