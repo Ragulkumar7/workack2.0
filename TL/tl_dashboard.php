@@ -306,8 +306,8 @@ $team_att_pct = ($total_team > 0) ? round(($team_present / $total_team) * 100) :
 // =========================================================================
 $active_projects = [];
 $proj_q = "SELECT p.id, p.project_name, p.deadline, p.status,
-                  (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id) as total_tasks,
-                  (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id AND pt.status = 'Completed') as completed_tasks
+                 (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id) as total_tasks,
+                 (SELECT COUNT(*) FROM project_tasks pt WHERE pt.project_id = p.id AND pt.status = 'Completed') as completed_tasks
            FROM projects p 
            WHERE p.leader_id = ? AND p.status != 'Completed' 
            ORDER BY p.id DESC LIMIT 4";
@@ -344,7 +344,7 @@ if ($stmt_tp) {
 }
 
 // =========================================================================
-// UNIFIED NOTIFICATIONS
+// UNIFIED NOTIFICATIONS & SMART TEAM CHAT MEETINGS FETCH
 // =========================================================================
 $all_notifications = [];
 
@@ -427,12 +427,52 @@ if($r_new_proj) {
     }
 }
 
+// -------------------------------------------------------------------------
+// FIX: DYNAMIC TEAM CHAT MEETINGS INTEGRATION
+// -------------------------------------------------------------------------
+$check_meetings = $conn->query("SHOW TABLES LIKE 'calendar_meetings'");
+if ($check_meetings && $check_meetings->num_rows > 0) {
+    
+    // Push into Live Feed Array
+    $q_meet_feed = "SELECT cm.id, cm.title, cm.meet_date, cm.meet_time, cm.meet_link, cm.created_at, COALESCE(ep.full_name, 'A team member') as host_name 
+                    FROM calendar_meetings cm 
+                    JOIN calendar_meeting_participants cmp ON cm.id = cmp.meeting_id 
+                    LEFT JOIN employee_profiles ep ON cm.created_by = ep.user_id 
+                    WHERE cmp.user_id = $tl_user_id 
+                    ORDER BY cm.created_at DESC LIMIT 4";
+    $r_meet_feed = mysqli_query($conn, $q_meet_feed);
+    if($r_meet_feed) {
+        while($row = mysqli_fetch_assoc($r_meet_feed)) {
+            $meet_datetime = date('d M Y', strtotime($row['meet_date'])) . ' at ' . date('h:i A', strtotime($row['meet_time']));
+            $all_notifications[] = [
+                'type' => 'meeting',
+                'title' => 'Meeting: ' . htmlspecialchars($row['title']),
+                'message' => htmlspecialchars($row['host_name']) . ' invited you to a meeting on ' . $meet_datetime . '.',
+                'time' => $row['created_at'] ?? date('Y-m-d H:i:s'), 
+                'icon' => 'fa-video', 
+                'color' => 'text-indigo-600 bg-indigo-100',
+                'link' => $path_to_root . 'team_chat.php' 
+            ];
+        }
+    }
+
+    // Fetch exact list for Today's Meetings Widget
+    $q_today_meets = "SELECT cm.id, cm.title, cm.meet_date, cm.meet_time, cm.meet_link, ep.department 
+                      FROM calendar_meetings cm 
+                      JOIN calendar_meeting_participants cmp ON cm.id = cmp.meeting_id 
+                      LEFT JOIN employee_profiles ep ON cm.created_by = ep.user_id
+                      WHERE cmp.user_id = $tl_user_id AND cm.meet_date = CURDATE() 
+                      ORDER BY cm.meet_time ASC LIMIT 10";
+    $meet_result = mysqli_query($conn, $q_today_meets);
+} else {
+    $meet_result = false;
+}
+
+// Sort all fetched notifications exactly by their real database timestamp
 usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
+// Slice to show the 6 most recent updates across all categories
 $all_notifications = array_slice($all_notifications, 0, 6); 
-
-// Meetings
-$meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = CURDATE() ORDER BY meeting_time ASC LIMIT 10");
-
+session_write_close();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -464,12 +504,13 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
         .card-body { padding: 1.25rem; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0;} 
         
         .meeting-timeline { position: relative; }
-        .meeting-timeline::before { content: ''; position: absolute; left: 40px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
+        .meeting-timeline::before { content: ''; position: absolute; left: 75px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; }
         .meeting-row-wrapper { position: relative; margin-bottom: 1.5rem; }
-        .meeting-dot { position: absolute; left: 76px; top: 10px; width: 10px; height: 10px; border-radius: 50%; z-index: 10; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.05); }
+        .meeting-dot { position: absolute; left: 70px; top: 10px; width: 12px; height: 12px; border-radius: 50%; z-index: 10; border: 2px solid white; box-shadow: 0 0 0 1px rgba(0,0,0,0.05); }
         .meeting-flex-container { display: flex; align-items: flex-start; gap: 24px; }
         .meeting-time-label { width: 68px; text-align: right; flex-shrink: 0; font-weight: 700; font-size: 12px; color: #64748b; padding-top: 4px; }
-        .meeting-content-box { background-color: #f8fafc; padding: 12px; border-radius: 0.75rem; border: 1px solid #f1f5f9; flex-grow: 1; }
+        .meeting-content-box { background-color: #f8fafc; padding: 12px; border-radius: 0.75rem; border: 1px solid #f1f5f9; flex-grow: 1; transition: all 0.2s;}
+        .meeting-content-box:hover { background-color: white; border-color: #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);}
         
         .custom-scroll::-webkit-scrollbar { width: 5px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -518,7 +559,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
 
             <div class="flex flex-col gap-6">
                 
-                <?php include '../attendance_card.php'; ?>
+                <?php if(file_exists($path_to_root . 'attendance_card.php')) include $path_to_root . 'attendance_card.php'; ?>
 
                 <div class="card">
                     <div class="card-body">
@@ -594,7 +635,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card h-[420px]">
+                <div class="card h-[310px]">
                     <div class="card-body flex flex-col min-h-0">
                         <div class="flex justify-between items-center border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
@@ -618,6 +659,10 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                             <?php if(isset($notif['type']) && $notif['type'] == 'ticket'): ?>
                                                 <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-2.5 py-1 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
                                                     <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
+                                                </a>
+                                            <?php elseif(isset($notif['type']) && $notif['type'] == 'meeting'): ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold px-2.5 py-1 rounded-full hover:bg-indigo-100 transition shadow-sm">
+                                                    <i class="fa-solid fa-video mr-1"></i> View in Chat
                                                 </a>
                                             <?php else: ?>
                                                 <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-2.5 py-1 rounded-full hover:bg-slate-100 transition shadow-sm">
@@ -802,12 +847,12 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         </div>
                     </div>
                     
-                    <div class="p-4 bg-slate-50 flex-grow space-y-4">
-                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                    <div class="p-4 bg-slate-50 flex-grow flex flex-col justify-between">
+                        <div>
                             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
                                 <i class="fa-solid fa-user-shield text-purple-500"></i> Reporting Manager
                             </p>
-                            <div class="flex justify-between items-center">
+                            <div class="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-200 shadow-sm mb-4">
                                 <div class="min-w-0">
                                     <p class="text-sm font-black text-slate-800 truncate"><?php echo htmlspecialchars($tl_manager_name); ?></p>
                                     <p class="text-[10px] text-slate-500 font-medium mt-0.5 truncate">
@@ -818,16 +863,16 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                     <i class="fa-solid fa-phone text-[10px]"></i>
                                 </a>
                             </div>
-                        </div>
 
-                        <div class="grid grid-cols-2 gap-3">
-                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
-                                <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Experience</p>
-                                <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_exp); ?></p>
-                            </div>
-                            <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
-                                <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Department</p>
-                                <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_dept); ?></p>
+                            <div class="grid grid-cols-2 gap-3 mb-4">
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
+                                    <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Experience</p>
+                                    <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_exp); ?></p>
+                                </div>
+                                <div class="bg-white p-3 rounded-xl border border-slate-200 text-center shadow-sm">
+                                    <p class="text-[8px] text-gray-400 font-black uppercase tracking-tighter">Department</p>
+                                    <p class="text-[11px] font-black text-slate-700 mt-0.5"><?php echo htmlspecialchars($tl_dept); ?></p>
+                                </div>
                             </div>
                         </div>
 
@@ -843,7 +888,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         $emergency = json_decode($tl_emergency_contacts, true);
                         if (!empty($emergency)): 
                             $primary = $emergency[0]; ?>
-                            <div class="p-2.5 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between mt-auto shadow-sm">
+                            <div class="p-2.5 bg-rose-50 rounded-xl border border-rose-100 flex items-center justify-between mt-4 shadow-sm">
                                 <div class="flex items-center gap-2">
                                     <div class="w-6 h-6 rounded-lg bg-rose-100 flex items-center justify-center text-rose-500 shadow-inner">
                                         <i class="fa-solid fa-heart-pulse text-[10px]"></i>
@@ -910,11 +955,11 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card h-[220px]">
                     <div class="card-body flex flex-col">
                         <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">My Managed Projects</h3>
-                            <a href="tl_projects.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
+                            <a href="task_tl.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
                         </div>
                         <div class="space-y-2.5 overflow-y-auto custom-scroll pr-2 max-h-[300px]">
                             <?php if(!empty($active_projects)): ?>
@@ -956,7 +1001,7 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                     </div>
                 </div>
 
-                <div class="card h-[200px]">
+                <div class="card h-[420px]">
                     <div class="card-body flex flex-col min-h-0">
                         <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
@@ -964,8 +1009,11 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                         </div>
                         <div class="meeting-timeline flex-1 overflow-y-auto custom-scroll pr-2 mt-2 pt-1 space-y-4">
                             <?php if($meet_result && mysqli_num_rows($meet_result) > 0) {
+                                $color_palette = ['bg-teal-500', 'bg-indigo-500', 'bg-rose-500', 'bg-orange-500'];
+                                $c_idx = 0;
                                 while($meet = mysqli_fetch_assoc($meet_result)): 
-                                    $dot_color = ($meet['type_color']=='orange') ? 'bg-orange-500' : (($meet['type_color']=='teal') ? 'bg-teal-500' : 'bg-yellow-500');
+                                    $dot_color = $color_palette[$c_idx % 4];
+                                    $c_idx++;
                             ?>
                             <div class="meeting-row-wrapper">
                                 <div class="meeting-dot <?php echo $dot_color; ?>"></div>
@@ -975,7 +1023,26 @@ $meet_result = mysqli_query($conn, "SELECT * FROM meetings WHERE meeting_date = 
                                     </div>
                                     <div class="meeting-content-box shadow-sm py-2 px-3">
                                         <p class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
-                                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department']); ?></p>
+                                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department'] ?? 'Team Meeting'); ?></p>
+                                        <?php if(!empty($meet['meet_link'])): 
+    $actual_link = trim($meet['meet_link']);
+    
+    // SMART DETECTOR: Does it look like a website domain (contains a dot)?
+    if (strpos($actual_link, '.') !== false) {
+        // It's an external link (e.g., meet.google.com/xxx)
+        if (!preg_match("~^(?:f|ht)tps?://~i", $actual_link) && strpos($actual_link, '/') !== 0) {
+            $actual_link = "https://" . $actual_link;
+        }
+    } else {
+        // It's an internal room ID (e.g., workack-meet-0f8c1cb7dd)
+        // Route them back to the Team Chat page to join the room!
+        $actual_link = $path_to_root . "team_chat.php?room_id=" . urlencode($actual_link);
+    }
+?>
+    <a href="<?php echo htmlspecialchars($actual_link); ?>" <?php echo (strpos($actual_link, 'team_chat.php') === false) ? 'target="_blank"' : ''; ?> class="text-[10px] text-indigo-600 font-bold mt-1 inline-block hover:underline">
+        <i class="fa-solid fa-video"></i> Join Meeting
+    </a>
+<?php endif; ?>
                                     </div>
                                 </div>
                             </div>
