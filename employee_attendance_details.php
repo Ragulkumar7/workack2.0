@@ -1,8 +1,9 @@
 <?php
-// employee_attendance_details.php - Management View of Employee Attendance
+// employee_attendance_details.php - Enterprise Management View
 
 // 1. SESSION & SECURITY
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+date_default_timezone_set('Asia/Kolkata'); 
 
 // --- ROBUST DATABASE CONNECTION ---
 $dbPath = '../include/db_connect.php';
@@ -17,11 +18,25 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) {
     exit(); 
 }
 
-// 2. DATA CONTEXT
-$view_user_id = isset($_GET['id']) ? intval($_GET['id']) : (isset($_SESSION['user_id']) ? $_SESSION['user_id'] : $_SESSION['id']);
+$logged_in_user = $_SESSION['user_id'] ?? $_SESSION['id'];
+$user_role = $_SESSION['role'] ?? 'Employee';
+$view_user_id = isset($_GET['id']) ? intval($_GET['id']) : $logged_in_user;
 
-// A. Fetch Employee Profile Data
-$sql_profile = "SELECT full_name, email, emp_id_code, designation, joining_date, shift_timings, profile_img FROM employee_profiles WHERE user_id = ?";
+// =========================================================================================
+// SECURITY FIX: STRICT AUTHORIZATION GUARD
+// =========================================================================================
+if ($user_role === 'Employee' && $logged_in_user != $view_user_id) {
+    die("<div style='font-family:sans-serif; padding:50px; text-align:center;'>
+            <h2 style='color:#ef4444;'>403 Unauthorized</h2>
+            <p>You do not have permission to view another employee's attendance records.</p>
+         </div>");
+}
+
+// 2. FETCH EMPLOYEE PROFILE DATA (Safely removed ep.email to prevent SQL crash)
+$sql_profile = "SELECT ep.full_name, u.email as u_email, ep.emp_id_code, ep.designation, ep.joining_date, ep.shift_timings, ep.profile_img 
+                FROM employee_profiles ep 
+                JOIN users u ON ep.user_id = u.id 
+                WHERE ep.user_id = ?";
 $stmt = $conn->prepare($sql_profile);
 $stmt->bind_param("i", $view_user_id);
 $stmt->execute();
@@ -30,139 +45,201 @@ $profile_data = $profile_result->fetch_assoc();
 $stmt->close();
 
 $employeeName = $profile_data['full_name'] ?? "Unknown Employee";
-$employeeEmail = $profile_data['email'] ?? "";
-$employeeID   = $profile_data['emp_id_code'] ?? "EMP-0000";
+$employeeEmail = trim($profile_data['u_email'] ?? "");
+$employeeID   = trim($profile_data['emp_id_code'] ?? "EMP-0000");
 $designation  = $profile_data['designation'] ?? "Staff";
-$joining_date = !empty($profile_data['joining_date']) ? $profile_data['joining_date'] : '2000-01-01'; // Fallback
+$joining_date = !empty($profile_data['joining_date']) ? $profile_data['joining_date'] : ''; 
 $shift_timings = $profile_data['shift_timings'] ?? '09:00 AM - 06:00 PM';
 
 $profile_img = $profile_data['profile_img'] ?? '';
 if(empty($profile_img) || $profile_img === 'default_user.png') {
     $profile_img = "https://ui-avatars.com/api/?name=".urlencode($employeeName)."&background=0d9488&color=fff&bold=true";
-} elseif (!str_starts_with($profile_img, 'http') && strpos($profile_img, 'assets/profiles/') === false) {
+} elseif (strpos($profile_img, 'http') !== 0 && strpos($profile_img, 'assets/profiles/') === false) {
     $profile_img = '../assets/profiles/' . $profile_img;
 }
 
 $time_parts = explode('-', $shift_timings);
 $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
 $today = date('Y-m-d');
+$required_production_hours = 8; 
 
 // =========================================================================================
-// FETCH LEAVE QUOTA & APPROVED LEAVES
+// FETCH EXACT LEAVE QUOTA (WITH AUTO-COLUMN DETECTOR)
 // =========================================================================================
-$allocated_leaves = 12; // Fallback
-$sql_onboarding = "SELECT total_leaves FROM employee_onboarding WHERE email = ? LIMIT 1";
-$stmt_onb = $conn->prepare($sql_onboarding);
-$stmt_onb->bind_param("s", $employeeEmail);
-$stmt_onb->execute();
-if ($row_onb = $stmt_onb->get_result()->fetch_assoc()) {
-    $allocated_leaves = intval($row_onb['total_leaves']);
+$allocated_leaves = 12; // Base fallback
+
+$u_em = $conn->real_escape_string(strtolower($employeeEmail));
+$e_id = $conn->real_escape_string($employeeID);
+$e_id_clean = $conn->real_escape_string(str_replace('-', '', $e_id));
+
+$where_clauses = [];
+if($u_em !== '') $where_clauses[] = "LOWER(email) = '$u_em'";
+if($e_id !== '' && $e_id !== 'EMP-0000') $where_clauses[] = "emp_id_code = '$e_id'";
+if($e_id_clean !== '' && $e_id_clean !== 'EMP0000') $where_clauses[] = "REPLACE(emp_id_code, '-', '') = '$e_id_clean'";
+
+if(count($where_clauses) > 0) {
+    $where_sql = implode(' OR ', $where_clauses);
+    // Use SELECT * to grab the row regardless of what the column is named
+    $q_onb = "SELECT * FROM employee_onboarding WHERE ($where_sql) ORDER BY id DESC LIMIT 1";
+    $res_onb = $conn->query($q_onb);
+    
+    if($res_onb && $res_onb->num_rows > 0) {
+        $row_onb = $res_onb->fetch_assoc();
+        
+        // Auto-Detect the correct column name from the database schema
+        if (array_key_exists('allocated_leaves', $row_onb) && trim($row_onb['allocated_leaves']) !== '') {
+            $allocated_leaves = floatval($row_onb['allocated_leaves']);
+        } elseif (array_key_exists('total_leaves', $row_onb) && trim($row_onb['total_leaves']) !== '') {
+            $allocated_leaves = floatval($row_onb['total_leaves']);
+        } elseif (array_key_exists('leave_quota', $row_onb) && trim($row_onb['leave_quota']) !== '') {
+            $allocated_leaves = floatval($row_onb['leave_quota']);
+        }
+    }
 }
-$stmt_onb->close();
+
 $total_earned_leaves = $allocated_leaves;
 
-$leave_sql = "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'";
-$leave_stmt = $conn->prepare($leave_sql);
+$leave_stmt = $conn->prepare("SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = ? AND status = 'Approved'");
 $leave_stmt->bind_param("i", $view_user_id);
 $leave_stmt->execute();
 $leaves_taken_approved = floatval($leave_stmt->get_result()->fetch_assoc()['taken'] ?? 0);
 $leave_stmt->close();
 
+// =========================================================================================
+// SAFE SQL FETCH FOR ATTENDANCE
+// =========================================================================================
+$join_str = $joining_date;
+if (empty($join_str) || $join_str < '2020-01-01') {
+    $stmt_min = $conn->prepare("SELECT MIN(date) as min_date FROM attendance WHERE user_id = ?");
+    $stmt_min->bind_param("i", $view_user_id);
+    $stmt_min->execute();
+    $min_att = $stmt_min->get_result()->fetch_assoc();
+    $join_str = !empty($min_att['min_date']) ? $min_att['min_date'] : $today; 
+    $stmt_min->close();
+}
 
-// =========================================================================================
-// AUTO-DEDUCTION ENGINE (Calculates penalties from joining date to today)
-// =========================================================================================
-$auto_deducted_leaves = 0;
-$join_dt = new DateTime($joining_date);
+$join_dt = new DateTime($join_str);
 $today_dt = new DateTime($today);
 
-// Get ALL attendance history to find policy violations
-$sql_all = "SELECT date, punch_in, punch_out, status, break_time, production_hours, 
-            (SELECT SUM(TIMESTAMPDIFF(SECOND, break_start, break_end)) FROM attendance_breaks WHERE attendance_id = attendance.id) as t_break 
-            FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
+$sql_all = "SELECT a.id, a.date, a.punch_in, a.punch_out, a.status, a.break_time, a.production_hours, 
+            (SELECT SUM(TIMESTAMPDIFF(SECOND, b.break_start, b.break_end)) FROM attendance_breaks b WHERE b.attendance_id = a.id) as t_break,
+            (SELECT COUNT(*) FROM attendance_breaks b WHERE b.attendance_id = a.id) as break_count
+            FROM attendance a 
+            WHERE a.user_id = ? AND a.date >= ? AND a.date <= ?";
+
 $stmt_all = $conn->prepare($sql_all);
-$stmt_all->bind_param("iss", $view_user_id, $joining_date, $today);
+$stmt_all->bind_param("iss", $view_user_id, $join_str, $today);
 $stmt_all->execute();
 $res_all = $stmt_all->get_result();
 $all_att_db = [];
-while($r = $res_all->fetch_assoc()) { $all_att_db[$r['date']] = $r; }
+if ($res_all) {
+    while($r = $res_all->fetch_assoc()) { $all_att_db[$r['date']] = $r; }
+}
 $stmt_all->close();
 
-// Get ALL approved leaves to exclude them from penalties
-$sql_all_leaves = "SELECT start_date, end_date FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?";
-$stmt_all_leaves = $conn->prepare($sql_all_leaves);
+// Fetch Approved Leaves safely
+$stmt_all_leaves = $conn->prepare("SELECT start_date, end_date FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
 $stmt_all_leaves->bind_param("is", $view_user_id, $today);
 $stmt_all_leaves->execute();
 $res_all_leaves = $stmt_all_leaves->get_result();
 $all_app_leaves = [];
-while ($l_row = $res_all_leaves->fetch_assoc()) {
-    $l_start = strtotime($l_row['start_date']);
-    $l_end = strtotime($l_row['end_date']);
-    for ($i = $l_start; $i <= $l_end; $i += 86400) { $all_app_leaves[date('Y-m-d', $i)] = true; }
+if ($res_all_leaves) {
+    while ($l_row = $res_all_leaves->fetch_assoc()) {
+        $curr_l = new DateTime($l_row['start_date']);
+        $end_l = new DateTime($l_row['end_date']);
+        while ($curr_l <= $end_l) {
+            $all_app_leaves[$curr_l->format('Y-m-d')] = true;
+            $curr_l->modify('+1 day');
+        }
+    }
 }
 $stmt_all_leaves->close();
 
-// Iterate day by day to calculate total penalties
-$curr_check_dt = clone $join_dt;
-while($curr_check_dt <= $today_dt) {
-    $d_str = $curr_check_dt->format('Y-m-d');
-    $dow = $curr_check_dt->format('N');
-    $is_today = ($d_str === $today);
+// =========================================================================================
+// PROGRESSIVE AUTO-DEDUCTION ENGINE
+// =========================================================================================
+$auto_deducted_leaves = 0;
+$monthly_lates = [];
+$daily_penalties = [];
+
+if ($join_dt <= $today_dt) {
+    $curr_check_dt = clone $join_dt;
     
-    // Skip Sundays and Approved Leaves
-    if ($dow == 7 || isset($all_app_leaves[$d_str])) {
-        $curr_check_dt->modify('+1 day');
-        continue;
-    }
-
-    if (isset($all_att_db[$d_str])) {
-        $r = $all_att_db[$d_str];
+    while($curr_check_dt <= $today_dt) {
+        $d_str = $curr_check_dt->format('Y-m-d');
+        $m_str = $curr_check_dt->format('Y-m'); 
+        $dow = $curr_check_dt->format('N');
+        $is_today = ($d_str === $today);
         
-        if ($is_today && empty($r['punch_out'])) {
-            // They are currently working today, do not penalize yet
-        } else {
-            if (stripos($r['status'], 'Absent') !== false) {
-                $auto_deducted_leaves += 1.0;
-            } else {
-                $prod = floatval($r['production_hours']);
-                $b_sec = $r['t_break'] ?? 0;
-                if ($b_sec == 0 && !empty($r['break_time'])) { $b_sec = intval($r['break_time']) * 60; }
-                
-                if ($prod == 0 && !empty($r['punch_in']) && !empty($r['punch_out'])) {
-                    $in = strtotime($r['punch_in']); $out = strtotime($r['punch_out']);
-                    $prod = max(0, (($out - $in) - $b_sec) / 3600);
-                }
-                
-                $is_late = false;
-                if (!empty($r['punch_in'])) {
-                    $shift_s = strtotime($r['date'] . ' ' . $shift_start_str);
-                    $p_in = strtotime($r['punch_in']);
-                    if ($p_in > ($shift_s + 60)) { $is_late = true; } // 1 min grace
-                }
+        if(!isset($monthly_lates[$m_str])) { $monthly_lates[$m_str] = 0; }
 
-                // If worked < 9 hours OR logged in late -> 0.5 Leave Deduction
-                if (($prod > 0 && $prod < 9) || $is_late) {
-                    $auto_deducted_leaves += 0.5;
-                } elseif ($prod == 0 && empty($r['punch_in'])) {
+        if ($dow == 7 || isset($all_app_leaves[$d_str])) {
+            $curr_check_dt->modify('+1 day');
+            continue;
+        }
+
+        if (isset($all_att_db[$d_str])) {
+            $r = $all_att_db[$d_str];
+            
+            if (!($is_today && empty($r['punch_out']))) {
+                
+                $is_absent_db = (stripos($r['status'], 'Absent') !== false && empty($r['punch_in']));
+
+                if ($is_absent_db) {
                     $auto_deducted_leaves += 1.0;
+                    $daily_penalties[$d_str] = "<span class='block text-[9px] text-rose-500 font-black mt-1 tracking-wider'>-1.0 LEAVE (Absent)</span>";
+                } else {
+                    $prod = floatval($r['production_hours']);
+                    $b_sec = isset($r['t_break']) ? intval($r['t_break']) : 0;
+                    if ($b_sec == 0 && !empty($r['break_time'])) { $b_sec = intval($r['break_time']) * 60; }
+                    
+                    if ($prod == 0 && !empty($r['punch_in']) && !empty($r['punch_out'])) {
+                        $in = strtotime($r['punch_in']); $out = strtotime($r['punch_out']);
+                        $prod = max(0, (($out - $in) - $b_sec) / 3600);
+                    }
+                    
+                    $is_late = false;
+                    if (!empty($r['punch_in'])) {
+                        $shift_s = strtotime($r['date'] . ' ' . $shift_start_str);
+                        $p_in = strtotime($r['punch_in']);
+                        if ($p_in > ($shift_s + 60)) { $is_late = true; } 
+                    }
+
+                    if ($is_late) { $monthly_lates[$m_str]++; }
+                    $late_count = $monthly_lates[$m_str];
+
+                    if ($prod > 0 && $prod < $required_production_hours) {
+                        $auto_deducted_leaves += 0.5;
+                        $pen_text = "-0.5 LEAVE (Low Prod)";
+                        if($is_late) $pen_text .= " + Late #$late_count";
+                        $daily_penalties[$d_str] = "<span class='block text-[9px] text-amber-500 font-black mt-1 tracking-wider'>$pen_text</span>";
+                    } elseif ($is_late) {
+                        if ($late_count % 2 == 0) {
+                            $auto_deducted_leaves += 0.5;
+                            $daily_penalties[$d_str] = "<span class='block text-[9px] text-amber-500 font-black mt-1 tracking-wider'>-0.5 LEAVE (Late #$late_count)</span>";
+                        } else {
+                            $daily_penalties[$d_str] = "<span class='block text-[9px] text-blue-500 font-black mt-1 tracking-wider'>PERMISSION (Late #$late_count)</span>";
+                        }
+                    } elseif ($prod == 0 && empty($r['punch_in'])) {
+                        $auto_deducted_leaves += 1.0;
+                        $daily_penalties[$d_str] = "<span class='block text-[9px] text-rose-500 font-black mt-1 tracking-wider'>-1.0 LEAVE (No Punch)</span>";
+                    }
                 }
             }
+        } else {
+            if (!$is_today) {
+                $auto_deducted_leaves += 1.0;
+                $daily_penalties[$d_str] = "<span class='block text-[9px] text-rose-500 font-black mt-1 tracking-wider'>-1.0 LEAVE (Absent)</span>";
+            }
         }
-    } else {
-        // No record exists. If not today, they were entirely absent
-        if (!$is_today) {
-            $auto_deducted_leaves += 1.0;
-        }
+        $curr_check_dt->modify('+1 day');
     }
-    $curr_check_dt->modify('+1 day');
 }
 
-// Calculate Final Balance
 $leave_balance = $total_earned_leaves - $leaves_taken_approved - $auto_deducted_leaves;
 
-
 // =========================================================================================
-// FILTER LOGIC FOR DISPLAY TABLE
+// FILTER LOGIC
 // =========================================================================================
 $filter_type = isset($_GET['filter_type']) ? $_GET['filter_type'] : 'monthly';
 $filter_date  = isset($_GET['filter_date']) && !empty($_GET['filter_date']) ? $_GET['filter_date'] : $today; 
@@ -176,6 +253,7 @@ if ($filter_type === 'daily') {
 } elseif ($filter_type === 'monthly') {
     $start_date = $filter_month . '-01';
     $end_date = date('Y-m-t', strtotime($start_date));
+    if($end_date > $today) { $end_date = $today; } 
     $currentDisplay = date('F Y', strtotime($start_date));
 } elseif ($filter_type === 'range') {
     if (strtotime($to_date) < strtotime($from_date)) { $temp = $from_date; $from_date = $to_date; $to_date = $temp; }
@@ -184,11 +262,29 @@ if ($filter_type === 'daily') {
 }
 
 // =========================================================================================
-// CALENDAR MAPPING FOR THE SELECTED PERIOD
+// CALENDAR MAPPING & NEW ANOMALY DETECTOR ENGINE
 // =========================================================================================
 $attendanceRecords = [];
-$total_production = 0; $late_days = 0; $total_overtime = 0; $present_count = 0;
-$joining_dt = new DateTime($joining_date);
+$total_production = 0; $late_days = 0; $total_overtime = 0; $present_count = 0; $absent_count = 0; // ADDED ABSENT COUNT
+$anomalies_detected = []; 
+
+$sql_table = "SELECT a.id, a.date, a.punch_in, a.punch_out, a.status, a.break_time, a.production_hours, 
+              (SELECT SUM(TIMESTAMPDIFF(SECOND, b.break_start, b.break_end)) FROM attendance_breaks b WHERE b.attendance_id = a.id) as t_break,
+              (SELECT COUNT(*) FROM attendance_breaks b WHERE b.attendance_id = a.id) as break_count
+              FROM attendance a 
+              WHERE a.user_id = ? AND a.date >= ? AND a.date <= ? 
+              ORDER BY a.date DESC";
+$stmt_table = $conn->prepare($sql_table);
+$stmt_table->bind_param("iss", $view_user_id, $start_date, $end_date);
+$stmt_table->execute();
+$res_table = $stmt_table->get_result();
+$table_db_records = [];
+if ($res_table) {
+    while($r = $res_table->fetch_assoc()) { 
+        $table_db_records[$r['date']] = $r; 
+    }
+}
+$stmt_table->close();
 
 $current_dt = new DateTime($end_date);
 $start_dt = new DateTime($start_date);
@@ -196,34 +292,43 @@ $start_dt = new DateTime($start_date);
 while ($current_dt >= $start_dt) {
     $date_str = $current_dt->format('Y-m-d');
     $is_future = ($date_str > $today);
-    $is_before_joining = ($current_dt < $joining_dt);
     $day_of_week = $current_dt->format('N'); 
     
-    $penalty_html = "";
+    $penalty_html = $daily_penalties[$date_str] ?? "";
+    $anomaly_html = "";
 
-    if (isset($all_att_db[$date_str])) {
-        // --- RECORD EXISTS ---
-        $row = $all_att_db[$date_str];
+    if (isset($table_db_records[$date_str])) {
+        $row = $table_db_records[$date_str];
         
-        $b_sec = $row['t_break'] ?? 0;
+        $b_sec = isset($row['t_break']) ? intval($row['t_break']) : 0;
         if ($b_sec == 0 && !empty($row['break_time'])) { $b_sec = intval($row['break_time']) * 60; }
         $break_min = floor($b_sec / 60);
+        $break_count = isset($row['break_count']) ? $row['break_count'] : 0;
 
         $prod = floatval($row['production_hours']);
-        if ($prod == 0 && !empty($row['punch_in']) && !empty($row['punch_out'])) {
-            $in = strtotime($row['punch_in']); $out = strtotime($row['punch_out']);
+        
+        // Active Shift Live Calculation
+        if ($prod == 0 && !empty($row['punch_in'])) {
+            $in = strtotime($row['punch_in']); 
+            $out = !empty($row['punch_out']) ? strtotime($row['punch_out']) : time();
             $prod = max(0, (($out - $in) - $b_sec) / 3600);
         }
         
         $total_production += $prod;
-        $overtime = ($prod > 9) ? ($prod - 9) : 0;
+        $overtime = ($prod > $required_production_hours) ? ($prod - $required_production_hours) : 0;
         $total_overtime += $overtime;
 
         $late_msg = "-";
         $is_late = false;
-        $is_absent_db = stripos($row['status'], 'Absent') !== false;
+        
+        $is_absent_db = (stripos($row['status'], 'Absent') !== false && empty($row['punch_in']));
 
-        if (!$is_absent_db) { $present_count++; }
+        // ADDED LOGIC FOR ABSENT CALCULATION
+        if (!$is_absent_db) { 
+            $present_count++; 
+        } else { 
+            $absent_count++; 
+        }
 
         if (!empty($row['punch_in']) && !$is_absent_db) {
             $shift_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
@@ -234,12 +339,40 @@ while ($current_dt >= $start_dt) {
                 $late_msg = ($delay_mins >= 60) ? floor($delay_mins / 60) . "h " . ($delay_mins % 60) . "m" : $delay_mins . " mins";
                 $late_days++;
                 $is_late = true;
+                
+                // Anomaly: Severe Late
+                if ($delay_mins > 180) {
+                    $anomaly_html .= "<span class='block text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded mt-1 font-bold w-fit'><i class='fa-solid fa-triangle-exclamation'></i> Severe Late (>3Hrs)</span>";
+                    $anomalies_detected[] = "Severe Late on $date_str";
+                }
             }
         }
 
+        // --- ENTERPRISE ANOMALY DETECTION ENGINE ---
+        if (!empty($row['punch_out']) && $prod < 0.5 && $prod > 0 && !$is_absent_db) {
+            // Fake / Ghost Punch (In and out within 30 mins)
+            $anomaly_html .= "<span class='block text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded mt-1 font-bold w-fit'><i class='fa-solid fa-ghost'></i> Ghost Punch Suspected</span>";
+            $anomalies_detected[] = "Ghost Punch on $date_str";
+        }
+        if ($break_count >= 4 || $break_min > 90) {
+            // Suspicious Break Patterns
+            $anomaly_html .= "<span class='block text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded mt-1 font-bold w-fit'><i class='fa-solid fa-mug-hot'></i> Excessive Breaks</span>";
+            $anomalies_detected[] = "Excessive Breaks on $date_str";
+        }
+        if ($overtime >= 3) {
+            // High Overtime / Burnout
+            $anomaly_html .= "<span class='block text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mt-1 font-bold w-fit'><i class='fa-solid fa-fire'></i> Unusual Overtime Alert</span>";
+            $anomalies_detected[] = "High Overtime on $date_str";
+        }
+
+        // Status pill logic
         $status_raw = $row['status'];
+        if (!empty($row['punch_in']) && stripos($status_raw, 'Absent') !== false) {
+            $status_raw = 'Present'; // Correct DB mistake
+        }
+
         $pillClass = 'bg-slate-100 text-slate-600 border-slate-200';
-        if(stripos($status_raw, 'Time') !== false) $pillClass = 'bg-emerald-50 text-emerald-600 border-emerald-200';
+        if(stripos($status_raw, 'Time') !== false || stripos($status_raw, 'Present') !== false) $pillClass = 'bg-emerald-50 text-emerald-600 border-emerald-200';
         if(stripos($status_raw, 'Late') !== false || $is_late) { 
             $pillClass = 'bg-amber-50 text-amber-600 border-amber-200'; 
             if(stripos($status_raw, 'Late') === false) $status_raw = 'Late';
@@ -247,57 +380,41 @@ while ($current_dt >= $start_dt) {
         if(stripos($status_raw, 'Absent') !== false) $pillClass = 'bg-rose-50 text-rose-600 border-rose-200';
         if(stripos($status_raw, 'WFH') !== false) $pillClass = 'bg-indigo-50 text-indigo-600 border-indigo-200';
 
-        // Evaluate Penalty HTML for the Table
-        if (!$is_future && !$is_before_joining && $day_of_week != 7 && !isset($all_app_leaves[$date_str])) {
-            $is_today = ($date_str === $today);
-            if (!($is_today && empty($row['punch_out']))) {
-                if ($is_absent_db) {
-                    $penalty_html = "<span class='block text-[9px] text-rose-500 font-black mt-1 tracking-wider'>-1.0 LEAVE</span>";
-                } else {
-                    if (($prod > 0 && $prod < 9) || $is_late) {
-                        $penalty_html = "<span class='block text-[9px] text-amber-500 font-black mt-1 tracking-wider'>-0.5 LEAVE</span>";
-                    }
-                }
-            }
-        }
-
         $attendanceRecords[] = [
             "date" => $current_dt->format('d M Y'),
             "checkin" => !empty($row['punch_in']) ? date('h:i A', strtotime($row['punch_in'])) : "-",
             "checkout" => !empty($row['punch_out']) ? date('h:i A', strtotime($row['punch_out'])) : "-",
             "status" => $status_raw,
             "penalty_html" => $penalty_html,
+            "anomaly_html" => $anomaly_html,
             "status_class" => $pillClass,
             "break" => ($break_min > 0) ? $break_min . " m" : "-",
             "late" => $late_msg,
             "overtime" => ($overtime > 0) ? number_format($overtime, 2) . " h" : "-",
             "production" => number_format($prod, 2) . " h",
-            "prod_class" => ($prod > 0 && $prod < 9) ? "text-rose-500 font-bold" : "text-slate-700 font-bold"
+            "prod_class" => ($prod > 0 && $prod < $required_production_hours) ? "text-rose-500 font-bold" : "text-slate-700 font-bold"
         ];
 
     } else {
-        // --- NO RECORD (AUTO ABSENT) ---
-        if (!$is_future && !$is_before_joining) {
+        if (!$is_future) {
             if ($day_of_week == 7) {
                 $attendanceRecords[] = [
                     "date" => $current_dt->format('d M Y'), "checkin" => "-", "checkout" => "-",
-                    "status" => "Weekly Off", "penalty_html" => "", "status_class" => "bg-slate-100 text-slate-400 border-slate-200",
+                    "status" => "Weekly Off", "penalty_html" => "", "anomaly_html" => "", "status_class" => "bg-slate-100 text-slate-400 border-slate-200",
                     "break" => "-", "late" => "-", "overtime" => "-", "production" => "-", "prod_class" => "text-slate-400"
                 ];
             } elseif (isset($all_app_leaves[$date_str])) {
                 $attendanceRecords[] = [
                     "date" => $current_dt->format('d M Y'), "checkin" => "-", "checkout" => "-",
-                    "status" => "On Leave", "penalty_html" => "", "status_class" => "bg-purple-50 text-purple-600 border-purple-200",
+                    "status" => "On Leave", "penalty_html" => "", "anomaly_html" => "", "status_class" => "bg-purple-50 text-purple-600 border-purple-200",
                     "break" => "-", "late" => "-", "overtime" => "-", "production" => "-", "prod_class" => "text-slate-400"
                 ];
             } else {
-                // If it is NOT today, hit them with absent penalty
-                if ($date_str !== $today) {
-                    $penalty_html = "<span class='block text-[9px] text-rose-500 font-black mt-1 tracking-wider'>-1.0 LEAVE</span>";
-                }
+                // ADDED LOGIC FOR ABSENT CALCULATION
+                $absent_count++; 
                 $attendanceRecords[] = [
                     "date" => $current_dt->format('d M Y'), "checkin" => "-", "checkout" => "-",
-                    "status" => "Absent", "penalty_html" => $penalty_html, "status_class" => "bg-rose-50 text-rose-600 border-rose-200",
+                    "status" => "Absent", "penalty_html" => $penalty_html, "anomaly_html" => "", "status_class" => "bg-rose-50 text-rose-600 border-rose-200",
                     "break" => "-", "late" => "-", "overtime" => "-", "production" => "0.00 h", "prod_class" => "text-rose-500 font-bold"
                 ];
             }
@@ -315,15 +432,15 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Attendance - <?php echo htmlspecialchars($employeeName); ?></title>
+    <title>Attendance Audit - <?php echo htmlspecialchars($employeeName); ?></title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
-        body { background-color: #f8fafc; font-family: 'Inter', sans-serif; color: #1e293b; overflow-x: hidden; }
+        body { background-color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b; overflow-x: hidden; }
         
         #mainContent {
             margin-left: 95px; width: calc(100% - 95px);
@@ -336,7 +453,6 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
         .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         
-        /* Modals */
         .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
         .modal-overlay.active { display: flex; }
         
@@ -362,26 +478,45 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
 
     <main id="mainContent">
         
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 mt-2">
             <div>
-                <h1 class="text-2xl lg:text-3xl font-black text-slate-800 tracking-tight">Attendance Record</h1>
+                <h1 class="text-2xl lg:text-3xl font-extrabold text-slate-800 tracking-tight">Attendance Audit</h1>
                 <nav class="flex text-slate-500 text-xs mt-1.5 gap-2 font-medium">
-                    <a href="admin_attendance.php" class="hover:text-teal-600 transition">Attendance</a>
+                    <a href="#" class="hover:text-teal-600 transition">Team Management</a>
                     <span>/</span>
                     <span class="text-slate-800 font-bold"><?php echo htmlspecialchars($employeeName); ?></span>
                 </nav>
             </div>
-            <button onclick="window.history.back()" class="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition flex items-center gap-2">
+            <button onclick="window.history.back()" class="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition flex items-center gap-2">
                 <i class="fa-solid fa-arrow-left"></i> Back to Roster
             </button>
         </div>
+
+        <?php if(count($anomalies_detected) > 0): ?>
+        <div class="bg-rose-50 border border-rose-200 rounded-2xl p-5 mb-6 flex items-start gap-4 shadow-sm">
+            <div class="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                <i class="fa-solid fa-robot text-xl"></i>
+            </div>
+            <div>
+                <h3 class="text-rose-800 font-black text-lg tracking-tight">AI Guard Warning</h3>
+                <p class="text-rose-600 text-sm font-medium mt-0.5">The system detected <span class="font-bold"><?php echo count($anomalies_detected); ?> suspicious activities</span> during this period.</p>
+                <ul class="mt-2 text-xs font-bold text-rose-700 space-y-1">
+                    <?php 
+                        $disp_anoms = array_slice($anomalies_detected, 0, 3);
+                        foreach($disp_anoms as $anom) { echo "<li>• $anom</li>"; }
+                        if(count($anomalies_detected) > 3) echo "<li>• ...and " . (count($anomalies_detected)-3) . " more. Check logs below.</li>";
+                    ?>
+                </ul>
+            </div>
+        </div>
+        <?php endif; ?>
 
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
             
             <div class="lg:col-span-1 flex flex-col gap-6">
                 <div class="card p-6 text-center flex flex-col items-center">
                     <div class="w-full flex justify-end mb-2">
-                        <span class="bg-indigo-50 text-indigo-600 border border-indigo-100 text-[9px] font-black px-2 py-0.5 rounded tracking-widest uppercase">Admin View</span>
+                        <span class="bg-indigo-50 text-indigo-600 border border-indigo-100 text-[9px] font-black px-2 py-0.5 rounded tracking-widest uppercase">Manager View</span>
                     </div>
                     <div class="w-24 h-24 rounded-full border-4 border-slate-50 p-1 mb-4 relative shadow-sm">
                         <img src="<?php echo $profile_img; ?>" class="rounded-full w-full h-full object-cover">
@@ -390,20 +525,36 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
                     <h2 class="text-lg font-black text-slate-800 leading-tight"><?php echo htmlspecialchars($employeeName); ?></h2>
                     <p class="text-slate-500 text-xs font-medium mt-1"><?php echo htmlspecialchars($designation); ?> • <?php echo htmlspecialchars($employeeID); ?></p>
                     
-                    <div class="w-full bg-teal-50 border border-teal-100 rounded-xl p-4 mt-6 text-left relative overflow-hidden">
-                        <i class="fa-solid fa-umbrella-beach text-teal-500/20 text-6xl absolute -right-2 -bottom-2"></i>
-                        <p class="text-teal-700 text-[10px] font-black uppercase tracking-widest mb-1 relative z-10">Leave Balance</p>
-                        <div class="flex items-baseline gap-1.5 relative z-10">
-                            <span class="text-3xl font-black <?php echo $leave_balance < 0 ? 'text-rose-600' : 'text-teal-800'; ?>">
-                                <?php echo number_format($leave_balance, 1); ?>
-                            </span>
-                            <span class="text-xs text-teal-600 font-bold mb-1">Days Left</span>
+                    <div class="w-full bg-white border border-slate-200 rounded-xl p-4 mt-6 text-left shadow-sm">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-3 border-b border-slate-100 pb-2">Leave Policy Status</p>
+                        
+                        <div class="grid grid-cols-2 gap-3 mb-3">
+                            <div class="bg-teal-50 p-2 rounded-lg text-center border border-teal-100">
+                                <p class="text-[9px] text-teal-700 font-bold uppercase mb-0.5">Allocated</p>
+                                <p class="text-lg font-black text-teal-800"><?php echo $allocated_leaves; ?></p>
+                            </div>
+                            <div class="bg-blue-50 p-2 rounded-lg text-center border border-blue-100">
+                                <p class="text-[9px] text-blue-700 font-bold uppercase mb-0.5">Taken</p>
+                                <p class="text-lg font-black text-blue-800"><?php echo $leaves_taken_approved; ?></p>
+                            </div>
                         </div>
+                        
                         <?php if($auto_deducted_leaves > 0): ?>
-                            <p class="text-[9px] text-teal-700/80 font-bold mt-1 relative z-10 border-t border-teal-200 pt-1">
-                                <i class="fa-solid fa-circle-exclamation mr-0.5"></i> Includes <?php echo $auto_deducted_leaves; ?> Auto-Deducted penalties.
+                        <div class="bg-orange-50 p-2 rounded-lg text-center border border-orange-100 mb-3">
+                            <p class="text-[9px] text-orange-700 font-bold uppercase mb-0.5 flex justify-center items-center gap-1">
+                                <i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Penalties
                             </p>
+                            <p class="text-lg font-black text-orange-800">-<?php echo number_format($auto_deducted_leaves, 1); ?></p>
+                        </div>
                         <?php endif; ?>
+                        
+                        <div class="bg-slate-800 p-3 rounded-lg text-center shadow-md mt-1 relative overflow-hidden">
+                            <i class="fa-solid fa-umbrella-beach text-white/5 text-4xl absolute -right-2 -bottom-2"></i>
+                            <p class="text-[10px] text-slate-300 font-bold uppercase tracking-widest mb-0.5 relative z-10">Available Left</p>
+                            <p class="text-2xl font-black relative z-10 <?php echo $leave_balance < 0 ? 'text-rose-400' : 'text-emerald-400'; ?>">
+                                <?php echo number_format($leave_balance, 1); ?> <span class="text-xs font-bold text-slate-400">Days</span>
+                            </p>
+                        </div>
                     </div>
 
                     <div class="w-full bg-slate-50 rounded-xl p-4 mt-4 border border-slate-100 text-left">
@@ -419,20 +570,26 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
 
             <div class="lg:col-span-3 flex flex-col gap-6">
                 
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div class="card p-5 border-b-4 border-b-blue-500 hover:shadow-md transition">
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+                    <div class="card p-5 border-b-4 border-b-blue-500 hover:-translate-y-1 transition-transform">
                         <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-stopwatch text-blue-500 mr-1"></i> Avg. Daily</p>
                         <h3 class="text-2xl font-black text-slate-800"><?php echo $avg_production; ?> <span class="text-sm font-bold text-slate-400">Hrs</span></h3>
                     </div>
-                    <div class="card p-5 border-b-4 border-b-amber-500 hover:shadow-md transition">
+                    <div class="card p-5 border-b-4 border-b-amber-500 hover:-translate-y-1 transition-transform">
                         <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-clock-rotate-left text-amber-500 mr-1"></i> Late Days</p>
                         <h3 class="text-2xl font-black text-slate-800"><?php echo sprintf("%02d", $late_days); ?> <span class="text-sm font-bold text-slate-400">Days</span></h3>
                     </div>
-                    <div class="card p-5 border-b-4 border-b-emerald-500 hover:shadow-md transition">
+                    <div class="card p-5 border-b-4 border-b-emerald-500 hover:-translate-y-1 transition-transform">
                         <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-calendar-check text-emerald-500 mr-1"></i> Present</p>
                         <h3 class="text-2xl font-black text-slate-800"><?php echo sprintf("%02d", $present_count); ?> <span class="text-sm font-bold text-slate-400">Days</span></h3>
                     </div>
-                    <div class="card p-5 border-b-4 border-b-purple-500 hover:shadow-md transition">
+                    
+                    <div class="card p-5 border-b-4 border-b-rose-500 hover:-translate-y-1 transition-transform">
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-user-xmark text-rose-500 mr-1"></i> Absent</p>
+                        <h3 class="text-2xl font-black text-slate-800"><?php echo sprintf("%02d", $absent_count); ?> <span class="text-sm font-bold text-slate-400">Days</span></h3>
+                    </div>
+
+                    <div class="card p-5 border-b-4 border-b-purple-500 hover:-translate-y-1 transition-transform">
                         <p class="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1"><i class="fa-solid fa-bolt text-purple-500 mr-1"></i> Overtime</p>
                         <h3 class="text-2xl font-black text-slate-800"><?php echo number_format($total_overtime, 1); ?> <span class="text-sm font-bold text-slate-400">Hrs</span></h3>
                     </div>
@@ -482,7 +639,7 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
                                     <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
                                     <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Punch In</th>
                                     <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Punch Out</th>
-                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status & Policy</th>
+                                    <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status / Guard</th>
                                     <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Break</th>
                                     <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Production</th>
                                     <th class="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Late By</th>
@@ -504,6 +661,7 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
                                                 <?php echo htmlspecialchars($row['status']); ?>
                                             </span>
                                             <?php echo $row['penalty_html']; ?>
+                                            <?php echo $row['anomaly_html']; ?>
                                         </td>
                                         <td class="px-6 py-4 text-amber-600 font-bold"><?php echo $row['break']; ?></td>
                                         <td class="px-6 py-4 <?php echo $row['prod_class']; ?>"><?php echo $row['production']; ?></td>

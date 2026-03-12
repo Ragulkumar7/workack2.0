@@ -18,6 +18,7 @@ $today = date('Y-m-d');
 $current_month = date('m');
 $current_year = date('Y');
 $user_role = $_SESSION['role'] ?? 'HR Executive';
+$hr_username = $_SESSION['username'] ?? ''; // Added to identify HR for meetings
 
 // =========================================================================
 // ACTION: MARK TICKET AS VIEWED & AUTO-UPDATE TABLES
@@ -55,6 +56,7 @@ $stmt_p = $conn->prepare($sql_profile);
 $stmt_p->bind_param("i", $current_user_id);
 $stmt_p->execute();
 if ($row = $stmt_p->get_result()->fetch_assoc()) {
+    $hr_username = $row['username'];
     $employee_name = $row['full_name'] ?? $row['username'];
     $employee_role = $row['designation'] ?? $user_role;
     $employee_phone = $row['phone'] ?? 'Not Set';
@@ -394,7 +396,7 @@ if($r_leaves) {
     }
 }
 
-$q_announcements = "SELECT id, title, message FROM announcements WHERE is_archived = 0 AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 10"; 
+$q_announcements = "SELECT id, title, message FROM announcements WHERE is_archived = 0 AND category != 'Meeting' AND (target_audience = 'All' OR target_audience = '$user_role') ORDER BY id DESC LIMIT 10"; 
 $r_announcements = mysqli_query($conn, $q_announcements);
 if($r_announcements) {
     while($row = mysqli_fetch_assoc($r_announcements)) {
@@ -407,6 +409,46 @@ if($r_announcements) {
     }
 }
 
+// FETCH MEETINGS FOR HR (Scheduled by HR / Others)
+$all_today_meetings = [];
+$q_ann_meets = "SELECT a.id, a.title, a.publish_date as meet_date, '' as meet_link, u.department, a.message, a.created_at, COALESCE(u.username, 'Admin') as host_name 
+                FROM announcements a 
+                LEFT JOIN users u ON a.created_by = u.id 
+                WHERE a.category = 'Meeting' AND a.is_archived = 0 
+                AND (a.target_audience = 'All' 
+                     OR a.target_audience = 'All Employees' 
+                     OR a.target_audience = '$user_role'
+                     OR a.target_audience LIKE '%" . $conn->real_escape_string($hr_username) . "%' 
+                     OR a.message LIKE '%" . $conn->real_escape_string($hr_username) . "%'
+                     OR a.message LIKE '%" . $conn->real_escape_string($employee_name) . "%'
+                     OR a.created_by = $current_user_id)";
+$r_ann_meets = mysqli_query($conn, $q_ann_meets);
+if($r_ann_meets) {
+    while($row = mysqli_fetch_assoc($r_ann_meets)) {
+        $time = "00:00:00"; 
+        if (preg_match('/Time:\s*([^\n]+)/', $row['message'], $matches)) {
+            $time = trim($matches[1]);
+        }
+        $row['meet_time'] = $time;
+        
+        // Push to My Updates (Live Feed)
+        $all_notifications[] = [
+            'type' => 'meeting_announcement',
+            'title' => 'Meeting Scheduled: ' . htmlspecialchars($row['title']),
+            'message' => 'Meeting scheduled by ' . htmlspecialchars($row['host_name']),
+            'time' => $row['created_at'] ?? ($row['meet_date'] . ' 00:00:00'), 
+            'icon' => 'fa-handshake', 
+            'color' => 'text-indigo-600 bg-indigo-100',
+            'link' => '../view_announcements.php' 
+        ];
+
+        // Push to array if meeting is TODAY OR IN THE FUTURE
+        if ($row['meet_date'] >= $today) {
+            $all_today_meetings[] = $row;
+        }
+    }
+}
+
 usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strtotime($a['time']); });
 $all_notifications = array_slice($all_notifications, 0, 10); 
 
@@ -414,15 +456,31 @@ $all_notifications = array_slice($all_notifications, 0, 10);
 // 8. NEW ADDITIONS: MEETINGS, LATE/MISSING LOGINS, CELEBRATIONS
 // =========================================================================
 
-// A. Meetings
-$meetings_list = [];
-$q_meetings = "SELECT title, meeting_time, meeting_link FROM meetings WHERE meeting_date >= '$today' ORDER BY meeting_date ASC, meeting_time ASC LIMIT 3";
-$r_meetings = @mysqli_query($conn, $q_meetings);
-if ($r_meetings) {
-    while ($row = mysqli_fetch_assoc($r_meetings)) {
-        $meetings_list[] = $row;
+// A. Meetings (Combine with old calendar logic)
+$check_meetings = $conn->query("SHOW TABLES LIKE 'calendar_meetings'");
+if ($check_meetings && $check_meetings->num_rows > 0) {
+    $q_meetings = "SELECT title, meet_date as meeting_date, meet_time as meeting_time, meet_link as meeting_link FROM calendar_meetings WHERE meet_date >= '$today' AND created_by = $current_user_id ORDER BY meet_date ASC, meet_time ASC LIMIT 3";
+    $r_meetings = @mysqli_query($conn, $q_meetings);
+    if ($r_meetings) {
+        while ($row = mysqli_fetch_assoc($r_meetings)) {
+            $all_today_meetings[] = [
+                'title' => $row['title'],
+                'meet_date' => $row['meeting_date'],
+                'meet_time' => $row['meeting_time'],
+                'meet_link' => $row['meeting_link']
+            ];
+        }
     }
 }
+
+usort($all_today_meetings, function($a, $b) {
+    $timeA = strtotime($a['meet_date'] . ' ' . $a['meet_time']);
+    $timeB = strtotime($b['meet_date'] . ' ' . $b['meet_time']);
+    return $timeA - $timeB;
+});
+
+// Limit to 3 for the dashboard card
+$meetings_list = array_slice($all_today_meetings, 0, 3);
 
 // B. Late / Not Logged In Today
 $late_employees = [];
@@ -446,7 +504,7 @@ if ($r_not_logged) {
     }
 }
 
-// C. Celebrations (Birthdays / Anniversaries) - BUG FIXED HERE (Changed date_of_birth to dob)
+// C. Celebrations (Birthdays / Anniversaries)
 $celebrations = [];
 $q_celeb = "SELECT u.username, ep.dob, ep.joining_date FROM employee_profiles ep LEFT JOIN users u ON ep.user_id = u.id WHERE MONTH(ep.dob) = '$current_month' OR MONTH(ep.joining_date) = '$current_month' LIMIT 4";
 $r_celeb = @mysqli_query($conn, $q_celeb);
@@ -577,6 +635,10 @@ if ($r_celeb) {
                                                 <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 font-bold px-3 py-1.5 rounded-full border border-emerald-200 hover:bg-emerald-100 transition shadow-sm">
                                                     <i class="fa-solid fa-check-double mr-1"></i> Mark as Viewed
                                                 </a>
+                                            <?php elseif(isset($notif['type']) && ($notif['type'] == 'meeting' || $notif['type'] == 'meeting_announcement')): ?>
+                                                <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold px-3 py-1.5 rounded-full hover:bg-indigo-100 transition shadow-sm">
+                                                    <i class="fa-solid fa-video mr-1"></i> View Details
+                                                </a>
                                             <?php else: ?>
                                                 <a href="<?php echo $notif['link']; ?>" class="inline-flex items-center text-[9px] bg-white border border-gray-200 text-slate-600 font-bold px-3 py-1.5 rounded-full hover:bg-slate-100 transition shadow-sm">
                                                     View Details <i class="fa-solid fa-arrow-right ml-1"></i>
@@ -666,12 +728,11 @@ if ($r_celeb) {
 
                 <div class="card">
                     <div class="p-6">
-                        <div class="flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
                             <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
                         </div>
-                        
-                        <div class="grid grid-cols-3 gap-3 mb-5">
+                        <div class="grid grid-cols-3 gap-3 mb-4">
                             <div class="bg-teal-50 p-4 rounded-xl text-center border border-teal-100 flex flex-col justify-center">
                                 <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Earned</p>
                                 <p class="text-2xl font-black text-teal-800"><?php echo $total_earned_leaves; ?></p>
@@ -699,11 +760,10 @@ if ($r_celeb) {
                                 <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
                             </div>
                         <?php endif; ?>
-                        <div class="mt-2">
-                            <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm">
-                                <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
-                            </a>
-                        </div>
+
+                        <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-md shadow-teal-200/50 text-sm mt-2">
+                            <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
+                        </a>
                     </div>
                 </div>
 
@@ -831,11 +891,11 @@ if ($r_celeb) {
                     </div>
                 </div>
 
-                <div class="card border-blue-200 shrink-0">
+                <div class="card border-blue-200">
                     <div class="p-4">
                         <div class="flex justify-between items-center mb-4 border-b border-blue-100 pb-2">
                             <h3 class="font-bold text-slate-800 text-sm flex items-center gap-1.5"><i class="fa-solid fa-stopwatch text-blue-500 text-md"></i> Time Tracker</h3>
-                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-slate-50 px-1.5 py-0.5 rounded border border-gray-100">Live</span>
+                            <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-slate-50 px-1.5 py-0.5 rounded border border-gray-100">Today</span>
                         </div>
                         
                         <div class="grid grid-cols-2 gap-3 mb-3">
@@ -872,51 +932,7 @@ if ($r_celeb) {
                     </div>
                 </div>
 
-                <div class="card border-blue-200 flex-grow">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                            <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
-                                <i class="fa-solid fa-briefcase text-blue-500"></i> Active Jobs
-                            </h3>
-                            <a href="jobs.php" class="bg-blue-50 text-blue-600 border border-blue-100 px-3 py-1 rounded-lg text-[10px] font-bold uppercase hover:bg-blue-100 transition shadow-sm">View All</a>
-                        </div>
-                        
-                        <div class="grid grid-cols-1 gap-3 custom-scroll overflow-y-auto max-h-[300px] pr-2">
-                            <?php if(!empty($jobs_res) && mysqli_num_rows($jobs_res) > 0): ?>
-                                <?php while($req = mysqli_fetch_assoc($jobs_res)): 
-                                    $j_dept = strtolower($req['department']);
-                                    $j_icon = 'fa-briefcase'; $j_icon_bg = 'bg-gray-100 text-gray-600';
-                                    if(strpos($j_dept, 'dev') !== false || strpos($j_dept, 'eng') !== false) { $j_icon = 'fa-code'; $j_icon_bg = 'bg-blue-100 text-blue-600'; }
-                                    elseif(strpos($j_dept, 'sale') !== false || strpos($j_dept, 'market') !== false) { $j_icon = 'fa-chart-line'; $j_icon_bg = 'bg-green-100 text-green-600'; }
-                                    elseif(strpos($j_dept, 'hr') !== false || strpos($j_dept, 'human') !== false) { $j_icon = 'fa-users'; $j_icon_bg = 'bg-purple-100 text-purple-600'; }
-                                    elseif(strpos($j_dept, 'acc') !== false || strpos($j_dept, 'fin') !== false) { $j_icon = 'fa-file-invoice-dollar'; $j_icon_bg = 'bg-yellow-100 text-yellow-600'; }
-                                    
-                                    $j_status_bg = 'bg-gray-100 text-gray-600';
-                                    if ($req['status'] == 'Approved') $j_status_bg = 'bg-teal-100 text-teal-700';
-                                    if ($req['status'] == 'In Progress') $j_status_bg = 'bg-blue-100 text-blue-700';
-                                ?>
-                                <div class="p-3 bg-slate-50 border border-gray-100 rounded-xl hover:shadow-md hover:border-blue-200 transition">
-                                    <div class="flex justify-between items-start mb-1">
-                                        <p class="text-sm font-bold text-slate-800 truncate pr-2"><i class="fa-solid <?= $j_icon ?> mr-1 text-blue-500"></i> <?= htmlspecialchars($req['job_title']); ?></p>
-                                        <span class="text-[9px] font-bold px-2 py-0.5 <?= $j_status_bg ?> rounded uppercase"><?= htmlspecialchars($req['status']) ?></span>
-                                    </div>
-                                    <p class="text-[10px] text-gray-500 font-medium mb-2">Req by: <?= htmlspecialchars($req['requested_by'] ?? 'Unknown'); ?> • <?= htmlspecialchars($req['department']); ?></p>
-                                    <div class="flex items-center gap-2 text-xs font-bold text-slate-600">
-                                        <i class="fa-solid fa-users text-gray-400"></i> Openings: <span class="text-blue-600"><?= $req['vacancy_count']; ?></span>
-                                    </div>
-                                </div>
-                                <?php endwhile; ?>
-                            <?php else: ?>
-                                <div class="text-center py-6 text-slate-400">
-                                    <i class="fa-solid fa-check-double text-3xl mb-2 text-emerald-400 opacity-80"></i>
-                                    <p class="text-sm font-medium">No active job requests.</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card border-pink-200 min-h-[260px]">
+                <div class="card border-pink-200">
                     <div class="p-6 flex flex-col h-full flex-grow">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
@@ -950,7 +966,7 @@ if ($r_celeb) {
                     </div>
                 </div>
 
-                <div class="card border-purple-200 min-h-[260px]">
+                <div class="card border-purple-200">
                     <div class="p-6 flex flex-col h-full flex-grow">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
@@ -964,9 +980,12 @@ if ($r_celeb) {
                                     <div class="bg-purple-50 p-3 rounded-xl border border-purple-100 hover:shadow-sm transition">
                                         <p class="font-bold text-sm text-slate-800 mb-1"><?= htmlspecialchars($meeting['title']) ?></p>
                                         <div class="flex justify-between items-center text-xs text-purple-700 font-medium">
-                                            <span><i class="fa-regular fa-clock mr-1"></i> <?= date('h:i A', strtotime($meeting['meeting_time'])) ?></span>
-                                            <?php if(!empty($meeting['meeting_link'])): ?>
-                                                <a href="<?= htmlspecialchars($meeting['meeting_link']) ?>" target="_blank" class="bg-purple-600 text-white px-2.5 py-1 rounded-md hover:bg-purple-700 transition">Join</a>
+                                            <span>
+                                                <i class="fa-regular fa-calendar mr-1"></i> <?= ($meeting['meet_date'] == $today) ? 'Today' : date('d M', strtotime($meeting['meet_date'])) ?> 
+                                                <i class="fa-regular fa-clock ml-2 mr-1"></i> <?= date('h:i A', strtotime($meeting['meet_time'])) ?>
+                                            </span>
+                                            <?php if(!empty($meeting['meet_link'])): ?>
+                                                <a href="<?= htmlspecialchars($meeting['meet_link']) ?>" target="_blank" class="bg-purple-600 text-white px-2.5 py-1 rounded-md hover:bg-purple-700 transition">Join</a>
                                             <?php endif; ?>
                                         </div>
                                     </div>
