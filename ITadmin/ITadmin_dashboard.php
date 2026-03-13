@@ -38,7 +38,8 @@ if (isset($_GET['ajax_card']) && $_GET['ajax_card'] == '1') {
 // =========================================================================
 // 2. FETCH PROFILE DATA
 // =========================================================================
-$profile_query = "SELECT u.email, u.role, ep.* FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?";
+// Updated query to fetch Reporting To manager name
+$profile_query = "SELECT u.email, u.role, ep.*, m.name AS reporting_to_name FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id LEFT JOIN users m ON ep.reporting_to = m.id WHERE u.id = ?";
 $stmt = $conn->prepare($profile_query);
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
@@ -50,6 +51,7 @@ $employee_dept = $profile['department'] ?? 'IT Operations';
 $employee_phone = $profile['phone'] ?? 'Not Set';
 $employee_email = $profile['email'] ?? 'Not Set';
 $joining_date = !empty($profile['joining_date']) ? date("d M Y", strtotime($profile['joining_date'])) : 'N/A';
+$reporting_to = $profile['reporting_to_name'] ?? 'HR'; // Added reporting_to variable
 
 $experience_label = "Fresher";
 if (!empty($profile['joining_date'])) {
@@ -333,7 +335,7 @@ for ($i = 6; $i >= 0; $i--) {
                     </div>
                 </div>
 
-                <div class="lg:col-span-5 flex flex-col gap-6">
+                <div class="lg:col-span-4 flex flex-col gap-6">
                     <div class="card p-6">
                         <div class="flex justify-between items-center mb-5 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Details</h3>
@@ -391,7 +393,7 @@ for ($i = 6; $i >= 0; $i--) {
                     </div>
                 </div>
 
-                <div class="lg:col-span-3">
+                <div class="lg:col-span-4">
                     <div class="card">
                         <div class="bg-teal-700 p-6 text-center text-white relative">
                             <img src="<?php echo $profile_img; ?>" class="w-20 h-20 rounded-full border-4 border-teal-500 mx-auto mb-3 shadow-lg bg-white">
@@ -412,6 +414,7 @@ for ($i = 6; $i >= 0; $i--) {
                                 <div class="w-8 h-8 rounded bg-teal-50 flex items-center justify-center text-teal-600"><i class="fa-solid fa-calendar-check text-xs"></i></div>
                                 <div><p class="text-[8px] text-gray-400 font-bold">JOINING DATE</p><p class="text-[11px] font-bold"><?php echo htmlspecialchars($joining_date); ?></p></div>
                             </div>
+                            
                             <div class="grid grid-cols-2 gap-2 mt-2">
                                 <div class="bg-blue-50 p-2 rounded text-center border border-blue-100">
                                     <p class="text-[8px] text-blue-500 font-bold uppercase">Experience</p>
@@ -422,6 +425,12 @@ for ($i = 6; $i >= 0; $i--) {
                                     <p class="text-[10px] font-bold text-indigo-900 truncate"><?php echo htmlspecialchars($employee_dept); ?></p>
                                 </div>
                             </div>
+
+                            <div class="bg-purple-50 p-2 rounded text-center border border-purple-100 mt-2">
+                                <p class="text-[8px] text-purple-500 font-bold uppercase">Reporting To</p>
+                                <p class="text-[10px] font-bold text-purple-900 truncate"><?php echo htmlspecialchars($reporting_to); ?></p>
+                            </div>
+
                         </div>
                     </div>
                 </div>
