@@ -329,37 +329,123 @@ $ot_stmt->close();
 $overtime_this_month = round($ot_monthly_seconds / 3600, 1);
 
 // =========================================================================
-// 4. MONTHLY STATS 
+// 4. MONTHLY STATS (EXACT LOOP LOGIC ADDED)
 // =========================================================================
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
 $total_late_seconds = 0;
+$recorded_days_count = 0;
 
-$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND MONTH(date) = ? AND YEAR(date) = ?";
+$start_date_stat = date('Y-m-01');
+$end_date_stat = $today;
+
+// 1. Fetch DB Records for the month
+$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
 $stat_stmt = $conn->prepare($stat_sql);
-$stat_stmt->bind_param("iii", $current_user_id, $current_month, $current_year);
+$stat_stmt->bind_param("iss", $current_user_id, $start_date_stat, $end_date_stat);
 $stat_stmt->execute();
 $stat_res = $stat_stmt->get_result();
 
+$month_att_db = [];
 while ($stat_row = $stat_res->fetch_assoc()) {
-    $st = $stat_row['status'];
-    if (stripos($st, 'WFH') !== false) { $stats_wfh++; } 
-    elseif (stripos($st, 'Absent') !== false) { $stats_absent++; } 
-    elseif (stripos($st, 'Sick') !== false) { $stats_sick++; } 
-    else {
-        if (!empty($stat_row['punch_in'])) {
-            $expected_start_ts = strtotime($stat_row['date'] . ' ' . $shift_start_str);
-            $actual_start_ts = strtotime($stat_row['punch_in']);
-            if ($actual_start_ts > ($expected_start_ts + 60)) { 
-                $stats_late++; $total_late_seconds += ($actual_start_ts - $expected_start_ts);
-            } else { $stats_ontime++; }
-        } else { $stats_absent++; }
-    }
+    $month_att_db[$stat_row['date']] = $stat_row;
 }
 $stat_stmt->close();
+
+// 2. Fetch Approved Leaves safely for stats
+$stmt_all_leaves_stat = $conn->prepare("SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
+$stmt_all_leaves_stat->bind_param("is", $current_user_id, $today);
+$stmt_all_leaves_stat->execute();
+$res_all_leaves_stat = $stmt_all_leaves_stat->get_result();
+$all_app_leaves_stat = [];
+if ($res_all_leaves_stat) {
+    while ($l_row = $res_all_leaves_stat->fetch_assoc()) {
+        $curr_l = new DateTime($l_row['start_date']);
+        $end_l = new DateTime($l_row['end_date']);
+        while ($curr_l <= $end_l) {
+            $all_app_leaves_stat[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
+            $curr_l->modify('+1 day');
+        }
+    }
+}
+$stmt_all_leaves_stat->close();
+
+// 3. Exact Date Loop Engine
+$iter_dt = new DateTime($start_date_stat);
+$today_dt = new DateTime($today);
+
+while ($iter_dt <= $today_dt) {
+    $d_str = $iter_dt->format('Y-m-d');
+    $dow = $iter_dt->format('N'); // 1 (Mon) to 7 (Sun)
+    $is_today = ($d_str === $today);
+    
+    if (isset($month_att_db[$d_str])) {
+        // Present in DB
+        $r = $month_att_db[$d_str];
+        $st = $r['status'];
+        $is_absent_db = (stripos($st, 'Absent') !== false && empty($r['punch_in']));
+
+        if ($is_absent_db) {
+            $stats_absent++;
+        } else {
+            if (stripos($st, 'WFH') !== false) { 
+                $stats_wfh++; 
+            } elseif (stripos($st, 'Sick') !== false && !isset($all_app_leaves_stat[$d_str])) { 
+                $stats_sick++; 
+            }
+
+            if (!empty($r['punch_in'])) {
+                $expected_start_ts = strtotime($r['date'] . ' ' . $shift_start_str);
+                $actual_start_ts = strtotime($r['punch_in']);
+                if ($actual_start_ts > ($expected_start_ts + 60)) { 
+                    $stats_late++; 
+                    $total_late_seconds += ($actual_start_ts - $expected_start_ts);
+                } else { 
+                    if (stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                        $stats_ontime++; 
+                    }
+                }
+            } else {
+                // No punch in but not marked absent in DB
+                if (!$is_today && stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                    $stats_absent++;
+                }
+            }
+        }
+    } else {
+        // NOT in DB - check if Sunday or Leave
+        if (!$is_today) {
+            if ($dow == 7) {
+                // Sunday - do nothing
+            } elseif (isset($all_app_leaves_stat[$d_str])) {
+                // On Approved Leave
+                if (stripos($all_app_leaves_stat[$d_str], 'Sick') !== false) {
+                    $stats_sick++;
+                }
+            } else {
+                // Working day, not in DB, not on leave => ABSENT
+                $stats_absent++;
+            }
+        } else {
+             // TODAY logic - if not punched in and not Sunday/Leave, it is considered absent today
+             if ($dow != 7 && !isset($all_app_leaves_stat[$d_str])) {
+                 $stats_absent++; 
+             }
+        }
+    }
+    $iter_dt->modify('+1 day');
+}
 
 $late_hours = floor($total_late_seconds / 3600);
 $late_minutes = floor(($total_late_seconds % 3600) / 60);
 $late_time_str = $late_hours . 'h ' . $late_minutes . 'm';
+
+// Leaves Taken specifically for UI display text
+$current_month_leaves = 0;
+foreach ($all_app_leaves_stat as $ld => $ltype) {
+    if (strpos($ld, date('Y-m-')) === 0) {
+        $current_month_leaves++;
+    }
+}
 
 // Task Summary
 $tasks_result = $conn->query("SELECT * FROM personal_taskboard WHERE user_id = $current_user_id AND status != 'completed' ORDER BY priority DESC, id DESC LIMIT 5");

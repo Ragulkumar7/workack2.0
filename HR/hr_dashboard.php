@@ -159,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $response = ['status' => 'success'];
             }
         }
-    } elseif (in_array($_POST['action'], ['end_break', 'resume_work', 'break_end'])) { // --- FIX: ACCEPT ALL BREAK ACTIONS ---
+    } elseif (in_array($_POST['action'], ['end_break', 'resume_work', 'break_end'])) { 
         $att_rec = $conn->query("SELECT id FROM attendance WHERE user_id = $current_user_id AND date = '$today'")->fetch_assoc();
         if ($att_rec) {
             $stmt = $conn->prepare("UPDATE attendance_breaks SET break_end = ? WHERE attendance_id = ? AND break_end IS NULL");
@@ -182,7 +182,6 @@ if ($t_row = $today_res->fetch_assoc()) {
     if (!empty($t_row['punch_in'])) {
         $today_punch_in = $t_row['punch_in'];
         $display_punch_in = date('h:i A', strtotime($t_row['punch_in']));
-        
         $in_time = strtotime($t_row['punch_in']);
         $out_time = !empty($t_row['punch_out']) ? strtotime($t_row['punch_out']) : time(); 
         
@@ -329,67 +328,134 @@ foreach($mapped_depts as $label => $data) {
 }
 
 // =========================================================================
-// 5. MONTHLY STATS & LATE HOURS
+// 5. MONTHLY STATS & LATE HOURS (EXACT LOOP LOGIC ADDED)
 // =========================================================================
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
 $total_late_seconds = 0;
+$recorded_days_count = 0;
 
-$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND MONTH(date) = ? AND YEAR(date) = ?";
+$start_date_stat = date('Y-m-01');
+$end_date_stat = $today;
+
+// 1. Fetch DB Records for the month
+$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
 $stat_stmt = $conn->prepare($stat_sql);
-$stat_stmt->bind_param("iii", $current_user_id, $current_month, $current_year);
+$stat_stmt->bind_param("iss", $current_user_id, $start_date_stat, $end_date_stat);
 $stat_stmt->execute();
 $stat_res = $stat_stmt->get_result();
 
+$month_att_db = [];
 while ($stat_row = $stat_res->fetch_assoc()) {
-    $st = $stat_row['status'];
-    if (stripos($st, 'WFH') !== false) { 
-        $stats_wfh++; 
-    } elseif (stripos($st, 'Absent') !== false) { 
-        $stats_absent++; 
-    } elseif (stripos($st, 'Sick') !== false) { 
-        $stats_sick++; 
-    } else {
-        if (!empty($stat_row['punch_in'])) {
-            $expected_start_ts = strtotime($stat_row['date'] . ' ' . $shift_start_str);
-            $actual_start_ts = strtotime($stat_row['punch_in']);
-            
-            if ($actual_start_ts > ($expected_start_ts + 60)) { 
-                $stats_late++; 
-                $total_late_seconds += ($actual_start_ts - $expected_start_ts);
-            } else { 
-                $stats_ontime++; 
-            }
-        } else { 
-            $stats_absent++; 
+    $month_att_db[$stat_row['date']] = $stat_row;
+}
+$stat_stmt->close();
+
+// 2. Fetch Approved Leaves safely for stats
+$stmt_all_leaves_stat = $conn->prepare("SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
+$stmt_all_leaves_stat->bind_param("is", $current_user_id, $today);
+$stmt_all_leaves_stat->execute();
+$res_all_leaves_stat = $stmt_all_leaves_stat->get_result();
+$all_app_leaves_stat = [];
+if ($res_all_leaves_stat) {
+    while ($l_row = $res_all_leaves_stat->fetch_assoc()) {
+        $curr_l = new DateTime($l_row['start_date']);
+        $end_l = new DateTime($l_row['end_date']);
+        while ($curr_l <= $end_l) {
+            $all_app_leaves_stat[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
+            $curr_l->modify('+1 day');
         }
     }
 }
-$stat_stmt->close();
+$stmt_all_leaves_stat->close();
+
+// 3. Exact Date Loop Engine
+$calc_join_date = (!empty($joining_date) && $joining_date !== "Not Set") ? date('Y-m-d', strtotime($joining_date)) : '2000-01-01';
+if ($calc_join_date > $start_date_stat) {
+    $start_date_stat = $calc_join_date;
+}
+
+if ($start_date_stat <= $today) {
+    $iter_dt = new DateTime($start_date_stat);
+    $today_dt = new DateTime($today);
+
+    while ($iter_dt <= $today_dt) {
+        $d_str = $iter_dt->format('Y-m-d');
+        $dow = $iter_dt->format('N'); // 1 (Mon) to 7 (Sun)
+        $is_today = ($d_str === $today);
+        
+        if (isset($month_att_db[$d_str])) {
+            // Present in DB
+            $r = $month_att_db[$d_str];
+            $st = $r['status'];
+            $is_absent_db = (stripos($st, 'Absent') !== false && empty($r['punch_in']));
+
+            if ($is_absent_db) {
+                $stats_absent++;
+            } else {
+                if (stripos($st, 'WFH') !== false) { 
+                    $stats_wfh++; 
+                } elseif (stripos($st, 'Sick') !== false && !isset($all_app_leaves_stat[$d_str])) { 
+                    $stats_sick++; 
+                }
+
+                if (!empty($r['punch_in'])) {
+                    $expected_start_ts = strtotime($r['date'] . ' ' . $shift_start_str);
+                    $actual_start_ts = strtotime($r['punch_in']);
+                    if ($actual_start_ts > ($expected_start_ts + 60)) { 
+                        $stats_late++; 
+                        $total_late_seconds += ($actual_start_ts - $expected_start_ts);
+                    } else { 
+                        if (stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                            $stats_ontime++; 
+                        }
+                    }
+                } else {
+                    // No punch in but not marked absent in DB
+                    if (!$is_today && stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                        $stats_absent++;
+                    }
+                }
+            }
+        } else {
+            // NOT in DB - check if Sunday or Leave
+            if (!$is_today) {
+                if ($dow == 7) {
+                    // Sunday - do nothing
+                } elseif (isset($all_app_leaves_stat[$d_str])) {
+                    // On Approved Leave
+                    if (stripos($all_app_leaves_stat[$d_str], 'Sick') !== false) {
+                        $stats_sick++;
+                    }
+                } else {
+                    // Working day, not in DB, not on leave => ABSENT
+                    $stats_absent++;
+                }
+            } else {
+                 // TODAY logic - if not punched in and not Sunday/Leave, it is considered absent today
+                 if ($dow != 7 && !isset($all_app_leaves_stat[$d_str])) {
+                     $stats_absent++; 
+                 }
+            }
+        }
+        $iter_dt->modify('+1 day');
+    }
+}
 
 $late_hours = floor($total_late_seconds / 3600);
 $late_minutes = floor(($total_late_seconds % 3600) / 60);
 $late_time_str = $late_hours . 'h ' . $late_minutes . 'm';
 
+// Leaves Taken specifically for UI display text
 $current_month_leaves = 0;
-$curr_leave_sql = "SELECT leave_type, SUM(total_days) as days FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND MONTH(start_date) = ? AND YEAR(start_date) = ? GROUP BY leave_type";
-$curr_leave_stmt = $conn->prepare($curr_leave_sql);
-$curr_leave_stmt->bind_param("iii", $current_user_id, $current_month, $current_year);
-$curr_leave_stmt->execute();
-$curr_leave_res = $curr_leave_stmt->get_result();
-
-while ($cl_row = $curr_leave_res->fetch_assoc()) {
-    $current_month_leaves += floatval($cl_row['days']);
-    if (stripos($cl_row['leave_type'], 'Sick') !== false) {
-        $stats_sick += floatval($cl_row['days']);
-    } else {
-        $stats_absent += floatval($cl_row['days']); 
+foreach ($all_app_leaves_stat as $ld => $ltype) {
+    if (strpos($ld, date('Y-m-')) === 0) {
+        $current_month_leaves++;
     }
 }
-$curr_leave_stmt->close();
 
 // LEAVE BALANCE (HR Profile)
 $base_leaves_per_month = 2;
-$raw_join_date = $joining_date !== "Not Set" ? $row['joining_date'] : date('Y-m-01');
+$raw_join_date = (!empty($joining_date) && $joining_date !== "Not Set") ? date('Y-m-01', strtotime($joining_date)) : date('Y-m-01');
 $calc_join_date = date('Y-m-d', strtotime($raw_join_date));
 $display_join_month_year = date('M Y', strtotime($raw_join_date));
 
@@ -407,10 +473,16 @@ $display_leaves_remaining = ($leaves_remaining < 0) ? 0 : $leaves_remaining;
 $lop_days = ($leaves_remaining < 0) ? abs($leaves_remaining) : 0;
 
 
-// LATE LOGINS & LOP TRACKER (COMPANY WIDE)
+// =========================================================================
+// LATE LOGINS & NOT LOGGED IN TRACKER (COMPANY WIDE)
+// =========================================================================
 $late_list = [];
-$late_q = $conn->query("SELECT ep.full_name, ep.department, a.punch_in FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE a.date = '$today' AND a.status = 'Late' ORDER BY a.punch_in DESC LIMIT 20");
+$late_q = $conn->query("SELECT ep.full_name, ep.department, a.punch_in FROM attendance a JOIN employee_profiles ep ON a.user_id = ep.user_id WHERE a.date = '$today' AND a.status = 'Late' ORDER BY a.punch_in DESC LIMIT 5");
 if($late_q) { while($r = $late_q->fetch_assoc()) $late_list[] = $r; }
+
+$not_logged_employees = [];
+$nli_q = $conn->query("SELECT ep.full_name, ep.department, u.username FROM users u JOIN employee_profiles ep ON u.id = ep.user_id WHERE ep.status='Active' AND u.id NOT IN (SELECT user_id FROM attendance WHERE date = '$today') AND u.role != 'Admin' LIMIT 5");
+if($nli_q) { while($r = $nli_q->fetch_assoc()) $not_logged_employees[] = $r; }
 
 $lop_list = [];
 $lop_q = $conn->query("SELECT ep.user_id, ep.full_name, ep.department, ep.joining_date, u.role, SUM(lr.total_days) as taken_leaves FROM employee_profiles ep LEFT JOIN users u ON ep.user_id = u.id LEFT JOIN leave_requests lr ON ep.user_id = lr.user_id AND lr.status = 'Approved' GROUP BY ep.user_id");
@@ -513,7 +585,7 @@ if($nj_res) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HR Executive Dashboard - SmartHR</title>
+    <title>HR Dashboard - SmartHR</title>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.tailwindcss.com"></script>
@@ -656,7 +728,7 @@ if($nj_res) {
                         </div>
                     </div>
                 </div>
-                    <div class="card flex flex-col flex-grow">
+                    <div class="card flex flex-col flex-grow mt-6">
                     <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Action Center</h3>
@@ -713,6 +785,7 @@ if($nj_res) {
                                     <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="text-xs text-gray-600 font-semibold">Late</span></div>
                                     <div class="text-right">
                                         <span class="font-bold text-slate-800 text-sm block"><?php echo $stats_late; ?></span>
+                                        <span class="text-[9px] text-gray-400 block -mt-1 font-bold"><?php echo $late_time_str; ?></span>
                                     </div>
                                 </div>
                                 
@@ -763,8 +836,32 @@ if($nj_res) {
                                     <?php endif; ?>
                                 </div>
                             </div>
+                            
+                            <div class="flex flex-col h-[180px] border border-red-100 rounded-xl overflow-hidden shrink-0">
+                                <div class="bg-red-50 p-2 flex justify-between items-center border-b border-red-100 shrink-0">
+                                    <h4 class="text-[9px] font-black text-red-700 uppercase tracking-widest">Not Logged In Today</h4>
+                                    <span class="text-[9px] font-bold text-red-600 bg-white px-2 py-0.5 rounded border border-red-200"><?= count($not_logged_employees) ?></span>
+                                </div>
+                                <div class="p-2 space-y-2 custom-scroll overflow-y-auto flex-grow bg-white">
+                                    <?php if(!empty($not_logged_employees)): foreach($not_logged_employees as $emp): ?>
+                                        <div class="flex items-center justify-between p-2 bg-red-50/30 rounded border border-red-100 hover:bg-red-50 transition">
+                                            <div class="min-w-0 pr-2">
+                                                <p class="text-[11px] font-bold text-slate-800 truncate" title="<?= htmlspecialchars($emp['full_name'] ?? $emp['username']) ?>"><?= htmlspecialchars($emp['full_name'] ?? $emp['username']) ?></p>
+                                                <p class="text-[8px] text-slate-500 truncate"><?= htmlspecialchars($emp['department'] ?? 'N/A') ?></p>
+                                            </div>
+                                            <span class="text-[9px] font-bold text-red-600 bg-red-100/80 px-1.5 py-0.5 rounded shrink-0">
+                                                MISSING
+                                            </span>
+                                        </div>
+                                    <?php endforeach; else: ?>
+                                        <div class="text-center py-6 text-slate-400">
+                                            <p class="text-[10px] font-medium">All employees logged in.</p>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
 
-                            <div class="flex flex-col h-[250px] border border-rose-100 rounded-xl overflow-hidden shrink-0 mt-12">
+                            <div class="flex flex-col h-[250px] border border-rose-100 rounded-xl overflow-hidden shrink-0">
                                 <div class="bg-rose-50 p-2 flex justify-between items-center border-b border-rose-100 shrink-0">
                                     <h4 class="text-[9px] font-black text-rose-700 uppercase tracking-widest">LOP Limit Cross</h4>
                                     <span class="text-[9px] font-bold text-rose-600 bg-white px-2 py-0.5 rounded border border-rose-200"><?= count($lop_list) ?></span>
@@ -815,7 +912,7 @@ if($nj_res) {
                         <div class="min-w-0 text-white">
                             <h2 class="font-black text-xl truncate"><?php echo htmlspecialchars($employee_name); ?></h2>
                             <p class="text-teal-100 text-[10px] font-bold uppercase tracking-widest truncate mt-0.5"><?php echo htmlspecialchars($employee_role); ?></p>
-                            <span class="inline-block mt-2 bg-white/20 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider backdrop-blur-sm border border-white/10">Verified HR</span>
+                            <span class="inline-block mt-2 bg-white/20 border border-white/20 px-2 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider backdrop-blur-sm">Verified HR</span>
                         </div>
                         <div class="absolute top-4 right-4 flex gap-2">
                             <a href="../settings.php" class="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 text-white flex items-center justify-center transition backdrop-blur-sm" title="Edit Profile">
@@ -873,11 +970,7 @@ if($nj_res) {
                     </div>
                 </div>
                 
-               
-
-            
-
-                <div class="card flex flex-col shrink-0 mt-10">
+                <div class="card flex flex-col shrink-0 mt-6">
                     <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg">Recruitment Metrics</h3>
@@ -959,7 +1052,7 @@ if($nj_res) {
             if(action === 'punch_in') btnId = 'btnPunchIn';
             else if(action === 'punch_out') btnId = 'btnPunchOut';
             else if(action === 'take_break') btnId = 'btnBreak';
-            else if(action === 'end_break' || action === 'resume_work' || action === 'break_end') btnId = 'btnEndBreak'; // FIX APPLIED HERE
+            else if(action === 'end_break' || action === 'resume_work' || action === 'break_end') btnId = 'btnEndBreak'; 
             
             const btn = document.getElementById(btnId);
             if(btn) {
@@ -1029,6 +1122,36 @@ if($nj_res) {
                 new ApexCharts(document.querySelector("#deptDonutChart"), deptOptions).render();
             } else {
                 document.querySelector("#deptDonutChart").innerHTML = "<p class='text-center text-xs text-gray-400 mt-10'>No department data to display.</p>";
+            }
+
+            var lateTimeStr = "<?php echo $late_time_str; ?>";
+            var totalData = <?php echo $stats_ontime + $stats_late + $stats_wfh + $stats_absent + $stats_sick; ?>;
+            var seriesData = totalData > 0 ? [<?php echo $stats_ontime; ?>, <?php echo $stats_late; ?>, <?php echo $stats_wfh; ?>, <?php echo $stats_absent; ?>, <?php echo $stats_sick; ?>] : [0,0,0,0,0];
+
+            var attOptions = {
+                series: seriesData,
+                chart: { type: 'donut', width: 100, height: 100, sparkline: { enabled: true } },
+                labels: ['On Time', 'Late', 'WFH', 'Absent', 'Sick Leave'],
+                colors: ['#0d9488', '#22c55e', '#f97316', '#ef4444', '#eab308'],
+                stroke: { width: 0 },
+                tooltip: { 
+                    fixed: { enabled: false }, 
+                    x: { show: true }, 
+                    marker: { show: true },
+                    y: {
+                        formatter: function(val, opts) {
+                            if (opts.seriesIndex === 1) { 
+                                return val + " Days (Total: " + lateTimeStr + ")";
+                            }
+                            return val + " Days";
+                        }
+                    }
+                }
+            };
+            
+            var attendanceChartEl = document.querySelector("#attendanceChart");
+            if (attendanceChartEl) {
+                new ApexCharts(attendanceChartEl, attOptions).render();
             }
         });
         
