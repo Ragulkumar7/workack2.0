@@ -66,7 +66,7 @@ if ($row = $stmt_p->get_result()->fetch_assoc()) {
     $shift_timings = $row['shift_timings'] ?? $shift_timings;
     
     $reporting_id = !empty($row['manager_id']) ? $row['manager_id'] : ($row['reporting_to'] ?? 0);
-    $joining_date = $row['joining_date'] ? date("d M Y", strtotime($row['joining_date'])) : "Not Set";
+    $joining_date = $row['joining_date'] ? date("Y-m-d", strtotime($row['joining_date'])) : "Not Set";
     
     if (!empty($row['profile_img']) && $row['profile_img'] !== 'default_user.png') {
         $profile_img = str_starts_with($row['profile_img'], 'http') ? $row['profile_img'] : $path_to_root . 'assets/profiles/' . $row['profile_img'];
@@ -203,47 +203,106 @@ $ot_stmt->close();
 $overtime_this_month = round($ot_monthly_seconds / 3600, 1);
 
 // =========================================================================
-// 4. MONTHLY STATS & LATE HOURS
+// 4. MONTHLY STATS & LATE HOURS (WITH EXACT ABSENT LOOP LOGIC)
 // =========================================================================
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
 $total_late_seconds = 0;
 
-$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND MONTH(date) = ? AND YEAR(date) = ?";
+$start_date_stat = date('Y-m-01');
+$end_date_stat = $today;
+
+// 1. Fetch DB Records for the month
+$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
 $stat_stmt = $conn->prepare($stat_sql);
-$stat_stmt->bind_param("iii", $current_user_id, $current_month, $current_year);
+$stat_stmt->bind_param("iss", $current_user_id, $start_date_stat, $end_date_stat);
 $stat_stmt->execute();
 $stat_res = $stat_stmt->get_result();
 
+$month_att_db = [];
 while ($stat_row = $stat_res->fetch_assoc()) {
-    $st = $stat_row['status'];
-    if (stripos($st, 'WFH') !== false) { 
-        $stats_wfh++; 
-    } elseif (stripos($st, 'Absent') !== false) { 
-        $stats_absent++; 
-    } elseif (stripos($st, 'Sick') !== false) { 
-        $stats_sick++; 
-    } else {
-        if (!empty($stat_row['punch_in'])) {
-            $expected_start_ts = strtotime($stat_row['date'] . ' ' . $shift_start_str);
-            $actual_start_ts = strtotime($stat_row['punch_in']);
-            
-            if ($actual_start_ts > ($expected_start_ts + 60)) { 
-                $stats_late++; 
-                $total_late_seconds += ($actual_start_ts - $expected_start_ts);
-            } else { 
-                $stats_ontime++; 
-            }
-        } else { 
-            $stats_absent++; 
+    $month_att_db[$stat_row['date']] = $stat_row;
+}
+$stat_stmt->close();
+
+// 2. Fetch Approved Leaves safely
+$stmt_all_leaves = $conn->prepare("SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
+$stmt_all_leaves->bind_param("is", $current_user_id, $today);
+$stmt_all_leaves->execute();
+$res_all_leaves = $stmt_all_leaves->get_result();
+$all_app_leaves = [];
+if ($res_all_leaves) {
+    while ($l_row = $res_all_leaves->fetch_assoc()) {
+        $curr_l = new DateTime($l_row['start_date']);
+        $end_l = new DateTime($l_row['end_date']);
+        while ($curr_l <= $end_l) {
+            $all_app_leaves[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
+            $curr_l->modify('+1 day');
         }
     }
 }
-$stat_stmt->close();
+$stmt_all_leaves->close();
+
+// 3. Exact Date Loop Engine
+$current_dt = new DateTime($end_date_stat);
+$start_dt = new DateTime($start_date_stat);
+
+while ($current_dt >= $start_dt) {
+    $date_str = $current_dt->format('Y-m-d');
+    $is_future = ($date_str > $today);
+    $day_of_week = $current_dt->format('N'); 
+    
+    if (isset($month_att_db[$date_str])) {
+        $row = $month_att_db[$date_str];
+        $st = $row['status'];
+        
+        $is_absent_db = (stripos($st, 'Absent') !== false && empty($row['punch_in']));
+
+        if ($is_absent_db) {
+            $stats_absent++;
+        } else {
+            if (stripos($st, 'WFH') !== false) { 
+                $stats_wfh++; 
+            } elseif (stripos($st, 'Sick') !== false) { 
+                $stats_sick++; 
+            }
+
+            if (!empty($row['punch_in'])) {
+                $shift_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
+                $punch_in_ts = strtotime($row['punch_in']);
+
+                if ($punch_in_ts > ($shift_start_ts + 60)) { 
+                    $stats_late++; 
+                    $total_late_seconds += ($punch_in_ts - $shift_start_ts);
+                } else { 
+                    if (stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                        $stats_ontime++; 
+                    }
+                }
+            }
+        }
+    } else {
+        if (!$is_future) {
+            if ($day_of_week == 7) {
+                // Weekly Off - Do nothing
+            } elseif (isset($all_app_leaves[$date_str])) {
+                // On Leave
+                if (stripos($all_app_leaves[$date_str], 'Sick') !== false) {
+                    $stats_sick++;
+                }
+            } else {
+                // Exact Absent Calculation
+                $stats_absent++; 
+            }
+        }
+    }
+    $current_dt->modify('-1 day');
+}
 
 $late_hours = floor($total_late_seconds / 3600);
 $late_minutes = floor(($total_late_seconds % 3600) / 60);
 $late_time_str = $late_hours . 'h ' . $late_minutes . 'm';
 
+// Leaves Taken specifically for UI display text
 $current_month_leaves = 0;
 $curr_leave_sql = "SELECT leave_type, SUM(total_days) as days FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND MONTH(start_date) = ? AND YEAR(start_date) = ? GROUP BY leave_type";
 $curr_leave_stmt = $conn->prepare($curr_leave_sql);
@@ -253,11 +312,6 @@ $curr_leave_res = $curr_leave_stmt->get_result();
 
 while ($cl_row = $curr_leave_res->fetch_assoc()) {
     $current_month_leaves += floatval($cl_row['days']);
-    if (stripos($cl_row['leave_type'], 'Sick') !== false) {
-        $stats_sick += floatval($cl_row['days']);
-    } else {
-        $stats_absent += floatval($cl_row['days']); 
-    }
 }
 $curr_leave_stmt->close();
 
@@ -265,7 +319,7 @@ $curr_leave_stmt->close();
 // 5. LEAVE BALANCE (CARRY-FORWARD) - CORRECTED FIXED 2 DAYS
 // =========================================================================
 $base_leaves_per_month = 2;
-$raw_join_date = $joining_date !== "Not Set" ? $row['joining_date'] : date('Y-m-01');
+$raw_join_date = $joining_date !== "Not Set" ? $joining_date : date('Y-m-01');
 $calc_join_date = date('Y-m-d', strtotime($raw_join_date));
 $display_join_month_year = date('M Y', strtotime($raw_join_date));
 
@@ -453,7 +507,7 @@ usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strt
 $all_notifications = array_slice($all_notifications, 0, 10); 
 
 // =========================================================================
-// 8. NEW ADDITIONS: MEETINGS, LATE/MISSING LOGINS, CELEBRATIONS
+// 8. NEW ADDITIONS: MEETINGS, NEW JOINERS, CELEBRATIONS
 // =========================================================================
 
 // A. Meetings (Combine with old calendar logic)
@@ -482,25 +536,14 @@ usort($all_today_meetings, function($a, $b) {
 // Limit to 3 for the dashboard card
 $meetings_list = array_slice($all_today_meetings, 0, 3);
 
-// B. Late / Not Logged In Today
-$late_employees = [];
-$not_logged_employees = [];
 
-// Late Today
-$q_late_today = "SELECT u.username, a.punch_in FROM attendance a LEFT JOIN users u ON a.user_id = u.id WHERE a.date = '$today' AND a.status = 'Late' LIMIT 4";
-$r_late_today = @mysqli_query($conn, $q_late_today);
-if ($r_late_today) {
-    while ($row = mysqli_fetch_assoc($r_late_today)) {
-        $late_employees[] = $row;
-    }
-}
-
-// Not Logged In Today
-$q_not_logged = "SELECT u.username FROM users u WHERE u.id NOT IN (SELECT user_id FROM attendance WHERE date = '$today') AND u.role != 'Admin' LIMIT 4";
-$r_not_logged = @mysqli_query($conn, $q_not_logged);
-if ($r_not_logged) {
-    while ($row = mysqli_fetch_assoc($r_not_logged)) {
-        $not_logged_employees[] = $row;
+// B. RECENT NEW JOINERS 
+$new_joiners = [];
+$nj_q = "SELECT full_name, department, joining_date FROM employee_profiles WHERE status = 'Active' AND joining_date IS NOT NULL ORDER BY joining_date DESC LIMIT 4";
+$nj_res = @mysqli_query($conn, $nj_q);
+if($nj_res) {
+    while($row = mysqli_fetch_assoc($nj_res)) {
+        $new_joiners[] = $row;
     }
 }
 
@@ -794,43 +837,37 @@ if ($r_celeb) {
                     </div>
                 </div>
 
-                <div class="card border-red-200">
-                    <div class="p-6">
-                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                <div class="card border-indigo-200 flex-grow mt-6">
+                    <div class="p-6 flex flex-col h-full">
+                        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
                             <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
-                                <i class="fa-solid fa-user-clock text-red-500"></i> Today's Attendance Alerts
+                                <i class="fa-solid fa-user-plus text-indigo-500"></i> New Joiners
                             </h3>
+                            <span class="text-[10px] text-indigo-600 bg-indigo-50 px-2 py-1 rounded font-bold border border-indigo-100">Recent</span>
                         </div>
-                        <div class="space-y-4">
-                            <div>
-                                <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-amber-500"></span> Late Logins</h4>
-                                <?php if(!empty($late_employees)): ?>
-                                    <div class="space-y-2">
-                                        <?php foreach($late_employees as $emp): ?>
-                                            <div class="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
-                                                <p class="text-sm font-semibold text-slate-700 truncate"><?= htmlspecialchars($emp['username']) ?></p>
-                                                <span class="text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded"><?= date('h:i A', strtotime($emp['punch_in'])) ?></span>
-                                            </div>
-                                        <?php endforeach; ?>
+                        <div class="space-y-3 custom-scroll overflow-y-auto pr-2 flex-grow flex flex-col justify-center">
+                            <?php if(!empty($new_joiners)): ?>
+                                <div class="space-y-3 h-full">
+                                <?php foreach($new_joiners as $nj): ?>
+                                    <div class="flex gap-3 items-center border border-gray-100 p-2.5 rounded-xl hover:bg-slate-50 transition shadow-sm">
+                                        <div class="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs shrink-0">
+                                            <i class="fa-solid fa-user-check"></i>
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <p class="text-sm font-bold text-slate-800 truncate"><?= htmlspecialchars($nj['full_name']) ?></p>
+                                            <p class="text-[10px] text-gray-500 font-medium"><?= htmlspecialchars($nj['department']) ?></p>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <span class="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-1 rounded-md border border-slate-200"><?= date('d M Y', strtotime($nj['joining_date'])) ?></span>
+                                        </div>
                                     </div>
-                                <?php else: ?>
-                                    <p class="text-xs text-gray-400 italic">No late logins today.</p>
-                                <?php endif; ?>
-                            </div>
-                            <div class="pt-2 border-t border-gray-100">
-                                <h4 class="text-xs font-bold text-gray-500 uppercase tracking-widest mb-2 flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-red-500"></span> Not Logged In Yet</h4>
-                                <?php if(!empty($not_logged_employees)): ?>
-                                    <div class="flex flex-wrap gap-2">
-                                        <?php foreach($not_logged_employees as $emp): ?>
-                                            <span class="text-xs font-semibold text-red-600 bg-red-50 border border-red-100 px-2.5 py-1 rounded-md">
-                                                <?= htmlspecialchars($emp['username']) ?>
-                                            </span>
-                                        <?php endforeach; ?>
-                                    </div>
-                                <?php else: ?>
-                                    <p class="text-xs text-gray-400 italic">All employees logged in.</p>
-                                <?php endif; ?>
-                            </div>
+                                <?php endforeach; ?>
+                                </div>
+                            <?php else: ?>
+                                <div class="text-center text-slate-400 text-sm font-medium my-auto">
+                                    No recent joiners found.
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>

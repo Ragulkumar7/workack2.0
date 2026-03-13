@@ -205,51 +205,114 @@ $ot_stmt->close();
 $overtime_this_month = round($ot_monthly_seconds / 3600, 1);
 
 // =========================================================================
-// MGR'S OWN MONTHLY ATTENDANCE STATS
+// MGR'S OWN MONTHLY ATTENDANCE STATS (SYNCED WITH ATTENDANCE INFO PAGE)
 // =========================================================================
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
 $total_late_seconds = 0;
 
-$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND MONTH(date) = ? AND YEAR(date) = ?";
+$start_date_stat = date('Y-m-01');
+$end_date_stat = $today;
+
+// 1. Fetch DB Records for the month
+$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
 $stat_stmt = $conn->prepare($stat_sql);
-$stat_stmt->bind_param("iii", $mgr_user_id, $current_month, $current_year);
+$stat_stmt->bind_param("iss", $mgr_user_id, $start_date_stat, $end_date_stat);
 $stat_stmt->execute();
 $stat_res = $stat_stmt->get_result();
 
+$table_db_records = [];
 while ($stat_row = $stat_res->fetch_assoc()) {
-    $st = $stat_row['status'];
-    if (stripos($st, 'WFH') !== false) { $stats_wfh++; } 
-    elseif (stripos($st, 'Absent') !== false) { $stats_absent++; } 
-    elseif (stripos($st, 'Sick') !== false) { $stats_sick++; } 
-    else {
-        if (!empty($stat_row['punch_in'])) {
-            $expected_start_ts = strtotime($stat_row['date'] . ' ' . $shift_start_str);
-            $actual_start_ts = strtotime($stat_row['punch_in']);
-            if ($actual_start_ts > ($expected_start_ts + 60)) { 
-                $stats_late++; $total_late_seconds += ($actual_start_ts - $expected_start_ts);
-            } else { $stats_ontime++; }
-        } else { $stats_absent++; }
-    }
+    $table_db_records[$stat_row['date']] = $stat_row;
 }
 $stat_stmt->close();
+
+// 2. Fetch Approved Leaves safely
+$stmt_all_leaves = $conn->prepare("SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
+$stmt_all_leaves->bind_param("is", $mgr_user_id, $today);
+$stmt_all_leaves->execute();
+$res_all_leaves = $stmt_all_leaves->get_result();
+$all_app_leaves = [];
+if ($res_all_leaves) {
+    while ($l_row = $res_all_leaves->fetch_assoc()) {
+        $curr_l = new DateTime($l_row['start_date']);
+        $end_l = new DateTime($l_row['end_date']);
+        while ($curr_l <= $end_l) {
+            $all_app_leaves[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
+            $curr_l->modify('+1 day');
+        }
+    }
+}
+$stmt_all_leaves->close();
+
+// 3. Exact Date Loop Engine (Like employee_attendance_details.php)
+$current_dt = new DateTime($end_date_stat);
+$start_dt = new DateTime($start_date_stat);
+
+while ($current_dt >= $start_dt) {
+    $date_str = $current_dt->format('Y-m-d');
+    $is_future = ($date_str > $today);
+    $day_of_week = $current_dt->format('N'); 
+    
+    if (isset($table_db_records[$date_str])) {
+        $row = $table_db_records[$date_str];
+        $is_absent_db = (stripos($row['status'], 'Absent') !== false && empty($row['punch_in']));
+
+        if ($is_absent_db) {
+            $stats_absent++;
+        } else {
+            if (stripos($row['status'], 'WFH') !== false) { 
+                $stats_wfh++; 
+            } elseif (stripos($row['status'], 'Sick') !== false && !isset($all_app_leaves[$date_str])) { 
+                $stats_sick++; 
+            }
+
+            if (!empty($row['punch_in'])) {
+                $expected_start_ts = strtotime($row['date'] . ' ' . $shift_start_str);
+                $actual_start_ts = strtotime($row['punch_in']);
+
+                if ($actual_start_ts > ($expected_start_ts + 60)) { 
+                    $stats_late++; 
+                    $total_late_seconds += ($actual_start_ts - $expected_start_ts);
+                } else { 
+                    if (stripos($row['status'], 'WFH') === false && stripos($row['status'], 'Sick') === false) {
+                        $stats_ontime++; 
+                    }
+                }
+            } else {
+                if (!$is_today && stripos($row['status'], 'WFH') === false && stripos($row['status'], 'Sick') === false) {
+                    $stats_absent++;
+                }
+            }
+        }
+    } else {
+        if (!$is_future) {
+            if ($day_of_week == 7) {
+                // Weekly Off - Do nothing
+            } elseif (isset($all_app_leaves[$date_str])) {
+                // On Leave
+                if (stripos($all_app_leaves[$date_str], 'Sick') !== false) {
+                    $stats_sick++;
+                }
+            } else {
+                // Exact Absent Calculation
+                $stats_absent++; 
+            }
+        }
+    }
+    $current_dt->modify('-1 day');
+}
 
 $late_hours = floor($total_late_seconds / 3600);
 $late_minutes = floor(($total_late_seconds % 3600) / 60);
 $late_time_str = $late_hours . 'h ' . $late_minutes . 'm';
 
+// Leaves Taken specifically for UI display text
 $current_month_leaves = 0;
-$curr_leave_sql = "SELECT leave_type, SUM(total_days) as days FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND MONTH(start_date) = ? AND YEAR(start_date) = ? GROUP BY leave_type";
-$curr_leave_stmt = $conn->prepare($curr_leave_sql);
-$curr_leave_stmt->bind_param("iii", $mgr_user_id, $current_month, $current_year);
-$curr_leave_stmt->execute();
-$curr_leave_res = $curr_leave_stmt->get_result();
-
-while ($cl_row = $curr_leave_res->fetch_assoc()) {
-    $current_month_leaves += floatval($cl_row['days']);
-    if (stripos($cl_row['leave_type'], 'Sick') !== false) { $stats_sick += floatval($cl_row['days']); } 
-    else { $stats_absent += floatval($cl_row['days']); }
+foreach ($all_app_leaves as $ld => $ltype) {
+    if (strpos($ld, date('Y-m-')) === 0) {
+        $current_month_leaves++;
+    }
 }
-$curr_leave_stmt->close();
 
 // =========================================================================
 // MGR'S OWN LEAVE CARRY-FORWARD LOGIC
@@ -573,9 +636,21 @@ $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskbo
 
             <div class="flex flex-col gap-6 w-full">
                 
-                <?php include '../attendance_card.php'; ?>
-
-                <div class="card flex-grow">
+                <?php 
+                // Auto-heal missing closing tags from attendance_card.php during "Break" state
+                ob_start();
+                include '../attendance_card.php'; 
+                $att_card_html = ob_get_clean();
+                echo $att_card_html;
+                
+                $div_open = substr_count(strtolower($att_card_html), '<div');
+                $div_close = substr_count(strtolower($att_card_html), '</div');
+                if ($div_open > $div_close) {
+                    echo str_repeat('</div>', $div_open - $div_close);
+                }
+                ?>
+            
+             <div class="card flex-grow">
                     <div class="p-6 flex flex-col h-full">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">My Updates</h3>
@@ -622,7 +697,6 @@ $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskbo
                         </div>
                     </div>
                 </div>
-
             </div>
 
             <div class="flex flex-col gap-6 w-full">
@@ -636,6 +710,7 @@ $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskbo
                         <div class="flex flex-col xl:flex-row items-center justify-between gap-6">
                             <div class="space-y-3.5 w-full pr-2">
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-teal-600"></div><span class="text-xs text-gray-600 font-semibold">On Time</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_ontime; ?></span></div>
+                                
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-green-500"></div><span class="text-xs text-gray-600 font-semibold">Late</span></div>
                                     <div class="text-right">
@@ -643,8 +718,10 @@ $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskbo
                                         <span class="text-[9px] text-gray-400 block -mt-1 font-bold"><?php echo $late_time_str; ?></span>
                                     </div>
                                 </div>
+                                
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-orange-500"></div><span class="text-xs text-gray-600 font-semibold">WFH</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_wfh; ?></span></div>
                                 <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-red-500"></div><span class="text-xs text-gray-600 font-semibold">Absent</span></div><span class="font-bold text-slate-800 text-sm"><?php echo $stats_absent; ?></span></div>
+                                
                                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
                                     <div class="flex items-center gap-2"><i class="fa-solid fa-plane-departure text-rose-400 text-xs"></i><span class="text-xs text-slate-800 font-bold uppercase">Leaves Taken</span></div>
                                     <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs"><?php echo $current_month_leaves; ?> Days</span>
@@ -657,7 +734,7 @@ $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskbo
                     </div>
                 </div>
 
-                <div class="card shrink-0">
+                <div class="card">
                     <div class="p-6">
                         <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
                             <h3 class="font-bold text-slate-800 text-lg">Leave Balance</h3>
