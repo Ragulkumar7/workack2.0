@@ -204,49 +204,122 @@ $overtime_this_month = round($ot_monthly_seconds / 3600, 1);
 
 
 // =========================================================================
-// TL'S OWN MONTHLY ATTENDANCE STATS
+// TL'S OWN MONTHLY ATTENDANCE STATS (EXACT AUDIT PAGE MATCH)
 // =========================================================================
 $stats_ontime = 0; $stats_late = 0; $stats_wfh = 0; $stats_absent = 0; $stats_sick = 0;
 $total_late_seconds = 0;
 
-$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND MONTH(date) = ? AND YEAR(date) = ?";
-$stat_stmt = mysqli_prepare($conn, $stat_sql);
-mysqli_stmt_bind_param($stat_stmt, "iii", $tl_user_id, $current_month, $current_year);
-mysqli_stmt_execute($stat_stmt);
-$stat_res = mysqli_stmt_get_result($stat_stmt);
+$start_date_stat = date('Y-m-01'); // STRICTLY 1st of the month
+$end_date_stat = $today;
 
-while ($stat_row = mysqli_fetch_assoc($stat_res)) {
-    if ($stat_row['status'] == 'WFH') { $stats_wfh++; } 
-    elseif ($stat_row['status'] == 'Absent') { $stats_absent++; } 
-    elseif (in_array($stat_row['status'], ['Sick Leave', 'Sick'])) { $stats_sick++; } 
-    else {
-        if (!empty($stat_row['punch_in'])) {
-            $expected_start_ts = strtotime($stat_row['date'] . ' ' . $shift_start_str);
-            $actual_start_ts = strtotime($stat_row['punch_in']);
-            if ($actual_start_ts > ($expected_start_ts + 60)) { 
-                $stats_late++; $total_late_seconds += ($actual_start_ts - $expected_start_ts);
-            } else { $stats_ontime++; }
-        } else { $stats_absent++; }
+// 1. Fetch DB Records for the month
+$stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
+$stat_stmt = $conn->prepare($stat_sql);
+$stat_stmt->bind_param("iss", $tl_user_id, $start_date_stat, $end_date_stat);
+$stat_stmt->execute();
+$stat_res = $stat_stmt->get_result();
+
+$month_att_db = [];
+while ($stat_row = $stat_res->fetch_assoc()) {
+    $month_att_db[$stat_row['date']] = $stat_row;
+}
+$stat_stmt->close();
+
+// 2. Fetch Approved Leaves safely
+$stmt_all_leaves = $conn->prepare("SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
+$stmt_all_leaves->bind_param("is", $tl_user_id, $today);
+$stmt_all_leaves->execute();
+$res_all_leaves = $stmt_all_leaves->get_result();
+$all_app_leaves = [];
+if ($res_all_leaves) {
+    while ($l_row = $res_all_leaves->fetch_assoc()) {
+        $curr_l = new DateTime($l_row['start_date']);
+        $end_l = new DateTime($l_row['end_date']);
+        while ($curr_l <= $end_l) {
+            $all_app_leaves[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
+            $curr_l->modify('+1 day');
+        }
     }
+}
+$stmt_all_leaves->close();
+
+// 3. Exact Date Loop Engine - NO JOIN DATE OVERRIDE
+$iter_dt = new DateTime($start_date_stat);
+$today_dt = new DateTime($today);
+
+while ($iter_dt <= $today_dt) {
+    $d_str = $iter_dt->format('Y-m-d');
+    $dow = $iter_dt->format('N'); // 1 (Mon) to 7 (Sun)
+    $is_today = ($d_str === $today);
+    
+    if (isset($month_att_db[$d_str])) {
+        // Present in DB
+        $r = $month_att_db[$d_str];
+        $st = $r['status'];
+        $is_absent_db = (stripos($st, 'Absent') !== false && empty($r['punch_in']));
+
+        if ($is_absent_db) {
+            $stats_absent++;
+        } else {
+            if (stripos($st, 'WFH') !== false) { 
+                $stats_wfh++; 
+            } elseif (stripos($st, 'Sick') !== false && !isset($all_app_leaves[$d_str])) { 
+                $stats_sick++; 
+            }
+
+            if (!empty($r['punch_in'])) {
+                $expected_start_ts = strtotime($r['date'] . ' ' . $shift_start_str);
+                $actual_start_ts = strtotime($r['punch_in']);
+                if ($actual_start_ts > ($expected_start_ts + 60)) { 
+                    $stats_late++; 
+                    $total_late_seconds += ($actual_start_ts - $expected_start_ts);
+                } else { 
+                    if (stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                        $stats_ontime++; 
+                    }
+                }
+            } else {
+                // No punch in but not marked absent in DB
+                if (!$is_today && stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                    $stats_absent++;
+                }
+            }
+        }
+    } else {
+        // NOT in DB - check if Sunday or Leave
+        if (!$is_today) {
+            if ($dow == 7) {
+                // Sunday - do nothing
+            } elseif (isset($all_app_leaves[$d_str])) {
+                // On Approved Leave
+                if (stripos($all_app_leaves[$d_str], 'Sick') !== false) {
+                    $stats_sick++;
+                }
+            } else {
+                // Working day, not in DB, not on leave => ABSENT
+                $stats_absent++;
+            }
+        } else {
+             // TODAY logic - if not punched in and not Sunday/Leave, it is considered absent today
+             if ($dow != 7 && !isset($all_app_leaves[$d_str])) {
+                 $stats_absent++; 
+             }
+        }
+    }
+    $iter_dt->modify('+1 day');
 }
 
 $late_hours = floor($total_late_seconds / 3600);
 $late_minutes = floor(($total_late_seconds % 3600) / 60);
 $late_time_str = $late_hours . 'h ' . $late_minutes . 'm';
 
+// Leaves Taken specifically for UI display text
 $current_month_leaves = 0;
-$curr_leave_sql = "SELECT leave_type, SUM(total_days) as days FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND MONTH(start_date) = ? AND YEAR(start_date) = ? GROUP BY leave_type";
-$curr_leave_stmt = $conn->prepare($curr_leave_sql);
-$curr_leave_stmt->bind_param("iii", $tl_user_id, $current_month, $current_year);
-$curr_leave_stmt->execute();
-$curr_leave_res = $curr_leave_stmt->get_result();
-
-while ($cl_row = $curr_leave_res->fetch_assoc()) {
-    $current_month_leaves += floatval($cl_row['days']);
-    if (stripos($cl_row['leave_type'], 'Sick') !== false) { $stats_sick += floatval($cl_row['days']); } 
-    else { $stats_absent += floatval($cl_row['days']); }
+foreach ($all_app_leaves as $ld => $ltype) {
+    if (strpos($ld, date('Y-m-')) === 0) {
+        $current_month_leaves++;
+    }
 }
-$curr_leave_stmt->close();
 
 
 // =========================================================================
@@ -749,6 +822,9 @@ session_write_close();
                                 <p class="text-xl font-black relative z-10 <?php echo $leaves_remaining < 0 ? 'text-rose-600' : 'text-green-800'; ?>">
                                     <?php echo $display_leaves_remaining; ?>
                                 </p>
+                                <?php if($leaves_remaining < 0): ?>
+                                    <div class="absolute bottom-0 left-0 right-0 h-1.5 bg-rose-500"></div>
+                                <?php endif; ?>
                             </div>
                         </div>
                         
@@ -967,52 +1043,6 @@ session_write_close();
                     </div>
                 </div>
 
-                <div class="card h-[220px]">
-                    <div class="card-body flex flex-col">
-                        <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
-                            <h3 class="font-bold text-slate-800 text-lg">My Managed Projects</h3>
-                            <a href="task_tl.php" class="text-[9px] bg-teal-50 text-teal-700 font-bold px-2 py-1 rounded uppercase hover:bg-teal-100 transition">View All</a>
-                        </div>
-                        <div class="space-y-2.5 overflow-y-auto custom-scroll pr-2 max-h-[300px]">
-                            <?php if(!empty($active_projects)): ?>
-                                <?php foreach($active_projects as $proj): 
-                                    $pct = ($proj['total_tasks'] > 0) ? round(($proj['completed_tasks'] / $proj['total_tasks']) * 100) : 0;
-                                    $prog_color = 'bg-blue-500';
-                                    if($pct >= 100) { $prog_color = 'bg-emerald-500'; }
-                                    elseif($pct < 30) { $prog_color = 'bg-orange-500'; }
-                                ?>
-                                <div class="border border-gray-100 rounded-xl p-3 shadow-sm hover:border-teal-200 transition bg-slate-50">
-                                    <div class="flex justify-between items-start mb-1">
-                                        <h4 class="font-bold text-xs text-slate-800 mb-1 truncate pr-2 w-3/4" title="<?php echo htmlspecialchars($proj['project_name']); ?>">
-                                            <?php echo htmlspecialchars($proj['project_name']); ?>
-                                        </h4>
-                                        <?php if(!empty($proj['deadline'])): ?>
-                                            <span class="text-[8px] font-bold text-gray-400 bg-white border border-gray-200 px-1.5 py-0.5 rounded shadow-sm">
-                                                Due: <?php echo date("d M Y", strtotime($proj['deadline'])); ?>
-                                            </span>
-                                        <?php endif; ?>
-                                    </div>
-                                    
-                                    <div class="mt-1.5">
-                                        <div class="flex justify-between text-[8px] font-black text-gray-500 mb-1 uppercase tracking-widest">
-                                            <span>Progress (<?php echo $proj['completed_tasks'] . '/' . $proj['total_tasks']; ?>)</span>
-                                            <span class="<?php echo str_replace('bg-', 'text-', $prog_color); ?>"><?php echo $pct; ?>%</span>
-                                        </div>
-                                        <div class="w-full bg-gray-200 rounded-full h-1 overflow-hidden">
-                                            <div class="<?php echo $prog_color; ?> h-1 rounded-full transition-all duration-500" style="width: <?php echo $pct; ?>%"></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <?php endforeach; ?>
-                            <?php else: ?>
-                                <div class="text-center py-4 text-slate-400">
-                                    <p class="text-xs font-medium">No active projects assigned.</p>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div>
-
                 <div class="card h-[420px]">
                     <div class="card-body flex flex-col min-h-0">
                         <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
@@ -1067,6 +1097,54 @@ session_write_close();
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             
+            // Live Timer Logic
+            let attendanceTimerInterval = null;
+            function initAttendance() {
+                if (attendanceTimerInterval) clearInterval(attendanceTimerInterval);
+
+                const timerElement = document.getElementById('liveTimer');
+                const progressRing = document.getElementById('progressRing');
+                const breakTimerElement = document.getElementById('breakTimer');
+
+                if (!timerElement) return;
+
+                const isWorkRunning = timerElement.getAttribute('data-running') === 'true';
+                const isBreakRunning = breakTimerElement ? breakTimerElement.getAttribute('data-break-running') === 'true' : false;
+                
+                const workTotalSeconds = parseInt(timerElement.getAttribute('data-total')) || 0;
+                const breakTotalSeconds = breakTimerElement ? (parseInt(breakTimerElement.getAttribute('data-break-total')) || 0) : 0;
+                const startTime = new Date().getTime(); 
+
+                function formatTime(totalSecs) {
+                    const h = Math.floor(totalSecs / 3600);
+                    const m = Math.floor((totalSecs % 3600) / 60);
+                    const s = totalSecs % 60;
+                    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+                }
+
+                function updateTimer() {
+                    const now = new Date().getTime();
+                    const diffSeconds = Math.floor((now - startTime) / 1000);
+                    
+                    if (isWorkRunning) {
+                        const currentWork = workTotalSeconds + diffSeconds;
+                        timerElement.innerText = formatTime(currentWork);
+                        const progress = Math.min(currentWork / 32400, 1);
+                        if(progressRing) progressRing.style.strokeDashoffset = 490 - (progress * 490);
+                    }
+
+                    if (isBreakRunning && breakTimerElement) {
+                        const currentBreak = breakTotalSeconds + diffSeconds;
+                        breakTimerElement.innerText = formatTime(currentBreak);
+                    }
+                }
+
+                if (isWorkRunning || isBreakRunning) {
+                    attendanceTimerInterval = setInterval(updateTimer, 1000);
+                }
+            }
+            initAttendance();
+
             var lateTimeStr = "<?php echo $late_time_str; ?>";
 
             // Attendance Donut Chart
