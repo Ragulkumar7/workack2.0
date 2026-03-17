@@ -30,7 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'reject_claim') {
         $id = intval($_POST['id']);
         $reason = mysqli_real_escape_string($conn, $_POST['reason']);
-        if(mysqli_query($conn, "UPDATE sales_expenses SET status = 'Accounts Rejected', rejection_reason = '$reason' WHERE id = $id")) {
+        // 🚨 FIXED: Use standard 'Rejected' so DB accepts it and it doesn't vanish
+        if(mysqli_query($conn, "UPDATE sales_expenses SET status = 'Rejected', rejection_reason = '$reason' WHERE id = $id")) {
             echo json_encode(['status' => 'success']);
         } else {
             echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
@@ -41,8 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
 // --- FETCH FORWARDED CLAIMS FOR ACCOUNTS ---
 $claims = [];
-// 🚨 FIXED: Fetch 'Settled' claims properly
-$query = mysqli_query($conn, "SELECT * FROM sales_expenses WHERE status IN ('Forwarded', 'Settled', 'Accounts Rejected') ORDER BY created_at DESC");
+// 🚨 FIXED: Safely fetch only valid database statuses
+$query = mysqli_query($conn, "SELECT * FROM sales_expenses WHERE status IN ('Forwarded', 'Rejected') ORDER BY created_at DESC");
 
 if ($query) {
     while($row = mysqli_fetch_assoc($query)) {
@@ -159,10 +160,14 @@ if (file_exists('../header.php')) include '../header.php';
                     $badgeClass = 'badge-forwarded';
                     $statusText = 'Pending Audit';
                     
-                    // 🚨 FIXED: The UI will display "Sent" even though the database safely holds "Settled"
-                    if($claim['status'] == 'Settled') { $badgeClass = 'badge-settled'; $statusText = 'Sent'; }
-                    
-                    if($claim['status'] == 'Accounts Rejected') { $badgeClass = 'badge-rejected'; $statusText = 'Rejected'; }
+                    // 🚨 FIXED: Check if it's securely flagged as sent!
+                    if($claim['status'] == 'Forwarded' && $claim['rejection_reason'] == 'SENT_TO_SALARY') { 
+                        $badgeClass = 'badge-settled'; 
+                        $statusText = 'Sent'; 
+                    } elseif($claim['status'] == 'Rejected') { 
+                        $badgeClass = 'badge-rejected'; 
+                        $statusText = 'Rejected'; 
+                    }
                 ?>
                 <tr>
                     <td>
@@ -183,7 +188,7 @@ if (file_exists('../header.php')) include '../header.php';
                     </td>
                     <td><span class="badge <?= $badgeClass ?>"><?= $statusText ?></span></td>
                     <td style="text-align: right;">
-                        <?php if($claim['status'] == 'Forwarded'): ?>
+                        <?php if($claim['status'] == 'Forwarded' && $claim['rejection_reason'] != 'SENT_TO_SALARY'): ?>
                             <button class="btn-process" onclick="openVerificationModal(<?= $claim['id'] ?>, '<?= htmlspecialchars($claim['executive_name']) ?>', <?= $claim['amount'] ?>)">
                                 <i class="ph-bold ph-shield-check"></i> Process
                             </button>

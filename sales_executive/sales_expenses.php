@@ -7,8 +7,9 @@ $dbPath = $projectRoot . '/../include/db_connect.php';
 if (file_exists($dbPath)) { require_once $dbPath; } 
 else { require_once $projectRoot . '/include/db_connect.php'; }
 
-// Get logged in executive's name
-$my_name = !empty($_SESSION['name']) ? $_SESSION['name'] : 'Prem Karthick'; 
+// Get logged in user's ID and Name dynamically from session
+$user_id = isset($_SESSION['user_id']) ? $_SESSION['user_id'] : (isset($_SESSION['id']) ? $_SESSION['id'] : NULL);
+$my_name = !empty($_SESSION['name']) ? $_SESSION['name'] : (!empty($_SESSION['username']) ? $_SESSION['username'] : 'Unknown Executive'); 
 
 // --- ENTERPRISE DATABASE PATCHER ---
 // Automatically adds the proof_file column if it doesn't exist yet
@@ -56,13 +57,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         exit;
     }
 
-    // Secure Prepared Statement to prevent injection
-    $sql = "INSERT INTO sales_expenses (executive_name, expense_name, expense_date, payment_method, amount, proof_file, status) 
-            VALUES (?, ?, ?, ?, ?, ?, 'Pending')";
+    // Secure Prepared Statement updated to include user_id
+    $sql = "INSERT INTO sales_expenses (user_id, executive_name, expense_name, expense_date, payment_method, amount, proof_file, status) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'Pending')";
             
     $stmt = $conn->prepare($sql);
     if ($stmt) {
-        $stmt->bind_param("ssssds", $my_name, $name, $date, $method, $amount, $proof_path);
+        // Updated bind_param with "i" for user_id
+        $stmt->bind_param("issssds", $user_id, $my_name, $name, $date, $method, $amount, $proof_path);
         if($stmt->execute()) {
             echo json_encode(['status' => 'success']);
         } else {
