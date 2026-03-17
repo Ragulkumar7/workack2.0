@@ -1,4 +1,5 @@
 <?php
+// Fixes "headers already sent" error by turning on output buffering
 ob_start();
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
@@ -127,20 +128,22 @@ if (file_exists('../header.php')) include '../header.php';
 
         .action-btns { display: flex; gap: 8px; }
         .act-btn { width: 32px; height: 32px; border-radius: 8px; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: 0.2s; }
-        .act-approve { background: #dcfce7; color: #16a34a; }
-        .act-approve:hover { background: #16a34a; color: white; }
-        .act-reject { background: #fee2e2; color: #dc2626; }
-        .act-reject:hover { background: #dc2626; color: white; }
+        
+        .act-view { background: #e0f2fe; color: #0284c7; }
+        .act-view:hover { background: #0284c7; color: white; }
 
         /* Modal */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 20px; backdrop-filter: blur(2px);}
         .modal-overlay.active { display: flex; }
-        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; position: relative; }
+        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 480px; position: relative; }
         .close-modal { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #94a3b8; cursor: pointer; transition: 0.2s;}
         .close-modal:hover { color: var(--theme-color); }
         .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; }
         .form-group textarea { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; box-sizing: border-box; outline: none; transition: 0.2s;}
         .form-group textarea:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1); }
+        
+        /* Ensures SweetAlert is always on top of Modals */
+        .swal2-container { z-index: 9999 !important; }
     </style>
 </head>
 <body>
@@ -193,7 +196,10 @@ if (file_exists('../header.php')) include '../header.php';
             <tbody>
                 <?php if(empty($all_expenses)): ?>
                     <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 40px;">No expenses submitted by the team yet.</td></tr>
-                <?php else: foreach($all_expenses as $exp): ?>
+                <?php else: foreach($all_expenses as $exp): 
+                    // Safely encode expense data for JavaScript
+                    $expData = htmlspecialchars(json_encode($exp, JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8');
+                ?>
                     <tr>
                         <td style="text-align: center;">
                             <?php if($exp['status'] === 'Approved'): ?>
@@ -227,18 +233,11 @@ if (file_exists('../header.php')) include '../header.php';
                             </span>
                         </td>
                         <td>
-                            <?php if($exp['status'] === 'Pending'): ?>
-                                <div class="action-btns" style="justify-content: flex-end;">
-                                    <button class="act-btn act-approve" title="Approve" onclick="actApprove(<?= $exp['id'] ?>)"><i class="ph-bold ph-check"></i></button>
-                                    <button class="act-btn act-reject" title="Reject" onclick="openRejectModal(<?= $exp['id'] ?>)"><i class="ph-bold ph-x"></i></button>
-                                </div>
-                            <?php elseif($exp['status'] === 'Rejected'): ?>
-                                <div style="text-align: right; font-size: 11px; color: #dc2626; font-weight: 700; cursor: help;" title="<?= htmlspecialchars($exp['rejection_reason']) ?>">
-                                    REASON GIVEN
-                                </div>
-                            <?php else: ?>
-                                <div style="text-align: right; font-size: 12px; color: var(--text-muted);">No action needed</div>
-                            <?php endif; ?>
+                            <div class="action-btns" style="justify-content: flex-end;">
+                                <button class="act-btn act-view" title="Review Expense" onclick='openViewModal(<?= $expData ?>)'>
+                                    <i class="ph-bold ph-eye"></i>
+                                </button>
+                            </div>
                         </td>
                     </tr>
                 <?php endforeach; endif; ?>
@@ -246,6 +245,59 @@ if (file_exists('../header.php')) include '../header.php';
         </table>
     </div>
 </main>
+
+<div class="modal-overlay" id="viewExpenseModal">
+    <div class="modal-content" style="max-width: 500px;">
+        <i class="ph-bold ph-x close-modal" onclick="document.getElementById('viewExpenseModal').classList.remove('active')"></i>
+        
+        <h3 style="margin-top: 0; color: var(--theme-color); font-size: 20px; font-weight: 800; margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+            <i class="ph-fill ph-file-text"></i> Expense Review
+        </h3>
+        
+        <div style="background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                <div>
+                    <p style="font-size:10px; color:#64748b; font-weight:700; text-transform:uppercase; margin:0 0 4px 0;">Executive</p>
+                    <p style="margin:0; font-weight:700; font-size:14px;" id="v_exec"></p>
+                </div>
+                <div>
+                    <p style="font-size:10px; color:#64748b; font-weight:700; text-transform:uppercase; margin:0 0 4px 0;">Date Incurred</p>
+                    <p style="margin:0; font-weight:700; font-size:14px;" id="v_date"></p>
+                </div>
+                <div>
+                    <p style="font-size:10px; color:#64748b; font-weight:700; text-transform:uppercase; margin:0 0 4px 0;">Claim Amount</p>
+                    <p style="margin:0; font-weight:800; font-size:18px; color:#0f172a;" id="v_amt"></p>
+                </div>
+                <div>
+                    <p style="font-size:10px; color:#64748b; font-weight:700; text-transform:uppercase; margin:0 0 4px 0;">Payment Method</p>
+                    <p style="margin:0; font-weight:600; font-size:14px;" id="v_method"></p>
+                </div>
+            </div>
+            
+            <div>
+                <p style="font-size:10px; color:#64748b; font-weight:700; text-transform:uppercase; margin:0 0 4px 0;">Expense Name / Purpose</p>
+                <p style="margin:0; font-weight:600; font-size:14px; line-height: 1.4;" id="v_name"></p>
+            </div>
+            
+            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed #cbd5e1;" id="v_proof_container">
+                <p style="font-size:10px; color:#64748b; font-weight:700; text-transform:uppercase; margin:0 0 8px 0;">Attached Proof</p>
+                <a id="v_proof_link" href="#" target="_blank" style="display:inline-flex; align-items:center; gap:6px; background:#e0f2fe; color:#0284c7; padding:8px 14px; border-radius:8px; text-decoration:none; font-size:12px; font-weight:700; border:1px solid #bae6fd; transition: 0.2s;">
+                    <i class="ph-bold ph-paperclip"></i> View Attached Document
+                </a>
+                <span id="v_no_proof" style="font-size:12px; font-weight:600; color:#94a3b8; display:none; padding: 6px 0;">No proof document was attached.</span>
+            </div>
+        </div>
+
+        <div id="v_action_btns" style="display: flex; gap: 10px;">
+            <button type="button" class="btn-primary" style="flex: 1; background: #dc2626; justify-content: center; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);" onclick="triggerReject()">Reject Claim</button>
+            <button type="button" class="btn-primary" style="flex: 1; background: #16a34a; justify-content: center; box-shadow: 0 4px 6px -1px rgba(22, 163, 74, 0.2);" onclick="triggerApprove()">Approve Claim</button>
+        </div>
+        
+        <div id="v_status_msg" style="display: none; text-align: center; font-weight: 700; font-size: 13px; color: var(--text-muted); padding: 10px; background: #f1f5f9; border-radius: 8px;">
+            This claim has already been processed.
+        </div>
+    </div>
+</div>
 
 <div class="modal-overlay" id="rejectModal">
     <div class="modal-content">
@@ -284,11 +336,59 @@ if (file_exists('../header.php')) include '../header.php';
         btn.innerHTML = `<i class="ph-bold ph-paper-plane-tilt" style="font-size: 16px;"></i> Forward Selected (${checkedCount}) to Accounts`;
     }
 
-    // --- ACTIONS LOGIC ---
-    function actApprove(id) {
+    // --- NEW VIEW & APPROVAL LOGIC ---
+    let currentlyViewingId = null;
+
+    function openViewModal(data) {
+        currentlyViewingId = data.id;
+        
+        // Populate Details
+        document.getElementById('v_exec').innerText = data.executive_name;
+        document.getElementById('v_name').innerText = data.expense_name;
+        
+        const d = new Date(data.expense_date);
+        document.getElementById('v_date').innerText = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+        
+        document.getElementById('v_amt').innerText = '₹' + parseFloat(data.amount).toLocaleString('en-IN');
+        document.getElementById('v_method').innerText = data.payment_method;
+
+        // Handle Proof File Display
+        const proofLink = document.getElementById('v_proof_link');
+        const noProof = document.getElementById('v_no_proof');
+        
+        if (data.proof_file && data.proof_file.trim() !== '') {
+            let fileUrl = data.proof_file;
+            if (fileUrl.indexOf('http') !== 0) fileUrl = '../' + fileUrl.replace(/^\/+/, '');
+            proofLink.href = fileUrl;
+            proofLink.style.display = 'inline-flex';
+            noProof.style.display = 'none';
+        } else {
+            proofLink.style.display = 'none';
+            noProof.style.display = 'block';
+        }
+
+        // Handle Button Visibility
+        const actionBtns = document.getElementById('v_action_btns');
+        const statusMsg = document.getElementById('v_status_msg');
+        
+        if (data.status === 'Pending') {
+            actionBtns.style.display = 'flex';
+            statusMsg.style.display = 'none';
+        } else {
+            actionBtns.style.display = 'none';
+            statusMsg.style.display = 'block';
+            statusMsg.innerHTML = `Status: <strong>${data.status}</strong>. No further action needed.`;
+        }
+
+        document.getElementById('viewExpenseModal').classList.add('active');
+    }
+
+    function triggerApprove() {
+        if(!currentlyViewingId) return;
+        
         Swal.fire({
-            title: 'Approve Expense?',
-            text: "This will mark the expense as approved and ready for accounts.",
+            title: 'Approve this claim?',
+            text: "It will be marked as ready to forward to Accounts.",
             icon: 'question',
             showCancelButton: true,
             confirmButtonColor: '#16a34a',
@@ -297,20 +397,27 @@ if (file_exists('../header.php')) include '../header.php';
             if (result.isConfirmed) {
                 const fd = new FormData();
                 fd.append('action', 'approve');
-                fd.append('id', id);
+                fd.append('id', currentlyViewingId);
                 
                 fetch(window.location.href, { method: 'POST', body: fd })
                 .then(r => r.json())
                 .then(data => {
-                    if(data.status === 'success') location.reload();
-                    else Swal.fire('Error', data.message, 'error');
+                    if(data.status === 'success') {
+                        Swal.fire({icon: 'success', title: 'Approved!', showConfirmButton: false, timer: 1500})
+                        .then(() => location.reload());
+                    } else {
+                        Swal.fire('Error', data.message, 'error');
+                    }
                 });
             }
         });
     }
 
-    function openRejectModal(id) {
-        document.getElementById('rejectExpId').value = id;
+    function triggerReject() {
+        if(!currentlyViewingId) return;
+        // Close View Modal, Open Reject Modal
+        document.getElementById('viewExpenseModal').classList.remove('active');
+        document.getElementById('rejectExpId').value = currentlyViewingId;
         document.getElementById('rejectForm').reset();
         document.getElementById('rejectModal').classList.add('active');
     }
@@ -319,8 +426,12 @@ if (file_exists('../header.php')) include '../header.php';
         fetch(window.location.href, { method: 'POST', body: new FormData(document.getElementById('rejectForm')) })
         .then(r => r.json())
         .then(data => {
-            if(data.status === 'success') location.reload();
-            else Swal.fire('Error', data.message, 'error');
+            if(data.status === 'success') {
+                Swal.fire({icon: 'success', title: 'Rejected!', showConfirmButton: false, timer: 1500})
+                .then(() => location.reload());
+            } else {
+                Swal.fire('Error', data.message, 'error');
+            }
         });
     }
 
