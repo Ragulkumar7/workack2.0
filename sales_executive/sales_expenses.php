@@ -10,23 +10,67 @@ else { require_once $projectRoot . '/include/db_connect.php'; }
 // Get logged in executive's name
 $my_name = !empty($_SESSION['name']) ? $_SESSION['name'] : 'Prem Karthick'; 
 
-// --- HANDLE AJAX SAVING ---
+// --- ENTERPRISE DATABASE PATCHER ---
+// Automatically adds the proof_file column if it doesn't exist yet
+try {
+    $check_col = $conn->query("SHOW COLUMNS FROM `sales_expenses` LIKE 'proof_file'");
+    if ($check_col && $check_col->num_rows == 0) {
+        @$conn->query("ALTER TABLE `sales_expenses` ADD COLUMN `proof_file` VARCHAR(255) NULL DEFAULT NULL AFTER `amount`");
+    }
+} catch (Throwable $e) {}
+
+// --- HANDLE AJAX SAVING WITH FILE UPLOAD ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_expense') {
     ob_clean();
     header('Content-Type: application/json');
     
-    $name = mysqli_real_escape_string($conn, $_POST['expense_name']);
-    $date = mysqli_real_escape_string($conn, $_POST['expense_date']);
-    $method = mysqli_real_escape_string($conn, $_POST['payment_method']);
+    $name = $_POST['expense_name'];
+    $date = $_POST['expense_date'];
+    $method = $_POST['payment_method'];
     $amount = floatval($_POST['amount']);
 
-    $sql = "INSERT INTO sales_expenses (executive_name, expense_name, expense_date, payment_method, amount, status) 
-            VALUES ('$my_name', '$name', '$date', '$method', $amount, 'Pending')";
-    
-    if(mysqli_query($conn, $sql)) {
-        echo json_encode(['status' => 'success']);
+    // Handle File Upload
+    $proof_path = null;
+    if (isset($_FILES['proof_file']) && $_FILES['proof_file']['error'] === UPLOAD_ERR_OK) {
+        $upload_dir = __DIR__ . '/../uploads/expenses/';
+        if (!is_dir($upload_dir)) { @mkdir($upload_dir, 0777, true); }
+        
+        $ext = strtolower(pathinfo($_FILES['proof_file']['name'], PATHINFO_EXTENSION));
+        $allowed_exts = ['jpg', 'jpeg', 'png', 'pdf'];
+        
+        if (in_array($ext, $allowed_exts)) {
+            // Generate a unique, safe filename
+            $new_filename = time() . "_" . rand(1000, 9999) . "_receipt." . $ext;
+            if (move_uploaded_file($_FILES['proof_file']['tmp_name'], $upload_dir . $new_filename)) {
+                $proof_path = 'uploads/expenses/' . $new_filename; 
+            } else {
+                echo json_encode(['status' => 'error', 'message' => 'Failed to save the uploaded proof file on the server.']);
+                exit;
+            }
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid file format. Only JPG, PNG, and PDF files are allowed.']);
+            exit;
+        }
     } else {
-        echo json_encode(['status' => 'error', 'message' => mysqli_error($conn)]);
+        echo json_encode(['status' => 'error', 'message' => 'Proof of expense is strictly required. Please attach a file.']);
+        exit;
+    }
+
+    // Secure Prepared Statement to prevent injection
+    $sql = "INSERT INTO sales_expenses (executive_name, expense_name, expense_date, payment_method, amount, proof_file, status) 
+            VALUES (?, ?, ?, ?, ?, ?, 'Pending')";
+            
+    $stmt = $conn->prepare($sql);
+    if ($stmt) {
+        $stmt->bind_param("ssssds", $my_name, $name, $date, $method, $amount, $proof_path);
+        if($stmt->execute()) {
+            echo json_encode(['status' => 'success']);
+        } else {
+            echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $stmt->error]);
+        }
+        $stmt->close();
+    } else {
+        echo json_encode(['status' => 'error', 'message' => 'Failed to prepare database query.']);
     }
     exit;
 }
@@ -97,13 +141,19 @@ include '../header.php';
         /* Modal */
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 20px; backdrop-filter: blur(2px);}
         .modal-overlay.active { display: flex; }
-        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 450px; position: relative; }
+        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 100%; max-width: 480px; position: relative; }
         .close-modal { position: absolute; top: 20px; right: 20px; font-size: 24px; color: #94a3b8; cursor: pointer; transition: 0.2s;}
         .close-modal:hover { color: var(--theme-color); }
         .form-group { margin-bottom: 18px; }
         .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; text-transform: uppercase; }
         .form-group input, .form-group select { width: 100%; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; font-weight: 600; color: var(--text-main); box-sizing: border-box; outline: none; transition: 0.2s;}
         .form-group input:focus, .form-group select:focus { border-color: var(--theme-color); box-shadow: 0 0 0 3px rgba(27,90,90,0.1); }
+        
+        .proof-box { background: #f8fafc; border: 1.5px dashed #cbd5e1; padding: 16px; border-radius: 10px; transition: 0.2s; }
+        .proof-box:focus-within { border-color: var(--theme-color); background: #f0fdfa; }
+        .proof-box input[type="file"] { border: none; background: transparent; padding: 0; box-shadow: none; font-size: 13px; cursor: pointer;}
+        /* Force SweetAlert2 popups to always stay on top of modals */
+        .swal2-container { z-index: 9999 !important; }
     </style>
 </head>
 <body>
@@ -146,12 +196,13 @@ include '../header.php';
                     <th>Expense Name</th>
                     <th>Payment Method</th>
                     <th>Amount</th>
+                    <th>Proof</th>
                     <th>Status</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if(empty($my_expenses)): ?>
-                    <tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 40px;">No expenses submitted yet.</td></tr>
+                    <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 40px;">No expenses submitted yet.</td></tr>
                 <?php else: foreach($my_expenses as $exp): ?>
                     <tr>
                         <td style="color: var(--text-muted);"><i class="ph-bold ph-calendar-blank" style="margin-right: 4px;"></i> <?= date('d M Y', strtotime($exp['expense_date'])) ?></td>
@@ -165,6 +216,17 @@ include '../header.php';
                         </td>
                         <td><span style="background: #f1f5f9; padding: 4px 10px; border-radius: 6px; font-size: 12px;"><?= htmlspecialchars($exp['payment_method']) ?></span></td>
                         <td style="font-size: 16px; font-weight: 800;">₹<?= number_format($exp['amount']) ?></td>
+                        <td>
+                            <?php if(!empty($exp['proof_file'])): 
+                                $fileUrl = (strpos($exp['proof_file'], 'http') === 0) ? $exp['proof_file'] : '../' . ltrim($exp['proof_file'], '/');
+                            ?>
+                                <a href="<?= htmlspecialchars($fileUrl) ?>" target="_blank" style="color: #0284c7; background: #e0f2fe; padding: 5px 12px; border-radius: 6px; font-size: 11px; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; border: 1px solid #bae6fd; transition: 0.2s;">
+                                    <i class="ph-bold ph-paperclip"></i> View
+                                </a>
+                            <?php else: ?>
+                                <span style="color: #cbd5e1; font-size: 11px; font-weight: 700;">N/A</span>
+                            <?php endif; ?>
+                        </td>
                         <td>
                             <span class="status-badge stat-<?= $exp['status'] ?>">
                                 <?php 
@@ -187,7 +249,7 @@ include '../header.php';
         <i class="ph-bold ph-x close-modal" onclick="document.getElementById('expenseModal').classList.remove('active')"></i>
         <h3 style="margin-top: 0; color: var(--theme-color); font-size: 20px; font-weight: 800; margin-bottom: 25px;">Add New Expense</h3>
         
-        <form id="addExpenseForm" onsubmit="event.preventDefault(); submitExpense();">
+        <form id="addExpenseForm" onsubmit="event.preventDefault(); submitExpense();" enctype="multipart/form-data">
             <input type="hidden" name="action" value="save_expense">
             <div class="form-group">
                 <label>Expense Name / Purpose *</label>
@@ -212,23 +274,38 @@ include '../header.php';
                     <input type="number" name="amount" required min="1" step="0.01" placeholder="1500.00">
                 </div>
             </div>
-            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px; margin-top: 10px;" id="btnSubmitForm">Submit Claim</button>
+
+            <div class="form-group proof-box">
+                <label style="margin-bottom: 8px;"><i class="ph-bold ph-paperclip"></i> Attach Proof (Receipt / Bill) *</label>
+                <input type="file" name="proof_file" id="proofFile" required accept=".pdf, image/jpeg, image/png">
+                <span style="font-size: 10px; color: var(--text-muted); font-weight: 700; display: block; margin-top: 8px; line-height: 1.4;">Accepted formats: PDF, JPG, PNG (Max 5MB).<br>Proof is strictly required for approval.</span>
+            </div>
+
+            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; padding: 14px; margin-top: 15px;" id="btnSubmitForm">Submit Claim</button>
         </form>
     </div>
 </div>
 
 <script>
     function submitExpense() {
+        const fileInput = document.getElementById('proofFile');
+        if(fileInput.files.length === 0) {
+            Swal.fire('Required', 'Please attach a proof image or PDF document to submit this claim.', 'warning');
+            return;
+        }
+
         const btn = document.getElementById('btnSubmitForm');
         const origText = btn.innerHTML;
         btn.innerHTML = '<i class="ph-bold ph-spinner ph-spin"></i> Submitting...'; 
         btn.disabled = true;
 
-        fetch(window.location.href, { method: 'POST', body: new FormData(document.getElementById('addExpenseForm')) })
+        const formData = new FormData(document.getElementById('addExpenseForm'));
+
+        fetch(window.location.href, { method: 'POST', body: formData })
         .then(r => r.json())
         .then(data => { 
             if(data.status === 'success') {
-                Swal.fire({icon: 'success', title: 'Submitted!', text: 'Your expense claim has been sent for approval.', confirmButtonColor: '#1b5a5a'})
+                Swal.fire({icon: 'success', title: 'Submitted!', text: 'Your expense claim and proof have been sent for approval.', confirmButtonColor: '#1b5a5a'})
                 .then(() => location.reload());
             } else { 
                 Swal.fire('Error', data.message, 'error'); 
