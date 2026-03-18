@@ -446,6 +446,7 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
             margin-left: 95px; width: calc(100% - 95px);
             transition: margin-left 0.3s ease, width 0.3s ease;
             padding: 24px; min-height: 100vh;
+            box-sizing: border-box; /* Added to prevent horizontal overflow */
         }
         #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
 
@@ -459,7 +460,8 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
         input[type="date"]::-webkit-calendar-picker-indicator, input[type="month"]::-webkit-calendar-picker-indicator { cursor: pointer; opacity: 0.6; transition: 0.2s; }
         input[type="date"]::-webkit-calendar-picker-indicator:hover, input[type="month"]::-webkit-calendar-picker-indicator:hover { opacity: 1; }
 
-        @media (max-width: 1024px) {
+        /* CHANGED FROM 1024px TO 768px TO FIX SIDEBAR OVERLAP ON TABLETS */
+        @media (max-width: 768px) {
             #mainContent { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px; }
         }
     </style>
@@ -513,7 +515,8 @@ $avg_production = ($present_count > 0) ? number_format($total_production / $pres
 
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
             
-            <div class="lg:col-span-1 flex flex-col gap-6">
+            <div class="lg:col-span-1 flex flex-col gap-6 self-start">
+                
                 <div class="card p-6 text-center flex flex-col items-center">
                     <div class="w-full flex justify-end mb-2">
                         <span class="bg-indigo-50 text-indigo-600 border border-indigo-100 text-[9px] font-black px-2 py-0.5 rounded tracking-widest uppercase">Manager View</span>

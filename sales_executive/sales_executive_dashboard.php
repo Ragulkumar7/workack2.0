@@ -170,10 +170,10 @@ if ($conn) {
     }
 }
 
-// Recent Activities Data
+// Recent Activities Data (Added Status Field)
 $recent_activities = [];
 if ($conn) {
-    $stmt = mysqli_query($conn, "SELECT title, description, created_at FROM sales_tasks ORDER BY created_at DESC LIMIT 4");
+    $stmt = mysqli_query($conn, "SELECT title, description, status, created_at FROM sales_tasks ORDER BY created_at DESC LIMIT 4");
     if ($stmt) {
         while($row = mysqli_fetch_assoc($stmt)) {
             $recent_activities[] = $row;
@@ -232,126 +232,50 @@ $pipeline_series_json = json_encode([
     ['name' => 'Not Contacted', 'data' => $monthly_pipeline['Not Contacted']]
 ]);
 
-// --- LEAVE & ATTENDANCE DATA FIX (UPDATED DAY-TO-DAY LOGIC) ---
+// --- LEAVE & ATTENDANCE DATA FIX ---
 $att_on_time = 0;
 $att_late = 0;
 $att_wfh = 0;
 $att_absent = 0;
 $leaves_taken = 0;
-$leaves_total = 2; // Defaulting to 2 as per standard casual leaves
+$leaves_total = 2; // Defaulting to 2 as per standard casual leaves, you can fetch from DB if needed
 
 if ($conn) {
-    $today = date('Y-m-d');
-    $start_date_stat = date('Y-m-01');
+    $current_month = date('m');
+    $current_year_att = date('Y');
 
-    // Fetch Shift Timings to calculate Late accurately
-    $shift_start_str = '09:00 AM';
-    $prof_shift_q = mysqli_query($conn, "SELECT shift_timings, casual_leaves FROM employee_profiles WHERE user_id = '$logged_in_user_id'");
-    if ($prof_shift_q && $p_row = mysqli_fetch_assoc($prof_shift_q)) {
-        $leaves_total = $p_row['casual_leaves'] ?? 2;
-        if (!empty($p_row['shift_timings'])) {
-            $time_parts = explode('-', $p_row['shift_timings']);
-            $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
-        }
+    // 1. Fetch exact Late counts from Attendance matching the current month and user
+    // Adding conditions to catch variations of 'Late' status that might exist in db
+    $q_att_stats = mysqli_query($conn, "
+        SELECT 
+            SUM(CASE WHEN status = 'On Time' OR status = 'Present' THEN 1 ELSE 0 END) as on_time,
+            SUM(CASE WHEN status LIKE '%Late%' THEN 1 ELSE 0 END) as late,
+            SUM(CASE WHEN status LIKE '%WFH%' THEN 1 ELSE 0 END) as wfh,
+            SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent
+        FROM attendance 
+        WHERE user_id = '$logged_in_user_id' 
+        AND MONTH(date) = '$current_month' 
+        AND YEAR(date) = '$current_year_att'
+    ");
+    
+    if ($q_att_stats && $row = mysqli_fetch_assoc($q_att_stats)) {
+        $att_on_time = (int)$row['on_time'];
+        $att_late = (int)$row['late'];
+        $att_wfh = (int)$row['wfh'];
+        $att_absent = (int)$row['absent'];
     }
 
-    // 1. Fetch DB Records for the month
-    $stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
-    $stat_stmt = mysqli_prepare($conn, $stat_sql);
-    mysqli_stmt_bind_param($stat_stmt, "iss", $logged_in_user_id, $start_date_stat, $today);
-    mysqli_stmt_execute($stat_stmt);
-    $stat_res = mysqli_stmt_get_result($stat_stmt);
-
-    $month_att_db = [];
-    while ($stat_row = mysqli_fetch_assoc($stat_res)) {
-        $month_att_db[$stat_row['date']] = $stat_row;
-    }
-    mysqli_stmt_close($stat_stmt);
-
-    // 2. Fetch Approved Leaves safely for stats
-    $stmt_all_leaves_stat = mysqli_prepare($conn, "SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
-    mysqli_stmt_bind_param($stmt_all_leaves_stat, "is", $logged_in_user_id, $today);
-    mysqli_stmt_execute($stmt_all_leaves_stat);
-    $res_all_leaves_stat = mysqli_stmt_get_result($stmt_all_leaves_stat);
-    $all_app_leaves_stat = [];
-    if ($res_all_leaves_stat) {
-        while ($l_row = mysqli_fetch_assoc($res_all_leaves_stat)) {
-            $curr_l = new DateTime($l_row['start_date']);
-            $end_l = new DateTime($l_row['end_date']);
-            while ($curr_l <= $end_l) {
-                $all_app_leaves_stat[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
-                $curr_l->modify('+1 day');
-            }
-        }
-    }
-    mysqli_stmt_close($stmt_all_leaves_stat);
-
-    // 3. Exact Date Loop Engine
-    $iter_dt = new DateTime($start_date_stat);
-    $today_dt = new DateTime($today);
-
-    while ($iter_dt <= $today_dt) {
-        $d_str = $iter_dt->format('Y-m-d');
-        $dow = $iter_dt->format('N'); // 1 (Mon) to 7 (Sun)
-        $is_today = ($d_str === $today);
-        
-        if (isset($month_att_db[$d_str])) {
-            // Present in DB
-            $r = $month_att_db[$d_str];
-            $st = $r['status'];
-            $is_absent_db = (stripos($st, 'Absent') !== false && empty($r['punch_in']));
-
-            if ($is_absent_db) {
-                $att_absent++;
-            } else {
-                if (stripos($st, 'WFH') !== false) { 
-                    $att_wfh++; 
-                }
-
-                if (!empty($r['punch_in'])) {
-                    $expected_start_ts = strtotime($r['date'] . ' ' . $shift_start_str);
-                    $actual_start_ts = strtotime($r['punch_in']);
-                    if ($actual_start_ts > ($expected_start_ts + 60)) { 
-                        $att_late++; 
-                    } else { 
-                        if (stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
-                            $att_on_time++; 
-                        }
-                    }
-                } else {
-                    // No punch in but not marked absent in DB
-                    if (!$is_today && stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
-                        $att_absent++;
-                    }
-                }
-            }
-        } else {
-            // NOT in DB - check if Sunday or Leave
-            if (!$is_today) {
-                if ($dow == 7) {
-                    // Sunday - do nothing
-                } elseif (isset($all_app_leaves_stat[$d_str])) {
-                    // On Approved Leave
-                } else {
-                    // Working day, not in DB, not on leave => ABSENT
-                    $att_absent++;
-                }
-            } else {
-                 // TODAY logic - if not punched in and not Sunday/Leave, it is considered absent today
-                 if ($dow != 7 && !isset($all_app_leaves_stat[$d_str])) {
-                     $att_absent++; 
-                 }
-            }
-        }
-        $iter_dt->modify('+1 day');
-    }
-
-    // Leaves Taken specifically for current month (UI display text)
-    $leaves_taken = 0;
-    foreach ($all_app_leaves_stat as $ld => $ltype) {
-        if (strpos($ld, date('Y-m-')) === 0) {
-            $leaves_taken++;
-        }
+    // 2. Fetch exact Leaves Taken from leave_requests
+    $q_leaves = mysqli_query($conn, "
+        SELECT SUM(total_days) as taken 
+        FROM leave_requests 
+        WHERE user_id = '$logged_in_user_id' 
+        AND status = 'Approved' 
+        AND MONTH(start_date) = '$current_month' 
+        AND YEAR(start_date) = '$current_year_att'
+    ");
+    if ($q_leaves && $row = mysqli_fetch_assoc($q_leaves)) {
+        $leaves_taken = (int)$row['taken'];
     }
     
     // Calculate Leaves Remaining
@@ -750,21 +674,29 @@ if ($conn) {
                     <?php if(empty($recent_activities)): ?>
                         <p class="text-sm text-gray-500 italic">No recent activities.</p>
                     <?php else: ?>
+                        <?php foreach($recent_activities as $act): ?>
                         <?php 
-                        $activity_icons = [
-                            ['bg' => 'bg-green-500', 'icon' => '📞'],
-                            ['bg' => 'bg-blue-500', 'icon' => '💬'],
-                            ['bg' => 'bg-purple-500', 'icon' => '👤']
-                        ];
-                        foreach($recent_activities as $idx => $activity): 
-                            $style = $activity_icons[$idx % count($activity_icons)];
+                            $t_status = strtolower($act['status'] ?? 'pending');
+                            $s_bg = 'bg-amber-100 text-amber-700';
+                            if (strpos($t_status, 'complet') !== false || strpos($t_status, 'done') !== false) {
+                                $s_bg = 'bg-emerald-100 text-emerald-700';
+                            } elseif (strpos($t_status, 'progress') !== false) {
+                                $s_bg = 'bg-blue-100 text-blue-700';
+                            }
                         ?>
-                        <div class="relative flex flex-col">
-                            <div class="absolute -left-[27px] top-0 w-7 h-7 rounded-full <?= $style['bg'] ?> flex items-center justify-center text-white border-[3px] border-white text-[12px] shrink-0"><?= $style['icon'] ?></div>
-                            <p class="text-sm font-bold text-gray-900 truncate w-full" title="<?= htmlspecialchars($activity['title']) ?> - <?= htmlspecialchars($activity['description']) ?>">
-                                <?= htmlspecialchars($activity['title']) ?> - <?= htmlspecialchars($activity['description']) ?>
-                            </p>
-                            <p class="text-xs text-gray-500 mt-1.5"><?= date('h:i A', strtotime($activity['created_at'])) ?></p>
+                        <div class="relative flex gap-5 w-full">
+                            <div class="w-10 h-10 rounded-full bg-emerald-500 text-white flex items-center justify-center z-10 shadow-lg shadow-emerald-100 ring-4 ring-white shrink-0"><i class="fa-solid fa-bell text-xs"></i></div>
+                            <div class="pt-1 flex-1 pr-4 min-w-0">
+                                <p class="text-xs font-extrabold text-slate-800 leading-relaxed truncate" title="<?= htmlspecialchars($act['title']) ?> - <?= htmlspecialchars($act['description']) ?>">
+                                    <?= htmlspecialchars($act['title']) ?> - <?= htmlspecialchars($act['description']) ?>
+                                </p>
+                                <div class="flex items-center justify-between mt-1.5">
+                                    <p class="text-[11px] font-bold text-slate-400"><?= date('h:i A', strtotime($act['created_at'])) ?></p>
+                                    <span class="text-[8px] font-bold uppercase px-2 py-0.5 rounded <?= $s_bg ?> shrink-0">
+                                        <?= htmlspecialchars($act['status'] ?? 'Pending') ?>
+                                    </span>
+                                </div>
+                            </div>
                         </div>
                         <?php endforeach; ?>
                     <?php endif; ?>

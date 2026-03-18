@@ -18,7 +18,6 @@ $current_view = $_GET['view'] ?? '';
 // --- FIX: UPDATED FOLDER DETECTION ---
 $current_dir = strtolower(basename(dirname($_SERVER['PHP_SELF'])));
 
-// Added 'hr_executive' to ensure paths correctly use '../' to go to root.
 if (in_array($current_dir, ['manager', 'employee', 'tl', 'accounts', 'itadmin', 'it_executive', 'hr_executive','hr','cfo','sales_manager','sales_executive','ceo'])) {
     $base = '../';
 } else {
@@ -75,7 +74,7 @@ $sections = [
             ],
             [
                 'name' => 'Dashboard', 
-                'path' => $base . 'IT_Executive/ITexecutive_dashboard.php', 
+                'path' => $base . 'IT_Executive/ItExecutive_dashboard.php', 
                 'icon' => 'layout-dashboard', 
                 'allowed' => ['IT Executive'] 
             ],
@@ -95,13 +94,13 @@ $sections = [
             [
                 'name' => 'Dashboard', 
                 'path' => $base . 'sales_manager/sales_dashboard.php', 
-                'icon' => 'layout-dashboard', // Lucide icon for sales/charts
+                'icon' => 'layout-dashboard',
                 'allowed' => ['Sales Manager']
             ],
              [
                 'name' => 'Dashboard', 
                 'path' => $base . 'sales_executive/sales_executive_dashboard.php', 
-                'icon' => 'layout-dashboard', // Lucide icon for sales/charts
+                'icon' => 'layout-dashboard', 
                 'allowed' => ['Sales Executive']
             ],
 
@@ -184,16 +183,60 @@ $sections = [
                     ['name' => 'WFH Management', 'path' => $base . 'wfh_management.php', 'icon' => 'home']
                 ]
             ],
+            
+            [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['Sales Manager'],
+                'subItems' => [
+                    ['name' => 'My Attendance', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
+                ]
+            ],
 
             // --- ATTENDANCE (General) ---
             [
                 'name' => 'Attendance', 
                 'icon' => 'calendar-check', 
-                'allowed' => ['Employee', 'IT Executive', 'Accounts', 'CFO', 'Sales Manager', 'Sales Executive'],
+                'allowed' => ['Employee', 'Accounts'],
                 'subItems' => [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
+                ]
+            ],
+             [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['Sales Executive'],
+                'subItems' => [
+                    ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                   
+                ]
+            ],
+            [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => [ 'CFO'],
+                'subItems' => [
+                    ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Team Attendance', 'path' => $base . 'TL/attendance_tl.php', 'icon' => 'users'],
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
+                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
+                    ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
+                ]
+            ],
+             [
+                'name' => 'Attendance', 
+                'icon' => 'calendar-check', 
+                'allowed' => ['IT Executive'],
+                'subItems' => [
+                    ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
+                    ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
                     ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
                 ]
             ],
@@ -205,14 +248,16 @@ $sections = [
                     ['name' => 'Attendance Info', 'path' => $base . 'employee_attendance_details.php', 'icon' => 'user'],
                     ['name' => 'Team Attendance', 'path' => $base . 'ITadmin/it_team_attendance.php', 'icon' => 'users'],
                     ['name' => 'Leave Request', 'path' => $base . 'employee/leave_request.php', 'icon' => 'calendar-plus'],
-                    ['name' => 'WFH Request', 'path' => $base . 'employee/work_from_home.php', 'icon' => 'home'],
                     ['name' => 'Shift Swap', 'path' => $base . 'employee/shift_swap_request.php', 'icon' => 'arrow-left-right'],
+                    ['name' => 'Leave Management', 'path' => $base . 'leave_approval.php', 'icon' => 'calendar-off'],
+                    ['name' => 'Shift Swap Management', 'path' => $base . 'TL/shift_swap_approval_tl.php', 'icon' => 'replace'],
+
                 ]
             ],
             // --- EXTERNAL ATTENDANCE (IT ADMIN) ---
             [
                 'name' => 'External<br>Attendance', 
-                'path' => $base . 'ITadmin/external_attendance.php', // File ITadmin folder-il aanenkil 'ITadmin/external_attendance.php' ennu maattuka
+                'path' => $base . 'ITadmin/external_attendance.php',
                 'icon' => 'calendar-clock', 
                 'allowed' => ['IT Admin']
             ],
@@ -220,57 +265,50 @@ $sections = [
             [
                 'name' => 'Assign Tasks', 
                 'path' => $base . 'sales_manager/sales_assigntask.php', 
-                'icon' => 'clipboard-plus', // Lucide icon for assigning tasks
+                'icon' => 'clipboard-plus',
                 'allowed' => ['Sales Manager']
             ],
             // --- INVOICE DISPATCH (SALES MANAGER) ---
             [
                 'name' => 'Invoice Dispatch', 
                 'path' => $base . 'sales_manager/invoice_dispatch.php', 
-                'icon' => 'truck', // Lucide icon for dispatch/shipping
+                'icon' => 'truck',
                 'allowed' => ['Sales Manager']
             ],
             // --- CLIENT MANAGEMENT (SALES MANAGER) ---
             [
                 'name' => 'Client Management', 
                 'path' => $base . 'sales_manager/client_management.php', 
-                'icon' => 'users-round', // Lucide icon for clients/people
+                'icon' => 'users-round',
                 'allowed' => ['Sales Manager', 'Sales Executive']
             ],
             // --- EXPENSES APPROVAL (SALES MANAGER) ---
             [
                 'name' => 'Expense Approvals', 
                 'path' => $base . 'sales_manager/sales_expenses_approval.php', 
-                'icon' => 'check-square', // Lucide icon for approvals
+                'icon' => 'check-square',
                 'allowed' => ['Sales Manager']
             ],
             // --- MY TASKS (SALES EXECUTIVE) ---
             [
                 'name' => 'My Tasks', 
                 'path' => $base . 'sales_executive/my_tasks.php', 
-                'icon' => 'clipboard-list', // Lucide icon for tasks
+                'icon' => 'clipboard-list',
                 'allowed' => ['Sales Executive']
             ],
             // --- SALES EXPENSES (SALES EXECUTIVE) ---
             [
                 'name' => 'My Expenses', 
                 'path' => $base . 'sales_executive/sales_expenses.php', 
-                'icon' => 'receipt', // Lucide icon for expenses/receipts
+                'icon' => 'receipt',
                 'allowed' => ['Sales Executive']
             ],
             // --- INVOICE INBOX (SALES EXECUTIVE ROLE) ---
             [
                 'name' => 'Invoice Inbox', 
                 'path' => $base . 'sales_executive/invoice_inbox.php', 
-                'icon' => 'inbox', // Lucide icon for inbox
+                'icon' => 'inbox',
                 'allowed' => ['Sales Executive']
-            ],
-             // NEW: STOCK MAINTENANCE BUTTON
-            [
-                'name' => 'Stock Maintenance', 
-                'path' => $base . 'IT_Executive/stock_maintenance.php', // File path-ai check seithu kollungal
-                'icon' => 'package', // Lucide icon for stock/package
-                'allowed' => ['IT Admin', 'IT Executive',"CFO"]
             ],
             // --- TASK MANAGEMENT ---
             [
@@ -279,14 +317,13 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin'],
                 'subItems' => [
                     ['name' => 'Self Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
-                    ['name' => 'Team Tasks', 'path' => $base . 'manager_task.php?view=team_tasks', 'icon' => 'users'],
-                    ['name' => 'Projects', 'path' => $base . 'manager/manager_projects.php', 'icon' => 'layers'],
+                    ['name' => 'Team Projects', 'path' => $base . 'manager/manager_projects.php', 'icon' => 'layers'],
                 ]
             ],
 
              [
                 'name' => 'Manage Employees', 
-                'path' => $base . 'Manager/manager_employee.php', 
+                'path' => $base . 'manager/manager_employee.php', 
                 'icon' => 'users', 
                 'allowed' => ['Manager']
             ],
@@ -327,7 +364,7 @@ $sections = [
                 'name' => 'Clients', 
                 'path' => $base . 'manager/client.php', 
                 'icon' => 'users', 
-                'allowed' => ['Manager','System Admin']
+                'allowed' => ['Manager']
             ],
 
             // --- PERFORMANCE & PRODUCTIVITY ---
@@ -341,7 +378,7 @@ $sections = [
                 'name' => 'Performance', 
                 'path' => $base . 'HR/all_performance.php', 
                 'icon' => 'trending-up', 
-                'allowed' => ['HR'],
+                'allowed' => ['HR', 'CEO'],
             ],
             [
                 'name' => 'Performance', 
@@ -349,25 +386,19 @@ $sections = [
                 'icon' => 'trending-up', 
                 'allowed' => ['Manager'],
             ],
-            [
-                'name' => 'Productivity', 
-                'path' => $base . 'manager/productivity_monitor.php', 
-                'icon' => 'activity', 
-                'allowed' => ['Manager'] 
-            ],
             
             // --- HR EXECUTIVE PAGES ---
             [
                 'name' => 'Recruitment', 
                 'path' => $base . 'HR_executive/jobs.php', 
                 'icon' => 'briefcase', 
-                'allowed' => ['HR', 'HR Executive']
+                'allowed' => ['HR', 'HR Executive', 'CEO']
             ],
             [
                 'name' => 'Onboarding', 
                 'path' => $base . 'HR_executive/employee_onboarding.php', 
                 'icon' => 'user-plus', 
-                'allowed' => ['HR Executive', 'HR']
+                'allowed' => ['HR Executive', 'HR', 'CEO']
             ],
         
             [
@@ -386,24 +417,19 @@ $sections = [
             [
             'name' => 'My Team', 
             'path' => $base . 'manager/my_team.php', 
-            'icon' => 'users', // Uses lucide/font-awesome icon
+            'icon' => 'users',
             'allowed' => ['Manager', 'System Admin'] 
           ],
-             // --- ANNOUNCEMENT ---
-            [
-                'name' => 'Announcement', 
-                'path' => $base . 'announcement.php',
-                'icon' => 'megaphone', 
-                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR', 'CEO']
-            ],
-            [
-                'name' => 'Announcement', 
-                'path' => $base . 'view_announcements.php',
-                'icon' => 'megaphone', 
-                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO','Sales Manager','Sales Executive']
-            ],
+            
 
-            // --- TICKETS ---
+             // NEW: STOCK MAINTENANCE BUTTON
+            [
+                'name' => 'Stock Maintenance', 
+                'path' => $base . 'IT_Executive/stock_maintenance.php',
+                'icon' => 'package',
+                'allowed' => ['IT Admin', 'IT Executive',"CFO"]
+            ],
+            // --- TICKETS MANAGEMENT ---
             [
                 'name' => 'Manage Tickets', 
                 'path' => $base . 'ITadmin/manage_tickets.php', 
@@ -420,7 +446,7 @@ $sections = [
     ],
     
     [
-    'label' => 'Payslip Request', // FIX: Added separate section for Employee Payslip Request
+    'label' => 'Payslip Request', 
     'items' => [
         [
             'name' => 'Request Payslip', 
@@ -447,80 +473,90 @@ $sections = [
     [
         'label' => 'Accounts',
         'items' => [
-            // --- EMPLOYEE SALARY (ACCOUNTS ROLE) ---
+            // TASK MANAGEMENT ADDED TO THE TOP
+            [
+                'name' => 'Task Management', 
+                'icon' => 'clipboard-check', 
+                'allowed' => ['Accounts'],
+                'subItems' => [
+                    ['name' => 'Self Tasks', 'path' => $base . 'self_task.php', 'icon' => 'check-square'], 
+                ]
+            ],
             [
                 'name' => 'Employee Salary', 
                 'path' => $base . './Accounts/employee_salary.php', 
-                'icon' => 'banknote', // Lucide icon for money/salary
-                'allowed' => ['Accounts', 'HR']
+                'icon' => 'banknote',
+                'allowed' => ['Accounts', 'HR', 'CEO']
             ],
             [
                 'name' => 'Payslip <br>Management', 
                 'path' => $base . 'Accounts/payslip_management.php', 
                 'icon' => 'file-text', 
-                'allowed' => ['Accounts', 'CFO'] 
+                'allowed' => ['Accounts', 'CEO'] 
             ],
             [
                 'name' => 'Invoices', 
                 'path' => $base . 'Accounts/new_invoice.php', 
                 'icon' => 'file-text', 
-                'allowed' => ['Accounts'] 
+                'allowed' => ['Accounts', 'CEO'] 
             ],
             [
                 'name' => 'Purchase Orders', 
                 'path' => $base . 'Accounts/purchase_order.php', 
                 'icon' => 'shopping-cart', 
-                'allowed' => ['Accounts'] 
+                'allowed' => ['Accounts', 'CEO'] 
             ],
             // --- GENERAL LEDGER (ACCOUNTS ROLE) ---
             [
                 'name' => 'General Ledger', 
                 'path' => $base . 'Accounts/ledger.php', 
-                'icon' => 'book-open', // Lucide icon for ledger
-                'allowed' => ['Accounts', 'CFO']
+                'icon' => 'book-open',
+                'allowed' => ['Accounts', 'CFO', 'CEO']
             ],
+            // --- EXPENSES CLAIMS (ACCOUNTS ROLE) ---
+            [
+                'name' => 'Expenses Claims', 
+                'path' => $base . 'Accounts/expenses_claims.php', 
+                'icon' => 'wallet',
+                'allowed' => ['Accounts', 'CEO']
+            ],
+            [
+                'name' => 'Masters', 
+                'path' => $base . 'Accounts/masters.php', 
+                'icon' => 'database', 
+                'allowed' => ['Accounts', 'CFO', 'CEO']
+            ],
+            [
+                'name' => 'Reports', 
+                'path' => $base . 'Accounts/accounts_reports.php', 
+                'icon' => 'pie-chart', 
+                'allowed' => ['Accounts']
+            ]
         ]
     ],
-    [
-        'label' => 'Salary Management',
-        'items' => [
-        ]
-    ],  
     [
         'label' => 'CFO Management',
         'items' => [
             [
                 'name' => 'Approvals',
                 'path' => $base . 'CFO/cfo_approvals.php',
-                'icon' => 'check-square', // Icon for Approvals
-                'allowed' => ['CFO', 'System Admin']
+                'icon' => 'check-square',
+                'allowed' => ['CFO', 'System Admin', 'CEO']
             ],
             [
                 'name' => 'Financials',
                 'path' => $base . 'CFO/cfo_financials.php',
-                'icon' => 'trending-up', // Icon for Financials
-                'allowed' => ['CFO', 'System Admin']
+                'icon' => 'trending-up',
+                'allowed' => ['CFO', 'System Admin', 'CEO']
             ],
             [
                 'name' => 'Payroll Review',
                 'path' => $base . 'CFO/cfo_payroll.php',
-                'icon' => 'banknote', // Icon for Payroll
-                'allowed' => ['CFO', 'System Admin']
+                'icon' => 'banknote',
+                'allowed' => ['CFO', 'System Admin', 'CEO']
             ],
         ]
     ],
-    // --- MASTERS (ACCOUNTS ROLE) ---
-        [
-            'label' => 'Masters',
-            'items' => [
-                [
-                'name' => 'Masters', 
-                'path' => $base . 'accounts/masters.php', 
-                'icon' => 'database', 
-                'allowed' => ['Accounts', 'CFO']
-            ],
-            ]
-        ],
     //ticket raise
     [
         'label' => 'Ticket Raise',
@@ -532,35 +568,24 @@ $sections = [
                 'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Accounts', 'HR Executive', 'CFO', 'Sales Manager', 'Sales Executive']
             ],
         ]
-    ],
-    // --- FIX: Corrected Reports Section Syntax ---
-    [
-        'label' => 'Reports',
-        'items' => [
-            [
-                'name' => 'Reports', 
-                'path' => $base . 'Accounts/accounts_reports.php', 
-                'icon' => 'pie-chart', 
-                'allowed' => ['Accounts']
-            ]
-        ]
-    ],
-    //Au
-     [
-     'label' => 'Auditor Report',
-        'items' => [
-    [
-    'name' => 'Auditor Report', 
-    'path' => $base . 'CFO/cfo_auditor_report.php', 
-    'icon' => 'file-check-2', // அல்லது 'clipboard-check'
-    'allowed' => ['CFO']
-   ]
-        ]
-     ],
+    ], 
 
     [
         'label' => 'Support & Tools',
         'items' => [
+             // --- ANNOUNCEMENT ---
+            [
+                'name' => 'Announcement', 
+                'path' => $base . 'announcement.php',
+                'icon' => 'megaphone', 
+                'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR', 'CEO']
+            ],
+            [
+                'name' => 'Announcement', 
+                'path' => $base . 'view_announcements.php',
+                'icon' => 'megaphone', 
+                'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO','Sales Manager','Sales Executive']
+            ],
             [
                 'name' => 'Help & Support', 
                 'path' => $base . 'help_support.php', 
@@ -580,7 +605,6 @@ $sections = [
 // 3. FILTER SECTIONS BY USER ROLE
 $activeSections = [];
 foreach ($sections as $section) {
-    // FIX: Added isset check to prevent crashes on line 314
     $filteredItems = array_filter($section['items'], function ($item) use ($user_role) {
         return isset($item['allowed']) && in_array($user_role, $item['allowed']);
     });
@@ -592,6 +616,7 @@ foreach ($sections as $section) {
 ?>
 
 <script src="https://unpkg.com/lucide@latest"></script>
+
 <style>
     :root {
         --primary-sidebar-width: 95px;
@@ -600,6 +625,31 @@ foreach ($sections as $section) {
         --border-color: #e4e4e7;
         --text-muted: #71717a;
     }
+    /* Hide the mobile close button on Desktop by default */
+    .mobile-close-container {
+        display: none;
+        width: 100%; 
+        text-align: left; /* Changed to left to match your screenshot */
+        padding: 15px 0 0 15px; 
+        margin-bottom: 5px;
+    }
+    /* 📱 NEW: Mobile Overlay */
+    .sidebar-overlay {
+        display: none; 
+        position: fixed; inset: 0; background: rgba(0,0,0,0.5); 
+        z-index: 1000; backdrop-filter: blur(2px);
+    }
+    .sidebar-overlay.active { display: block; }
+
+    /* 📱 NEW: Mobile Hamburger Toggle */
+    /* 📱 NEW: Mobile Hamburger Toggle */
+    .mobile-menu-btn {
+        display: none; position: fixed; top: 15px; left: 15px; z-index: 999; /* Changed to 999 so sidebar covers it */
+        background: #16636B; color: #fff; border: none; border-radius: 8px;
+        padding: 10px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        align-items: center; justify-content: center;
+    }
+
     .sidebar-primary {
         width: var(--primary-sidebar-width); 
         height: 100vh;
@@ -608,8 +658,10 @@ foreach ($sections as $section) {
         position: fixed; left: 0; top: 0; z-index: 1001;
         overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
         display: flex; flex-direction: column;
+        transition: transform 0.3s ease; /* For smooth mobile sliding */
     }
     .sidebar-primary::-webkit-scrollbar { display: none; }
+    
     .nav-inner { display: flex; flex-direction: column; align-items: center; padding: 20px 0; flex-grow: 1; width: 100%; }
     .nav-item {
         width: 100%; padding: 12px 0; display: flex; flex-direction: column; align-items: center;
@@ -625,6 +677,7 @@ foreach ($sections as $section) {
         transform: translateX(-105%); transition: transform 0.3s ease; z-index: 1000; overflow-y: auto; scrollbar-width: none;
     }
     .sidebar-secondary.open { transform: translateX(0); }
+    
     #subItemContainer { padding: 30px 15px; display: flex; flex-direction: column; }
     .sub-item {
         display: flex; align-items: center; padding: 10px; text-decoration: none; color: #3f3f46;
@@ -632,6 +685,7 @@ foreach ($sections as $section) {
     }
     .sub-item:hover { background: var(--active-bg); color: #000; }
     .sub-item .sub-icon { margin-right: 10px; width: 16px; height: 16px; color: #71717a; }
+    
     .back-btn {
         display: flex; align-items: center; padding: 10px; margin-bottom: 20px;
         cursor: pointer; color: var(--text-muted); font-size: 13px; font-weight: 600;
@@ -642,11 +696,50 @@ foreach ($sections as $section) {
     .user-footer { margin-top: auto; padding-bottom: 20px; width: 100%; display: flex; flex-direction: column; align-items: center; border-top: 1px solid var(--border-color); background: #fff; padding-top: 15px; }
     .logout-link { font-size: 11px; color: #ef4444; text-decoration: none; font-weight: 700; margin-top: 8px; display: flex; align-items: center; gap: 5px; transition: 0.2s; }
     .logout-link:hover { opacity: 0.8; }
+
+    /* 📱 ----------------------------------------- */
+    /* 📱 RESPONSIVE MEDIA QUERIES (TABLET & MOBILE)*/
+    /* 📱 ----------------------------------------- */
+    @media (max-width: 991px) {
+        .mobile-menu-btn { 
+            display: flex; /* Show the hamburger button */
+        }
+        .mobile-close-container {
+            display: block; /* Show the red arrow ONLY on mobile */
+        }
+        
+        .sidebar-primary {
+            transform: translateX(-100%); /* Hide off-screen by default */
+            box-shadow: 4px 0 15px rgba(0,0,0,0.1);
+        }
+        .sidebar-primary.mobile-open {
+            transform: translateX(0); /* Slide in when open */
+        }
+
+        .sidebar-secondary {
+            left: 0; /* Attach to left edge on mobile */
+            width: 100%; max-width: 280px; /* Take up more screen space on small devices */
+            z-index: 1002; /* Float entirely above the primary menu when opened */
+            box-shadow: 4px 0 15px rgba(0,0,0,0.15);
+        }
+    }
 </style>
 
-<aside class="sidebar-primary">
+<button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Toggle Menu">
+    <i data-lucide="menu"></i>
+</button>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleMobileMenu()"></div>
+
+<aside class="sidebar-primary" id="primarySidebar">
     <div class="nav-inner">
-        <div style="padding-bottom: 20px; flex-shrink: 0;"><img src="<?= $base ?>assets/logo.png" style="height: 40px; width: auto; border-radius: 8px;"></div>
+        <div class="mobile-close-container">
+             <i data-lucide="arrow-left" style="cursor: pointer; color: #ef4444; width: 24px; height: 24px;" onclick="toggleMobileMenu()"></i>
+        </div>
+        
+        <div style="padding-bottom: 20px; flex-shrink: 0;">
+            <img src="<?= $base ?>assets/logo.png" style="height: 40px; width: auto; border-radius: 8px;">
+        </div>
+        
         <?php foreach ($activeSections as $section): ?>
             <?php foreach ($section['items'] as $item): 
                 $itemPath = $item['path'] ?? '#';
@@ -685,20 +778,47 @@ foreach ($sections as $section) {
 
 <script>
     lucide.createIcons();
+    
+    // 1. Mobile Toggle Function
+    function toggleMobileMenu() {
+        const sidebar = document.getElementById('primarySidebar');
+        const overlay = document.getElementById('sidebarOverlay');
+        
+        sidebar.classList.toggle('mobile-open');
+        overlay.classList.toggle('active');
+        
+        if(!sidebar.classList.contains('mobile-open')) {
+            closeSubMenu();
+        }
+    }
+
+    // 2. Navigation Handler (Updated to support active states)
     function handleNavClick(item, element) {
         const panel = document.getElementById('secondaryPanel');
         const container = document.getElementById('subItemContainer');
         const main = document.getElementById('mainContent');
 
+        // Reset active states for primary icons
         document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
         element.classList.add('active');
 
         if (item.subItems && item.subItems.length > 0) {
             panel.classList.add('open');
             if(main) main.classList.add('main-shifted');
+            
             container.innerHTML = `<div class="back-btn" onclick="closeSubMenu()"><i data-lucide="chevron-left" style="width: 16px; height: 16px; margin-right: 8px;"></i>Back</div><h3 style="font-size:14px; font-weight:700; margin-bottom:15px; padding-left:10px;">${item.name}</h3>`;
+            
             item.subItems.forEach(sub => {
-                container.innerHTML += `<a href="${sub.path}" class="sub-item"><i data-lucide="${sub.icon || 'circle'}" class="sub-icon"></i><span style="flex:1">${sub.name}</span><i data-lucide="chevron-right" style="width:12px; height:12px; color:#a1a1aa"></i></a>`;
+                // Check if this specific sub-item is the current page
+                const isCurrentPage = window.location.href.includes(sub.path);
+                const activeClass = isCurrentPage ? 'style="background: var(--active-bg); color: #16636B; font-weight: 700; border-left: 3px solid #16636B;"' : '';
+                
+                container.innerHTML += `
+                    <a href="${sub.path}" class="sub-item" ${activeClass}>
+                        <i data-lucide="${sub.icon || 'circle'}" class="sub-icon"></i>
+                        <span style="flex:1">${sub.name}</span>
+                        <i data-lucide="chevron-right" style="width:12px; height:12px; color:#a1a1aa"></i>
+                    </a>`;
             });
             lucide.createIcons();
         } else {
@@ -706,10 +826,40 @@ foreach ($sections as $section) {
             if(item.path && item.path !== '#') window.location.href = item.path;
         }
     }
+    
     function closeSubMenu() {
         const panel = document.getElementById('secondaryPanel');
         const main = document.getElementById('mainContent');
         if(panel) panel.classList.remove('open');
         if(main) main.classList.remove('main-shifted');
     }
+
+    // 3. NEW: PERSISTENCE LOGIC
+    // Runs automatically when the page loads to keep the sidebar open
+    document.addEventListener("DOMContentLoaded", function() {
+        const currentURL = window.location.href;
+        const navItems = document.querySelectorAll('.nav-item');
+        
+        navItems.forEach(nav => {
+            const onclickAttr = nav.getAttribute('onclick');
+            if(onclickAttr) {
+                // Parse the data from the handleNavClick function call
+                try {
+                    const match = onclickAttr.match(/handleNavClick\(({.*}), this\)/);
+                    if(match && match[1]) {
+                        const itemData = JSON.parse(match[1]);
+                        
+                        if(itemData.subItems) {
+                            // Check if any sub-item path matches the current URL
+                            const hasActiveSub = itemData.subItems.some(sub => currentURL.includes(sub.path));
+                            if(hasActiveSub) {
+                                // Re-trigger the click logic to show the menu
+                                handleNavClick(itemData, nav);
+                            }
+                        }
+                    }
+                } catch(e) { console.error("Sidebar Persistence Error:", e); }
+            }
+        });
+    });
 </script>
