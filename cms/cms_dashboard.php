@@ -38,27 +38,7 @@
 
     <main class="flex-1 flex flex-col h-screen overflow-y-auto w-full">
         
-        <header class="h-16 bg-white shadow-sm flex items-center justify-between px-4 md:px-6 z-10 shrink-0 sticky top-0">
-            <div class="hidden sm:flex items-center bg-gray-100 rounded-md px-3 py-2 w-48 md:w-96 transition-all">
-                <i class="fas fa-search text-gray-400"></i>
-                <input type="text" placeholder="Search..." class="bg-transparent border-none outline-none ml-2 w-full text-sm">
-            </div>
-            
-            <button class="sm:hidden text-gray-500 hover:text-workack p-2">
-                <i class="fas fa-search"></i>
-            </button>
-
-            <div class="flex items-center space-x-2 md:space-x-4">
-                <button class="text-gray-500 hover:text-workack p-2 relative">
-                    <i class="fas fa-bell"></i>
-                    <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                </button>
-                <div class="flex items-center space-x-2 border-l pl-2 md:pl-4 cursor-pointer">
-                    <div class="w-8 h-8 bg-workack rounded-full flex items-center justify-center text-white font-bold text-sm">A</div>
-                    <span class="text-sm font-medium text-gray-700 hidden sm:block">Admin</span>
-                </div>
-            </div>
-        </header>
+       <?php include 'header.php'; ?>
 
         <div class="p-4 md:p-6 pb-20 md:pb-6"> 
             <div class="mb-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">

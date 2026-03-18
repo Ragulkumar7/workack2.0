@@ -28,15 +28,8 @@
      <?php include 'sidebar.php'; ?>
 
     <main class="flex-1 flex flex-col h-screen overflow-y-auto">
-        <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10 sticky top-0">
-            <h2 class="text-xl font-semibold text-gray-800">Client & Signup Management</h2>
-            <div class="flex items-center space-x-4">
-                <div class="flex items-center space-x-2 border-l pl-4 cursor-pointer">
-                    <div class="w-8 h-8 bg-workack rounded-full flex items-center justify-center text-white font-bold">A</div>
-                    <span class="text-sm font-medium text-gray-700">Admin</span>
-                </div>
-            </div>
-        </header>
+        
+        <?php include 'header.php'; ?>
 
         <div class="p-6">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -87,13 +80,16 @@
             </div>
 
             <div class="bg-white rounded-lg shadow overflow-hidden">
-                <div class="flex border-b">
-                    <button onclick="switchTab('clients')" id="tab-clients" class="px-6 py-4 text-sm font-medium border-b-2 border-workack text-workack">
-                        <i class="fas fa-briefcase mr-2"></i> Paid Clients
-                    </button>
-                    <button onclick="switchTab('demos')" id="tab-demos" class="px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-workack">
-                        <i class="fas fa-vial mr-2"></i> Demo Users
-                    </button>
+                <div class="flex justify-between items-center border-b pr-4">
+                    <div class="flex">
+                        <button onclick="switchTab('clients')" id="tab-clients" class="px-6 py-4 text-sm font-medium border-b-2 border-workack text-workack">
+                            <i class="fas fa-briefcase mr-2"></i> Paid Clients
+                        </button>
+                        <button onclick="switchTab('demos')" id="tab-demos" class="px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-workack">
+                            <i class="fas fa-vial mr-2"></i> Demo Users
+                        </button>
+                    </div>
+                    
                 </div>
 
                 <div id="content-clients" class="block p-4 overflow-x-auto">
@@ -124,7 +120,7 @@
                                 <td class="px-4 py-4 font-semibold text-gray-700">Jan 09, 2027</td>
                                 <td class="px-4 py-4"><span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-[10px] font-bold uppercase tracking-wider">Active</span></td>
                                 <td class="px-4 py-4 text-center">
-                                    <button onclick="viewClient('Neoera Infotech', 'contact@neoera.in', 'Jan 10, 2026', 'Annual', '₹85,000', 'Jan 09, 2027')" class="text-gray-400 hover:text-workack mr-3"><i class="fas fa-eye"></i></button>
+                                    <button onclick="viewClient('John Doe', 'john.work@neoera.in', 'john.personal@gmail.com', 'Neoera Infotech', 'Admin', 'Manager', '+91 9876543210', 'Looking for an annual license setup.')" class="text-gray-400 hover:text-workack mr-3"><i class="fas fa-eye"></i></button>
                                     <button onclick="openDeleteModal('row-client-1', 'Neoera Infotech')" class="text-gray-400 hover:text-red-500"><i class="fas fa-trash"></i></button>
                                 </td>
                             </tr>
@@ -166,40 +162,46 @@
     </main>
 
     <div id="viewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center p-4">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden transition-all transform duration-200">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden transition-all transform duration-200">
             <div class="bg-workack-darker p-4 text-white flex justify-between items-center">
                 <h3 class="text-lg font-bold">Client Detailed View</h3>
                 <button onclick="closeModal('viewModal')" class="text-white hover:text-red-300"><i class="fas fa-times text-xl"></i></button>
             </div>
             <div class="p-6">
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="col-span-1">
-                        <label class="block text-xs font-bold text-gray-500 uppercase">Company Name</label>
-                        <input type="text" id="view-name" class="w-full mt-1 p-2 bg-gray-100 border rounded text-sm font-semibold outline-none" readonly>
-                    </div>
-                    <div class="col-span-1">
-                        <label class="block text-xs font-bold text-gray-500 uppercase">Email</label>
-                        <input type="text" id="view-email" class="w-full mt-1 p-2 bg-gray-100 border rounded text-sm font-semibold outline-none" readonly>
-                    </div>
-                    <div class="col-span-1">
-                        <label class="block text-xs font-bold text-gray-500 uppercase">Signup Date</label>
-                        <input type="text" id="view-signup" class="w-full mt-1 p-2 bg-gray-100 border rounded text-sm font-semibold outline-none" readonly>
-                    </div>
-                    <div class="col-span-1">
-                        <label class="block text-xs font-bold text-gray-500 uppercase">Subscription</label>
-                        <input type="text" id="view-sub" class="w-full mt-1 p-2 bg-gray-100 border rounded text-sm font-semibold outline-none" readonly>
-                    </div>
-                    <div class="col-span-1">
-                        <label class="block text-xs font-bold text-gray-500 uppercase">Payment</label>
-                        <input type="text" id="view-payment" class="w-full mt-1 p-2 bg-gray-100 border rounded text-sm font-semibold outline-none" readonly>
-                    </div>
-                    <div class="col-span-1">
-                        <label class="block text-xs font-bold text-gray-500 uppercase">Expiry Date</label>
-                        <input type="text" id="view-expiry" class="w-full mt-1 p-2 bg-gray-100 border rounded text-sm font-semibold text-red-600 outline-none" readonly>
-                    </div>
+                <div class="border border-gray-200 rounded-lg overflow-hidden">
+                    <table class="w-full text-left text-sm">
+                        <tbody class="divide-y divide-gray-200">
+                            <tr>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase w-1/4 border-r border-gray-200">Full Name</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800 w-1/4 border-r border-gray-200" id="view-fullname"></td>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase w-1/4 border-r border-gray-200">Organization</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800 w-1/4" id="view-organization"></td>
+                            </tr>
+                            <tr>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase w-1/4 border-r border-gray-200">Work Mail</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800 w-1/4 border-r border-gray-200" id="view-workmail"></td>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase w-1/4 border-r border-gray-200">Personal Mail</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800 w-1/4" id="view-personalmail"></td>
+                            </tr>
+                            <tr>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase w-1/4 border-r border-gray-200">Roles</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800 w-1/4 border-r border-gray-200" id="view-roles"></td>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase w-1/4 border-r border-gray-200">Designation</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800 w-1/4" id="view-designation"></td>
+                            </tr>
+                            <tr>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase w-1/4 border-r border-gray-200">Phone</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800" colspan="3" id="view-phone"></td>
+                            </tr>
+                            <tr>
+                                <th class="px-4 py-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase align-top w-1/4 border-r border-gray-200">Message</th>
+                                <td class="px-4 py-3 bg-white text-sm font-semibold text-gray-800 whitespace-pre-wrap" colspan="3" id="view-message"></td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
-                <div class="pt-6 flex justify-end">
-                    <button onclick="closeModal('viewModal')" class="bg-gray-200 text-gray-700 px-6 py-2 rounded font-semibold hover:bg-gray-300">Close</button>
+                <div class="pt-6 flex justify-end space-x-3">
+                    <button onclick="closeModal('viewModal')" class="bg-gray-200 text-gray-700 px-6 py-2 rounded font-semibold hover:bg-gray-300 transition-colors">Close</button>
                 </div>
             </div>
         </div>
@@ -243,23 +245,25 @@
             }
         }
 
-        function viewClient(name, email, signup, sub, payment, expiry) {
-            document.getElementById('view-name').value = name;
-            document.getElementById('view-email').value = email;
-            document.getElementById('view-signup').value = signup;
-            document.getElementById('view-sub').value = sub;
-            document.getElementById('view-payment').value = payment;
-            document.getElementById('view-expiry').value = expiry;
+        // Updated JS to use innerText for table cells instead of value
+        function viewClient(fullname, workmail, personalmail, organization, roles, designation, phone, message) {
+            document.getElementById('view-fullname').innerText = fullname;
+            document.getElementById('view-workmail').innerText = workmail;
+            document.getElementById('view-personalmail').innerText = personalmail;
+            document.getElementById('view-organization').innerText = organization;
+            document.getElementById('view-roles').innerText = roles;
+            document.getElementById('view-designation').innerText = designation;
+            document.getElementById('view-phone').innerText = phone;
+            document.getElementById('view-message').innerText = message;
+            
             document.getElementById('viewModal').classList.remove('hidden');
         }
 
-        // Open custom delete modal
         function openDeleteModal(rowId, clientName) {
             currentTargetRow = rowId;
             document.getElementById('delete-client-name').innerText = clientName;
             document.getElementById('deleteModal').classList.remove('hidden');
             
-            // Set up the actual delete button action
             document.getElementById('confirm-delete-btn').onclick = function() {
                 executeDelete();
             };
@@ -271,7 +275,6 @@
                 row.classList.add('opacity-0', 'duration-300');
                 setTimeout(() => {
                     row.remove();
-                    // Update stat counter
                     const stat = document.getElementById('stat-paid');
                     stat.innerText = (parseInt(stat.innerText) - 1);
                 }, 300);

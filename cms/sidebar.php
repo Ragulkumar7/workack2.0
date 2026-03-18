@@ -36,6 +36,10 @@
             <a href="licenses.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-key w-6"></i> Licenses</a>
             <a href="payments_details.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-wallet w-6"></i> Payments</a>
         </nav>
+        
+        <div class="px-4 py-4 border-t border-workack-dark">
+            <a href="index.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-sign-in-alt w-6"></i> Logout</a>
+        </div>
     </aside>
 
     <script>
