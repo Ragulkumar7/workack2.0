@@ -38,5 +38,25 @@
         </nav>
     </aside>
 
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // Get the current file name from the URL (e.g., 'cms_dashboard.php')
+            const currentPage = window.location.pathname.split('/').pop();
+            
+            // Get all links inside the navigation
+            const navLinks = document.querySelectorAll('nav a');
+            
+            navLinks.forEach(link => {
+                const linkHref = link.getAttribute('href');
+                
+                // Check if the link matches the current page
+                if (linkHref === currentPage || (currentPage === '' && linkHref === 'cms_dashboard.php')) {
+                    // Remove hover effect and add the permanent mild highlight
+                    link.classList.remove('hover:bg-workack-dark');
+                    link.classList.add('bg-workack-dark', 'bg-opacity-70', 'border-l-4', 'border-workack-light');
+                }
+            });
+        });
+    </script>
 </body>
 </html>
