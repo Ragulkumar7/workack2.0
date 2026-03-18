@@ -52,14 +52,14 @@
                 <h2 class="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
                 <p class="text-gray-500 mb-8 text-sm">Please enter your credentials to access your dashboard.</p>
 
-                <form class="space-y-6">
+                <form id="loginForm" class="space-y-6" onsubmit="handleLogin(event)">
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-2">Username / Email</label>
-                        <input type="email" placeholder="employee@gmail.com" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-teal focus:border-transparent transition bg-gray-50">
+                        <input type="text" id="username" placeholder="employee@gmail.com" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-teal focus:border-transparent transition bg-gray-50" required>
                     </div>
                     <div>
                         <label class="block text-sm font-semibold text-gray-700 mb-2">Password</label>
-                        <input type="password" placeholder="••••••••" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-teal focus:border-transparent transition bg-gray-50">
+                        <input type="password" id="password" placeholder="••••••••" class="w-full px-4 py-3 rounded-lg border border-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-teal focus:border-transparent transition bg-gray-50" required>
                     </div>
                     <button type="submit" class="w-full btn-brand text-white font-semibold py-3 mt-4 rounded-lg transition duration-200 shadow-lg hover:shadow-xl">
                         Sign In to CMS Workack
@@ -73,5 +73,24 @@
         </div>
 
     </div>
+
+    <script>
+        function handleLogin(event) {
+            // Prevent the form from submitting normally
+            event.preventDefault();
+
+            // Get the values entered by the user
+            const user = document.getElementById('username').value;
+            const pass = document.getElementById('password').value;
+
+            // Check if credentials match
+            if (user === 'admin' && pass === 'admin@123') {
+                // Redirect to dashboard page (Change 'dashboard.php' to your actual dashboard file name if different)
+                window.location.href = 'cms_dashboard.php'; 
+            } else {
+                alert('Invalid Username or Password! Please try again.');
+            }
+        }
+    </script>
 </body>
 </html>
