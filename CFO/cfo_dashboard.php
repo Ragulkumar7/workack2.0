@@ -21,7 +21,6 @@ $username = $_SESSION['username'] ?? 'User';
 // -------------------------------------------------------------------------
 // 2. FETCH USER PROFILE & LEAVE DATA
 // -------------------------------------------------------------------------
-$employee_name = "Chief Financial Officer";
 $employee_role = "Chief Financial Officer";
 $employee_phone = "Not Set";
 $employee_email = "Not Set";
@@ -327,6 +326,14 @@ usort($all_notifications, function($a, $b) { return strtotime($b['time']) - strt
 $all_notifications = array_slice($all_notifications, 0, 6);
 
 
+// Fetch Tasks
+$task_stmt = @mysqli_prepare($conn, "SELECT * FROM personal_taskboard WHERE user_id = ? ORDER BY id DESC LIMIT 4");
+if ($task_stmt) {
+    mysqli_stmt_bind_param($task_stmt, "i", $current_user_id);
+    mysqli_stmt_execute($task_stmt);
+    $tasks_result = mysqli_stmt_get_result($task_stmt);
+} else { $tasks_result = null; }
+
 // -------------------------------------------------------------------------
 // 5. FINANCIAL DATA & CHART PREP (CFO Dashboard specifics)
 // -------------------------------------------------------------------------
@@ -340,10 +347,10 @@ $months = [
 ];
 
 $kpi = ['income' => 0, 'expense' => 0, 'profit' => 0, 'ar' => 0];
-$kpi['income'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
-$kpi['expense'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
+$kpi['income'] = (float)(@mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0);
+$kpi['expense'] = (float)(@mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = '$selected_month' AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0);
 $kpi['profit'] = $kpi['income'] - $kpi['expense'];
-$kpi['ar'] = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status != 'Paid'"))['val'] ?? 0;
+$kpi['ar'] = (float)(@mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(grand_total) as val FROM invoices WHERE status != 'Paid'"))['val'] ?? 0);
 
 $recent_invoices = [];
 $res_inv = @mysqli_query($conn, "SELECT i.invoice_no, c.client_name, i.invoice_date, i.grand_total, i.status FROM invoices i JOIN clients c ON i.client_id = c.id ORDER BY i.created_at DESC LIMIT 6");
@@ -356,11 +363,47 @@ if($res_inv){
 $rev_labels = []; $rev_income = []; $rev_expense = []; $rev_profit = [];
 for($m=1; $m<=12; $m++) {
     $rev_labels[] = date('M', mktime(0,0,0,$m, 1));
-    $inc = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = $m AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
-    $exp = @mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = $m AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0;
+    $inc = (float)(@mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = $m AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0);
+    $exp = (float)(@mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = $m AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0);
     $rev_income[] = $inc;
     $rev_expense[] = $exp;
     $rev_profit[] = $inc - $exp;
+}
+
+$exp_labels = []; $exp_data = [];
+$res_dist = @mysqli_query($conn, "SELECT remarks, SUM(debit_amount) as val FROM general_ledger WHERE debit_amount > 0 AND YEAR(entry_date) = '$selected_year' GROUP BY remarks ORDER BY val DESC LIMIT 4");
+if($res_dist && mysqli_num_rows($res_dist) > 0){ 
+    while($row = mysqli_fetch_assoc($res_dist)){ 
+        $exp_labels[] = empty($row['remarks']) ? 'Other' : htmlspecialchars($row['remarks']); 
+        $exp_data[] = (float)$row['val']; 
+    } 
+} else {
+    $exp_labels = ['No Expense Data']; 
+    $exp_data = [1]; 
+}
+
+$inv_status_data = [0, 0, 0];
+$res_inv_sts = @mysqli_query($conn, "SELECT status, COUNT(*) as cnt FROM invoices WHERE YEAR(created_at) = '$selected_year' GROUP BY status");
+if($res_inv_sts){
+    while($row = mysqli_fetch_assoc($res_inv_sts)){
+        if(in_array($row['status'], ['Paid', 'Approved'])) $inv_status_data[0] += (int)$row['cnt'];
+        elseif(in_array($row['status'], ['Pending Approval', 'Pending'])) $inv_status_data[1] += (int)$row['cnt'];
+        elseif($row['status'] == 'Rejected') $inv_status_data[2] += (int)$row['cnt'];
+    }
+}
+
+$cash_flow_income = []; $cash_flow_expense = [];
+for($m=1; $m<=6; $m++) {
+    $cash_flow_income[] = (float)(@mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(credit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = $m AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0);
+    $cash_flow_expense[] = (float)(@mysqli_fetch_assoc(@mysqli_query($conn, "SELECT SUM(debit_amount) as val FROM general_ledger WHERE MONTH(entry_date) = $m AND YEAR(entry_date) = '$selected_year'"))['val'] ?? 0);
+}
+
+$recent_transactions = [];
+$res_recent = @mysqli_query($conn, "SELECT entry_date, party_name, entry_type, GREATEST(debit_amount, credit_amount) as amount FROM general_ledger ORDER BY entry_date DESC, id DESC LIMIT 5");
+if($res_recent){
+    while($row = mysqli_fetch_assoc($res_recent)){
+        $recent_transactions[] = [ 'date' => date('d M', strtotime($row['entry_date'])), 'party' => $row['party_name'], 'type' => $row['entry_type'], 'amount' => $row['amount'] ];
+    }
 }
 
 include '../sidebars.php'; 
@@ -535,7 +578,7 @@ include '../header.php';
                                 
                                 <div class="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
                                     <div class="flex items-center gap-2"><i class="fa-solid fa-plane-departure text-rose-400 text-xs"></i><span class="text-xs text-slate-800 font-bold uppercase">Leaves Taken</span></div>
-                                    <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs"><?php echo $current_month_leaves; ?> Days</span>
+                                    <span class="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-xs"><?php echo $leaves_taken; ?> Days</span>
                                 </div>
                             </div>
                             <div class="relative flex-shrink-0 w-24 h-24 mx-auto">
@@ -684,11 +727,11 @@ include '../header.php';
                         <a href="../Accounts/ledger.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
                             <i class="fa-solid fa-book-open text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Ledger</span>
                         </a>
-                        <a href="cfo_reports.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
+                        <a href="cfo_financials.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
                             <i class="fa-solid fa-chart-pie text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Reports</span>
                         </a>
-                        <a href="tax_filing.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
-                            <i class="fa-solid fa-building-columns text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Tax & Filing</span>
+                        <a href="../IT_Executive/stock_maintenance.php" class="bg-slate-50 border border-slate-100 rounded-xl py-4 px-2 flex flex-col items-center justify-center gap-2 hover:border-teal-300 hover:bg-teal-50 transition group h-full">
+                            <i class="fa-solid fa-building-columns text-2xl text-slate-400 group-hover:text-teal-600 transition"></i><span class="text-[10px] font-bold uppercase tracking-wide text-slate-700 text-center">Stock Maintenance</span>
                         </a>
                     </div>
                 </div>
@@ -778,6 +821,8 @@ include '../header.php';
                 </div>
             </div>
 
+            
+            </div>
         </div>
 
         <div class="dashboard-container">
@@ -794,7 +839,7 @@ include '../header.php';
                 <div class="card-body">
                     <div class="flex justify-between items-center mb-4">
                         <h3 class="font-bold text-slate-800 text-lg">Recent Transactions</h3>
-                        <a href="ledger.php" class="text-xs font-bold text-teal-600 hover:underline">Ledger</a>
+                        <a href="../Accounts/ledger.php" class="text-xs font-bold text-teal-600 hover:underline">Ledger</a>
                     </div>
                     <div class="custom-scroll overflow-y-auto" style="max-height: 250px;">
                         <div class="space-y-4">
@@ -879,7 +924,7 @@ include '../header.php';
         }
 
         // 3. FINANCIAL CHARTS
-        const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11, family: "'Plus Jakarta Sans', sans-serif" } } } } };
+        const commonOptions = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11, family: "'Inter', sans-serif" } } } } };
 
         if(document.getElementById('cashFlowChart')) {
             new Chart(document.getElementById('cashFlowChart'), {
@@ -919,3 +964,4 @@ include '../header.php';
     </script>
 </body>
 </html>
+<?php ob_end_flush(); ?>

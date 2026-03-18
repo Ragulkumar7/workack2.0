@@ -182,7 +182,9 @@ if ($conn) {
 }
 
 // --- DYNAMIC PIPELINE CHART DATA (MONTHLY TARGETS) ---
-$current_year = date('Y');
+// Get year from URL or default to current year
+$selected_year = isset($_GET['year']) ? (int)$_GET['year'] : date('Y'); 
+
 $monthly_pipeline = [
     'Contacted' => array_fill(0, 12, 0),
     'Opportunity' => array_fill(0, 12, 0),
@@ -199,7 +201,7 @@ if ($conn) {
             status,
             SUM(deal_value) as total_val
         FROM crm_clients 
-        WHERE YEAR(created_at) = '$current_year'
+        WHERE YEAR(created_at) = '$selected_year'
         GROUP BY MONTH(created_at), status
     ");
     
@@ -236,6 +238,7 @@ $att_late = 0;
 $att_wfh = 0;
 $att_absent = 0;
 $leaves_taken = 0;
+$leaves_total = 2; // Defaulting to 2 as per standard casual leaves, you can fetch from DB if needed
 
 if ($conn) {
     $current_month = date('m');
@@ -274,6 +277,9 @@ if ($conn) {
     if ($q_leaves && $row = mysqli_fetch_assoc($q_leaves)) {
         $leaves_taken = (int)$row['taken'];
     }
+    
+    // Calculate Leaves Remaining
+    $leaves_remaining = max(0, $leaves_total - $leaves_taken);
 }
 ?>
 <!DOCTYPE html>
@@ -416,27 +422,35 @@ if ($conn) {
                     </div>
                 </div>
 
-                <div class="card p-5 bg-white rounded-xl shadow-sm">
-                    <h3 class="font-bold text-[14px] text-[#031d38] mb-4 uppercase">Quick Actions</h3>
-                    <div class="grid grid-cols-2 gap-3">
-                        <button onclick="window.location.href='my_tasks.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#eef2ff] rounded-xl border border-indigo-100 hover:bg-indigo-100 transition cursor-pointer">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" /></svg>
-                            <span class="text-[13px] font-bold text-indigo-700">My Tasks</span>
-                        </button>
-                        <button onclick="window.location.href='invoice_inbox.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#f0fdfa] rounded-xl border border-teal-100 hover:bg-teal-100 transition cursor-pointer">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-teal-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>
-                            <span class="text-[13px] font-bold text-teal-700">Invoice Inbox</span>
-                        </button>
-                        <button onclick="window.location.href='../employee/leave_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fff1f2] rounded-xl border border-rose-100 hover:bg-rose-100 transition cursor-pointer">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-rose-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                            <span class="text-[13px] font-bold text-rose-700">Apply Leave</span>
-                        </button>
-                        <button onclick="window.location.href='../employee/wfh_request.php';" class="flex flex-col items-center justify-center py-3.5 px-2 bg-[#fffbeb] rounded-xl border border-amber-100 hover:bg-amber-100 transition cursor-pointer">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-amber-600 mb-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                            <span class="text-[13px] font-bold text-amber-700">Apply WFH</span>
-                        </button>
+                <div class="card p-5 bg-white rounded-xl shadow-sm flex flex-col gap-3">
+                    <div class="flex justify-between items-center border-b border-gray-100 pb-2">
+                        <h3 class="font-bold text-[18px] text-[#031d38]">Leave Balance</h3>
+                        <span class="text-[9px] font-bold text-gray-400 uppercase tracking-wider">Carry Forward</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-3">
+                        <div class="bg-teal-50 p-3 rounded-xl text-center border border-teal-100">
+                            <p class="text-[9px] text-teal-700 font-bold uppercase mb-1">Total</p>
+                            <p class="text-xl font-black text-teal-800"><?php echo $leaves_total; ?></p>
+                        </div>
+                        <div class="bg-blue-50 p-3 rounded-xl text-center border border-blue-100">
+                            <p class="text-[9px] text-blue-700 font-bold uppercase mb-1">Taken</p>
+                            <p class="text-xl font-black text-blue-800"><?php echo $leaves_taken; ?></p>
+                        </div>
+                        <div class="bg-green-50 p-3 rounded-xl text-center border border-green-200 shadow-sm relative overflow-hidden">
+                            <p class="text-[9px] text-green-800 font-bold uppercase relative z-10 mb-1">Left</p>
+                            <p class="text-xl font-black relative z-10 text-green-800">
+                                <?php echo $leaves_remaining; ?>
+                            </p>
+                        </div>
+                    </div>
+                    <div class="mt-auto pt-2">
+                        <a href="../employee/leave_request.php" class="block w-full bg-teal-700 hover:bg-teal-800 text-white font-bold py-2.5 rounded-lg text-center transition shadow-sm shadow-teal-200/50 text-xs">
+                            <i class="fa-solid fa-plus mr-1"></i> APPLY NEW LEAVE
+                        </a>
                     </div>
                 </div>
+
+              
             </div>
 
             <div class="card overflow-hidden flex flex-col h-full">
@@ -483,11 +497,14 @@ if ($conn) {
             <div class="card p-5 lg:col-span-2">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="font-bold text-lg">Monthly Target</h3>
-                    <select class="px-3 py-1 bg-gray-50 border rounded text-sm outline-none cursor-pointer" onchange="updatePipelineChart(this.value)">
-                        <option value="<?= date('Y') ?>" selected><?= date('Y') ?></option>
-                        <option value="<?= date('Y') - 1 ?>"><?= date('Y') - 1 ?></option>
-                        <option value="<?= date('Y') - 2 ?>"><?= date('Y') - 2 ?></option>
-                        <option value="<?= date('Y') - 3 ?>"><?= date('Y') - 3 ?></option>
+                    <select class="px-3 py-1 bg-gray-50 border rounded text-sm outline-none cursor-pointer" onchange="window.location.href='?year=' + this.value">
+                        <?php 
+                        $current_year_display = date('Y');
+                        for ($y = $current_year_display; $y >= $current_year_display - 3; $y--) {
+                            $selected = ($selected_year == $y) ? 'selected' : '';
+                            echo "<option value=\"$y\" $selected>$y</option>";
+                        }
+                        ?>
                     </select>
                 </div>
                 <div class="flex gap-4 mb-4 text-sm font-semibold">
@@ -695,17 +712,6 @@ if ($conn) {
 
         var chart = new ApexCharts(document.querySelector("#pipelineChart"), options);
         chart.render();
-
-        // JS Function to visually update the Monthly Pipeline chart when year is changed
-        function updatePipelineChart(year) {
-            // Generating dummy random data to simulate an actual year change update
-            let newData = [
-                { name: 'Contacted', data: Array.from({length: 12}, () => Math.floor(Math.random() * 2000000)) },
-                { name: 'Opportunity', data: Array.from({length: 12}, () => Math.floor(Math.random() * 1000000)) },
-                { name: 'Not Contacted', data: Array.from({length: 12}, () => Math.floor(Math.random() * 500000)) }
-            ];
-            chart.updateSeries(newData);
-        }
 
         // ApexCharts config for Lost Leads (DYNAMIC)
         var lostLeadsOptions = {
