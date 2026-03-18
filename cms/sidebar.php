@@ -25,7 +25,7 @@
 </head>
 <body class="bg-gray-100 font-sans leading-normal tracking-normal m-0 flex">
 
-    <aside class="w-64 min-h-screen bg-workack-darker text-white shadow-lg flex flex-col">
+    <aside class="w-64 h-screen sticky top-0 bg-workack-darker text-white shadow-lg flex flex-col">
         <div class="h-16 flex items-center justify-center border-b border-workack-dark">
             <h1 class="text-2xl font-bold tracking-wider text-workack-light"><i class="fas fa-leaf mr-2"></i> Workack</h1>
         </div>
