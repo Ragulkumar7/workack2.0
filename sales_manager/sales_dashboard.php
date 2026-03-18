@@ -140,10 +140,25 @@ $won_sources_pct = ['Calls' => 24, 'Email' => 39, 'Chat' => 20, 'Referrals' => 1
 $recent_deals = [];
 $recent_activities = [];
 $quick_contacts = [];
+$manager_name = "N/A";
+$manager_designation = "Manager";
 
 if (isset($conn)) {
-    // 1. Profile Data
-    $q = mysqli_query($conn, "SELECT u.name, u.role, ep.phone, ep.email, ep.joining_date FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = '$user_id'");
+    // 1. Profile Data including Reporting To logic
+    $q = mysqli_query($conn, "
+        SELECT 
+            u.name, 
+            u.role, 
+            ep.phone, 
+            ep.email, 
+            ep.joining_date,
+            m.full_name as manager_name,
+            m.designation as manager_designation
+        FROM users u 
+        LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
+        LEFT JOIN employee_profiles m ON ep.manager_id = m.user_id
+        WHERE u.id = '$user_id'
+    ");
     if ($q && $row = mysqli_fetch_assoc($q)) {
         $emp_name = $row['name'] ?: $emp_name;
         $emp_initials = strtoupper(substr(trim($emp_name), 0, 2));
@@ -151,6 +166,8 @@ if (isset($conn)) {
         $emp_phone = $row['phone'] ?: $emp_phone;
         $emp_email = $row['email'] ?: $emp_email;
         if (!empty($row['joining_date'])) $emp_joined = date('d M Y', strtotime($row['joining_date']));
+        $manager_name = !empty($row['manager_name']) ? $row['manager_name'] : 'System Admin';
+        $manager_designation = !empty($row['manager_designation']) ? $row['manager_designation'] : 'Admin';
     }
 
     // 2. Attendance Data
@@ -164,26 +181,118 @@ if (isset($conn)) {
         $stroke_dashoffset = max(0, 414 - (414 * ($prod_hours_decimal / 8)));
     }
 
-    // 3. Leaves & Attendance Stats
-    $q_leave = mysqli_query($conn, "SELECT SUM(total_days) as taken FROM leave_requests WHERE user_id = '$user_id' AND status = 'Approved' AND YEAR(start_date) = YEAR(CURRENT_DATE())");
-    if ($q_leave && $row = mysqli_fetch_assoc($q_leave)) {
-        $leave_taken = (int)$row['taken'];
+    // 3. Leaves & Attendance Stats (UPDATED DAY-TO-DAY LOGIC)
+    $att_stats = ['on_time'=>0, 'late'=>0, 'absent'=>0, 'wfh'=>0];
+    $leave_total = 2; // Default
+    $leave_taken = 0;
+    $lop_days = 0;
+
+    if (isset($conn)) {
+        $today = date('Y-m-d');
+        $start_date_stat = date('Y-m-01');
+
+        $shift_start_str = '09:00 AM';
+        $prof_shift_q = mysqli_query($conn, "SELECT shift_timings, casual_leaves FROM employee_profiles WHERE user_id = '$user_id'");
+        if ($prof_shift_q && $p_row = mysqli_fetch_assoc($prof_shift_q)) {
+            $leave_total = $p_row['casual_leaves'] ?? 2;
+            if (!empty($p_row['shift_timings'])) {
+                $time_parts = explode('-', $p_row['shift_timings']);
+                $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
+            }
+        }
+
+        $stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
+        $stat_stmt = mysqli_prepare($conn, $stat_sql);
+        mysqli_stmt_bind_param($stat_stmt, "iss", $user_id, $start_date_stat, $today);
+        mysqli_stmt_execute($stat_stmt);
+        $stat_res = mysqli_stmt_get_result($stat_stmt);
+
+        $month_att_db = [];
+        while ($stat_row = mysqli_fetch_assoc($stat_res)) {
+            $month_att_db[$stat_row['date']] = $stat_row;
+        }
+        mysqli_stmt_close($stat_stmt);
+
+        $stmt_all_leaves_stat = mysqli_prepare($conn, "SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
+        mysqli_stmt_bind_param($stmt_all_leaves_stat, "is", $user_id, $today);
+        mysqli_stmt_execute($stmt_all_leaves_stat);
+        $res_all_leaves_stat = mysqli_stmt_get_result($stmt_all_leaves_stat);
+        $all_app_leaves_stat = [];
+        if ($res_all_leaves_stat) {
+            while ($l_row = mysqli_fetch_assoc($res_all_leaves_stat)) {
+                $curr_l = new DateTime($l_row['start_date']);
+                $end_l = new DateTime($l_row['end_date']);
+                while ($curr_l <= $end_l) {
+                    $all_app_leaves_stat[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
+                    $curr_l->modify('+1 day');
+                }
+            }
+        }
+        mysqli_stmt_close($stmt_all_leaves_stat);
+
+        $iter_dt = new DateTime($start_date_stat);
+        $today_dt = new DateTime($today);
+
+        while ($iter_dt <= $today_dt) {
+            $d_str = $iter_dt->format('Y-m-d');
+            $dow = $iter_dt->format('N');
+            $is_today = ($d_str === $today);
+            
+            if (isset($month_att_db[$d_str])) {
+                $r = $month_att_db[$d_str];
+                $st = $r['status'];
+                $is_absent_db = (stripos($st, 'Absent') !== false && empty($r['punch_in']));
+
+                if ($is_absent_db) {
+                    $att_stats['absent']++;
+                } else {
+                    if (stripos($st, 'WFH') !== false) { 
+                        $att_stats['wfh']++; 
+                    }
+
+                    if (!empty($r['punch_in'])) {
+                        $expected_start_ts = strtotime($r['date'] . ' ' . $shift_start_str);
+                        $actual_start_ts = strtotime($r['punch_in']);
+                        if ($actual_start_ts > ($expected_start_ts + 60)) { 
+                            $att_stats['late']++; 
+                        } else { 
+                            if (stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                                $att_stats['on_time']++; 
+                            }
+                        }
+                    } else {
+                        if (!$is_today && stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                            $att_stats['absent']++;
+                        }
+                    }
+                }
+            } else {
+                if (!$is_today) {
+                    if ($dow == 7) {
+                    } elseif (isset($all_app_leaves_stat[$d_str])) {
+                    } else {
+                        $att_stats['absent']++;
+                    }
+                } else {
+                     if ($dow != 7 && !isset($all_app_leaves_stat[$d_str])) {
+                         $att_stats['absent']++; 
+                     }
+                }
+            }
+            $iter_dt->modify('+1 day');
+        }
+
+        foreach ($all_app_leaves_stat as $ld => $ltype) {
+            if (strpos($ld, date('Y-m-')) === 0) {
+                $leave_taken++;
+            }
+        }
+        
         $leave_left = $leave_total - $leave_taken;
         if ($leave_left < 0) {
             $lop_days = abs($leave_left);
             $leave_left = 0; 
         }
-    }
-
-    $q_astats = mysqli_query($conn, "SELECT
-        SUM(CASE WHEN status='On Time' THEN 1 ELSE 0 END) as on_time,
-        SUM(CASE WHEN status='Late' THEN 1 ELSE 0 END) as late,
-        SUM(CASE WHEN status='Absent' THEN 1 ELSE 0 END) as absent,
-        SUM(CASE WHEN status='WFH' THEN 1 ELSE 0 END) as wfh
-        FROM attendance WHERE user_id='$user_id' AND YEAR(date) = YEAR(CURRENT_DATE())");
-    if ($q_astats && $r = mysqli_fetch_assoc($q_astats)) {
-        $att_stats = $r;
-        $att_stats['absent'] = (int)$att_stats['absent'] + $leave_taken;
     }
 
     // 4. CRM & Pipeline Metrics (Default: This Week)
@@ -295,6 +404,7 @@ if (isset($conn)) {
     <title>Ultimate Deals Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
         body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #fcfcfd; }
@@ -359,25 +469,30 @@ if (isset($conn)) {
                     </div>
 
                 <div class="lg:col-span-4 flex flex-col gap-6">
-                    <div class="bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-6 flex-1 flex flex-col">
-                        <div class="flex justify-between items-center mb-6">
+                    <div class="bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-6 flex flex-col flex-1 justify-between">
+                        <div class="flex justify-between items-center mb-4">
                             <h3 class="font-extrabold text-[#1e293b] text-[17px]">Leave Details</h3>
                             <span class="bg-slate-50 text-slate-500 text-[10px] font-extrabold px-2.5 py-1.5 rounded border border-slate-100"><?= date('Y') ?></span>
                         </div>
-                        <div class="flex items-center justify-between flex-1">
-                            <ul class="space-y-3.5 text-[13px] font-bold text-slate-500 w-full">
-                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#0f766e]"></span> <span class="w-4 text-slate-700 font-black"><?= (int)$att_stats['on_time'] ?></span> On Time</li>
-                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#22c55e]"></span> <span class="w-4 text-slate-700 font-black"><?= (int)$att_stats['late'] ?></span> Late</li>
-                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#f97316]"></span> <span class="w-4 text-slate-700 font-black"><?= (int)$att_stats['wfh'] ?></span> Work From Home</li>
-                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#ef4444]"></span> <span class="w-4 text-slate-700 font-black"><?= (int)$att_stats['absent'] ?></span> Absent</li>
-                                <li class="flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-[#eab308]"></span> <span class="w-4 text-slate-700 font-black">0</span> Sick Leave</li>
-                            </ul>
-                            <div class="w-[105px] h-[105px] rounded-full border-[18px] border-[#118B7E] border-r-transparent transform -rotate-45 shrink-0 ml-4"></div>
+                        <div class="flex flex-col xl:flex-row items-center justify-between flex-1 gap-4">
+                            <div class="space-y-3.5 w-full pr-2">
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-[#0f766e]"></div><span class="text-[13px] text-slate-500 font-bold">On Time</span></div><span class="font-black text-slate-700 text-[13px]"><?= (int)$att_stats['on_time'] ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-[#22c55e]"></div><span class="text-[13px] text-slate-500 font-bold">Late</span></div><span class="font-black text-slate-700 text-[13px]"><?= (int)$att_stats['late'] ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-[#f97316]"></div><span class="text-[13px] text-slate-500 font-bold">WFH</span></div><span class="font-black text-slate-700 text-[13px]"><?= (int)$att_stats['wfh'] ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-[#ef4444]"></div><span class="text-[13px] text-slate-500 font-bold">Absent</span></div><span class="font-black text-slate-700 text-[13px]"><?= (int)$att_stats['absent'] ?></span></div>
+                                <div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full bg-[#eab308]"></div><span class="text-[13px] text-slate-500 font-bold">Sick Leave</span></div><span class="font-black text-slate-700 text-[13px]">0</span></div>
+                            </div>
+                            <div class="relative flex-shrink-0 w-[100px] h-[100px] mx-auto">
+                                <div id="attendanceChart" class="w-full h-full"></div>
+                            </div>
                         </div>
                     </div>
+                    
                     <div class="bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] p-5">
-                         <h3 class="font-extrabold text-[#1e293b] mb-4 text-[15px]">Leave Balance</h3>
-                         <div class="grid grid-cols-3 gap-3 text-center">
+                         <div class="flex justify-between items-center mb-4">
+                             <h3 class="font-extrabold text-[#1e293b] text-[15px]">Leave Balance</h3>
+                         </div>
+                         <div class="grid grid-cols-3 gap-3 text-center mb-3">
                              <div class="bg-emerald-50/50 py-3.5 rounded-[1rem] border border-emerald-100/50">
                                  <p class="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">Total</p>
                                  <p class="text-xl font-black text-[#0f766e]"><?= $leave_total ?></p>
@@ -392,12 +507,12 @@ if (isset($conn)) {
                              </div>
                          </div>
                          <?php if($lop_days > 0): ?>
-                             <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mt-4 flex items-center gap-3">
+                             <div class="bg-rose-50 border border-rose-200 rounded-lg p-2.5 mb-3 flex items-center gap-3">
                                  <div class="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center text-rose-600 flex-shrink-0"><i class="fa-solid fa-triangle-exclamation"></i></div>
-                                 <p class="text-xs font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
+                                 <p class="text-[11px] font-semibold text-rose-700 leading-tight">Leave limit exceeded! <b><?php echo $lop_days; ?> Days</b> considered as LOP.</p>
                              </div>
                          <?php endif; ?>
-                         <div class="mt-4">
+                         <div class="mt-2">
                              <a href="../employee/leave_request.php" class="block w-full bg-[#117B6F] hover:bg-[#0f665c] text-white font-bold py-2.5 rounded-xl text-center transition shadow-sm text-[13px]">
                                  <i class="fa-solid fa-plus mr-1.5"></i> APPLY FOR LEAVE
                              </a>
@@ -405,7 +520,7 @@ if (isset($conn)) {
                     </div>
                 </div>
 
-                <div class="lg:col-span-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden flex flex-col">
+                <div class="lg:col-span-4 bg-white rounded-[1.5rem] border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] overflow-hidden flex flex-col h-full">
                     <div class="bg-[#117B6F] p-8 pb-10 flex flex-col items-center text-center relative">
                         <div class="relative mt-2">
                             <div class="w-28 h-28 rounded-full border-2 border-white flex items-center justify-center text-white text-[38px] tracking-tight font-extrabold bg-transparent">
@@ -440,12 +555,25 @@ if (isset($conn)) {
                         
                         <div class="border-t border-dashed border-slate-200/80 my-5"></div>
                         
-                        <div class="flex items-center justify-between bg-emerald-50/40 p-4 rounded-2xl border border-emerald-100/50">
+                        <div class="flex items-center justify-between bg-emerald-50/40 p-4 rounded-2xl border border-emerald-100/50 mb-4">
                             <div class="flex items-center gap-2.5 text-[#117B6F] text-[14px] font-extrabold">
                                 <i class="fa-solid fa-calendar-check"></i> Joined
                             </div>
                             <p class="text-[14px] font-extrabold text-[#1e293b]"><?php echo $emp_joined; ?></p>
                         </div>
+
+                        <div class="flex items-center gap-4 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-50 mt-4">
+                            <div class="w-11 h-11 rounded-xl bg-teal-50/80 text-[#117B6F] flex items-center justify-center text-base shrink-0 shadow-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                            </div>
+                            <div class="min-w-0 pt-0.5">
+                                <p class="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-0.5">Reporting To</p>
+                                <p class="text-[14px] font-extrabold text-[#1e293b] truncate" title="<?= htmlspecialchars($manager_name) ?> (<?= htmlspecialchars($manager_designation) ?>)">
+                                    <?= htmlspecialchars($manager_name) ?> <span class="text-xs text-gray-500 font-medium">(<?= htmlspecialchars($manager_designation) ?>)</span>
+                                </p>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
             </div>
@@ -514,7 +642,7 @@ if (isset($conn)) {
 
                 <div class="lg:col-span-7 grid grid-cols-1 md:grid-cols-2 gap-6">
                     
-                    <div class="bg-white bg-pattern p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition">
+                    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition flex flex-col justify-between">
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-slate-500 text-[14px] font-medium mb-1">Total Deals</p>
@@ -534,7 +662,7 @@ if (isset($conn)) {
                         </div>
                     </div>
 
-                    <div class="bg-white bg-pattern p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition">
+                    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition flex flex-col justify-between">
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-slate-500 text-[14px] font-medium mb-1">Total Customers</p>
@@ -554,7 +682,7 @@ if (isset($conn)) {
                         </div>
                     </div>
 
-                    <div class="bg-white bg-pattern p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition">
+                    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition flex flex-col justify-between">
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-slate-500 text-[14px] font-medium mb-1">Deal Value</p>
@@ -574,7 +702,7 @@ if (isset($conn)) {
                         </div>
                     </div>
 
-                    <div class="bg-white bg-pattern p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition">
+                    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition flex flex-col justify-between">
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-slate-500 text-[14px] font-medium mb-1">Conversion Rate</p>
@@ -594,7 +722,7 @@ if (isset($conn)) {
                         </div>
                     </div>
 
-                    <div class="bg-white bg-pattern p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition">
+                    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition flex flex-col justify-between">
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-slate-500 text-[14px] font-medium mb-1">Revenue this month</p>
@@ -614,7 +742,7 @@ if (isset($conn)) {
                         </div>
                     </div>
 
-                    <div class="bg-white bg-pattern p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition">
+                    <div class="bg-white p-6 rounded-xl border border-slate-200 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-md transition flex flex-col justify-between">
                         <div class="flex justify-between items-start">
                             <div>
                                 <p class="text-slate-500 text-[14px] font-medium mb-1">Active Customers</p>
@@ -1097,6 +1225,25 @@ if (isset($conn)) {
                 closeClientModal();
             }
         });
+
+        // APEXCHART FOR LEAVE DETAILS
+        const attData = [<?= (int)$att_stats['on_time'] ?>, <?= (int)$att_stats['late'] ?>, <?= (int)$att_stats['wfh'] ?>, <?= (int)$att_stats['absent'] ?>, 0];
+        const hasData = attData.some(val => val > 0);
+        
+        var attOptions = {
+            series: hasData ? attData : [1],
+            labels: hasData ? ['On Time', 'Late', 'WFH', 'Absent', 'Sick Leave'] : ['No Data'],
+            colors: hasData ? ['#0f766e', '#22c55e', '#f97316', '#ef4444', '#eab308'] : ['#e2e8f0'],
+            chart: { type: 'donut', width: '100%', height: '100%', sparkline: { enabled: true } },
+            plotOptions: { donut: { size: '75%' } },
+            dataLabels: { enabled: false },
+            legend: { show: false },
+            tooltip: { enabled: hasData }
+        };
+        var attendanceChartEl = document.querySelector("#attendanceChart");
+        if(attendanceChartEl) {
+            new ApexCharts(attendanceChartEl, attOptions).render();
+        }
     </script>
 </body>
 </html>

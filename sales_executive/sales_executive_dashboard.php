@@ -232,50 +232,126 @@ $pipeline_series_json = json_encode([
     ['name' => 'Not Contacted', 'data' => $monthly_pipeline['Not Contacted']]
 ]);
 
-// --- LEAVE & ATTENDANCE DATA FIX ---
+// --- LEAVE & ATTENDANCE DATA FIX (UPDATED DAY-TO-DAY LOGIC) ---
 $att_on_time = 0;
 $att_late = 0;
 $att_wfh = 0;
 $att_absent = 0;
 $leaves_taken = 0;
-$leaves_total = 2; // Defaulting to 2 as per standard casual leaves, you can fetch from DB if needed
+$leaves_total = 2; // Defaulting to 2 as per standard casual leaves
 
 if ($conn) {
-    $current_month = date('m');
-    $current_year_att = date('Y');
+    $today = date('Y-m-d');
+    $start_date_stat = date('Y-m-01');
 
-    // 1. Fetch exact Late counts from Attendance matching the current month and user
-    // Adding conditions to catch variations of 'Late' status that might exist in db
-    $q_att_stats = mysqli_query($conn, "
-        SELECT 
-            SUM(CASE WHEN status = 'On Time' OR status = 'Present' THEN 1 ELSE 0 END) as on_time,
-            SUM(CASE WHEN status LIKE '%Late%' THEN 1 ELSE 0 END) as late,
-            SUM(CASE WHEN status LIKE '%WFH%' THEN 1 ELSE 0 END) as wfh,
-            SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) as absent
-        FROM attendance 
-        WHERE user_id = '$logged_in_user_id' 
-        AND MONTH(date) = '$current_month' 
-        AND YEAR(date) = '$current_year_att'
-    ");
-    
-    if ($q_att_stats && $row = mysqli_fetch_assoc($q_att_stats)) {
-        $att_on_time = (int)$row['on_time'];
-        $att_late = (int)$row['late'];
-        $att_wfh = (int)$row['wfh'];
-        $att_absent = (int)$row['absent'];
+    // Fetch Shift Timings to calculate Late accurately
+    $shift_start_str = '09:00 AM';
+    $prof_shift_q = mysqli_query($conn, "SELECT shift_timings, casual_leaves FROM employee_profiles WHERE user_id = '$logged_in_user_id'");
+    if ($prof_shift_q && $p_row = mysqli_fetch_assoc($prof_shift_q)) {
+        $leaves_total = $p_row['casual_leaves'] ?? 2;
+        if (!empty($p_row['shift_timings'])) {
+            $time_parts = explode('-', $p_row['shift_timings']);
+            $shift_start_str = count($time_parts) > 0 ? trim($time_parts[0]) : '09:00 AM';
+        }
     }
 
-    // 2. Fetch exact Leaves Taken from leave_requests
-    $q_leaves = mysqli_query($conn, "
-        SELECT SUM(total_days) as taken 
-        FROM leave_requests 
-        WHERE user_id = '$logged_in_user_id' 
-        AND status = 'Approved' 
-        AND MONTH(start_date) = '$current_month' 
-        AND YEAR(start_date) = '$current_year_att'
-    ");
-    if ($q_leaves && $row = mysqli_fetch_assoc($q_leaves)) {
-        $leaves_taken = (int)$row['taken'];
+    // 1. Fetch DB Records for the month
+    $stat_sql = "SELECT date, punch_in, status FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?";
+    $stat_stmt = mysqli_prepare($conn, $stat_sql);
+    mysqli_stmt_bind_param($stat_stmt, "iss", $logged_in_user_id, $start_date_stat, $today);
+    mysqli_stmt_execute($stat_stmt);
+    $stat_res = mysqli_stmt_get_result($stat_stmt);
+
+    $month_att_db = [];
+    while ($stat_row = mysqli_fetch_assoc($stat_res)) {
+        $month_att_db[$stat_row['date']] = $stat_row;
+    }
+    mysqli_stmt_close($stat_stmt);
+
+    // 2. Fetch Approved Leaves safely for stats
+    $stmt_all_leaves_stat = mysqli_prepare($conn, "SELECT start_date, end_date, leave_type FROM leave_requests WHERE user_id = ? AND status = 'Approved' AND start_date <= ?");
+    mysqli_stmt_bind_param($stmt_all_leaves_stat, "is", $logged_in_user_id, $today);
+    mysqli_stmt_execute($stmt_all_leaves_stat);
+    $res_all_leaves_stat = mysqli_stmt_get_result($stmt_all_leaves_stat);
+    $all_app_leaves_stat = [];
+    if ($res_all_leaves_stat) {
+        while ($l_row = mysqli_fetch_assoc($res_all_leaves_stat)) {
+            $curr_l = new DateTime($l_row['start_date']);
+            $end_l = new DateTime($l_row['end_date']);
+            while ($curr_l <= $end_l) {
+                $all_app_leaves_stat[$curr_l->format('Y-m-d')] = $l_row['leave_type'];
+                $curr_l->modify('+1 day');
+            }
+        }
+    }
+    mysqli_stmt_close($stmt_all_leaves_stat);
+
+    // 3. Exact Date Loop Engine
+    $iter_dt = new DateTime($start_date_stat);
+    $today_dt = new DateTime($today);
+
+    while ($iter_dt <= $today_dt) {
+        $d_str = $iter_dt->format('Y-m-d');
+        $dow = $iter_dt->format('N'); // 1 (Mon) to 7 (Sun)
+        $is_today = ($d_str === $today);
+        
+        if (isset($month_att_db[$d_str])) {
+            // Present in DB
+            $r = $month_att_db[$d_str];
+            $st = $r['status'];
+            $is_absent_db = (stripos($st, 'Absent') !== false && empty($r['punch_in']));
+
+            if ($is_absent_db) {
+                $att_absent++;
+            } else {
+                if (stripos($st, 'WFH') !== false) { 
+                    $att_wfh++; 
+                }
+
+                if (!empty($r['punch_in'])) {
+                    $expected_start_ts = strtotime($r['date'] . ' ' . $shift_start_str);
+                    $actual_start_ts = strtotime($r['punch_in']);
+                    if ($actual_start_ts > ($expected_start_ts + 60)) { 
+                        $att_late++; 
+                    } else { 
+                        if (stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                            $att_on_time++; 
+                        }
+                    }
+                } else {
+                    // No punch in but not marked absent in DB
+                    if (!$is_today && stripos($st, 'WFH') === false && stripos($st, 'Sick') === false) {
+                        $att_absent++;
+                    }
+                }
+            }
+        } else {
+            // NOT in DB - check if Sunday or Leave
+            if (!$is_today) {
+                if ($dow == 7) {
+                    // Sunday - do nothing
+                } elseif (isset($all_app_leaves_stat[$d_str])) {
+                    // On Approved Leave
+                } else {
+                    // Working day, not in DB, not on leave => ABSENT
+                    $att_absent++;
+                }
+            } else {
+                 // TODAY logic - if not punched in and not Sunday/Leave, it is considered absent today
+                 if ($dow != 7 && !isset($all_app_leaves_stat[$d_str])) {
+                     $att_absent++; 
+                 }
+            }
+        }
+        $iter_dt->modify('+1 day');
+    }
+
+    // Leaves Taken specifically for current month (UI display text)
+    $leaves_taken = 0;
+    foreach ($all_app_leaves_stat as $ld => $ltype) {
+        if (strpos($ld, date('Y-m-')) === 0) {
+            $leaves_taken++;
+        }
     }
     
     // Calculate Leaves Remaining
