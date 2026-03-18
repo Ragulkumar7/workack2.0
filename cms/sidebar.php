@@ -33,7 +33,7 @@
             <a href="cms_dashboard.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-chart-line w-6"></i> Dashboard</a>
             <a href="client_management.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-users w-6"></i> Customers</a>
             <a href="tickets.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-ticket-alt w-6"></i> Tickets</a>
-            <a href="#" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-key w-6"></i> Licenses</a>
+            <a href="licenses.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-key w-6"></i> Licenses</a>
             <a href="payments_details.php" class="block px-4 py-2 hover:bg-workack-dark rounded-md transition-colors"><i class="fas fa-wallet w-6"></i> Payments</a>
         </nav>
     </aside>
