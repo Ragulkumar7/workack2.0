@@ -1,5 +1,5 @@
 <?php
-// Sample Licenses data
+// Sample Licenses data (Key is kept in data for background logic, but removed from display)
 $licenses = [
     [
         'id' => 'L-1001',
@@ -90,9 +90,6 @@ $licenses = [
         <div class="p-6 flex-grow">
             <div class="mb-6 flex justify-between items-center">
                 <h2 class="text-2xl font-semibold text-gray-800">License Management</h2>
-                <button onclick="openGenerateModal()" class="bg-workack hover:bg-workack-dark text-white px-4 py-2 rounded-md shadow transition-colors text-sm">
-                    <i class="fas fa-key mr-1"></i> Generate New License
-                </button>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -159,9 +156,8 @@ $licenses = [
                         <thead>
                             <tr class="bg-gray-50 text-gray-500 border-b border-gray-200 text-xs uppercase tracking-wider">
                                 <th class="py-3 px-6 font-semibold">Customer Details</th>
-                                <th class="py-3 px-6 font-semibold">License Key</th>
                                 <th class="py-3 px-6 font-semibold">Plan</th>
-                                <th class="py-3 px-6 font-semibold">Issued On</th>
+                                <th class="py-3 px-6 font-semibold">Date</th>
                                 <th class="py-3 px-6 font-semibold">Status</th>
                                 <th class="py-3 px-6 font-semibold text-center">Actions</th>
                             </tr>
@@ -178,12 +174,6 @@ $licenses = [
                                     <p class="font-bold text-gray-800"><?php echo $license['customer']; ?></p>
                                     <p class="text-xs text-gray-500"><?php echo $license['email']; ?></p>
                                 </td>
-                                <td class="py-4 px-6">
-                                    <div class="flex items-center">
-                                        <span class="bg-gray-100 text-gray-700 font-mono text-xs px-2 py-1 rounded border border-gray-200 mr-2 tracking-wide"><?php echo $license['key']; ?></span>
-                                        <button onclick="copyToClipboard('<?php echo $license['key']; ?>')" class="text-gray-400 hover:text-workack transition-colors" title="Copy Key"><i class="far fa-copy"></i></button>
-                                    </div>
-                                </td>
                                 <td class="py-4 px-6 font-medium text-gray-700"><?php echo $license['plan']; ?></td>
                                 <td class="py-4 px-6 text-gray-600 text-xs"><i class="far fa-calendar-alt mr-1"></i> <?php echo $license['issued_date']; ?></td>
                                 <td class="py-4 px-6">
@@ -191,9 +181,10 @@ $licenses = [
                                         <?php echo $license['status']; ?>
                                     </span>
                                 </td>
-                                <td class="py-4 px-6 text-center text-gray-400 space-x-3 action-cell">
-                                    <button onclick="resendEmail('<?php echo $license['email']; ?>', '<?php echo $license['key']; ?>')" class="hover:text-blue-500 transition-colors" title="Resend Email"><i class="far fa-envelope"></i></button>
-                                    <button onclick="revokeLicense('<?php echo $license['id']; ?>')" class="hover:text-red-500 transition-colors" title="Revoke License"><i class="fas fa-ban"></i></button>
+                                <td class="py-4 px-6 text-center action-cell" id="action-<?php echo $license['id']; ?>">
+                                    <button onclick="initialSend('<?php echo $license['id']; ?>', '<?php echo htmlspecialchars($license['email']); ?>', '<?php echo htmlspecialchars($license['key']); ?>')" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-xs font-semibold shadow-sm transition-colors">
+                                        <i class="fas fa-paper-plane mr-1"></i> Generate & Send
+                                    </button>
                                 </td>
                             </tr>
                             <?php endforeach; ?>
@@ -211,61 +202,7 @@ $licenses = [
         </div>
     </main>
 
-    <div id="generateModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-50 hidden flex items-center justify-center">
-        <div class="bg-white rounded-lg shadow-xl w-[500px] max-w-[90%] overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
-                <h3 class="font-bold text-gray-800 text-lg">Generate New License</h3>
-                <button onclick="closeModal('generateModal')" class="text-gray-400 hover:text-red-500"><i class="fas fa-times text-xl"></i></button>
-            </div>
-            <div class="p-6">
-                <form id="generateForm" onsubmit="processGeneration(event)">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
-                            <input type="text" id="genName" required placeholder="e.g., Tech Solutions LLC" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-workack focus:ring-1 focus:ring-workack">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-                            <input type="email" id="genEmail" required placeholder="contact@techsolutions.com" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-workack focus:ring-1 focus:ring-workack">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Plan / License Type</label>
-                            <select id="genPlan" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-workack focus:ring-1 focus:ring-workack">
-                                <option value="Basic">Basic Plan</option>
-                                <option value="Pro">Pro Plan</option>
-                                <option value="Enterprise">Enterprise Plan</option>
-                                <option value="Demo">14-Day Demo</option>
-                            </select>
-                        </div>
-                        
-                        <div class="bg-blue-50 border border-blue-100 p-3 rounded-md flex items-start mt-2">
-                            <i class="fas fa-info-circle text-blue-500 mt-0.5 mr-2"></i>
-                            <p class="text-xs text-blue-700 leading-relaxed">
-                                Clicking "Save" will create the license. You can then trigger the email from the table actions.
-                            </p>
-                        </div>
-                    </div>
-                    <div class="mt-6 flex justify-end space-x-3">
-                        <button type="button" onclick="closeModal('generateModal')" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded shadow-sm hover:bg-gray-50 text-sm font-medium">Cancel</button>
-                        <button type="submit" class="bg-workack text-white px-4 py-2 rounded shadow-sm hover:bg-workack-dark text-sm font-medium flex items-center">
-                            Save License
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <script>
-        function openGenerateModal() {
-            document.getElementById('generateForm').reset();
-            document.getElementById('generateModal').classList.remove('hidden');
-        }
-
-        function closeModal(modalId) {
-            document.getElementById(modalId).classList.add('hidden');
-        }
-
         function closeAlert() {
             document.getElementById('successAlert').classList.add('hidden');
         }
@@ -278,106 +215,20 @@ $licenses = [
             setTimeout(() => { alertBox.classList.add('hidden'); }, 5000);
         }
 
-        function generateRandomKey() {
-            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-            let key = 'WRK-';
-            for (let i = 0; i < 3; i++) {
-                let segment = '';
-                for (let j = 0; j < 4; j++) { segment += chars.charAt(Math.floor(Math.random() * chars.length)); }
-                key += segment + (i < 2 ? '-' : '');
-            }
-            return key;
-        }
-
-        // Form Submit - Generates key, adds to table with "Send" button
-        function processGeneration(e) {
-            e.preventDefault();
-            
-            const name = document.getElementById('genName').value;
-            const email = document.getElementById('genEmail').value;
-            const plan = document.getElementById('genPlan').value;
-            
-            const newKey = generateRandomKey();
-            const today = new Date().toLocaleDateString('en-GB'); 
-            const uniqueId = 'L-' + Math.floor(Math.random() * 10000);
-            
-            const newRow = document.createElement('tr');
-            newRow.className = "border-b last:border-0 bg-workack-light transition-colors duration-1000 license-row";
-            newRow.id = `row-${uniqueId}`;
-            newRow.dataset.customer = name;
-            newRow.dataset.email = email;
-            newRow.dataset.key = newKey;
-            
-            newRow.innerHTML = `
-                <td class="py-4 px-6">
-                    <p class="font-bold text-gray-800">${name}</p>
-                    <p class="text-xs text-gray-500">${email}</p>
-                </td>
-                <td class="py-4 px-6">
-                    <div class="flex items-center">
-                        <span class="bg-gray-100 text-gray-700 font-mono text-xs px-2 py-1 rounded border border-gray-200 mr-2 tracking-wide">${newKey}</span>
-                        <button onclick="copyToClipboard('${newKey}')" class="text-gray-400 hover:text-workack transition-colors" title="Copy Key"><i class="far fa-copy"></i></button>
-                    </div>
-                </td>
-                <td class="py-4 px-6 font-medium text-gray-700">${plan}</td>
-                <td class="py-4 px-6 text-gray-600 text-xs"><i class="far fa-calendar-alt mr-1"></i> ${today}</td>
-                <td class="py-4 px-6">
-                    <span class="bg-yellow-100 text-yellow-600 border-yellow-200 px-2.5 py-1 rounded text-xs font-bold border">
-                        Pending Sent
-                    </span>
-                </td>
-                <td class="py-4 px-6 text-center action-cell" id="action-${uniqueId}">
-                    <button onclick="initialSend('${uniqueId}', '${email}', '${newKey}')" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-xs font-semibold shadow-sm transition-colors">
-                        <i class="fas fa-paper-plane mr-1"></i> Send
-                    </button>
-                </td>
-            `;
-            
-            const tbody = document.getElementById('licenseTableBody');
-            tbody.insertBefore(newRow, tbody.firstChild);
-            
-            setTimeout(() => {
-                newRow.classList.remove('bg-workack-light');
-                newRow.classList.add('hover:bg-gray-50');
-            }, 1500);
-
-            closeModal('generateModal');
-            showAlert("License Created", `License key for ${name} has been generated. Click 'Send' in the table to email it.`);
-            
-            allRows = Array.from(document.querySelectorAll('.license-row'));
-            applyPaginationAndFilter();
-        }
-
         // --- Initial Send Logic (Changes state to standard icons) ---
         function initialSend(rowId, email, key) {
-            // Update the actions cell
             const actionCell = document.getElementById(`action-${rowId}`);
             actionCell.innerHTML = `
                 <button onclick="resendEmail('${email}', '${key}')" class="text-gray-400 hover:text-blue-500 transition-colors mr-3" title="Resend Email"><i class="far fa-envelope"></i></button>
                 <button onclick="revokeLicense('${rowId}')" class="text-gray-400 hover:text-red-500 transition-colors" title="Revoke License"><i class="fas fa-ban"></i></button>
             `;
 
-            // Update the status badge
-            const row = document.getElementById(`row-${rowId}`);
-            const tdStatus = row.cells[4]; 
-            tdStatus.innerHTML = `
-                <span class="bg-green-100 text-green-600 border-green-200 px-2.5 py-1 rounded text-xs font-bold border">
-                    Active
-                </span>
-            `;
-
-            showAlert("Email Sent!", `License key ${key} has been successfully sent to ${email}.`);
-        }
-
-        function copyToClipboard(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                alert('License Key copied to clipboard: ' + text);
-            });
+            showAlert("Email Sent!", `License details have been successfully sent to ${email}.`);
         }
 
         function resendEmail(email, key) {
-            if(confirm(`Are you sure you want to resend the license key to ${email}?`)) {
-                showAlert("Email Resent!", `License key ${key} has been successfully resent to ${email}.`);
+            if(confirm(`Are you sure you want to resend the license details to ${email}?`)) {
+                showAlert("Email Resent!", `License details have been successfully resent to ${email}.`);
             }
         }
 
@@ -409,7 +260,6 @@ $licenses = [
         });
 
         function applyPaginationAndFilter() {
-            // Check if global search from header exists, otherwise fallback to local search
             const globalSearch = document.getElementById("globalSearchInput");
             const localSearch = document.getElementById("searchInput");
             
@@ -420,6 +270,7 @@ $licenses = [
             const filteredRows = allRows.filter(row => {
                 const customer = row.dataset.customer.toLowerCase();
                 const email = row.dataset.email.toLowerCase();
+                // Key is still searchable via dataset even if hidden from UI
                 const key = row.dataset.key.toLowerCase();
                 return customer.includes(input) || email.includes(input) || key.includes(input);
             });
@@ -473,7 +324,6 @@ $licenses = [
             applyPaginationAndFilter();
         }
 
-        // Bind global search if it exists
         document.addEventListener('DOMContentLoaded', () => {
             const globalSearch = document.getElementById("globalSearchInput");
             if(globalSearch) {

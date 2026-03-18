@@ -70,11 +70,14 @@ $tickets = [
 
     <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
         
-    <?php include 'header.php'; ?>
+        <?php include 'header.php'; ?>
+
         <div class="p-6 flex-grow">
             <div class="mb-6 flex justify-between items-center">
                 <h2 class="text-2xl font-semibold text-gray-800">Ticket Management</h2>
-                
+                <button class="bg-workack hover:bg-workack-dark text-white px-4 py-2 rounded-md shadow transition-colors text-sm">
+                    <i class="fas fa-plus mr-1"></i> Create New Ticket
+                </button>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -306,7 +309,13 @@ $tickets = [
 
         // Combined Search and Pagination Logic
         function applyPaginationAndFilter() {
-            const input = document.getElementById("searchInput").value.toLowerCase();
+            // Updated to check both header global search and local search
+            const globalSearch = document.getElementById("globalSearchInput");
+            const localSearch = document.getElementById("searchInput");
+            
+            let input = "";
+            if (localSearch && localSearch.value) input = localSearch.value.toLowerCase();
+            else if (globalSearch && globalSearch.value) input = globalSearch.value.toLowerCase();
             
             // 1. Filter rows based on search input
             const filteredRows = allRows.filter(row => {
@@ -455,6 +464,14 @@ $tickets = [
             // Re-apply filter and pagination to respect the updated data (e.g., if you edit and it no longer matches search)
             applyPaginationAndFilter();
         }
+
+        // Connect the global search from header.php if it exists
+        document.addEventListener('DOMContentLoaded', () => {
+            const globalSearch = document.getElementById("globalSearchInput");
+            if(globalSearch) {
+                globalSearch.addEventListener('keyup', filterTickets);
+            }
+        });
     </script>
 
 </body>
