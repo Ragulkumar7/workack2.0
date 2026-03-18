@@ -69,24 +69,15 @@ $tickets = [
     <?php include 'sidebar.php'; ?>
 
     <main class="flex-1 flex flex-col h-screen overflow-y-auto relative">
-        <header class="h-16 bg-white shadow-sm flex items-center justify-between px-6 z-10 sticky top-0">
-            <div class="flex items-center bg-gray-100 rounded-md px-3 py-2 w-96">
-                <i class="fas fa-search text-gray-400"></i>
-                <input type="text" placeholder="Search tickets, users, or licenses..." class="bg-transparent border-none outline-none ml-2 w-full text-sm">
-            </div>
-            <div class="flex items-center space-x-4">
-                <button class="text-gray-500 hover:text-workack"><i class="fas fa-bell"></i></button>
-                <div class="flex items-center space-x-2 border-l pl-4 cursor-pointer">
-                    <div class="w-8 h-8 bg-workack rounded-full flex items-center justify-center text-white font-bold">A</div>
-                    <span class="text-sm font-medium text-gray-700">Admin</span>
-                </div>
-            </div>
-        </header>
+        
+        <?php include 'header.php'; ?>
 
         <div class="p-6 flex-grow">
             <div class="mb-6 flex justify-between items-center">
                 <h2 class="text-2xl font-semibold text-gray-800">Ticket Management</h2>
-                
+                <button class="bg-workack hover:bg-workack-dark text-white px-4 py-2 rounded-md shadow transition-colors text-sm">
+                    <i class="fas fa-plus mr-1"></i> Create New Ticket
+                </button>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -318,7 +309,13 @@ $tickets = [
 
         // Combined Search and Pagination Logic
         function applyPaginationAndFilter() {
-            const input = document.getElementById("searchInput").value.toLowerCase();
+            // Updated to check both header global search and local search
+            const globalSearch = document.getElementById("globalSearchInput");
+            const localSearch = document.getElementById("searchInput");
+            
+            let input = "";
+            if (localSearch && localSearch.value) input = localSearch.value.toLowerCase();
+            else if (globalSearch && globalSearch.value) input = globalSearch.value.toLowerCase();
             
             // 1. Filter rows based on search input
             const filteredRows = allRows.filter(row => {
@@ -467,6 +464,14 @@ $tickets = [
             // Re-apply filter and pagination to respect the updated data (e.g., if you edit and it no longer matches search)
             applyPaginationAndFilter();
         }
+
+        // Connect the global search from header.php if it exists
+        document.addEventListener('DOMContentLoaded', () => {
+            const globalSearch = document.getElementById("globalSearchInput");
+            if(globalSearch) {
+                globalSearch.addEventListener('keyup', filterTickets);
+            }
+        });
     </script>
 
 </body>
