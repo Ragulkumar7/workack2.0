@@ -183,7 +183,7 @@ $licenses = [
                                 </td>
                                 <td class="py-4 px-6 text-center action-cell" id="action-<?php echo $license['id']; ?>">
                                     <button onclick="initialSend('<?php echo $license['id']; ?>', '<?php echo htmlspecialchars($license['email']); ?>', '<?php echo htmlspecialchars($license['key']); ?>')" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded text-xs font-semibold shadow-sm transition-colors">
-                                        <i class="fas fa-paper-plane mr-1"></i> Send
+                                        <i class="fas fa-paper-plane mr-1"></i> Generate & Send
                                     </button>
                                 </td>
                             </tr>
