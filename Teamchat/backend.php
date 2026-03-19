@@ -265,7 +265,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
 
-        echo json_encode(['messages' => $msgs, 'info' => $partner, 'typing' => $typing_users]); exit;
+        // --- NEW CODE: FETCH READ RECEIPT STATUS FOR MY MESSAGES ---
+        $read_ids = [];
+        $r_stmt = $conn->prepare("SELECT mr.message_id FROM message_reads mr JOIN chat_messages cm ON mr.message_id = cm.id WHERE cm.conversation_id = ? AND cm.sender_id = ?");
+        $r_stmt->bind_param("ii", $conv_id, $my_id);
+        $r_stmt->execute();
+        $r_res = $r_stmt->get_result();
+        while($r_row = $r_res->fetch_assoc()) {
+            $read_ids[] = $r_row['message_id'];
+        }
+
+        echo json_encode([
+            'messages' => $msgs, 
+            'info' => $partner, 
+            'typing' => $typing_users,
+            'read_ids' => $read_ids
+        ]); 
+        exit;
     }
 
     // 5. GET GROUP INFO
@@ -331,7 +347,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             $fname = uniqid() . '.' . $ext;
             if (move_uploaded_file($_FILES['file']['tmp_name'], $target_dir . $fname)) {
-                $attachment = "uploads/chat/" . $fname; // Save relative path for UI
+                $attachment = "../uploads/chat/" . $fname; // Save relative path for UI
                 $msg_type = in_array($ext, ['jpg','jpeg','png','gif','webp']) ? 'image' : 'file';
                 if(!$msg_text) $msg_text = $_FILES['file']['name'];
             }

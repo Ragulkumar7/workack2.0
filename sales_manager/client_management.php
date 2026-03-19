@@ -321,7 +321,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         body { background-color: var(--bg-body); color: var(--text-primary); line-height: 1.5; -webkit-font-smoothing: antialiased; transition: background-color var(--transition); }
-        .main-content { margin-left: var(--sidebar-width); padding: 2rem; min-height: 100vh; }
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
         button { cursor: pointer; border: none; background: none; font-family: inherit; }
         input, select, textarea { font-family: inherit; }
 
@@ -368,7 +399,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .filter-select:focus { outline: none; border-color: var(--primary-color); }
 
         .table-container { background-color: var(--bg-surface); border-radius: var(--border-radius); border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); overflow: hidden; position: relative; }
-        table { width: 100%; border-collapse: collapse; text-align: left; }
+        
+        /* ADDED: Table Wrapper CSS for Horizontal Scroll */
+        .table-wrapper { overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; }
+        /* ADDED: min-width to table to force scroll on small screens */
+        table { width: 100%; border-collapse: collapse; text-align: left; min-width: 950px; }
+        
         th { background-color: var(--bg-hover); color: var(--text-secondary); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); }
         td { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
@@ -471,7 +507,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <?php if ($sidebarPath) include $sidebarPath; ?>
     <?php if ($headerPath) include $headerPath; ?>
 
-    <main class="main-content">
+    <main id="mainContent" class="main-content">
         <header class="header">
             <div class="header-content">
                 <h1>Client Management</h1>
@@ -567,20 +603,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <div class="loading-overlay" id="tableLoading">
                 <div class="spinner"></div>
             </div>
-            <table id="clientsTable">
-                <thead>
-                    <tr>
-                        <th>Client Details</th>
-                        <th>Contact Info</th>
-                        <th>Source</th>
-                        <th>Status</th>
-                        <th>Executive</th>
-                        <th>Deal Value</th>
-                        <th style="text-align: right;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody"> </tbody>
-            </table>
+            
+            <div class="table-wrapper">
+                <table id="clientsTable">
+                    <thead>
+                        <tr>
+                            <th>Client Details</th>
+                            <th>Contact Info</th>
+                            <th>Source</th>
+                            <th>Status</th>
+                            <th>Executive</th>
+                            <th>Deal Value</th>
+                            <th style="text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"> </tbody>
+                </table>
+            </div>
             
             <div class="empty-state" id="emptyState" style="display: none;">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -61,7 +61,6 @@
         let fd = new FormData();
         fd.append('action', 'fetch_meeting_history');
         fetch('backend.php', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
-            // 1. Instant Links
             let instHtml = '';
             if (data.instant && data.instant.length > 0) {
                 data.instant.forEach(m => {
@@ -87,7 +86,6 @@
                 document.getElementById('instantMeetingsContainer').innerHTML = `<div class="data-card" style="margin-bottom: 30px; text-align: center; padding: 40px;"><i class="ri-links-line" style="font-size: 3rem; color: var(--border); margin-bottom: 15px; display: block;"></i><p style="color: var(--text-muted); font-weight: 500;">No instant meeting links generated yet.</p></div>`;
             }
 
-            // 2. Scheduled Meetings
             let schHtml = '';
             if (data.scheduled && data.scheduled.length > 0) {
                 data.scheduled.forEach(m => {
@@ -276,14 +274,25 @@
     function createAndCopyMeetLink() {
         let title = document.getElementById('newMeetTitle').value || 'Meeting';
         let id = 'Workack-Meet-' + Math.random().toString(36).substring(2, 10);
+
+        // Copy ONLY the Meeting ID to clipboard (Removed the 'video:' prefix)
         navigator.clipboard.writeText(id).then(() => {
-            Swal.fire({title: 'Copied!', text: 'Meeting ID copied: ' + id, icon: 'success', confirmButtonColor: 'var(--primary)'}).then(() => {
+            Swal.fire({
+                title: 'Copied!', 
+                text: 'Meeting ID copied to clipboard.', 
+                icon: 'success', 
+                confirmButtonColor: 'var(--primary)'
+            }).then(() => {
                 document.getElementById('createMeetingModal').style.display = 'none';
                 let fd = new FormData();
-                fd.append('action', 'save_instant_meeting'); fd.append('title', title); fd.append('link', id);
+                fd.append('action', 'save_instant_meeting'); 
+                fd.append('title', title); 
+                fd.append('link', id);
                 fetch('backend.php', { method: 'POST', body: fd }).then(() => {
-                    if (document.getElementById('meet_view').style.display !== 'none') { loadMeetingHistory(); }
-                    openEmbeddedMeeting(id, 'video');
+                    // Update the recent links list without starting the call
+                    if (document.getElementById('meet_view').style.display !== 'none') { 
+                        loadMeetingHistory(); 
+                    }
                 });
             });
         });
@@ -411,21 +420,27 @@
         const activeArea = document.getElementById('chatAreaActive');
         activeArea.style.display = 'flex';
 
-        // Set Loading state while pulling inner chat views
+        // Initial Loading state
         document.getElementById('headerName').innerText = 'Loading...';
         document.getElementById('headerAvatar').src = '';
         document.getElementById('msgBox').innerHTML = '<div style="text-align:center; padding: 40px;"><i class="ri-loader-4-line ri-spin" style="font-size: 2rem; color: var(--primary);"></i></div>';
         
         switchInnerTab('chat');
-        let msgInput = document.getElementById('msgInput');
-        msgInput.addEventListener('input', function() {
-            if(activeConvId) {
-                startTyping(); clearTimeout(typingTimer); typingTimer = setTimeout(stopTyping, 2000);
-            }
-        });
-        msgInput.addEventListener('blur', stopTyping);
         fetchMessages(true); 
     }
+    
+    // Set up global event listeners for the chat input ONCE when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        let msgInput = document.getElementById('msgInput');
+        if(msgInput) {
+            msgInput.addEventListener('input', function() {
+                if(activeConvId) {
+                    startTyping(); clearTimeout(typingTimer); typingTimer = setTimeout(stopTyping, 2000);
+                }
+            });
+            msgInput.addEventListener('blur', stopTyping);
+        }
+    });
 
     // GROUP INFO PANEL LOGIC
     function toggleGroupInfo() {
@@ -659,7 +674,6 @@
             if(!box) return;
 
             if(info && isInitialLoad) {
-                // Clear any internal loading states
                 if(box.innerHTML.includes('ri-loader-4-line')) box.innerHTML = '';
                 document.getElementById('headerAvatar').src = info.profile_img;
                 document.getElementById('headerName').innerText = info.display_name;
@@ -672,6 +686,7 @@
             let typingDiv = document.getElementById('typingIndicator');
             if(data.typing && data.typing.length > 0) { typingDiv.textContent = data.typing.join(', ') + ' is typing...'; } else { typingDiv.textContent = ''; }
 
+            // 1. ADD NEW MESSAGES
             if (msgs.length > 0) {
                 msgs.forEach(m => {
                     lastFetchedMsgId = Math.max(lastFetchedMsgId, m.id);
@@ -685,6 +700,21 @@
             } else if (isInitialLoad) {
                 box.innerHTML = '<div style="text-align:center; padding:60px 20px; color:var(--text-muted);"><div style="width: 80px; height: 80px; background: var(--border-light); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;"><i class="ri-chat-smile-2-fill" style="font-size: 2.5rem; color: var(--text-muted);"></i></div><h4 style="font-weight: 700; color: var(--text-dark); margin-bottom: 8px;">Start of conversation</h4><p style="font-size: 0.95rem;">Send a message to break the ice!</p></div>';
             }
+
+            // 2. LIVE DOUBLE TICK (READ RECEIPTS) UPDATE
+            if (data.read_ids && data.read_ids.length > 0) {
+                data.read_ids.forEach(id => {
+                    let msgEl = document.getElementById(`msg-${id}`);
+                    if (msgEl) {
+                        let tickSpan = msgEl.querySelector('.ticks.tick-sent'); 
+                        if (tickSpan) {
+                            tickSpan.className = 'ticks tick-read'; 
+                            tickSpan.innerHTML = '<i class="ri-check-double-line"></i>'; 
+                        }
+                    }
+                });
+            }
+            
         }).catch(() => { isFetchingMessages = false; });
     }
 
