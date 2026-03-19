@@ -293,8 +293,10 @@ if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user
         .profile-img-container { position: relative; width: 130px; margin: 0 auto 15px auto; }
         .profile-img { width: 130px; height: 130px; border-radius: 50%; object-fit: cover; border: 4px solid #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
         
-        .emp-name { font-weight: 700; font-size: 1.2rem; color: #0f172a; margin-bottom: 5px; }
-        .emp-designation { color: #64748b; font-size: 0.9rem; font-weight: 500; margin-bottom: 15px; }
+        /* FIXED: Added word-break to ensure very long names don't overlap */
+        .emp-name { font-weight: 700; font-size: 1.2rem; color: #0f172a; margin-bottom: 5px; word-break: break-word; }
+        .emp-designation { color: #64748b; font-size: 0.9rem; font-weight: 500; margin-bottom: 15px; word-break: break-word; }
+        
         .badge-pill { padding: 5px 12px; border-radius: 50px; font-size: 0.75rem; font-weight: 600; display: inline-block; }
         .badge-dept { background: #f1f5f9; color: #475569; }
         .badge-exp { background: #e0f2fe; color: #0284c7; }
@@ -317,6 +319,19 @@ if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user
         .contact-list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.9rem; }
         .contact-list-item:last-child { border-bottom: none; padding-bottom: 0; }
         
+        /* CHANGED: Perfect fix to prevent vertical letter stacking inside Profile Card */
+        .profile-card .contact-list-item {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+        }
+        .profile-card .contact-list-item .text-dark {
+            word-break: break-word;
+            font-size: 14px;
+            text-align: left;
+            width: 100%;
+        }
+        
         .modal-content { border: none; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); border-radius: 16px; }
         .modal-header { border-bottom: 1px solid #f1f5f9; padding: 20px 24px; }
         .modal-body { padding: 24px; }
@@ -326,9 +341,10 @@ if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user
         .btn-dark:hover { background-color: var(--primary-orange); }
 
         /* Responsiveness */
-        @media (max-width: 992px) {
+        /* CHANGED: Updated breakpoint to 1200px to give content more room on iPads/Tablets */
+        @media (max-width: 1200px) {
             .settings-container { grid-template-columns: 1fr; }
-            .side-nav-card { margin-bottom: 0; }
+            .side-nav-card { margin-bottom: 20px; }
         }
         
         @media (max-width: 768px) {
@@ -412,11 +428,30 @@ if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user
                                         </div>
                                         <div class="contact-list-item">
                                             <span class="text-muted small">Email</span>
-                                            <span class="fw-bold text-dark" style="font-size:12px;"><?php echo htmlspecialchars($profile['email']); ?></span>
+                                            <span class="fw-bold text-dark"><?php echo htmlspecialchars($profile['email']); ?></span>
                                         </div>
                                         <div class="contact-list-item pb-0">
                                             <span class="text-muted small">Phone</span>
                                             <span class="fw-bold text-dark"><?php echo htmlspecialchars($profile['phone']); ?></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-8">
+                                <div class="section-card">
+                                    <div class="card-header-custom">
+                                        <h6><i class="fas fa-address-card me-2 text-primary"></i> Personal Information</h6>
+                                        <button class="btn-edit-card" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="fas fa-pen"></i></button>
+                                    </div>
+                                    <div class="card-body-custom">
+                                        <div class="info-grid">
+                                            <div class="info-item"><span class="data-label">Full Name</span><span class="data-value"><?php echo htmlspecialchars($profile['full_name']); ?></span></div>
+                                            <div class="info-item"><span class="data-label">DOB</span><span class="data-value"><?php echo !empty($profile['dob']) ? date('d M, Y', strtotime($profile['dob'])) : '-'; ?></span></div>
+                                            <div class="info-item"><span class="data-label">Gender</span><span class="data-value"><?php echo htmlspecialchars($profile['gender'] ?? '-'); ?></span></div>
+                                            <div class="info-item"><span class="data-label">Marital Status</span><span class="data-value"><?php echo htmlspecialchars($profile['marital_status'] ?? '-'); ?></span></div>
+                                            <div class="info-item"><span class="data-label">Nationality</span><span class="data-value"><?php echo htmlspecialchars($profile['nationality'] ?? '-'); ?></span></div>
+                                            <div class="info-item"><span class="data-label">Joined Date</span><span class="data-value"><?php echo !empty($profile['joining_date']) ? date('d M, Y', strtotime($profile['joining_date'])) : '-'; ?></span></div>
                                         </div>
                                     </div>
                                 </div>
@@ -438,25 +473,6 @@ if (!empty($profile['profile_img']) && $profile['profile_img'] !== 'default_user
                                         <?php endforeach; else: ?>
                                             <div class="text-center text-muted small mt-4 pb-2"><i class="fas fa-user-shield mb-2" style="font-size:24px; opacity:0.2;"></i><br>No emergency contacts added.</div>
                                         <?php endif; ?>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="col-lg-8">
-                                <div class="section-card">
-                                    <div class="card-header-custom">
-                                        <h6><i class="fas fa-address-card me-2 text-primary"></i> Personal Information</h6>
-                                        <button class="btn-edit-card" data-bs-toggle="modal" data-bs-target="#editProfileModal"><i class="fas fa-pen"></i></button>
-                                    </div>
-                                    <div class="card-body-custom">
-                                        <div class="info-grid">
-                                            <div class="info-item"><span class="data-label">Full Name</span><span class="data-value"><?php echo htmlspecialchars($profile['full_name']); ?></span></div>
-                                            <div class="info-item"><span class="data-label">DOB</span><span class="data-value"><?php echo !empty($profile['dob']) ? date('d M, Y', strtotime($profile['dob'])) : '-'; ?></span></div>
-                                            <div class="info-item"><span class="data-label">Gender</span><span class="data-value"><?php echo htmlspecialchars($profile['gender'] ?? '-'); ?></span></div>
-                                            <div class="info-item"><span class="data-label">Marital Status</span><span class="data-value"><?php echo htmlspecialchars($profile['marital_status'] ?? '-'); ?></span></div>
-                                            <div class="info-item"><span class="data-label">Nationality</span><span class="data-value"><?php echo htmlspecialchars($profile['nationality'] ?? '-'); ?></span></div>
-                                            <div class="info-item"><span class="data-label">Joined Date</span><span class="data-value"><?php echo !empty($profile['joining_date']) ? date('d M, Y', strtotime($profile['joining_date'])) : '-'; ?></span></div>
-                                        </div>
                                     </div>
                                 </div>
 

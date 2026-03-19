@@ -93,10 +93,30 @@ if($tasks_result) {
     </script>
 
     <style>
-        #mainContent { margin-left: 95px; width: calc(100% - 95px); transition: all 0.3s ease; }
-        #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
+        #mainContent { 
+            margin-left: 95px; 
+            width: calc(100% - 95px); 
+            transition: all 0.3s ease; 
+            box-sizing: border-box; /* Prevent overflow */
+        }
+        #mainContent.main-shifted { 
+            margin-left: 315px; 
+            width: calc(100% - 315px); 
+        }
         .task-col-scroll::-webkit-scrollbar { width: 4px; }
         .task-col-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+        /* ADDED: Responsive fix for mobile layout */
+        @media (max-width: 768px) {
+            #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 16px 20px 16px !important; /* Top padding to clear header */
+            }
+            .modal-panel {
+                margin: 0 16px; /* Prevent modal from touching edges on small phones */
+            }
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800">
@@ -107,8 +127,9 @@ if($tasks_result) {
     include_once('header.php'); 
     ?>
 
-    <div id="mainContent" class="p-8 min-h-screen">
-        <div class="flex justify-between items-end mb-8">
+    <div id="mainContent" class="p-4 md:p-8 min-h-screen">
+        
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-end mb-6 gap-4">
             <div>
                 <h1 class="text-2xl font-bold text-slate-800 tracking-tight">My Tasks</h1>
                 <nav class="flex text-sm text-gray-500 mt-1 gap-2 items-center">
@@ -117,15 +138,15 @@ if($tasks_result) {
                     <span class="text-primary font-medium">Personal Task Board</span>
                 </nav>
             </div>
-            <button onclick="openModal('addTaskModal')" class="bg-primary hover:bg-primaryDark text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg flex items-center gap-2 transform active:scale-95">
+            <button onclick="openModal('addTaskModal')" class="bg-primary hover:bg-primaryDark text-white px-5 py-2.5 rounded-xl text-sm font-semibold shadow-lg flex items-center justify-center gap-2 transform active:scale-95 w-full sm:w-auto">
                 <i class="fas fa-plus"></i> New Task
             </button>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start h-[calc(100vh-180px)]">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-start h-auto md:h-[calc(100vh-180px)]">
             
-            <div class="bg-slate-100/80 rounded-2xl p-4 h-full flex flex-col border border-slate-200/60" id="todo-col">
-                <div class="flex justify-between items-center mb-4 px-1">
+            <div class="bg-slate-100/80 rounded-2xl p-4 h-[400px] md:h-full flex flex-col border border-slate-200/60" id="todo-col">
+                <div class="flex justify-between items-center mb-4 px-1 shrink-0">
                     <h3 class="font-bold text-slate-700 uppercase text-xs tracking-wider flex items-center gap-2">To Do</h3>
                     <span class="bg-white text-slate-600 px-2.5 py-0.5 rounded-md text-xs font-bold border border-slate-200"><?php echo count($tasks['todo']); ?></span>
                 </div>
@@ -144,8 +165,8 @@ if($tasks_result) {
                 </div>
             </div>
 
-            <div class="bg-slate-100/80 rounded-2xl p-4 h-full flex flex-col border border-slate-200/60" id="inprogress-col">
-                <div class="flex justify-between items-center mb-4 px-1">
+            <div class="bg-slate-100/80 rounded-2xl p-4 h-[400px] md:h-full flex flex-col border border-slate-200/60" id="inprogress-col">
+                <div class="flex justify-between items-center mb-4 px-1 shrink-0">
                     <h3 class="font-bold text-blue-700 uppercase text-xs tracking-wider">In Progress</h3>
                     <span class="bg-white text-blue-600 px-2.5 py-0.5 rounded-md text-xs font-bold border border-blue-100"><?php echo count($tasks['inprogress']); ?></span>
                 </div>
@@ -159,8 +180,8 @@ if($tasks_result) {
                 </div>
             </div>
 
-            <div class="bg-slate-100/80 rounded-2xl p-4 h-full flex flex-col border border-slate-200/60" id="completed-col">
-                <div class="flex justify-between items-center mb-4 px-1">
+            <div class="bg-slate-100/80 rounded-2xl p-4 h-[400px] md:h-full flex flex-col border border-slate-200/60" id="completed-col">
+                <div class="flex justify-between items-center mb-4 px-1 shrink-0">
                     <h3 class="font-bold text-green-700 uppercase text-xs tracking-wider">Completed</h3>
                     <span class="bg-white text-green-600 px-2.5 py-0.5 rounded-md text-xs font-bold border border-green-100"><?php echo count($tasks['completed']); ?></span>
                 </div>
@@ -178,8 +199,8 @@ if($tasks_result) {
         </div>
     </div>
 
-    <div id="addTaskModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" id="modalPanel">
+    <div id="addTaskModal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm px-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden modal-panel" id="modalPanel">
             <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <h3 class="font-bold text-lg text-slate-800">Create New Task</h3>
                 <button onclick="closeModal('addTaskModal')" class="text-gray-400 hover:text-red-500"><i class="fa-solid fa-xmark text-xl"></i></button>
@@ -193,22 +214,22 @@ if($tasks_result) {
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Priority</label>
-                        <select name="priority" class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm">
+                        <select name="priority" class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:outline-none">
                             <option>Low</option><option selected>Medium</option><option>High</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Due Date</label>
-                        <input type="date" name="due_date" required class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm">
+                        <input type="date" name="due_date" required class="w-full px-4 py-2.5 bg-slate-50 border border-gray-200 rounded-lg text-sm focus:outline-none">
                     </div>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 uppercase mb-1.5">Description</label>
-                    <textarea name="description" rows="3" class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm resize-none"></textarea>
+                    <textarea name="description" rows="3" class="w-full px-4 py-2 bg-slate-50 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none"></textarea>
                 </div>
                 <div class="flex justify-end gap-3 pt-2">
-                    <button type="button" onclick="closeModal('addTaskModal')" class="text-sm font-semibold text-gray-500">Cancel</button>
-                    <button type="submit" class="bg-primary text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg">Save Task</button>
+                    <button type="button" onclick="closeModal('addTaskModal')" class="text-sm font-semibold text-gray-500 hover:text-gray-800">Cancel</button>
+                    <button type="submit" class="bg-primary hover:bg-primaryDark text-white px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg transition-colors">Save Task</button>
                 </div>
             </form>
         </div>

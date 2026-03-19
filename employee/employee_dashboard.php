@@ -778,7 +778,7 @@ session_write_close();
             </div>
 
             <div class="h-full"> 
-                <div class="card overflow-hidden shadow-sm border-slate-200 h-full">
+                <div class="card overflow-hidden shadow-sm border-slate-200 h-full flex flex-col">
                     <div class="bg-gradient-to-br from-teal-700 to-teal-900 p-6 flex items-center gap-4 relative shrink-0">
                         <div class="relative shrink-0">
                             <img src="<?php echo $profile_img; ?>" class="w-16 h-16 rounded-full border-2 border-white shadow-lg object-cover bg-white">
@@ -806,7 +806,7 @@ session_write_close();
                         </div>
                     </div>
                     
-                    <div class="p-4 bg-slate-50 flex-grow flex flex-col justify-between">
+                    <div class="p-4 bg-slate-50 flex-col">
                         <div>
                             <p class="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2">Reporting Hierarchy</p>
                             <div class="space-y-2 mb-4">
@@ -832,7 +832,7 @@ session_write_close();
                             </div>
                         </div>
 
-                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm mt-auto shrink-0">
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
                             <p class="text-[9px] text-gray-400 font-black uppercase tracking-widest mb-1">Company Journey</p>
                             <div class="flex justify-between items-center">
                                 <p class="text-xs font-black text-slate-700">Joined On</p>
@@ -910,7 +910,7 @@ session_write_close();
                                 $badge_bg = ($task['priority'] == 'High') ? 'bg-rose-100 text-rose-600' : (($task['priority'] == 'Medium') ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-600');
                                 $icon_class = 'fa-regular fa-circle text-teal-600';
                             ?>
-                            <div class="flex items-center justify-between p-3.5 border border-gray-100 rounded-lg hover:bg-slate-50 transition shadow-sm">
+                            <div class="flex items-center justify-between p-3.5 border border-gray-100 rounded-lg bg-white shadow-sm">
                                 <div class="flex items-center gap-3 min-w-0">
                                     <i class="<?php echo $icon_class; ?> shrink-0 text-lg"></i>
                                     <div class="min-w-0">
