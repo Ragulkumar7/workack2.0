@@ -107,7 +107,7 @@ $sections = [
             // --- TEAM CHAT (Common) ---
            [
                'name' => 'Team Chat', 
-                'path' => $base . 'team_chat.php', 
+                'path' => $base . 'Teamchat/index.php', 
                'icon' => 'message-circle', 
                 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR', 'Sales Manager', 'Sales Executive', 'CEO']
             ],

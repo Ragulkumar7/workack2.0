@@ -39,7 +39,28 @@ require_once 'backend.php';
         * { margin:0; padding:0; box-sizing:border-box; font-family:'Inter', sans-serif; }
         body { background-color: var(--bg-light); height: 100vh; display: flex; flex-direction: column; overflow: hidden; color: var(--text-dark); }
         
-        #mainContent { margin-left: 95px; width: calc(100% - 95px); height: 100vh; display: flex; flex-direction: column; transition: all 0.3s; }
+       /* ==========================================================
+           CRITICAL FIX: UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        #mainContent {
+            margin-left: 95px; /* Leaves space for global dashboard sidebar */
+            width: calc(100% - 95px);
+            height: 100vh; /* FORCES chat app to take full screen height */
+            display: flex; /* CRITICAL for internal flex items to expand */
+            flex-direction: column;
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            background: var(--bg-light);
+        }
+
+        /* Mobile Adjustments */
+        @media (max-width: 991px) {
+            #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
+
         .app-container { flex: 1; display:flex; height: 0; min-height: 0; background: var(--bg-light); position: relative;}
         
         /* SECONDARY SIDEBAR */
