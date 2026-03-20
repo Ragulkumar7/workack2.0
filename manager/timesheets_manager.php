@@ -195,7 +195,7 @@ if($emp_q) { while($r = mysqli_fetch_assoc($emp_q)) { $emps[] = $r; } }
             <?php endif; ?>
         </div>
 
-        <form method="GET" action="timesheets_manager.php" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+        <form method="GET" action="timesheets_manager.php" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4 flex flex-wrap gap-3 items-end">
             
             <div class="flex-1 min-w-[140px]">
                 <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Exact Date</label>
@@ -255,11 +255,11 @@ if($emp_q) { while($r = mysqli_fetch_assoc($emp_q)) { $emps[] = $r; } }
             </div>
             <?php endif; ?>
 
-            <div class="flex items-center gap-2 lg:col-span-1">
-                <button type="submit" class="bg-[#1b5a5a] hover:bg-[#134444] text-white px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center gap-2 w-full">
+            <div class="flex items-center gap-2 shrink-0 lg:ml-auto w-full md:w-auto mt-2 md:mt-0">
+                <button type="submit" class="bg-[#1b5a5a] hover:bg-[#134444] text-white px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center gap-2 flex-1 md:flex-none">
                     <i class="fa-solid fa-filter"></i> Apply
                 </button>
-                <a href="timesheets_manager.php" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center text-decoration-none w-full border">
+                <a href="timesheets_manager.php" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center text-decoration-none border flex-1 md:flex-none">
                     Reset
                 </a>
             </div>

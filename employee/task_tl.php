@@ -159,8 +159,38 @@ $stmt->close();
         }
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
         body { background-color: var(--bg-body); color: #1e293b; overflow-x: hidden; }
-        .main-content { margin-left: var(--sidebar-primary-width); padding: 30px; width: calc(100% - var(--sidebar-primary-width)); transition: all 0.3s ease; }
-        @media (max-width: 991px) { .main-content { margin-left: 0; width: 100%; padding: 80px 20px 20px 20px; } }
+      /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
         
         .page-header { margin-bottom: 25px; display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 15px; }
         .page-header h2 { color: #0f172a; font-weight: 800; font-size: 28px; line-height: 1.2; letter-spacing: -0.5px;}

@@ -208,6 +208,36 @@ $jsonData = json_encode($attendanceData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX
             color: #1e293b;
             overflow-x: hidden; 
         }
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 215px; /* 95px + 220px */
+            width: calc(100% - 215px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 20px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
 
         /* DYNAMIC LAYOUT */
         .main-wrapper { 
@@ -245,6 +275,7 @@ $jsonData = json_encode($attendanceData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX
 
     <?php include $sidebarPath; ?>
     <?php include $headerPath; ?>
+    <main id="mainContent" class="main-content">
 
     <div class="main-wrapper" id="mainWrapper">
         
@@ -309,7 +340,7 @@ $jsonData = json_encode($attendanceData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX
                     <input type="date" id="filterDate" value="<?php echo $today_str; ?>" class="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl px-4 py-2.5 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition shadow-sm w-full sm:w-auto cursor-pointer">
 
                     <select id="filterStatus" class="bg-white border border-slate-200 text-slate-700 text-sm font-semibold rounded-xl px-4 py-2.5 outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500 transition shadow-sm w-full sm:w-auto cursor-pointer">
-                        <option value="">All Statuses</option>
+                        <option value="">All Status</option>
                         <option value="Present">Present (All)</option>
                         <option value="On Time">↳ On Time</option>
                         <option value="Late">↳ Late</option>
@@ -415,6 +446,7 @@ $jsonData = json_encode($attendanceData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX
     </div>
 
     <div id="toast">Action Successful</div>
+    </main>
 
     <script>
         // 1. INITIALIZE DATA FROM PHP SAFELY

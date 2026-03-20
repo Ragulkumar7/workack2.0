@@ -10,6 +10,14 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) {
 $user_id = $_SESSION['user_id'] ?? $_SESSION['id'];
 $message = "";
 
+// FETCH USER ROLE TO APPLY HIERARCHY LOGIC
+$role_query = "SELECT role FROM users WHERE id = ?";
+$stmt_r = $conn->prepare($role_query);
+$stmt_r->bind_param("i", $user_id);
+$stmt_r->execute();
+$user_role = $stmt_r->get_result()->fetch_assoc()['role'] ?? 'Employee';
+$stmt_r->close();
+
 if (isset($_SESSION['success_msg'])) {
     $message = "<div class='alert alert-success border-0 shadow-sm'>" . $_SESSION['success_msg'] . "</div>";
     unset($_SESSION['success_msg']); 
@@ -27,12 +35,54 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $swap_shift = $_POST['requested_shift'];
     $reason = $_POST['reason'];
 
-    $sql = "INSERT INTO shift_swap_requests (user_id, request_date, current_shift, requested_shift, reason) VALUES (?, ?, ?, ?, ?)";
+    // =========================================================
+    // SMART HIERARCHY BYPASS LOGIC (ROLE-BASED)
+    // =========================================================
+    $tl_approval = 'Pending';
+    $mgr_approval = 'Pending';
+    $hr_approval = 'Pending';
+    $final_status = 'Pending';
+
+    // 1. Team Leads bypass the TL approval phase
+    if (in_array($user_role, ['Team Lead', 'TL'])) {
+        $tl_approval = 'Approved';
+    }
+    
+    // 2. Managers bypass both TL and Manager approval phases
+    if (in_array($user_role, ['Manager', 'Project Manager', 'General Manager'])) {
+        $tl_approval = 'Approved';
+        $mgr_approval = 'Approved';
+    }
+
+    // 3. IT Executive Logic: Bypass TL, goes to IT Admin (Mapped in Manager Status), then HR
+    if ($user_role === 'IT Executive') {
+        $tl_approval = 'Approved';
+        $mgr_approval = 'Pending';
+        $hr_approval = 'Pending';
+    }
+
+    // 4. CFO, Accounts & IT Admin Logic: Bypass TL and Manager entirely, straight to HR
+    if (in_array($user_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin'])) {
+        $tl_approval = 'Approved';
+        $mgr_approval = 'Approved';
+        $hr_approval = 'Pending';
+    }
+
+    // 5. Top-Level Management Auto-Approval (Instant Approval)
+    if (in_array($user_role, ['Admin', 'System Admin', 'CEO'])) {
+        $tl_approval = 'Approved';
+        $mgr_approval = 'Approved';
+        $hr_approval = 'Approved';
+        $final_status = 'Approved';
+    }
+
+    // UPDATED INSERT QUERY WITH STATUS BYPASSES
+    $sql = "INSERT INTO shift_swap_requests (user_id, request_date, current_shift, requested_shift, reason, tl_approval, manager_approval, hr_approval, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt = $conn->prepare($sql);
-    $stmt->bind_param("issss", $user_id, $req_date, $curr_shift, $swap_shift, $reason);
+    $stmt->bind_param("issssssss", $user_id, $req_date, $curr_shift, $swap_shift, $reason, $tl_approval, $mgr_approval, $hr_approval, $final_status);
 
     if ($stmt->execute()) {
-        $_SESSION['success_msg'] = "Request sent for approval (TL > Manager > HR).";
+        $_SESSION['success_msg'] = "Request sent successfully for approval.";
         header("Location: " . $_SERVER['PHP_SELF']);
         exit(); 
     }
@@ -61,7 +111,39 @@ if (!function_exists('renderSwapBadge')) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; font-size: 13px; }
-        #mainContent { margin-left: 95px; padding: 40px; }
+      /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
+        
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); background: #fff; }
         .btn-primary-orange { background: #1b5a5a; border: none; color: white; transition: 0.3s; }
         .btn-primary-orange:hover { background: #134040; color: white; }
@@ -76,7 +158,7 @@ if (!function_exists('renderSwapBadge')) {
     <?php include('../sidebars.php'); ?>
     <?php include('../header.php'); ?>
 
-    <main id="mainContent">
+    <main id="mainContent" class="main-content">
         <div class="w-full">
             <div class="mb-8">
                 <h1 class="text-2xl font-bold text-slate-800">Shift Swap Portal</h1>
@@ -127,9 +209,16 @@ if (!function_exists('renderSwapBadge')) {
                             <tr class="text-[10px] uppercase font-bold text-slate-400">
                                 <th class="px-6 py-4">Request Date</th>
                                 <th>Shifts (Current → Swap)</th>
-                                <th>TL Approval</th>
-                                <th>Manager Approval</th>
-                                <th>HR Approval</th>
+                                <?php if ($user_role === 'IT Executive'): ?>
+                                    <th>IT Admin Approval</th>
+                                    <th>HR Approval</th>
+                                <?php elseif (in_array($user_role, ['IT Admin', 'CFO', 'Accounts', 'Accountant'])): ?>
+                                    <th>HR Approval</th>
+                                <?php else: ?>
+                                    <th>TL Approval</th>
+                                    <th>Manager Approval</th>
+                                    <th>HR Approval</th>
+                                <?php endif; ?>
                                 <th>Final Status</th>
                             </tr>
                         </thead>
@@ -171,22 +260,46 @@ if (!function_exists('renderSwapBadge')) {
                                         <span class="text-teal-700 font-bold"><?php echo $row['requested_shift']; ?></span>
                                     </div>
                                 </td>
-                                <td>
-                                    <?php echo renderSwapBadge($tl_stat); ?>
-                                    <p class="text-[9px] mt-1 text-slate-400 font-bold"><?php echo $row['tl_name'] ?? '---'; ?></p>
-                                </td>
-                                <td>
-                                    <?php echo renderSwapBadge($mgr_stat); ?>
-                                    <p class="text-[9px] mt-1 text-slate-400 font-bold">
-                                        <?php echo ($mgr_stat === '-') ? '---' : ($row['manager_name'] ?? '---'); ?>
-                                    </p>
-                                </td>
-                                <td>
-                                    <?php echo renderSwapBadge($hr_stat); ?>
-                                    <p class="text-[9px] mt-1 text-slate-400 font-bold">
-                                        <?php echo ($hr_stat === '-') ? '---' : ($row['hr_name'] ?? '---'); ?>
-                                    </p>
-                                </td>
+
+                                <?php if ($user_role === 'IT Executive'): ?>
+                                    <td>
+                                        <?php echo renderSwapBadge($mgr_stat); ?>
+                                        <p class="text-[9px] mt-1 text-slate-400 font-bold">
+                                            <?php echo ($mgr_stat === '-') ? '---' : ($row['manager_name'] ?? '---'); ?>
+                                        </p>
+                                    </td>
+                                    <td>
+                                        <?php echo renderSwapBadge($hr_stat); ?>
+                                        <p class="text-[9px] mt-1 text-slate-400 font-bold">
+                                            <?php echo ($hr_stat === '-') ? '---' : ($row['hr_name'] ?? '---'); ?>
+                                        </p>
+                                    </td>
+                                <?php elseif (in_array($user_role, ['IT Admin', 'CFO', 'Accounts', 'Accountant'])): ?>
+                                    <td>
+                                        <?php echo renderSwapBadge($hr_stat); ?>
+                                        <p class="text-[9px] mt-1 text-slate-400 font-bold">
+                                            <?php echo ($hr_stat === '-') ? '---' : ($row['hr_name'] ?? '---'); ?>
+                                        </p>
+                                    </td>
+                                <?php else: ?>
+                                    <td>
+                                        <?php echo renderSwapBadge($tl_stat); ?>
+                                        <p class="text-[9px] mt-1 text-slate-400 font-bold"><?php echo $row['tl_name'] ?? '---'; ?></p>
+                                    </td>
+                                    <td>
+                                        <?php echo renderSwapBadge($mgr_stat); ?>
+                                        <p class="text-[9px] mt-1 text-slate-400 font-bold">
+                                            <?php echo ($mgr_stat === '-') ? '---' : ($row['manager_name'] ?? '---'); ?>
+                                        </p>
+                                    </td>
+                                    <td>
+                                        <?php echo renderSwapBadge($hr_stat); ?>
+                                        <p class="text-[9px] mt-1 text-slate-400 font-bold">
+                                            <?php echo ($hr_stat === '-') ? '---' : ($row['hr_name'] ?? '---'); ?>
+                                        </p>
+                                    </td>
+                                <?php endif; ?>
+
                                 <td>
                                     <?php echo renderSwapBadge($final_stat); ?>
                                 </td>

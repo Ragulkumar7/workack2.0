@@ -295,6 +295,36 @@ if ($conn) {
     <style>
         /* Changed font-family to Poppins */
         body { font-family: 'Poppins', sans-serif; background-color: #f4f7f6; }
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 215px; /* 95px + 220px */
+            width: calc(100% - 215px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 20px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
         .card { background: white; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; }
         
         /* Layout wrapper to prevent overlap with fixed sidebar and header, and span full width */
@@ -315,6 +345,7 @@ if ($conn) {
     </style>
 </head>
 <body class="text-gray-800">
+    <main id="mainContent" class="main-content">
 
     <div id="leadModal" class="absolute hidden z-[9999] bg-white rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.3)] w-full max-w-sm overflow-hidden border border-gray-200">
         <div class="p-4 border-b flex justify-between items-center bg-white">
@@ -706,6 +737,7 @@ if ($conn) {
         </div>
 
     </div>
+</main>
     <script>
         // ApexCharts config for Pipeline Stages (Stacked Bar)
         var options = {

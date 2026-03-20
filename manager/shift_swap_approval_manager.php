@@ -43,7 +43,38 @@ $result = $conn->query($sql_requests);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; font-size: 13px; }
-        #mainContent { margin-left: 95px; padding: 40px; }
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); background: #fff; }
         .status-pill { padding: 5px 12px; border-radius: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
         .bg-pending { background: #fff7ed; color: #9a3412; }
@@ -54,7 +85,7 @@ $result = $conn->query($sql_requests);
 <body class="bg-slate-50">
     <?php include('../sidebars.php'); ?>
     <?php include('../header.php'); ?>
-    <main id="mainContent">
+    <main id="mainContent" class="main-content">
         <div class="w-full">
             <h1 class="text-2xl font-bold text-slate-800 mb-2">Manager Approval Queue</h1>
             <p class="text-slate-500 mb-8">Reviewing requests already cleared by Team Leads.</p>

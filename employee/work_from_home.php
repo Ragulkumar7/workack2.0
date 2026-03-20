@@ -60,14 +60,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_wfh'])) {
         $init_tl = 'Approved';
         $tl_rev = 'System (Hierarchy Auto-Bypass)';
     } 
-    if (in_array($applicant_role, ['Manager', 'Project Manager', 'General Manager', 'HR', 'HR Executive'])) {
+    if (in_array($applicant_role, ['Manager', 'Project Manager', 'General Manager'])) {
         // Bypass TL and Manager, go straight to HR/Admin
         $init_tl = 'Approved';
         $init_mgr = 'Approved';
         $tl_rev = 'System (Hierarchy Auto-Bypass)';
         $mgr_rev = 'System (Hierarchy Auto-Bypass)';
     } 
-    if (in_array($applicant_role, ['Admin', 'System Admin', 'CFO', 'CEO'])) {
+    if ($applicant_role === 'IT Executive') {
+        // Bypass TL, goes to IT Admin (Mapped in Manager Status)
+        $init_tl = 'Approved';
+        $tl_rev = 'System (Hierarchy Auto-Bypass)';
+    }
+    if (in_array($applicant_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive'])) {
+        // Bypass TL and Manager entirely, straight to HR
+        $init_tl = 'Approved';
+        $init_mgr = 'Approved';
+        $tl_rev = 'System (Hierarchy Auto-Bypass)';
+        $mgr_rev = 'System (Hierarchy Auto-Bypass)';
+    }
+    if (in_array($applicant_role, ['Admin', 'System Admin', 'CEO'])) {
         // Top level goes straight to final peer/admin review
         $init_tl = 'Approved';
         $init_mgr = 'Approved';
@@ -97,16 +109,18 @@ if ($conn) {
     $res_used = $conn->query("SELECT SUM(DATEDIFF(end_date, start_date) + 1) as total FROM wfh_requests WHERE user_id = $current_user_id AND status = 'Approved' AND MONTH(start_date) = MONTH(CURRENT_DATE())");
     $days_used = ($res_used) ? ($res_used->fetch_assoc()['total'] ?? 0) : 0;
 
-    // Fetch History with Multi-Level Tracking Columns
+    // Fetch History with Multi-Level Tracking Columns and Exact Roles
     $history = [];
     $res_history = $conn->query("
-        SELECT id, applied_date, start_date, end_date, shift, reason, status, reviewer_name,
-               COALESCE(tl_status, 'Pending') as tl_status,
-               COALESCE(manager_status, 'Pending') as manager_status,
-               COALESCE(hr_status, 'Pending') as hr_status
-        FROM wfh_requests 
-        WHERE user_id = $current_user_id 
-        ORDER BY applied_date DESC
+        SELECT w.id, w.applied_date, w.start_date, w.end_date, w.shift, w.reason, w.status, w.reviewer_name,
+               COALESCE(w.tl_status, 'Pending') as tl_status,
+               COALESCE(w.manager_status, 'Pending') as manager_status,
+               COALESCE(w.hr_status, 'Pending') as hr_status,
+               u.role as actual_role
+        FROM wfh_requests w 
+        LEFT JOIN users u ON w.user_id = u.id
+        WHERE w.user_id = $current_user_id 
+        ORDER BY w.applied_date DESC
     ");
     if ($res_history) {
         while($row = $res_history->fetch_assoc()) {
@@ -149,9 +163,38 @@ $user_name = (!empty($profile['full_name'])) ? $profile['full_name'] : "";
 
     <style>
         body { background-color: #f8fafc; font-family: 'Plus Jakarta Sans', sans-serif; color: #0f172a; overflow-x: hidden;}
-        #mainContent { margin-left: 95px; width: calc(100% - 95px); transition: margin-left 0.3s ease, width 0.3s ease; padding: 24px; min-height: 100vh; }
-        
-        @media (max-width: 1024px) { #mainContent { margin-left: 0; width: 100%; padding: 16px; padding-top: 80px; } }
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
 
         .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
@@ -250,26 +293,15 @@ $user_name = (!empty($profile['full_name'])) ? $profile['full_name'] : "";
                     <tbody class="divide-y divide-slate-50 text-sm">
                         <?php if(count($history) > 0): ?>
                             <?php foreach($history as $row): 
+                                $req_role = $row['actual_role'] ?? 'Employee';
+                                
                                 $b_class = 'bg-rose-50 text-rose-600 border-rose-200';
                                 if ($row['status'] === 'Approved') $b_class = 'bg-emerald-50 text-emerald-600 border-emerald-200';
                                 elseif ($row['status'] === 'Pending') $b_class = 'bg-amber-50 text-amber-600 border-amber-200';
 
-                                // Determine which nodes to SHOW dynamically based on the system role
-                                $sys_role = $_SESSION['role'] ?? 'Employee';
-                                $show_t_node = true;
-                                $show_m_node = true;
-
-                                if (in_array($sys_role, ['Team Lead', 'TL'])) { 
-                                    $show_t_node = false; 
-                                }
-                                if (in_array($sys_role, ['Manager', 'Project Manager', 'General Manager', 'HR', 'HR Executive'])) { 
-                                    $show_t_node = false; 
-                                    $show_m_node = false; 
-                                }
-                                if (in_array($sys_role, ['Admin', 'System Admin', 'CFO', 'CEO'])) { 
-                                    $show_t_node = false; 
-                                    $show_m_node = false; 
-                                }
+                                $tl_node = $row['tl_status'] == 'Approved' ? 'node-approved' : ($row['tl_status'] == 'Rejected' ? 'node-rejected' : 'node-pending');
+                                $mgr_node = $row['manager_status'] == 'Approved' ? 'node-approved' : ($row['manager_status'] == 'Rejected' ? 'node-rejected' : 'node-pending');
+                                $hr_node = $row['hr_status'] == 'Approved' ? 'node-approved' : ($row['hr_status'] == 'Rejected' ? 'node-rejected' : 'node-pending');
                             ?>
                             <tr class="hover:bg-slate-50/50 transition-colors">
                                 <td class="px-6 py-4 font-bold text-slate-700"><?= date('d M Y', strtotime($row['applied_date'])) ?></td>
@@ -285,22 +317,19 @@ $user_name = (!empty($profile['full_name'])) ? $profile['full_name'] : "";
                                 
                                 <td class="px-6 py-4">
                                     <div class="approval-chain">
-                                        <?php 
-                                            $tl_node = $row['tl_status'] == 'Approved' ? 'node-approved' : ($row['tl_status'] == 'Rejected' ? 'node-rejected' : 'node-pending');
-                                            $mgr_node = $row['manager_status'] == 'Approved' ? 'node-approved' : ($row['manager_status'] == 'Rejected' ? 'node-rejected' : 'node-pending');
-                                            $hr_node = $row['hr_status'] == 'Approved' ? 'node-approved' : ($row['hr_status'] == 'Rejected' ? 'node-rejected' : 'node-pending');
-                                        ?>
-                                        <?php if($show_t_node): ?>
-                                            <span class="chain-node <?php echo $tl_node; ?>" title="Team Lead: <?php echo $row['tl_status']; ?>">T</span>
+                                        <?php if ($req_role === 'IT Executive'): ?>
+                                            <span class="chain-node <?= $mgr_node ?>" title="IT Admin: <?= $row['manager_status'] ?>">A</span>
                                             <div class="chain-link"></div>
-                                        <?php endif; ?>
-                                        
-                                        <?php if($show_m_node): ?>
-                                            <span class="chain-node <?php echo $mgr_node; ?>" title="Manager: <?php echo $row['manager_status']; ?>">M</span>
+                                            <span class="chain-node <?= $hr_node ?>" title="HR: <?= $row['hr_status'] ?>">H</span>
+                                        <?php elseif (in_array($req_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive'])): ?>
+                                            <span class="chain-node <?= $hr_node ?>" title="HR: <?= $row['hr_status'] ?>">H</span>
+                                        <?php else: ?>
+                                            <span class="chain-node <?= $tl_node ?>" title="Team Lead: <?= $row['tl_status'] ?>">T</span>
                                             <div class="chain-link"></div>
+                                            <span class="chain-node <?= $mgr_node ?>" title="Manager: <?= $row['manager_status'] ?>">M</span>
+                                            <div class="chain-link"></div>
+                                            <span class="chain-node <?= $hr_node ?>" title="HR: <?= $row['hr_status'] ?>">H</span>
                                         <?php endif; ?>
-                                        
-                                        <span class="chain-node <?php echo $hr_node; ?>" title="HR: <?php echo $row['hr_status']; ?>">H</span>
                                     </div>
                                 </td>
 
