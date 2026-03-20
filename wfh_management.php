@@ -26,18 +26,49 @@ $stmt->execute();
 $user_role = $stmt->get_result()->fetch_assoc()['role'];
 $stmt->close();
 
+// Role Classification for Strict Hierarchy Enforcement
+$is_tl = in_array($user_role, ['Team Lead', 'TL']);
+$is_mgr = in_array($user_role, ['Manager', 'Project Manager', 'General Manager']);
+$is_it_admin = ($user_role === 'IT Admin');
+$is_hr_admin = in_array($user_role, ['HR', 'HR Executive', 'Admin', 'System Admin', 'CFO', 'CEO']);
+
 // =========================================================================
-// 3. PROCESS AJAX WFH ACTIONS (Update Status)
+// 3. PROCESS AJAX WFH ACTIONS (Sequential Multi-Tier Logic)
 // =========================================================================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id']) && isset($_POST['status'])) {
     $req_id = intval($_POST['request_id']);
     $new_status = $_POST['status']; 
     $reviewer_name = $user_role; // Record who made the change
     
+    // Fetch current statuses
+    $fetch = $conn->prepare("SELECT tl_status, manager_status, hr_status, status FROM wfh_requests WHERE id = ?");
+    $fetch->bind_param("i", $req_id);
+    $fetch->execute();
+    $curr = $fetch->get_result()->fetch_assoc();
+    $fetch->close();
+
+    $tl_stat = $curr['tl_status'] ?? 'Pending';
+    $mgr_stat = $curr['manager_status'] ?? 'Pending';
+    $hr_stat = $curr['hr_status'] ?? 'Pending';
+
+    // Apply the approval to the CORRECT tier based on whoever clicked it
+    if ($is_tl) { $tl_stat = $new_status; }
+    elseif ($is_mgr || $is_it_admin) { $mgr_stat = $new_status; } // IT Admin acts as manager tier for IT Execs
+    elseif ($is_hr_admin) { $hr_stat = $new_status; } 
+
+    // STRICT 3-TIER DB EVALUATION
+    if ($tl_stat === 'Rejected' || $mgr_stat === 'Rejected' || $hr_stat === 'Rejected') {
+        $global_stat = 'Rejected';
+    } elseif ($tl_stat === 'Approved' && $mgr_stat === 'Approved' && $hr_stat === 'Approved') {
+        $global_stat = 'Approved';
+    } else {
+        $global_stat = 'Pending';
+    }
+
     // Update the status and tag the reviewer's role
-    $update_query = "UPDATE wfh_requests SET status = ?, reviewer_name = ? WHERE id = ?";
+    $update_query = "UPDATE wfh_requests SET tl_status=?, manager_status=?, hr_status=?, status=?, reviewer_name=? WHERE id=?";
     $update_stmt = $conn->prepare($update_query);
-    $update_stmt->bind_param("ssi", $new_status, $reviewer_name, $req_id);
+    $update_stmt->bind_param("sssssi", $tl_stat, $mgr_stat, $hr_stat, $global_stat, $reviewer_name, $req_id);
 
     if ($update_stmt->execute()) {
         echo "success";
@@ -46,17 +77,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['request_id']) && isse
     }
     
     $update_stmt->close();
-    // REMOVED $conn->close() from here so header.php can use the connection
     exit(); 
 }
 
 // =========================================================================
 // 4. FETCH DATA FOR UI DISPLAY
 // =========================================================================
-// FIXED: Removed u.employee_id from COALESCE since it doesn't exist in users table
 $base_select = "SELECT w.*, 
                 COALESCE(ep.full_name, u.username, 'Unknown Employee') as emp_name, 
                 COALESCE(ep.emp_id_code, 'N/A') as emp_id_code,
+                u.role as actual_role,
                 ep.designation as emp_role,
                 ep.profile_img
               FROM wfh_requests w 
@@ -64,17 +94,29 @@ $base_select = "SELECT w.*,
               LEFT JOIN employee_profiles ep ON u.id = ep.user_id";
 
 $query = "";
-if ($user_role === 'Team Lead') {
-    $query = "$base_select WHERE ep.reporting_to = ? ORDER BY w.applied_date DESC";
+if ($is_tl) {
+    // TL excludes special routing roles
+    $query = "$base_select WHERE ep.reporting_to = ? AND w.user_id != ? AND u.role NOT IN ('CFO', 'Accounts', 'Accountant', 'IT Executive', 'IT Admin', 'HR Executive') ORDER BY w.applied_date DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("ii", $user_id, $user_id);
+} elseif ($is_mgr) {
+    // Manager excludes special routing roles
+    $query = "$base_select WHERE (ep.manager_id = ? OR ep.reporting_to = ? OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE manager_id = ?)) AND w.user_id != ? AND u.role NOT IN ('CFO', 'Accounts', 'Accountant', 'IT Executive', 'IT Admin', 'HR Executive') ORDER BY w.applied_date DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("iiii", $user_id, $user_id, $user_id, $user_id);
+} elseif ($is_it_admin) {
+    // IT Admin ONLY sees IT Executives
+    $query = "$base_select WHERE u.role = 'IT Executive' AND w.user_id != ? ORDER BY w.applied_date DESC";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
-} elseif ($user_role === 'Manager') {
-    // Manager sees direct reports OR employees under their team leads
-    $query = "$base_select WHERE ep.manager_id = ? OR ep.reporting_to = ? OR ep.reporting_to IN (SELECT user_id FROM employee_profiles WHERE manager_id = ?) ORDER BY w.applied_date DESC";
+} elseif ($is_hr_admin) {
+    // HR/Admins see everything (except their own requests here, they use My WFH)
+    $query = "$base_select WHERE w.user_id != ? ORDER BY w.applied_date DESC";
     $stmt = $conn->prepare($query);
-    $stmt->bind_param("iii", $user_id, $user_id, $user_id);
+    $stmt->bind_param("i", $user_id);
 } else {
-    $query = "$base_select ORDER BY w.applied_date DESC";
+    // Security Seal: If Accountant/Random Role tries to view this page, show 0 requests.
+    $query = "$base_select WHERE 1=0";
     $stmt = $conn->prepare($query);
 }
 
@@ -94,14 +136,67 @@ while ($row = $result->fetch_assoc()) {
     
     $row['avatar'] = $imgSource;
 
+    // --- DYNAMIC LOGIC SYNC ---
+    $tl_stat = $row['tl_status'] ?? 'Pending';
+    $mgr_stat = $row['manager_status'] ?? 'Pending';
+    $hr_stat = $row['hr_status'] ?? 'Pending';
+    $db_global = $row['status'] ?: 'Pending';
+
+    $req_role = trim($row['actual_role']);
+    
+    if (in_array($req_role, ['Team Lead', 'TL'])) { $tl_stat = 'Approved'; }
+    if (in_array($req_role, ['Manager', 'Project Manager', 'General Manager'])) { $tl_stat = 'Approved'; $mgr_stat = 'Approved'; }
+    if ($req_role === 'IT Executive') { $tl_stat = 'Approved'; }
+    if (in_array($req_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive'])) { $tl_stat = 'Approved'; $mgr_stat = 'Approved'; }
+    if (in_array($req_role, ['Admin', 'System Admin', 'CEO'])) { $tl_stat = 'Approved'; $mgr_stat = 'Approved'; $hr_stat = 'Approved'; $db_global = 'Approved'; }
+
+    // Strict recalculation to ensure accuracy
+    if ($db_global === 'Approved' || ($tl_stat === 'Approved' && $mgr_stat === 'Approved' && $hr_stat === 'Approved')) {
+        $real_global_status = 'Approved';
+    } elseif ($tl_stat === 'Rejected' || $mgr_stat === 'Rejected' || $hr_stat === 'Rejected' || $db_global === 'Rejected') {
+        $real_global_status = 'Rejected';
+    } else {
+        $real_global_status = 'Pending';
+    }
+
+    // SEQUENTIAL ACTION VISIBILITY LOGIC
+    $can_action = false;
+    $waiting_on_other = false;
+    
+    if ($real_global_status === 'Pending') {
+        if ($is_tl) {
+            if ($tl_stat === 'Pending') $can_action = true;
+        } elseif ($is_mgr) {
+            if ($tl_stat === 'Pending') { $waiting_on_other = 'Awaiting TL'; }
+            elseif ($mgr_stat === 'Pending') { $can_action = true; }
+        } elseif ($is_it_admin) {
+            if ($mgr_stat === 'Pending') { $can_action = true; } 
+        } elseif ($is_hr_admin) {
+            if ($req_role === 'IT Executive') {
+                if ($mgr_stat === 'Pending') { $waiting_on_other = 'Awaiting IT Admin'; }
+                elseif ($hr_stat === 'Pending') { $can_action = true; }
+            } elseif (in_array($req_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive'])) {
+                if ($hr_stat === 'Pending') { $can_action = true; }
+            } else {
+                if ($tl_stat === 'Pending') { $waiting_on_other = 'Awaiting TL'; }
+                elseif ($mgr_stat === 'Pending') { $waiting_on_other = 'Awaiting Manager'; }
+                elseif ($hr_stat === 'Pending') { $can_action = true; }
+            }
+        }
+    }
+
+    $row['status'] = $real_global_status;
+    $row['can_action'] = $can_action;
+    $row['waiting_on_other'] = $waiting_on_other;
+
+    // Save evaluated statuses to the array to use in the UI safely
+    $row['eval_tl_stat'] = $tl_stat;
+    $row['eval_mgr_stat'] = $mgr_stat;
+    $row['eval_hr_stat'] = $hr_stat;
+
     $wfh_requests[] = $row;
 }
 $stmt->close();
-<<<<<<< HEAD
-// REMOVED $conn->close() from here so header.php can use the connection
-=======
-// $conn->close(); <-- REMOVED THIS LINE SO HEADER.PHP CAN USE THE CONNECTION
->>>>>>> 44fc4195d501c12eff1ec9ffce873b37175c5a74
 
 $sidebarPath = __DIR__ . '/sidebars.php'; 
 if (!file_exists($sidebarPath)) { $sidebarPath = '../sidebars.php'; }
@@ -239,6 +334,16 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
         .status-pending { background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; }
         .status-rejected { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
 
+        /* --- VISUAL APPROVAL CHAIN UI --- */
+        .approval-chain { display: flex; align-items: center; gap: 4px; }
+        .chain-node { width: 22px; height: 22px; border-radius: 50%; color: white; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: help; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .chain-link { width: 12px; height: 2px; background: #cbd5e1; border-radius: 2px; }
+        
+        /* Updated dynamic colors for approval chain nodes based on status */
+        .node-approved { background: #22c55e; } /* Green */
+        .node-pending { background: #f59e0b; }  /* Yellow/Amber */
+        .node-rejected { background: #ef4444; } /* Red */
+
         /* --- MODALS --- */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -308,9 +413,9 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
 
                 <div class="filter-group">
                     <select id="filterStatus" onchange="runFilter()">
-                        <option value="">All Status</option>
-                        <option value="Approved">Approved</option>
-                        <option value="Pending">Pending</option>
+                        <option value="">Final Status: All</option>
+                        <option value="Approved">Final Approved</option>
+                        <option value="Pending">In Pipeline (Pending)</option>
                         <option value="Rejected">Rejected</option>
                     </select>
                 </div>
@@ -334,10 +439,10 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                         <tr>
                             <th>Emp ID</th>
                             <th>Employee</th>
-                            <th>Shift</th>
                             <th>Dates</th>
                             <th>Reason</th>
-                            <th>Status</th>
+                            <th>Approval Chain</th>
+                            <th>Final Status</th>
                             <th>Action</th>
                         </tr>
                     </thead>
@@ -355,11 +460,39 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                                             </div>
                                         </div>
                                     </td>
-                                    <td><?php echo htmlspecialchars($req['shift']); ?></td>
-                                    <td><?php echo date('d M Y', strtotime($req['start_date'])) . ' - ' . date('d M Y', strtotime($req['end_date'])); ?></td>
+                                    <td>
+                                        <span style="font-weight: 600; color: #334155;"><?php echo date('d M', strtotime($req['start_date'])) . ' - ' . date('d M Y', strtotime($req['end_date'])); ?></span><br>
+                                        <span style="font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;"><?php echo htmlspecialchars($req['shift']); ?></span>
+                                    </td>
                                     <td style="max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="<?php echo htmlspecialchars($req['reason']); ?>">
                                         <?php echo htmlspecialchars($req['reason']); ?>
                                     </td>
+                                    
+                                    <td>
+                                        <div class="approval-chain">
+                                            <?php 
+                                                // Using dynamically resolved statuses to render the correct UI elements
+                                                $tl_node = $req['eval_tl_stat'] == 'Approved' ? 'node-approved' : ($req['eval_tl_stat'] == 'Rejected' ? 'node-rejected' : 'node-pending');
+                                                $mgr_node = $req['eval_mgr_stat'] == 'Approved' ? 'node-approved' : ($req['eval_mgr_stat'] == 'Rejected' ? 'node-rejected' : 'node-pending');
+                                                $hr_node = $req['eval_hr_stat'] == 'Approved' ? 'node-approved' : ($req['eval_hr_stat'] == 'Rejected' ? 'node-rejected' : 'node-pending');
+                                            ?>
+                                            
+                                            <?php if ($req['actual_role'] === 'IT Executive'): ?>
+                                                <span class="chain-node <?php echo $mgr_node; ?>" title="IT Admin: <?php echo $req['eval_mgr_stat']; ?>">A</span>
+                                                <div class="chain-link"></div>
+                                                <span class="chain-node <?php echo $hr_node; ?>" title="HR: <?php echo $req['eval_hr_stat']; ?>">H</span>
+                                            <?php elseif (in_array($req['actual_role'], ['CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive'])): ?>
+                                                <span class="chain-node <?php echo $hr_node; ?>" title="HR: <?php echo $req['eval_hr_stat']; ?>">H</span>
+                                            <?php else: ?>
+                                                <span class="chain-node <?php echo $tl_node; ?>" title="Team Lead: <?php echo $req['eval_tl_stat']; ?>">T</span>
+                                                <div class="chain-link"></div>
+                                                <span class="chain-node <?php echo $mgr_node; ?>" title="Manager: <?php echo $req['eval_mgr_stat']; ?>">M</span>
+                                                <div class="chain-link"></div>
+                                                <span class="chain-node <?php echo $hr_node; ?>" title="HR: <?php echo $req['eval_hr_stat']; ?>">H</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+
                                     <td>
                                         <?php 
                                             $badgeClass = "status-" . strtolower($req['status']);
@@ -367,17 +500,21 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                                         ?>
                                         <span class="status-pill <?php echo $badgeClass; ?>"><i data-lucide="<?php echo $icon; ?>" style="width:12px;"></i> <?php echo $req['status']; ?></span>
                                     </td>
+                                    
                                     <td>
-                                        <?php if($req['status'] === 'Pending'): ?>
-                                            <button class="btn btn-sm" 
+                                        <?php if($req['can_action']): ?>
+                                            <button class="btn btn-sm btn-primary" 
                                                 data-id="<?php echo $req['id']; ?>"
                                                 data-name="<?php echo htmlspecialchars($req['emp_name']); ?>"
                                                 data-reason="<?php echo htmlspecialchars($req['reason']); ?>"
                                                 data-status="<?php echo $req['status']; ?>"
-                                                data-reviewer=""
                                                 onclick="openApprovalModal(this, false)">
                                                 <i data-lucide="edit-3" style="width:14px;"></i> Review
                                             </button>
+                                        <?php elseif($req['waiting_on_other']): ?>
+                                            <span style="font-size: 11px; font-weight: 700; color: #94a3b8; background: #f1f5f9; padding: 6px 10px; border-radius: 6px; border: 1px dashed #cbd5e1;">
+                                                <i data-lucide="lock" style="width:12px; display:inline; margin-bottom:-2px;"></i> <?php echo $req['waiting_on_other']; ?>
+                                            </span>
                                         <?php else: ?>
                                             <button class="btn btn-sm" style="background: #f8fafc; border-color: #e2e8f0; color: #475569;"
                                                 data-id="<?php echo $req['id']; ?>"
@@ -396,7 +533,7 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                             <tr>
                                 <td colspan="7" style="text-align: center; padding: 40px; color: #6b7280;">
                                     <i data-lucide="inbox" style="width: 48px; height: 48px; color: #cbd5e1; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto;"></i>
-                                    No WFH requests found for your team.
+                                    No WFH requests found in your pipeline.
                                 </td>
                             </tr>
                         <?php endif; ?>
@@ -430,7 +567,7 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
                     <input type="text" id="editReviewerName" class="form-control" readonly style="font-weight: 600; color: #1e293b;">
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="decisionGroup">
                     <label>Request Status <span id="statusAsterisk">*</span></label>
                     <select id="editStatusSelect" class="form-control" style="-webkit-appearance: auto; appearance: auto;">
                         <option value="Pending">Pending</option>
@@ -513,28 +650,29 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
             const saveBtn = document.getElementById('saveStatusBtn');
             const selectBox = document.getElementById('editStatusSelect');
             const reviewerGroup = document.getElementById('reviewerGroup');
+            const decisionGroup = document.getElementById('decisionGroup');
             const asterisk = document.getElementById('statusAsterisk');
 
             if (isReadOnly) {
                 // View Mode
                 document.getElementById('modalTitle').innerText = "View Request Details";
                 saveBtn.style.display = 'none';
-                selectBox.disabled = true;
-                selectBox.style.borderColor = '#d1d5db';
-                asterisk.style.display = 'none';
                 
-                // Show Reviewer
+                // Hide selection box, show only text input of reviewer
+                decisionGroup.style.display = 'none';
+                
                 reviewerGroup.style.display = 'block';
                 document.getElementById('editReviewerName').value = reviewer ? reviewer : 'Admin System';
             } else {
                 // Edit Mode
                 document.getElementById('modalTitle').innerText = "Update Request Status";
                 saveBtn.style.display = 'block';
+                
+                decisionGroup.style.display = 'block';
                 selectBox.disabled = false;
                 selectBox.style.borderColor = 'var(--primary)';
                 asterisk.style.display = 'inline';
                 
-                // Hide Reviewer
                 reviewerGroup.style.display = 'none';
             }
             
@@ -582,7 +720,7 @@ if (!file_exists($headerPath)) { $headerPath = '../header.php'; }
 
                 const idTxt = rows[i].cells[0].textContent.toUpperCase();
                 const nameTxt = rows[i].cells[1].textContent.toUpperCase();
-                const reasonTxt = rows[i].cells[4].textContent.toUpperCase(); 
+                const reasonTxt = rows[i].cells[3].textContent.toUpperCase(); 
                 const statusTxt = rows[i].cells[5].textContent.toUpperCase();
                 
                 const rowStartDate = rows[i].getAttribute('data-start'); 
