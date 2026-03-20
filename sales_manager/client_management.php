@@ -1,13 +1,22 @@
 <?php
+// client_management.php
+
 // Fixes "headers already sent" error by turning on output buffering
 ob_start();
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Database and Path configuration
-if (file_exists('include/db_connect.php')) {
-    require_once 'include/db_connect.php';
+// 1. SESSION & SECURITY
+if (!isset($_SESSION['user_id'])) { 
+    header("Location: index.php"); 
+    exit(); 
+}
+
+// 2. DATABASE CONNECTION (Smart Path Resolver)
+$dbPath = 'include/db_connect.php';
+if (file_exists($dbPath)) {
+    require_once $dbPath;
     $sidebarPath = 'sidebars.php';
     $headerPath = 'header.php';
 } elseif (file_exists('../include/db_connect.php')) {
@@ -15,24 +24,116 @@ if (file_exists('include/db_connect.php')) {
     $sidebarPath = '../sidebars.php';
     $headerPath = '../header.php';
 } else {
-    $sidebarPath = '';
-    $headerPath = '';
+    die("Critical Error: Cannot find database connection file.");
 }
 
-// Fetch User Role for Access Control
+// Determine Assets Directory Base Path
+$assetsBase = 'assets/profiles/';
+if (!is_dir(__DIR__ . '/' . $assetsBase)) {
+    $assetsBase = '../assets/profiles/';
+}
+
+// 3. STRICT USER IDENTIFICATION & ROLE ACCESS
+$user_id = $_SESSION['user_id'] ?? 0;
 $current_user_role = $_SESSION['role'] ?? 'Guest'; 
 
-// Fetch strictly ONLY 'Sales Executives' for the Dropdown
-$executives = [];
-if(isset($conn)) {
-    // UPDATED QUERY: Only fetches users whose role is strictly 'Sales Executive'
-    $exec_query = mysqli_query($conn, "SELECT name, role FROM users WHERE role = 'Sales Executive' ORDER BY name ASC");
-    if($exec_query) {
-        while($row = mysqli_fetch_assoc($exec_query)) {
-            $executives[] = $row['name'];
+$current_user_name = 'Unknown';
+$current_user_dept = '';
+
+// Safely fetch the exact name & department of the logged-in user
+try {
+    if ($user_id && isset($conn)) {
+        $name_stmt = $conn->prepare("SELECT u.name, u.username, ep.department FROM users u LEFT JOIN employee_profiles ep ON u.id = ep.user_id WHERE u.id = ?");
+        if ($name_stmt) {
+            $name_stmt->bind_param("i", $user_id);
+            $name_stmt->execute();
+            $name_res = $name_stmt->get_result();
+            if ($name_res && $name_res->num_rows > 0) {
+                $name_row = $name_res->fetch_assoc();
+                $current_user_name = $name_row['name'] ?? ($name_row['username'] ?? 'Unknown');
+                $current_user_dept = $name_row['department'] ?? '';
+            }
+            $name_stmt->close();
         }
     }
+} catch (Throwable $e) {
+    // Failsafe
 }
+
+// Fetch Dropdown Data Safely
+$executives = [];
+$departments = [];
+$managers = [];
+
+try {
+    if(isset($conn)) {
+        // 1. Get Sales Executives
+        $exec_query = mysqli_query($conn, "SELECT name, role FROM users WHERE role = 'Sales Executive' ORDER BY name ASC");
+        if($exec_query) {
+            while($row = mysqli_fetch_assoc($exec_query)) {
+                $executives[] = $row['name'];
+            }
+        }
+
+        // 2. DYNAMIC DEPARTMENTS FETCH
+        $dept_query = mysqli_query($conn, "SELECT DISTINCT department FROM employee_profiles WHERE department IS NOT NULL AND department != '' ORDER BY department ASC");
+        if($dept_query) {
+            while($row = mysqli_fetch_assoc($dept_query)) {
+                $departments[] = $row['department'];
+            }
+        }
+        if(empty($departments)) {
+            $departments = ['IT', 'Design', 'Marketing', 'Operations', 'Sales', 'HR'];
+        }
+
+        // 3. DYNAMIC MANAGERS FETCH
+        $mgr_query = mysqli_query($conn, "
+            SELECT u.id, COALESCE(ep.full_name, u.name) as name, COALESCE(ep.department, 'Operations') as department 
+            FROM users u 
+            LEFT JOIN employee_profiles ep ON u.id = ep.user_id 
+            WHERE u.role LIKE '%Manager%' OR u.role IN ('Admin', 'IT Admin', 'CEO')
+            ORDER BY name ASC
+        ");
+        if($mgr_query) {
+            while($row = mysqli_fetch_assoc($mgr_query)) {
+                $managers[] = $row;
+            }
+        }
+
+        // --- ENTERPRISE DATABASE PATCHER ---
+        $check_col = $conn->query("SHOW COLUMNS FROM `crm_clients` LIKE 'is_handed_over'");
+        if ($check_col && $check_col->num_rows == 0) {
+            $conn->query("ALTER TABLE `crm_clients` ADD COLUMN `is_handed_over` TINYINT(1) DEFAULT 0");
+        }
+        
+        $has_created_by = false;
+        $check_exec = $conn->query("SHOW COLUMNS FROM `crm_clients` LIKE 'created_by'");
+        if ($check_exec && $check_exec->num_rows > 0) {
+            $has_created_by = true;
+        } else {
+            $alter = @$conn->query("ALTER TABLE `crm_clients` ADD COLUMN `created_by` INT(11) DEFAULT 0");
+            if ($alter) $has_created_by = true;
+        }
+        
+        $conn->query("CREATE TABLE IF NOT EXISTS `department_projects` (
+            `id` VARCHAR(50) PRIMARY KEY, 
+            `client_id` VARCHAR(50) NOT NULL, 
+            `department` VARCHAR(50), 
+            `assigned_manager` VARCHAR(100),
+            `priority` VARCHAR(20), 
+            `deadline` DATE,
+            `notes` TEXT, 
+            `status` VARCHAR(50) DEFAULT 'Pending', 
+            `created_by` VARCHAR(100), 
+            `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )");
+
+        $check_dp_mgr = $conn->query("SHOW COLUMNS FROM `department_projects` LIKE 'assigned_manager'");
+        if ($check_dp_mgr && $check_dp_mgr->num_rows == 0) {
+            @$conn->query("ALTER TABLE `department_projects` ADD COLUMN `assigned_manager` VARCHAR(100) AFTER `department`");
+        }
+    }
+} catch (Throwable $e) {}
 
 // Handle API requests (CRUD operations)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
@@ -44,7 +145,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     try {
         if ($action === 'load') {
-            $res = mysqli_query($conn, "SELECT * FROM crm_clients ORDER BY created_at DESC");
+            if ($current_user_role === 'Sales Executive') {
+                $safe_name = mysqli_real_escape_string($conn, $current_user_name);
+                $res = mysqli_query($conn, "SELECT * FROM crm_clients WHERE executive = '$safe_name' ORDER BY created_at DESC");
+            } else {
+                $res = mysqli_query($conn, "SELECT * FROM crm_clients ORDER BY created_at DESC");
+            }
+            
             $clients = [];
             if($res) {
                 while($row = mysqli_fetch_assoc($res)) {
@@ -60,10 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $designation = mysqli_real_escape_string($conn, $_POST['designation'] ?? '');
             $phone = mysqli_real_escape_string($conn, $_POST['phone'] ?? '');
             $email = mysqli_real_escape_string($conn, $_POST['email'] ?? '');
-            
-            // Getting official mail id correctly from AJAX POST
             $official_mail_id = mysqli_real_escape_string($conn, $_POST['official_mail_id'] ?? '');
-            
             $gst_number = mysqli_real_escape_string($conn, $_POST['gst_number'] ?? '');
             $location = mysqli_real_escape_string($conn, $_POST['location'] ?? '');
             $description = mysqli_real_escape_string($conn, $_POST['description'] ?? '');
@@ -73,7 +177,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $executive = mysqli_real_escape_string($conn, $_POST['executive'] ?? '');
             $deal_value = floatval($_POST['deal_value'] ?? 0.00);
 
-           $sql = "INSERT INTO crm_clients 
+            if ($current_user_role === 'Sales Executive') {
+                $executive = mysqli_real_escape_string($conn, $current_user_name);
+            }
+
+            $sql = "INSERT INTO crm_clients 
                     (id, name, company_name, designation, phone, email, official_mail, gst_number, location, description, source, status, executive, deal_value) 
                     VALUES 
                     ('$id', '$name', '$company_name', '$designation', '$phone', '$email', '$official_mail_id', '$gst_number', '$location', '$description', '$source', '$status', '$executive', $deal_value)";
@@ -100,6 +208,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $executive = mysqli_real_escape_string($conn, $_POST['executive'] ?? '');
             $deal_value = floatval($_POST['deal_value'] ?? 0.00);
 
+            if ($current_user_role === 'Sales Executive') {
+                $executive = mysqli_real_escape_string($conn, $current_user_name);
+            }
+
             $sql = "UPDATE crm_clients SET 
                     name='$name', 
                     company_name='$company_name', 
@@ -123,10 +235,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         } 
         elseif ($action === 'delete') {
+            if ($current_user_role === 'Sales Executive') {
+                echo json_encode(['success' => false, 'message' => 'Access denied. You do not have permission to delete.']);
+                exit;
+            }
             $id = mysqli_real_escape_string($conn, $_POST['id'] ?? '');
-            $sql = "DELETE FROM crm_clients WHERE id='$id'";
-            if(mysqli_query($conn, $sql)) {
-                $response = ['success' => true, 'message' => 'Client deleted successfully'];
+            $stmt = $conn->prepare("DELETE FROM crm_clients WHERE id = ?");
+            if($stmt) {
+                $stmt->bind_param("s", $id);
+                if ($stmt->execute()) { $response = ['success' => true]; } else { $response = ['success' => false]; }
+                $stmt->close();
+            }
+        }
+        elseif ($action === 'handover') {
+            if ($current_user_role === 'Sales Executive') {
+                echo json_encode(['success' => false, 'message' => 'Access denied. Only Sales Managers can dispatch projects.']);
+                exit;
+            }
+            $client_id = mysqli_real_escape_string($conn, $_POST['client_id'] ?? '');
+            $department = mysqli_real_escape_string($conn, $_POST['department'] ?? '');
+            $assigned_manager = mysqli_real_escape_string($conn, $_POST['assigned_manager'] ?? '');
+            $priority = mysqli_real_escape_string($conn, $_POST['priority'] ?? '');
+            $deadline = mysqli_real_escape_string($conn, $_POST['deadline'] ?? '');
+            $notes = mysqli_real_escape_string($conn, $_POST['notes'] ?? '');
+            
+            $proj_id = "PRJ-" . strtoupper(substr(md5(uniqid()), 0, 8));
+            $created_by = mysqli_real_escape_string($conn, $current_user_name);
+
+            $sql1 = "INSERT INTO department_projects (id, client_id, department, assigned_manager, priority, deadline, notes, created_by) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+            $stmt1 = $conn->prepare($sql1);
+            $stmt1->bind_param("ssssssss", $proj_id, $client_id, $department, $assigned_manager, $priority, $deadline, $notes, $created_by);
+
+            $sql2 = "UPDATE crm_clients SET is_handed_over = 1 WHERE id = ?";
+            $stmt2 = $conn->prepare($sql2);
+            $stmt2->bind_param("s", $client_id);
+
+            if($stmt1->execute() && $stmt2->execute()) {
+                $response = ['success' => true, 'message' => "Successfully handed over to $assigned_manager ($department)!"];
             } else {
                 $response = ['success' => false, 'message' => mysqli_error($conn)];
             }
@@ -147,6 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <title>Sales CRM - Client Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <style>
         :root {
             --bg-body: #f8fafc;
@@ -174,7 +321,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
         body { background-color: var(--bg-body); color: var(--text-primary); line-height: 1.5; -webkit-font-smoothing: antialiased; transition: background-color var(--transition); }
-        .main-content { margin-left: var(--sidebar-width); padding: 2rem; min-height: 100vh; }
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
         button { cursor: pointer; border: none; background: none; font-family: inherit; }
         input, select, textarea { font-family: inherit; }
 
@@ -196,6 +374,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .btn-icon:hover { background-color: var(--bg-hover); color: var(--primary-color); }
         .btn-icon.danger:hover { background-color: #fee2e2; color: var(--danger-color); }
         .btn-icon.success:hover { background-color: #dcfce7; color: var(--success-color); }
+        .btn-icon.handover { color: var(--purple-color); background-color: #f3e8ff; border: 1px solid #e9d5ff; }
+        .btn-icon.handover:hover { background-color: var(--purple-color); color: white; transform: translateY(-2px); box-shadow: var(--shadow-sm); }
 
         .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
         .metric-card { background-color: var(--bg-surface); border-radius: var(--border-radius); padding: 1.5rem; border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); display: flex; align-items: center; gap: 1.25rem; transition: var(--transition); }
@@ -219,7 +399,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .filter-select:focus { outline: none; border-color: var(--primary-color); }
 
         .table-container { background-color: var(--bg-surface); border-radius: var(--border-radius); border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); overflow: hidden; position: relative; }
-        table { width: 100%; border-collapse: collapse; text-align: left; }
+        
+        /* ADDED: Table Wrapper CSS for Horizontal Scroll */
+        .table-wrapper { overflow-x: auto; width: 100%; -webkit-overflow-scrolling: touch; }
+        /* ADDED: min-width to table to force scroll on small screens */
+        table { width: 100%; border-collapse: collapse; text-align: left; min-width: 950px; }
+        
         th { background-color: var(--bg-hover); color: var(--text-secondary); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); }
         td { padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); font-size: 0.875rem; vertical-align: middle; }
         tr:last-child td { border-bottom: none; }
@@ -241,7 +426,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .status-lost { background-color: #fee2e2; color: #b91c1c; }
 
         .deal-value { font-weight: 600; color: var(--text-primary); }
-        .table-actions { display: flex; gap: 0.25rem; justify-content: flex-end; }
+        .table-actions { display: flex; gap: 0.25rem; justify-content: flex-end; align-items: center; }
 
         .empty-state { padding: 4rem 2rem; text-align: center; color: var(--text-secondary); }
         .empty-state svg { width: 48px; height: 48px; margin-bottom: 1rem; color: var(--text-muted); opacity: 0.5; }
@@ -250,7 +435,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .page-info { font-size: 0.875rem; color: var(--text-secondary); }
         .page-controls { display: flex; gap: 0.5rem; }
 
-        /* Modal Base - Magic Flexbox Fix Applied Here for Scroll & Save Button Visibility */
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.3s ease; backdrop-filter: blur(2px); padding: 1rem; }
         .modal-overlay.active { opacity: 1; visibility: visible; }
         
@@ -264,7 +448,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             transition: transform 0.3s ease; 
             display: flex; 
             flex-direction: column; 
-            max-height: 90vh; /* Limits maximum height to viewport */
+            max-height: 90vh;
         }
         .modal-overlay.active .modal-content { transform: translateY(0); }
         
@@ -274,7 +458,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             display: flex; 
             justify-content: space-between; 
             align-items: center; 
-            flex: 0 0 auto; /* Prevents header from shrinking or growing */
+            flex: 0 0 auto;
         }
         .modal-header h2 { margin: 0; font-size: 1.25rem; }
         .close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.5rem; border-radius: var(--border-radius-sm); transition: var(--transition); }
@@ -283,8 +467,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .modal-body { 
             padding: 1.5rem; 
             overflow-y: auto; 
-            flex: 1 1 auto; /* Pushes footer down and allows scrolling inside */
-            min-height: 0; /* Important: Allows the body to scroll and not stretch parent flex container */
+            flex: 1 1 auto; 
+            min-height: 0; 
         }
         
         .modal-footer { 
@@ -294,7 +478,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             justify-content: flex-end; 
             gap: 1rem; 
             background-color: #f8fafc;
-            flex: 0 0 auto; /* Prevents footer from shrinking and hiding below screen */
+            flex: 0 0 auto; 
         }
         
         #confirmModal .modal-content { max-width: 400px; }
@@ -307,9 +491,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(27, 90, 90, 0.1); background-color: var(--bg-surface); }
         .form-group textarea { resize: vertical; }
         
-        /* Readonly styling for View Mode */
         .form-group input:read-only, .form-group textarea:read-only { background-color: var(--bg-hover); cursor: default; }
-        .form-group select:disabled { background-color: var(--bg-hover); cursor: default; opacity: 1; color: var(--text-primary); }
+        .form-group select:disabled { background-color: var(--bg-hover); cursor: not-allowed; opacity: 1; color: var(--text-primary); }
 
         .loading-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255, 255, 255, 0.7); display: none; align-items: center; justify-content: center; z-index: 10; }
         .loading-overlay.active { display: flex; }
@@ -324,7 +507,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     <?php if ($sidebarPath) include $sidebarPath; ?>
     <?php if ($headerPath) include $headerPath; ?>
 
-    <main class="main-content">
+    <main id="mainContent" class="main-content">
         <header class="header">
             <div class="header-content">
                 <h1>Client Management</h1>
@@ -377,7 +560,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <div class="metric-card">
                 <div class="metric-icon value">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08-.402 2.599-1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                 </div>
                 <div class="metric-content">
@@ -420,20 +603,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <div class="loading-overlay" id="tableLoading">
                 <div class="spinner"></div>
             </div>
-            <table id="clientsTable">
-                <thead>
-                    <tr>
-                        <th>Client Details</th>
-                        <th>Contact Info</th>
-                        <th>Source</th>
-                        <th>Status</th>
-                        <th>Executive</th>
-                        <th>Deal Value</th>
-                        <th style="text-align: right;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody id="tableBody"> </tbody>
-            </table>
+            
+            <div class="table-wrapper">
+                <table id="clientsTable">
+                    <thead>
+                        <tr>
+                            <th>Client Details</th>
+                            <th>Contact Info</th>
+                            <th>Source</th>
+                            <th>Status</th>
+                            <th>Executive</th>
+                            <th>Deal Value</th>
+                            <th style="text-align: right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody"> </tbody>
+                </table>
+            </div>
             
             <div class="empty-state" id="emptyState" style="display: none;">
                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -627,6 +813,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         </div>
     </div>
 
+    <div class="modal-overlay" id="handoverModal">
+        <form id="handoverForm" class="modal-content" style="max-width: 500px;">
+            <div class="modal-header" style="background-color: #f3e8ff;">
+                <h2 style="color: var(--purple-color); font-weight: 700; font-size: 1.25rem;"><i class="fa-solid fa-rocket"></i> Dispatch to Department</h2>
+                <button type="button" class="close-btn" id="closeHandoverBtn" style="color: var(--purple-color);">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 1.5rem; font-size: 0.875rem; color: var(--text-secondary);">This client has been marked as <strong>Won</strong>. Assign this client to a department manager to begin fulfillment.</p>
+                <input type="hidden" id="ho_client_id">
+                
+                <div class="form-group">
+                    <label>Target Department *</label>
+                    <select id="ho_department" required class="form-input bg-gray-50 cursor-pointer">
+                        <option value="" disabled selected>Select Department...</option>
+                        <?php foreach($departments as $dept): ?>
+                            <option value="<?php echo htmlspecialchars($dept); ?>"><?php echo htmlspecialchars($dept); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Assign to Manager *</label>
+                    <select id="ho_manager" required class="form-input bg-gray-50 cursor-pointer">
+                        <option value="" disabled selected>Select Department First...</option>
+                    </select>
+                </div>
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Priority</label>
+                        <select id="ho_priority" class="form-input bg-gray-50">
+                            <option value="Normal">Normal</option>
+                            <option value="High">High</option>
+                            <option value="Urgent">Urgent</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Deadline</label>
+                        <input type="date" id="ho_deadline" required class="form-input bg-gray-50">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Handoff Notes & Requirements *</label>
+                    <textarea id="ho_notes" rows="3" required class="form-input bg-gray-50" placeholder="What exactly does the team need to build or do for this client?"></textarea>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelHandoverBtn">Cancel</button>
+                <button type="submit" class="btn btn-primary" style="background-color: var(--purple-color); border-color: var(--purple-color);"><i class="fa-solid fa-paper-plane"></i> Dispatch Project</button>
+            </div>
+        </form>
+    </div>
+
     <div class="modal-overlay" id="confirmModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -657,8 +900,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 this.itemsPerPage = 10;
                 this.clientToDelete = null;
                 
-                // Role Based Access (Passed from PHP)
-                this.userRole = "<?php echo $current_user_role; ?>";
+                // Role Based Access & Automation Data (Passed securely from PHP)
+                this.userRole = "<?php echo htmlspecialchars($current_user_role, ENT_QUOTES); ?>";
+                this.userName = "<?php echo htmlspecialchars($current_user_name, ENT_QUOTES); ?>";
+                
+                // Load Managers Array from PHP into JS
+                this.managersList = <?php echo json_encode($managers); ?>;
 
                 // DOM Elements
                 this.cacheDOM();
@@ -695,14 +942,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 this.formModal = document.getElementById('formModal');
                 this.viewModal = document.getElementById('viewModal');
+                this.handoverModal = document.getElementById('handoverModal');
+                this.confirmModal = document.getElementById('confirmModal');
+
                 this.clientForm = document.getElementById('clientForm');
+                this.handoverForm = document.getElementById('handoverForm');
+                
                 this.modalTitle = document.getElementById('modalTitle');
                 this.modalFooter = document.getElementById('modalFooter');
+                
                 this.saveClientBtn = document.getElementById('saveClientBtn');
                 this.closeFormBtn = document.getElementById('closeFormBtn');
                 this.cancelFormBtn = document.getElementById('cancelFormBtn');
                 
-                this.confirmModal = document.getElementById('confirmModal');
+                this.closeHandoverBtn = document.getElementById('closeHandoverBtn');
+                this.cancelHandoverBtn = document.getElementById('cancelHandoverBtn');
+
                 this.closeConfirmBtn = document.getElementById('closeConfirmBtn');
                 this.cancelConfirmBtn = document.getElementById('cancelConfirmBtn');
                 this.executeDeleteBtn = document.getElementById('executeDeleteBtn');
@@ -724,6 +979,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     value: document.getElementById('clientValue'),
                     description: document.getElementById('clientDescription')
                 };
+
+                this.handoverInputs = {
+                    clientId: document.getElementById('ho_client_id'),
+                    department: document.getElementById('ho_department'),
+                    manager: document.getElementById('ho_manager'),
+                    priority: document.getElementById('ho_priority'),
+                    deadline: document.getElementById('ho_deadline'),
+                    notes: document.getElementById('ho_notes')
+                };
             }
 
             bindEvents() {
@@ -743,6 +1007,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 this.closeFormBtn.addEventListener('click', () => this.closeFormModal());
                 this.cancelFormBtn.addEventListener('click', () => this.closeFormModal());
                 this.clientForm.addEventListener('submit', (e) => this.handleSubmit(e));
+
+                this.closeHandoverBtn.addEventListener('click', () => this.closeHandoverModal());
+                this.cancelHandoverBtn.addEventListener('click', () => this.closeHandoverModal());
+                this.handoverForm.addEventListener('submit', (e) => this.submitHandover(e));
+                this.handoverInputs.department.addEventListener('change', () => this.updateManagerDropdown());
                 
                 this.closeConfirmBtn.addEventListener('click', () => this.closeConfirmModal());
                 this.cancelConfirmBtn.addEventListener('click', () => this.closeConfirmModal());
@@ -753,6 +1022,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     if (e.target === this.formModal) this.closeFormModal();
                     if (e.target === this.confirmModal) this.closeConfirmModal();
                     if (e.target === this.viewModal) this.closeViewModal();
+                    if (e.target === this.handoverModal) this.closeHandoverModal();
                 });
             }
 
@@ -816,7 +1086,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 const pageData = this.filteredClients.slice(start, end);
 
                 // Role Checks
-                const canDelete = (this.userRole === 'Sales Manager' || this.userRole === 'Admin' || this.userRole === 'Manager');
+                const canDelete = (this.userRole !== 'Sales Executive');
+                const canHandover = (this.userRole !== 'Sales Executive');
 
                 pageData.forEach(client => {
                     const tr = document.createElement('tr');
@@ -826,16 +1097,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     const subtext = client.company_name || client.designation || 'Individual';
 
                     // Generate Buttons HTML
-                    let actionsHtml = `
-                        <div class="table-actions">
-                            <button class="btn-icon success" title="View Details" onclick="app.viewClient('${client.id}')">
+                    let actionsHtml = `<div class="table-actions">`;
+
+                    if (client.status === 'Won' && canHandover) {
+                        if (client.is_handed_over == 1) {
+                            actionsHtml += `<button type="button" class="btn-icon success" title="Already Handed Over" disabled><i class="fa-solid fa-check-double"></i></button>`;
+                        } else {
+                            actionsHtml += `<button type="button" class="btn-icon handover" title="Handover to Dept" onclick="app.openHandoverModal('${client.id}')"><i class="fa-solid fa-rocket"></i></button>`;
+                        }
+                    }
+
+                    actionsHtml += `
+                            <button type="button" class="btn-icon success" title="View Details" onclick="app.viewClient('${client.id}')">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
                             </button>
 
-                            <button class="btn-icon" title="Edit" onclick="app.editClient('${client.id}')">
+                            <button type="button" class="btn-icon" title="Edit" onclick="app.editClient('${client.id}')">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                 </svg>
@@ -845,7 +1125,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     // DELETE BUTTON
                     if (canDelete) {
                         actionsHtml += `
-                            <button class="btn-icon danger" title="Delete" onclick="app.requestDelete('${client.id}')">
+                            <button type="button" class="btn-icon danger" title="Delete" onclick="app.requestDelete('${client.id}')">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                 </svg>
@@ -935,10 +1215,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 this.clientForm.reset();
                 this.inputs.id.value = '';
                 
+                // Reset Read-only and Dropdown Disabling
                 this.setFormReadOnly(false); 
-                this.saveClientBtn.style.display = 'inline-flex';
-                this.cancelFormBtn.textContent = "Cancel";
-
+                this.inputs.executive.disabled = false;
+                
                 if (client) {
                     this.inputs.id.value = client.id;
                     this.inputs.name.value = client.name || '';
@@ -946,7 +1226,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     this.inputs.designation.value = client.designation || '';
                     this.inputs.phone.value = client.phone || '';
                     this.inputs.email.value = client.email || '';
-                    this.inputs.official_mail_id.value = client.official_mail_id || '';
+                    this.inputs.official_mail_id.value = client.official_mail || '';
                     this.inputs.gst_number.value = client.gst_number || '';
                     this.inputs.location.value = client.location || '';
                     this.inputs.source.value = client.source || 'Website';
@@ -956,9 +1236,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     this.inputs.description.value = client.description || '';
 
                     this.modalTitle.textContent = 'Edit Client';
+                    
+                    // Automation for Sales Executives Editing
+                    if (this.userRole === 'Sales Executive') {
+                        this.inputs.executive.value = this.userName;
+                        this.inputs.executive.disabled = true;
+                    }
                 } else {
                     this.modalTitle.textContent = 'Add New Client';
                     this.inputs.status.value = 'New';
+                    
+                    // 🚀 THE AUTOMATION: Lock the Executive to themselves
+                    if (this.userRole === 'Sales Executive') {
+                        this.inputs.executive.value = this.userName;
+                        this.inputs.executive.disabled = true; // Locks the dropdown in the UI
+                    } else {
+                        this.inputs.executive.value = '';
+                    }
                 }
                 
                 this.formModal.classList.add('active');
@@ -978,6 +1272,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
             closeFormModal() {
                 this.formModal.classList.remove('active');
+            }
+
+            // --- 🚀 HANDOVER MODAL LOGIC ---
+            openHandoverModal(clientId) {
+                this.handoverForm.reset();
+                this.handoverInputs.clientId.value = clientId;
+                
+                // Clear out manager dropdown to wait for department selection
+                this.handoverInputs.manager.innerHTML = '<option value="" disabled selected>Select Department First...</option>';
+
+                // Set default deadline to +7 days
+                const date = new Date();
+                date.setDate(date.getDate() + 7);
+                this.handoverInputs.deadline.valueAsDate = date;
+
+                this.handoverModal.classList.add('active');
+            }
+
+            // 🚀 DYNAMIC MANAGER DROPDOWN TRIGGERED BY DEPARTMENT SELECTION
+            updateManagerDropdown() {
+                const selectedDept = this.handoverInputs.department.value;
+                const mgrSelect = this.handoverInputs.manager;
+                
+                mgrSelect.innerHTML = '<option value="" disabled selected>Select Manager...</option>';
+                
+                // Filter the PHP managers list based on the chosen department
+                const filteredManagers = this.managersList.filter(m => m.department === selectedDept);
+                
+                if (filteredManagers.length === 0) {
+                    // Fallback: If no exact manager matches the department, show all available managers
+                    this.managersList.forEach(m => {
+                        mgrSelect.innerHTML += `<option value="${m.name}">${m.name} (${m.department})</option>`;
+                    });
+                } else {
+                    // Populate with matching managers
+                    filteredManagers.forEach(m => {
+                        mgrSelect.innerHTML += `<option value="${m.name}">${m.name}</option>`;
+                    });
+                }
+            }
+
+            closeHandoverModal() {
+                this.handoverModal.classList.remove('active');
+            }
+
+            async submitHandover(e) {
+                e.preventDefault();
+                const data = {
+                    client_id: this.handoverInputs.clientId.value,
+                    department: this.handoverInputs.department.value,
+                    assigned_manager: this.handoverInputs.manager.value,
+                    priority: this.handoverInputs.priority.value,
+                    deadline: this.handoverInputs.deadline.value,
+                    notes: this.handoverInputs.notes.value
+                };
+
+                const result = await this.saveData('handover', data);
+                if (result.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Handover Complete!',
+                        text: result.message,
+                        confirmButtonColor: '#1b5a5a'
+                    });
+                    this.closeHandoverModal();
+                    await this.loadData();
+                } else {
+                    Swal.fire('Error', result.message, 'error');
+                }
             }
 
             viewClient(id) {
@@ -1004,7 +1367,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 document.getElementById('viewExecutive').innerText = client.executive || 'Unassigned';
                 
                 document.getElementById('viewEmail').innerText = client.email || '-';
-                document.getElementById('viewOfficialEmail').innerText = client.official_mail_id || '-';
+                document.getElementById('viewOfficialEmail').innerText = client.official_mail || '-';
                 document.getElementById('viewPhone').innerText = client.phone || '-';
                 document.getElementById('viewLocation').innerText = client.location || '-';
                 document.getElementById('viewGst').innerText = client.gst_number || '-';
@@ -1038,7 +1401,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     location: this.inputs.location.value,
                     source: this.inputs.source.value,
                     status: this.inputs.status.value,
-                    executive: this.inputs.executive.value,
+                    // If disabled, `.value` isn't submitted in standard forms. Send their exact name manually just in case.
+                    executive: this.userRole === 'Sales Executive' ? this.userName : this.inputs.executive.value,
                     deal_value: parseFloat(this.inputs.value.value) || 0,
                     description: this.inputs.description.value
                 };
@@ -1049,8 +1413,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if (result.success) {
                     await this.loadData();
                     this.closeFormModal();
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Saved!',
+                        text: result.message,
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
                 } else {
-                    alert('Failed to save client: ' + result.message);
+                    Swal.fire('Error', 'Failed to save client: ' + result.message, 'error');
                 }
             }
 
@@ -1073,8 +1444,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         const maxPage = Math.ceil(this.clients.length / this.itemsPerPage) || 1;
                         if (this.currentPage > maxPage) this.currentPage = maxPage;
                         this.render();
+                        Swal.fire({
+                            icon: 'success',
+                            title: 'Deleted!',
+                            text: 'Client removed successfully.',
+                            timer: 1500,
+                            showConfirmButton: false
+                        });
                     } else {
-                        alert('Failed to delete client: ' + result.message);
+                        Swal.fire('Error', 'Failed to delete client: ' + result.message, 'error');
                     }
                 }
                 this.closeConfirmModal();

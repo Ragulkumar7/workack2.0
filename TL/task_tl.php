@@ -137,7 +137,12 @@ $tasks_result = $t_stmt->get_result();
     <style>
         :root { --primary: #0f766e; --primary-hover: #115e59; --bg-body: #f8fafc; --bg-card: #ffffff; --text-main: #0f172a; --text-muted: #64748b; --border: #e2e8f0; --sidebar-width: 95px; }
         body { background-color: var(--bg-body); color: var(--text-main); font-family: 'Inter', sans-serif; margin: 0; }
+<<<<<<< HEAD
 /* ==========================================================
+=======
+        
+        /* ==========================================================
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
            UNIVERSAL RESPONSIVE LAYOUT 
            ========================================================== */
         .main-content, #mainContent {
@@ -159,7 +164,11 @@ $tasks_result = $t_stmt->get_result();
         @media (max-width: 991px) {
             .main-content, #mainContent {
                 margin-left: 0 !important;
+<<<<<<< HEAD
                 width: 100% !important;
+=======
+                width: 150% !important;
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                 padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
             }
             
@@ -169,6 +178,10 @@ $tasks_result = $t_stmt->get_result();
                 width: 100% !important;
             }
         }
+<<<<<<< HEAD
+=======
+        
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
         .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
         .page-header h1 { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.5px;}
         .breadcrumb { font-size: 13px; color: var(--text-muted); display: flex; gap: 8px; align-items: center; margin-top: 6px; font-weight: 500;}
@@ -176,10 +189,16 @@ $tasks_result = $t_stmt->get_result();
         .project-card { background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); border-top: 4px solid var(--primary); padding: 24px; box-shadow: 0 4px 6px rgba(0,0,0,0.03); transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column; justify-content: space-between; min-height: 200px;}
         .project-card:hover { transform: translateY(-3px); box-shadow: 0 10px 20px -5px rgba(0,0,0,0.08); }
         .task-container { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); overflow: hidden; }
-        .table-responsive { width: 100%; overflow-x: auto; }
+        
+        /* CHANGED: Enhanced table-responsive to ensure visible scrollbar on mobile */
+        .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 5px; }
+        .table-responsive::-webkit-scrollbar { height: 6px; }
+        .table-responsive::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        
         table { width: 100%; border-collapse: collapse; min-width: 800px; }
         th { text-align: left; padding: 16px 24px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; background: #f8fafc; letter-spacing: 0.5px; border-bottom: 1px solid var(--border);}
         td { padding: 16px 24px; border-bottom: 1px solid #f1f5f9; font-size: 14px; color: #334155; }
+<<<<<<< HEAD
         .btn { display: inline-flex; justify-content: center; align-items: center; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background-color: var(--primary); color: white; gap: 8px; transition: 0.2s; box-shadow: 0 2px 4px rgba(15, 118, 110, 0.2);}
         .btn:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
         .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
@@ -191,6 +210,22 @@ $tasks_result = $t_stmt->get_result();
         .form-input::file-selector-button:hover { background: #e2e8f0; }
         .preview-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
         
+=======
+        
+        .btn { display: inline-flex; justify-content: center; align-items: center; padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; background-color: var(--primary); color: white; gap: 8px; transition: 0.2s; box-shadow: 0 2px 4px rgba(15, 118, 110, 0.2);}
+        .btn:hover { background-color: var(--primary-hover); transform: translateY(-1px); }
+        
+        .modal-overlay { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
+        .modal-overlay.active { display: flex; }
+        .modal-box { background: white; width: 700px; max-width: 100%; border-radius: 16px; padding: 28px; max-height: 90vh; overflow-y: auto; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); }
+        
+        .form-input { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; box-sizing: border-box; margin-bottom: 12px; outline: none; transition: 0.2s; font-weight: 500; color: #1e293b;}
+        .form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1); }
+        .form-input::file-selector-button { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px 12px; color: #475569; font-weight: 700; cursor: pointer; transition: 0.2s; margin-right: 10px;}
+        .form-input::file-selector-button:hover { background: #e2e8f0; }
+        .preview-item { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
         .badge-priority { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;}
         .badge-status { padding: 4px 10px; border-radius: 6px; font-size: 10px; font-weight: 800; display: inline-block; text-transform: uppercase; letter-spacing: 0.5px;}
 
@@ -199,6 +234,22 @@ $tasks_result = $t_stmt->get_result();
         #toast.show { visibility: visible; opacity: 1; bottom: 50px; }
         #toast.success { background-color: #0f766e; } 
         #toast.error { background-color: #ef4444; }
+
+        /* ADDED: Mobile Responsive Overrides */
+        .task-input-row { display: flex; gap: 16px; margin-bottom: 16px; }
+        .modal-footer-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 25px; border-top: 1px solid #e2e8f0; padding-top: 24px; }
+        
+        @media (max-width: 768px) {
+            .task-input-row { flex-direction: column; gap: 0px; margin-bottom: 8px; }
+            .modal-footer-actions { flex-direction: column; align-items: stretch; justify-content: stretch; }
+            .modal-footer-actions button { width: 100%; justify-content: center; }
+            .modal-box { padding: 20px; }
+            .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+            
+            /* Reduced table padding on mobile to make it less squished */
+            th, td { padding: 12px 15px; }
+            table { min-width: 700px; }
+        }
     </style>
 </head>
 <body>
@@ -429,7 +480,11 @@ $tasks_result = $t_stmt->get_result();
                     <input type="text" id="m_title" placeholder="Sub-Task Title (e.g. Develop Login Page API)" class="form-input">
                     <textarea id="m_desc" placeholder="Specific Instructions for Assignee..." class="form-input" rows="2"></textarea>
                     
+<<<<<<< HEAD
                     <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+=======
+                    <div class="task-input-row">
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                         <div style="flex: 2;">
                             <label style="font-size:11px; font-weight:700; color: #475569; display: block; margin-bottom: 6px; text-transform: uppercase;">Assignee</label>
                             
@@ -473,7 +528,11 @@ $tasks_result = $t_stmt->get_result();
                     <p style="color: #94a3b8; font-size: 13px; text-align: center; margin: 10px 0; font-weight: 500;">Queue is empty. Add sub-tasks above.</p>
                 </div>
 
+<<<<<<< HEAD
                 <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 25px; border-top: 1px solid #e2e8f0; padding-top: 24px;">
+=======
+                <div class="modal-footer-actions">
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                     <button type="button" class="btn" style="background:#fff; color:#475569; border:1px solid #cbd5e1; box-shadow: none;" onclick="closeModal('taskModal')">Cancel</button>
                     <button type="submit" class="btn" id="submitBtn" disabled>Finalize & Assign All Tasks</button>
                 </div>
@@ -503,7 +562,11 @@ $tasks_result = $t_stmt->get_result();
 
         function showToast(message, type) {
             const toast = document.getElementById("toast");
+<<<<<<< HEAD
             if (toast) { // Added a check just to be extra safe
+=======
+            if (toast) { 
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                 toast.innerText = message;
                 toast.className = "show " + type;
                 setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
@@ -563,7 +626,11 @@ $tasks_result = $t_stmt->get_result();
                 <div class="preview-item">
                     <div>
                         <div style="font-weight:800; font-size:14px; color: #0f172a; margin-bottom: 4px;">${t.title}</div>
+<<<<<<< HEAD
                         <div style="font-size:12px; color:#64748b; display: flex; gap: 12px; align-items: center;">
+=======
+                        <div style="font-size:12px; color:#64748b; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                             <span><b>To:</b> <span style="color:#0f766e; font-weight: 700;">${t.assignee_name}</span></span>
                             <span><b>Due:</b> ${t.due_date}</span>
                             <span><b>Priority:</b> <span class="badge-priority" style="font-size: 9px; padding: 2px 6px; background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;">${t.priority}</span></span>
@@ -603,7 +670,10 @@ $tasks_result = $t_stmt->get_result();
                 body: fd
             })
             .then(response => {
+<<<<<<< HEAD
                 // Handle cases where the server returns HTML instead of JSON
+=======
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }

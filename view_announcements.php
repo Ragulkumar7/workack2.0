@@ -133,31 +133,75 @@ $meet_res = $stmt_meet->get_result();
             --text-main: #1e293b; 
             --border-color: #e2e8f0; 
             --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.05);
+            --sidebar-width: 95px;
         }
 
         body { background-color: var(--bg-body); color: var(--text-main); font-family: 'Inter', sans-serif; margin: 0; }
         
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT (FIXED)
+           ========================================================== */
         #mainContent { 
-            margin-left: 95px; padding: 20px 30px; 
-            width: calc(100% - 95px); min-height: 100vh; 
+            margin-left: var(--sidebar-width); 
+            padding: 20px 30px; 
+            width: calc(100% - var(--sidebar-width)); 
+            min-height: 100vh; 
             padding-top: 10px !important; 
-            transition: margin-left 0.3s ease; 
+            transition: margin-left 0.3s ease, width 0.3s ease; 
+            box-sizing: border-box;
         }
-        #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
         
-        .announcement-layout { display: grid; grid-template-columns: 1fr 380px; gap: 25px; align-items: start; }
+        #mainContent.main-shifted { 
+            margin-left: 315px; 
+            width: calc(100% - 315px); 
+        }
+        
+        @media (max-width: 991px) {
+            #mainContent, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+                /* Account for mobile header, changed to 80px top padding */
+                padding: 80px 15px 30px !important; 
+            }
+        }
+        
+        .announcement-layout { 
+            display: grid; 
+            grid-template-columns: 1fr; /* Mobile Default */
+            gap: 25px; 
+            align-items: start; 
+        }
+        
+        @media (min-width: 1024px) {
+            .announcement-layout {
+                grid-template-columns: 1fr 380px; /* Desktop Default */
+            }
+        }
         
         .featured-card { background: white; border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; height: 100%; box-shadow: var(--shadow-md); }
         .featured-img-wrapper { width: 100%; height: 380px; background: #f1f5f9; overflow: hidden; position: relative; }
         .featured-img-wrapper img { width: 100%; height: 100%; object-fit: cover; transition: opacity 0.4s ease-in-out; }
+        
         .featured-content { padding: 30px; }
         
-        .badge { display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 15px; letter-spacing: 0.5px; }
+        /* Responsive tweaks for the featured card */
+        @media (max-width: 768px) {
+            .featured-img-wrapper { height: 220px; }
+            .featured-content { padding: 20px; }
+        }
+        
+        .badge { display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; margin-bottom: 15px; letter-spacing: 0.5px; white-space: nowrap; }
         .bg-urgent { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; } 
         .bg-event  { background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; }
         .bg-holiday{ background: #dcfce7; color: #16a34a; border: 1px solid #bbf7d0; }
         
         .side-panel { background: white; border: 1px solid var(--border-color); border-radius: 16px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); position: sticky; top: 100px; }
+        
+        /* Cancel sticky on mobile so it flows normally */
+        @media (max-width: 1024px) {
+            .side-panel { position: relative; top: 0; }
+        }
+
         .news-item { display: flex; gap: 15px; padding: 12px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; margin-bottom: 8px; border: 1px solid transparent; }
         .news-item:hover { background: #f0fdfa; border-color: #ccfbf1; } 
         .news-item.active { background: #e0f2f1; border-color: var(--primary-color); }
@@ -165,22 +209,26 @@ $meet_res = $stmt_meet->get_result();
         .date-box { width: 50px; height: 50px; background: #fff; border: 1px solid var(--border-color); border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
         .date-box small { font-size: 10px; color: var(--primary-color); text-transform: uppercase; }
         
-        @media (max-width: 1024px) { .announcement-layout { grid-template-columns: 1fr; } }
+        .table-responsive { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     </style>
 </head>
 <body>
 
-    <?php include('sidebars.php'); ?>
-    <?php include('header.php'); ?>
+    <?php 
+    if(file_exists('sidebars.php')) include('sidebars.php'); 
+    if(file_exists('header.php')) include('header.php'); 
+    ?>
 
     <div id="mainContent">
-        <div class="mb-6 flex items-center gap-4">
-            <a href="javascript:history.back()" class="w-10 h-10 bg-white border border-slate-300 rounded-xl flex items-center justify-center text-slate-600 hover:bg-teal-50 hover:text-teal-600 hover:border-teal-200 transition-all shadow-sm" title="Go Back">
-                <i class="fa-solid fa-arrow-left"></i>
-            </a>
-            <div>
-                <h1 class="text-2xl font-bold text-slate-800">Company Updates</h1>
-                <div class="text-sm text-slate-500">Latest news and announcements</div>
+        <div class="mb-6 flex flex-col md:flex-row md:items-center gap-4">
+            <div class="flex items-center gap-4">
+                <a href="javascript:history.back()" class="w-10 h-10 bg-white border border-slate-300 rounded-xl flex items-center justify-center text-slate-600 hover:bg-teal-50 hover:text-teal-600 hover:border-teal-200 transition-all shadow-sm shrink-0" title="Go Back">
+                    <i class="fa-solid fa-arrow-left"></i>
+                </a>
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800">Company Updates</h1>
+                    <div class="text-sm text-slate-500">Latest news and announcements</div>
+                </div>
             </div>
         </div>
 
@@ -191,33 +239,33 @@ $meet_res = $stmt_meet->get_result();
                     <img id="mainImg" src="<?php echo $latest['img']; ?>" alt="Banner">
                 </div>
                 <div class="featured-content">
-                    <div class="flex justify-between items-start mb-2">
-                        <div class="flex gap-2">
+                    <div class="flex flex-wrap justify-between items-start gap-4 mb-2">
+                        <div class="flex flex-wrap gap-2">
                             <span id="mainBadge" class="badge <?php echo $latest['badgeClass']; ?>"><?php echo $latest['category']; ?></span>
                             <span id="mainPin" class="<?php echo ($latest['is_pinned'] ? '' : 'hidden'); ?> text-xs font-bold text-red-500 flex items-center gap-1 border border-red-200 px-2 py-1 rounded bg-red-50 mb-3"><i class="fa-solid fa-thumbtack"></i> Pinned</span>
                         </div>
-                        <div class="text-right">
+                        <div class="text-left md:text-right w-full md:w-auto">
                             <p class="text-[10px] text-slate-400 uppercase tracking-wide">Posted By</p>
                             <p id="mainCreator" class="text-xs font-bold text-teal-700"><?php echo htmlspecialchars($latest['creator_name']); ?> <span class="text-slate-400 font-normal">(<?php echo htmlspecialchars($latest['creator_role']); ?>)</span></p>
                         </div>
                     </div>
                     
-                    <h2 id="mainTitle" class="text-2xl font-bold text-slate-800 mb-4"><?php echo $latest['title']; ?></h2>
+                    <h2 id="mainTitle" class="text-xl md:text-2xl font-bold text-slate-800 mb-4"><?php echo $latest['title']; ?></h2>
                     
-                    <div class="flex gap-5 text-sm text-slate-500 mb-6 pb-4 border-b border-slate-100">
+                    <div class="flex flex-wrap gap-5 text-sm text-slate-500 mb-6 pb-4 border-b border-slate-100">
                         <span><i class="far fa-calendar-alt text-teal-600 mr-2"></i> <span id="mainDate"><?php echo date('d M Y', strtotime($latest['publish_date'])); ?></span></span>
                         <span><i class="far fa-eye text-teal-600 mr-2"></i> For: <span id="mainTarget"><?php echo $latest['target_audience'] ?? 'All'; ?></span></span>
                     </div>
                     
-                    <div id="mainDesc" class="text-slate-600 leading-relaxed whitespace-pre-wrap"><?php echo $latest['message']; ?></div>
+                    <div id="mainDesc" class="text-slate-600 leading-relaxed whitespace-pre-wrap break-words"><?php echo $latest['message']; ?></div>
 
-                    <div id="mainAttachment" class="<?php echo ($latest['attachment_path'] ? '' : 'hidden'); ?> mt-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex items-center gap-4">
-                        <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center text-red-500 text-xl"><i class="fa-solid fa-file-pdf"></i></div>
+                    <div id="mainAttachment" class="<?php echo ($latest['attachment_path'] ? '' : 'hidden'); ?> mt-6 p-4 bg-slate-50 border border-slate-200 rounded-lg flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
+                        <div class="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center text-red-500 text-xl shrink-0"><i class="fa-solid fa-file-pdf"></i></div>
                         <div class="flex-1">
                             <div class="text-sm font-bold text-slate-800">Attached Document</div>
                             <div class="text-xs text-slate-500">Download for details</div>
                         </div>
-                        <a id="mainDownload" href="<?php echo $latest['attachment_path']; ?>" target="_blank" class="px-4 py-2 bg-white border border-slate-300 rounded text-sm font-bold text-slate-700 hover:bg-gray-50 shadow-sm">Download</a>
+                        <a id="mainDownload" href="<?php echo $latest['attachment_path']; ?>" target="_blank" class="px-4 py-2 bg-white border border-slate-300 rounded text-sm font-bold text-slate-700 hover:bg-gray-50 shadow-sm w-full sm:w-auto text-center mt-2 sm:mt-0">Download</a>
                     </div>
                 </div>
             </article>
@@ -248,15 +296,15 @@ $meet_res = $stmt_meet->get_result();
                         <span><?php echo date('d', strtotime($item['publish_date'])); ?></span>
                         <small><?php echo date('M', strtotime($item['publish_date'])); ?></small>
                     </div>
-                    <div class="flex-1">
-                        <div class="flex justify-between items-start">
-                            <h4 class="font-bold text-slate-800 text-sm mb-1 line-clamp-1"><?php echo htmlspecialchars($item['title']); ?></h4>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start gap-2">
+                            <h4 class="font-bold text-slate-800 text-sm mb-1 truncate"><?php echo htmlspecialchars($item['title']); ?></h4>
                             <?php if($item['is_pinned']): ?>
-                                <i class="fa-solid fa-thumbtack text-red-500 text-xs mt-1"></i>
+                                <i class="fa-solid fa-thumbtack text-red-500 text-xs mt-1 shrink-0"></i>
                             <?php endif; ?>
                         </div>
-                        <p class="text-[10px] text-teal-600 mb-1"><i class="fa-solid fa-user-pen"></i> <?php echo htmlspecialchars($item['creator_name']); ?></p>
-                        <p class="text-xs text-slate-500 line-clamp-1"><?php echo substr($item['message'], 0, 40); ?>...</p>
+                        <p class="text-[10px] text-teal-600 mb-1 truncate"><i class="fa-solid fa-user-pen"></i> <?php echo htmlspecialchars($item['creator_name']); ?></p>
+                        <p class="text-xs text-slate-500 truncate"><?php echo htmlspecialchars(substr($item['message'], 0, 40)); ?>...</p>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -273,27 +321,28 @@ $meet_res = $stmt_meet->get_result();
                 <i class="fa-solid fa-handshake text-amber-600"></i>
                 <h2 class="font-bold text-slate-700">Scheduled Meetings</h2>
             </div>
-            <div class="overflow-x-auto">
+            
+            <div class="table-responsive">
                 <table class="w-full text-left text-sm">
                     <thead class="bg-slate-100 text-slate-600 font-bold uppercase text-xs border-b border-slate-200">
                         <tr>
-                            <th class="px-6 py-4">Meeting Title</th>
-                            <th class="px-6 py-4">Date & Details</th>
+                            <th class="px-4 md:px-6 py-3 md:py-4">Meeting Title</th>
+                            <th class="px-4 md:px-6 py-3 md:py-4">Date & Details</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         <?php if(!$meet_res || $meet_res->num_rows == 0): ?>
-                            <tr><td colspan="2" class="p-10 text-center text-slate-400">No meetings scheduled for you.</td></tr>
+                            <tr><td colspan="2" class="p-6 md:p-10 text-center text-slate-400">No meetings scheduled for you.</td></tr>
                         <?php else: ?>
                         <?php while($row = $meet_res->fetch_assoc()): 
                             // Hide the "Attendees: ..." line from the message
                             $clean_message = preg_replace('/Attendees:.*$/is', '', $row['message']);
                         ?>
                         <tr class="hover:bg-amber-50/30 transition-colors">
-                            <td class="px-6 py-4 font-bold text-slate-800"><?php echo htmlspecialchars($row['title']); ?></td>
-                            <td class="px-6 py-4">
+                            <td class="px-4 md:px-6 py-3 md:py-4 font-bold text-slate-800 align-top"><?php echo htmlspecialchars($row['title']); ?></td>
+                            <td class="px-4 md:px-6 py-3 md:py-4 align-top">
                                 <div class="text-teal-700 font-bold"><?php echo date('d M Y', strtotime($row['publish_date'])); ?></div>
-                                <div class="text-xs text-slate-500 whitespace-pre-line mt-1"><?php echo htmlspecialchars(trim($clean_message)); ?></div>
+                                <div class="text-xs text-slate-500 whitespace-pre-wrap break-words mt-1"><?php echo htmlspecialchars(trim($clean_message)); ?></div>
                             </td>
                         </tr>
                         <?php endwhile; endif; ?>
@@ -354,6 +403,11 @@ $meet_res = $stmt_meet->get_result();
 
             document.querySelectorAll('.news-item').forEach(item => item.classList.remove('active'));
             element.classList.add('active');
+            
+            // Scroll to top on mobile so user sees the updated content
+            if (window.innerWidth < 1024) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
         }
     </script>
 </body>

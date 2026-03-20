@@ -97,6 +97,7 @@ $result = $conn->query($sql_requests);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; font-size: 13px; }
+<<<<<<< HEAD
         /* ==========================================================
            UNIVERSAL RESPONSIVE LAYOUT 
            ========================================================== */
@@ -127,6 +128,9 @@ $result = $conn->query($sql_requests);
                 width: 100% !important;
             }
         }
+=======
+        #mainContent { margin-left: 95px; padding: 40px; min-height: 100vh; }
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); background: #fff; }
         .status-pill { padding: 5px 12px; border-radius: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
         .bg-pending { background: #fff7ed; color: #9a3412; }
@@ -137,7 +141,10 @@ $result = $conn->query($sql_requests);
 </head>
 <body class="bg-slate-50">
 
+<<<<<<< HEAD
 <main id="mainContent" class="main-content">
+=======
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
     <?php include('sidebars.php'); ?> <?php include('header.php'); ?>   <main id="mainContent">
         <div class="w-full">
             <div class="mb-8 flex justify-between items-end">
@@ -149,7 +156,10 @@ $result = $conn->query($sql_requests);
                     <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Neoera Infotech</span>
                 </div>
             </div>
+<<<<<<< HEAD
             </main>
+=======
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
 
             <?php echo $message; ?>
 

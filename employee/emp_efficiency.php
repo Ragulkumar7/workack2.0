@@ -150,14 +150,23 @@ include_once $path_to_root . 'sidebars.php';
 
     <style>
         body { background-color: #f8fafc; font-family: 'Inter', sans-serif; }
-        #mainContent { margin-left: 95px; padding: 10px 30px 30px 30px; width: calc(100% - 95px); transition: 0.3s; }
+        #mainContent { margin-left: 95px; padding: 10px 30px 30px 30px; width: calc(100% - 95px); transition: 0.3s; box-sizing: border-box; }
         #mainContent.main-shifted { margin-left: 315px; width: calc(100% - 315px); }
         .progress-ring__circle { transition: stroke-dashoffset 0.5s ease-in-out; transform: rotate(-90deg); transform-origin: 50% 50%; }
         .metric-card:hover { transform: translateY(-2px); transition: 0.2s; }
         
         /* Custom Scrollbars */
-        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; height: 4px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        /* ADDED: Mobile Responsive Fix */
+        @media (max-width: 768px) {
+            #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 16px 20px 16px !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -191,9 +200,9 @@ include_once $path_to_root . 'sidebars.php';
             </div>
             
             <div class="flex-1 w-full">
-                <div class="flex justify-between items-center mb-4 border-b pb-2">
-                    <h3 class="text-lg font-bold text-slate-800">Performance Grade</h3>
-                    <span class="text-lg font-bold <?php echo $score < 50 ? 'text-rose-500' : 'text-emerald-600'; ?>"><?php echo htmlspecialchars($metrics['performance_grade']); ?></span>
+                <div class="flex flex-col sm:flex-row justify-between items-center sm:items-end mb-4 border-b pb-2 gap-2">
+                    <h3 class="text-lg font-bold text-slate-800 text-center sm:text-left w-full sm:w-auto">Performance Grade</h3>
+                    <span class="text-lg font-bold text-center sm:text-right w-full sm:w-auto <?php echo $score < 50 ? 'text-rose-500' : 'text-emerald-600'; ?>"><?php echo htmlspecialchars($metrics['performance_grade']); ?></span>
                 </div>
                 
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -232,8 +241,8 @@ include_once $path_to_root . 'sidebars.php';
                 <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                     <h4 class="font-bold text-slate-700"><i class="fa-solid fa-layer-group text-blue-500 mr-2"></i> Project Timelines</h4>
                 </div>
-                <div class="flex-1 overflow-y-auto custom-scroll">
-                    <table class="w-full text-sm text-left">
+                <div class="flex-1 overflow-auto custom-scroll">
+                    <table class="w-full text-sm text-left min-w-[350px]">
                         <tbody class="divide-y divide-slate-50">
                             <?php if(!empty($projects_list)): ?>
                                 <?php foreach($projects_list as $proj): ?>
@@ -258,7 +267,7 @@ include_once $path_to_root . 'sidebars.php';
                 <div class="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center shrink-0">
                     <h4 class="font-bold text-slate-700"><i class="fa-solid fa-list-check text-orange-500 mr-2"></i> Task Efficiency</h4>
                 </div>
-                <div class="p-6 flex flex-col flex-1">
+                <div class="p-6 flex flex-col flex-1 overflow-y-auto">
                     <div class="flex items-center justify-between mb-3 shrink-0">
                         <span class="text-sm text-slate-600">Total Tasks Assigned</span>
                         <span class="font-bold text-slate-800"><?php echo $metrics['total_tasks_assigned']; ?></span>

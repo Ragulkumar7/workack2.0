@@ -361,6 +361,7 @@ if (!file_exists($sidebarPath)) {
             
             <div class="p-6 overflow-y-auto custom-scroll">
                 
+<<<<<<< HEAD
                 <div class="flex items-center gap-4 mb-6 bg-white border border-slate-200 p-4 rounded-2xl shadow-sm">
                     <img id="mImg" src="" class="w-16 h-16 rounded-full object-cover border-2 border-white shadow-sm">
                     <div>
@@ -368,6 +369,15 @@ if (!file_exists($sidebarPath)) {
                         <p id="mRole" class="text-xs font-bold text-teal-600 uppercase tracking-widest mt-1"></p>
                     </div>
                     <span id="mStatusBadge" class="ml-auto px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border"></span>
+=======
+                <div class="flex flex-wrap sm:flex-nowrap items-center gap-4 mb-6 bg-white border border-slate-200 p-4 rounded-2xl shadow-sm">
+                    <img id="mImg" src="" class="w-16 h-16 rounded-full object-cover border-2 border-white shadow-sm shrink-0">
+                    <div class="flex-1 min-w-[120px]">
+                        <h2 id="mName" class="text-xl font-extrabold text-slate-800 leading-tight break-words"></h2>
+                        <p id="mRole" class="text-xs font-bold text-teal-600 uppercase tracking-widest mt-1 break-words"></p>
+                    </div>
+                    <span id="mStatusBadge" class="px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border shrink-0 whitespace-nowrap mt-2 sm:mt-0 sm:ml-auto"></span>
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -377,7 +387,11 @@ if (!file_exists($sidebarPath)) {
                     </div>
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
                         <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Email Address</label>
+<<<<<<< HEAD
                         <p id="mEmail" class="font-bold text-slate-700 text-sm"></p>
+=======
+                        <p id="mEmail" class="font-bold text-slate-700 text-sm break-all"></p>
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                     </div>
                     <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
                         <label class="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Phone Number</label>
@@ -470,7 +484,12 @@ if (!file_exists($sidebarPath)) {
                 let stat = trs[i].cells[4].textContent.toLowerCase();
                 
                 let matchesSearch = name.includes(search);
+<<<<<<< HEAD
                 let matchesStatus = status === "" || stat.includes(status);
+=======
+                // CHANGED: Fixed the logic to exactly match 'active' and 'inactive'
+                let matchesStatus = status === "" || stat.trim() === status;
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                 
                 trs[i].style.display = (matchesSearch && matchesStatus) ? "" : "none";
             }
@@ -482,7 +501,12 @@ if (!file_exists($sidebarPath)) {
                 let stat = cards[i].getAttribute('data-status');
                 
                 let matchesSearch = name.includes(search);
+<<<<<<< HEAD
                 let matchesStatus = status === "" || stat.includes(status);
+=======
+                // CHANGED: Match strictly in grid view too
+                let matchesStatus = status === "" || stat.trim() === status;
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
                 
                 cards[i].style.display = (matchesSearch && matchesStatus) ? "block" : "none";
             }
@@ -509,9 +533,16 @@ if (!file_exists($sidebarPath)) {
             const badge = document.getElementById('mStatusBadge');
             badge.innerText = data.account_status;
             if(data.account_status === 'Active') {
+<<<<<<< HEAD
                 badge.className = "ml-auto px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border bg-emerald-50 text-emerald-600 border-emerald-200";
             } else {
                 badge.className = "ml-auto px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border bg-rose-50 text-rose-600 border-rose-200";
+=======
+                // CHANGED: Added sm:ml-auto, mt-2, sm:mt-0 to keep alignment responsive 
+                badge.className = "px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border bg-emerald-50 text-emerald-600 border-emerald-200 shrink-0 whitespace-nowrap mt-2 sm:mt-0 sm:ml-auto";
+            } else {
+                badge.className = "px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider border bg-rose-50 text-rose-600 border-rose-200 shrink-0 whitespace-nowrap mt-2 sm:mt-0 sm:ml-auto";
+>>>>>>> 137345ac8b9688b1e901efc148117e3cb227d93d
             }
 
             // Performance
