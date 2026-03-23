@@ -8,7 +8,7 @@ else { include_once('include/db_connect.php'); }
 
 // Security: Check if user is logged in
 if (!isset($_SESSION['user_id'])) { 
-    header("Location: index.php"); // Fix Path
+    header("Location: index.php"); 
     exit(); 
 }
 
@@ -58,7 +58,6 @@ if (isset($_GET['action']) && isset($_GET['request_id'])) {
 }
 
 // --- FETCH REQUESTS BASED ON HIERARCHY ---
-// Joining with profiles to show employee names
 $base_query = "SELECT r.*, p.full_name, p.designation, u.role as actual_role 
                FROM shift_swap_requests r 
                JOIN employee_profiles p ON r.user_id = p.user_id 
@@ -67,19 +66,14 @@ $base_query = "SELECT r.*, p.full_name, p.designation, u.role as actual_role
 $sql_requests = "";
 
 if ($is_tl) {
-    // TL sees requests where they are the reporting manager
     $sql_requests = "$base_query WHERE p.reporting_to = $user_id AND r.user_id != $user_id AND u.role NOT IN ('CFO', 'Accounts', 'Accountant', 'IT Executive', 'IT Admin', 'HR Executive') ORDER BY (r.tl_approval = 'Pending') DESC, r.created_at DESC";
 } elseif ($is_mgr) {
-    // Manager sees requests already approved by TL, or direct reportees
     $sql_requests = "$base_query WHERE (r.tl_approval = 'Approved' OR p.manager_id = $user_id OR p.reporting_to = $user_id) AND r.user_id != $user_id AND u.role NOT IN ('CFO', 'Accounts', 'Accountant', 'IT Executive', 'IT Admin', 'HR Executive') ORDER BY (r.manager_approval = 'Pending') DESC, r.created_at DESC";
 } elseif ($is_it_admin) {
-    // IT Admin sees IT Executives
     $sql_requests = "$base_query WHERE u.role = 'IT Executive' AND r.user_id != $user_id ORDER BY (r.manager_approval = 'Pending') DESC, r.created_at DESC";
 } elseif ($is_hr_admin) {
-    // HR sees requests approved by Manager (or direct for special roles)
     $sql_requests = "$base_query WHERE (r.manager_approval = 'Approved' OR u.role IN ('IT Executive', 'CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive')) AND r.user_id != $user_id ORDER BY (r.hr_approval = 'Pending') DESC, r.created_at DESC";
 } else {
-    // Fallback security
     $sql_requests = "$base_query WHERE 1=0";
 }
 
@@ -97,18 +91,62 @@ $result = $conn->query($sql_requests);
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { background-color: #f8f9fa; font-family: 'Inter', sans-serif; font-size: 13px; }
-        #mainContent { margin-left: 95px; padding: 40px; min-height: 100vh; }
+        
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
+
         .card { border: none; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); background: #fff; }
         .status-pill { padding: 5px 12px; border-radius: 6px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
         .bg-pending { background: #fff7ed; color: #9a3412; }
         .bg-approved { background: #dcfce7; color: #166534; }
         .bg-rejected { background: #fee2e2; color: #991b1b; }
-        @media (max-width: 768px) { #mainContent { margin-left: 0 !important; padding: 15px; } }
+        
+        /* --- VISUAL APPROVAL CHAIN UI --- */
+        .approval-chain { display: flex; align-items: center; gap: 4px; justify-content: center;}
+        .chain-node { width: 22px; height: 22px; border-radius: 50%; color: white; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: help; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .chain-link { width: 12px; height: 2px; background: #cbd5e1; border-radius: 2px; }
+        
+        .node-approved { background: #22c55e; } /* Green */
+        .node-pending { background: #f59e0b; }  /* Yellow/Amber */
+        .node-rejected { background: #ef4444; } /* Red */
     </style>
 </head>
 <body class="bg-slate-50">
 
-    <?php include('sidebars.php'); ?> <?php include('header.php'); ?>   <main id="mainContent">
+    <?php include('sidebars.php'); ?> 
+    <?php include('header.php'); ?>   
+
+    <main id="mainContent" class="main-content">
         <div class="w-full">
             <div class="mb-8 flex justify-between items-end">
                 <div>
@@ -131,6 +169,7 @@ $result = $conn->query($sql_requests);
                                 <th>Swap Date</th>
                                 <th>Shift Details</th>
                                 <th>Reason</th>
+                                <th class="text-center">Approval Chain</th>
                                 <th>Your Status</th>
                                 <th class="text-center">Action</th>
                             </tr>
@@ -138,11 +177,18 @@ $result = $conn->query($sql_requests);
                         <tbody class="divide-y divide-slate-100">
                             <?php if ($result && $result->num_rows > 0): ?>
                                 <?php while($row = $result->fetch_assoc()): 
-                                    // Determine WHICH status to display based on the logged-in user's role
                                     $my_status = 'Pending';
                                     if ($is_tl) { $my_status = $row['tl_approval'] ?? 'Pending'; }
                                     elseif ($is_mgr || $is_it_admin) { $my_status = $row['manager_approval'] ?? 'Pending'; }
                                     elseif ($is_hr_admin) { $my_status = $row['hr_approval'] ?? 'Pending'; }
+
+                                    $tl_stat = $row['tl_approval'] ?? 'Pending';
+                                    $mgr_stat = $row['manager_approval'] ?? 'Pending';
+                                    $hr_stat = $row['hr_approval'] ?? 'Pending';
+
+                                    $tl_node = $tl_stat == 'Approved' ? 'node-approved' : ($tl_stat == 'Rejected' ? 'node-rejected' : 'node-pending');
+                                    $mgr_node = $mgr_stat == 'Approved' ? 'node-approved' : ($mgr_stat == 'Rejected' ? 'node-rejected' : 'node-pending');
+                                    $hr_node = $hr_stat == 'Approved' ? 'node-approved' : ($hr_stat == 'Rejected' ? 'node-rejected' : 'node-pending');
                                 ?>
                                 <tr>
                                     <td class="px-6 py-4">
@@ -166,6 +212,23 @@ $result = $conn->query($sql_requests);
                                     </td>
                                     <td class="text-slate-500 italic text-[11px] max-w-xs truncate" title="<?php echo $row['reason']; ?>">
                                         <?php echo $row['reason']; ?>
+                                    </td>
+                                    <td>
+                                        <div class="approval-chain">
+                                            <?php if ($row['actual_role'] === 'IT Executive'): ?>
+                                                <span class="chain-node <?php echo $mgr_node; ?>" title="IT Admin: <?php echo $mgr_stat; ?>">A</span>
+                                                <div class="chain-link"></div>
+                                                <span class="chain-node <?php echo $hr_node; ?>" title="HR: <?php echo $hr_stat; ?>">H</span>
+                                            <?php elseif (in_array($row['actual_role'], ['CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive'])): ?>
+                                                <span class="chain-node <?php echo $hr_node; ?>" title="HR: <?php echo $hr_stat; ?>">H</span>
+                                            <?php else: ?>
+                                                <span class="chain-node <?php echo $tl_node; ?>" title="Team Lead: <?php echo $tl_stat; ?>">T</span>
+                                                <div class="chain-link"></div>
+                                                <span class="chain-node <?php echo $mgr_node; ?>" title="Manager: <?php echo $mgr_stat; ?>">M</span>
+                                                <div class="chain-link"></div>
+                                                <span class="chain-node <?php echo $hr_node; ?>" title="HR: <?php echo $hr_stat; ?>">H</span>
+                                            <?php endif; ?>
+                                        </div>
                                     </td>
                                     <td>
                                         <span class="status-pill bg-<?php echo strtolower($my_status); ?>">
@@ -192,7 +255,7 @@ $result = $conn->query($sql_requests);
                                 </tr>
                                 <?php endwhile; ?>
                             <?php else: ?>
-                                <tr><td colspan="6" class="text-center py-12 text-slate-400 italic">No swap requests found for your queue.</td></tr>
+                                <tr><td colspan="7" class="text-center py-12 text-slate-400 italic">No swap requests found for your queue.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
@@ -200,5 +263,36 @@ $result = $conn->query($sql_requests);
             </div>
         </div>
     </main>
+
+    <script>
+        // Adjust layout dynamically based on sidebar state
+        function setupLayoutObserver() {
+            const primarySidebar = document.querySelector('.sidebar-primary');
+            const secondarySidebar = document.querySelector('.sidebar-secondary');
+            const mainContent = document.getElementById('mainContent');
+            
+            if (!primarySidebar || !mainContent) return;
+
+            const updateMargin = () => {
+                if (window.innerWidth <= 992) {
+                    mainContent.classList.remove('main-shifted');
+                    return;
+                }
+                if (secondarySidebar && secondarySidebar.classList.contains('open')) {
+                    mainContent.classList.add('main-shifted');
+                } else {
+                    mainContent.classList.remove('main-shifted');
+                }
+            };
+
+            if (secondarySidebar) {
+                const mo = new MutationObserver(updateMargin);
+                mo.observe(secondarySidebar, { attributes: true, attributeFilter: ['class'] });
+            }
+            window.addEventListener('resize', updateMargin);
+            updateMargin();
+        }
+        document.addEventListener('DOMContentLoaded', setupLayoutObserver);
+    </script>
 </body>
 </html>

@@ -2,27 +2,35 @@
 // attendance_card.php
 ob_start(); // Ensure output buffering is active to prevent HTML bleeding
 
-// 1. DETECT CONTEXT (AJAX API vs Standard Include)
+// 1. GLOBAL SETTINGS (Applied to both UI and AJAX)
+date_default_timezone_set('Asia/Kolkata'); // Critical for live servers which default to UTC
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+
+// 2. DETECT CONTEXT (AJAX API vs Standard Include)
 $is_ajax_request = isset($_POST['action']) || (isset($_GET['ajax_card']) && $_GET['ajax_card'] == '1');
 
-if (session_status() === PHP_SESSION_NONE) { session_start(); }
+// 3. BULLETPROOF DATABASE PATHING (Works on Localhost & hPanel alike)
+// __DIR__ dynamically gets the absolute path of the folder this exact file is in.
+$dbPath = __DIR__ . '/include/db_connect.php';
+if (!file_exists($dbPath)) { 
+    $dbPath = __DIR__ . '/../include/db_connect.php'; 
+}
+require_once($dbPath);
 
 if ($is_ajax_request) {
     // Prevent Session Locking during AJAX reload
     session_write_close();
-    date_default_timezone_set('Asia/Kolkata');
-    
-    // Dynamic DB Pathing for AJAX
-    $dbPath = $_SERVER['DOCUMENT_ROOT'] . '/workack2.0/include/db_connect.php';
-    if (file_exists($dbPath)) { require_once($dbPath); } 
-    else { require_once('../include/db_connect.php'); }
+    // Turn off error output so JSON doesn't break
+    error_reporting(0);
+    ini_set('display_errors', 0);
 }
 
 $current_user_id = $_SESSION['user_id'] ?? 0;
-// Ensure path_to_root exists depending on where this is included
-$local_path_to_root = $path_to_root ?? '../'; 
 
-// 2. ALWAYS FETCH SHIFT DETAILS (Crucial for accurate Late logic)
+// Smart Path Prefix for JS AJAX URL
+$path_prefix = isset($local_path_to_root) ? $local_path_to_root : (file_exists('attendance_card.php') ? './' : '../');
+
+// 4. ALWAYS FETCH SHIFT DETAILS
 if (isset($conn)) {
     $u_sql = "SELECT shift_type, shift_timings FROM employee_profiles WHERE user_id = ?";
     $u_stmt = mysqli_prepare($conn, $u_sql);
@@ -41,10 +49,34 @@ $today = date('Y-m-d');
 $shift_name = $user_info['shift_type'] ?? 'General Shift';
 $shift_timings = $user_info['shift_timings'] ?? '09:00 AM - 06:00 PM';
 
-// 3. SECURE AJAX POST HANDLER (Acts as a clean API)
+// --- NEW LOGIC: SHIFT SWAP OVERRIDE LOGIC ---
+// If there is an Approved shift swap for TODAY, override the default shift
+if (isset($conn)) {
+    $swap_sql = "SELECT requested_shift FROM shift_swap_requests WHERE user_id = ? AND request_date = ? AND (status = 'Approved' OR (tl_approval = 'Approved' AND manager_approval = 'Approved' AND hr_approval = 'Approved'))";
+    $swap_stmt = mysqli_prepare($conn, $swap_sql);
+    mysqli_stmt_bind_param($swap_stmt, "is", $current_user_id, $today);
+    mysqli_stmt_execute($swap_stmt);
+    $swap_res = mysqli_stmt_get_result($swap_stmt);
+    
+    if ($swap_row = mysqli_fetch_assoc($swap_res)) {
+        $req_shift = trim($swap_row['requested_shift']);
+        
+        // Extract shift name and timings if formatted like "Night Shift (09:00 PM - 06:00 AM)"
+        if (preg_match('/^(.*?)\s*\((.*?)\)$/', $req_shift, $matches)) {
+            $shift_name = trim($matches[1]);
+            $shift_timings = trim($matches[2]);
+        } else {
+            $shift_name = $req_shift; // Fallback if no timings in brackets
+        }
+    }
+    mysqli_stmt_close($swap_stmt);
+}
+// ---------------------------------------------
+
+// 5. SECURE AJAX POST HANDLER (Acts as a clean API)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     
-    if (ob_get_length()) ob_clean(); // Wipe HTML before returning JSON
+    if (ob_get_length()) ob_clean(); // Wipe any accidental HTML/whitespace before returning JSON
     header('Content-Type: application/json');
     
     $response = ['status' => 'error', 'message' => 'Unknown action'];
@@ -105,7 +137,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     exit; 
 }
 
-// 4. FETCH LIVE ATTENDANCE DATA FOR UI
+// 6. FETCH LIVE ATTENDANCE DATA FOR UI
 $attendance_record = null;
 $total_hours_today = "00:00:00";
 $display_punch_in = "--:--";
@@ -177,7 +209,6 @@ if ($attendance_record) {
             $delay_class = "text-emerald-600 bg-emerald-50 border-emerald-200";
         } else {
             $delay_text = "On Time";
-            // FIXED: Replaced "Breakl" typo with "teal"
             $delay_class = "text-teal-600 bg-teal-50 border-teal-200";
         }
     }
@@ -467,9 +498,8 @@ if (!$is_ajax_request):
             btnContainer.innerHTML = '<div class="w-full flex justify-center py-4 bg-slate-50 rounded-xl border border-slate-100"><span class="spinner w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full animate-spin"></span></div>';
         }
 
-        // FIXED: Force the POST request specifically to attendance_card.php 
-        // This prevents the parent dashboard from intercepting and breaking the JSON response.
-        let postUrl = '<?php echo $local_path_to_root; ?>attendance_card.php'; 
+        // FIXED: Dynamically use the correctly pathed attendance file for AJAX
+        let postUrl = '<?php echo $path_prefix; ?>attendance_card.php'; 
 
         fetch(postUrl, { method: 'POST', body: fd })
         .then(res => res.json())

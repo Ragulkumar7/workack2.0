@@ -67,11 +67,6 @@ if (!empty($filter_date)) {
 if (!empty($filter_tl)) {
     // Show the selected TL AND their team members
     $conditions[] = "(ep.reporting_to = '" . mysqli_real_escape_string($conn, $filter_tl) . "' OR a.user_id = '" . mysqli_real_escape_string($conn, $filter_tl) . "')";
-} else {
-    // MANAGER VIEW LOGIC: If Manager and no TL filter applied, show ONLY Team Leads initially
-    if ($role === 'Manager' && empty($filter_emp)) {
-        $conditions[] = "u.role = 'Team Lead'";
-    }
 }
 
 if (!empty($filter_emp)) {
@@ -195,7 +190,7 @@ if($emp_q) { while($r = mysqli_fetch_assoc($emp_q)) { $emps[] = $r; } }
             <?php endif; ?>
         </div>
 
-        <form method="GET" action="timesheets_manager.php" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+        <form method="GET" action="timesheets_manager.php" class="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-4 flex flex-wrap gap-3 items-end">
             
             <div class="flex-1 min-w-[140px]">
                 <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Exact Date</label>
@@ -255,11 +250,11 @@ if($emp_q) { while($r = mysqli_fetch_assoc($emp_q)) { $emps[] = $r; } }
             </div>
             <?php endif; ?>
 
-            <div class="flex items-center gap-2 lg:col-span-1">
-                <button type="submit" class="bg-[#1b5a5a] hover:bg-[#134444] text-white px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center gap-2 w-full">
+            <div class="flex items-center gap-2 shrink-0 lg:ml-auto w-full md:w-auto mt-2 md:mt-0">
+                <button type="submit" class="bg-[#1b5a5a] hover:bg-[#134444] text-white px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center gap-2 flex-1 md:flex-none">
                     <i class="fa-solid fa-filter"></i> Apply
                 </button>
-                <a href="timesheets_manager.php" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center text-decoration-none w-full border">
+                <a href="timesheets_manager.php" class="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 rounded-lg font-semibold transition-colors h-[42px] flex items-center justify-center text-decoration-none border flex-1 md:flex-none">
                     Reset
                 </a>
             </div>
@@ -287,11 +282,28 @@ if($emp_q) { while($r = mysqli_fetch_assoc($emp_q)) { $emps[] = $r; } }
                         if (empty($timesheets)) {
                             echo "<tr><td colspan='9' class='text-center py-5 text-muted'><i class='fa-regular fa-folder-open text-3xl mb-2 text-gray-300 block'></i> No attendance records found for the selected criteria.</td></tr>";
                         } else {
+                            $current_date_str = date('Y-m-d'); // Fetch today's date for comparison
+                            
                             foreach($timesheets as $row): 
                                 
                                 $date_formatted = date('d M Y', strtotime($row['date']));
                                 $punch_in = $row['punch_in'] ? date('h:i A', strtotime($row['punch_in'])) : '---';
-                                $punch_out = $row['punch_out'] ? date('h:i A', strtotime($row['punch_out'])) : 'Active';
+                                
+                                // NEW FIX: Only show "Working..." if the attendance date is TODAY.
+                                // If it's a past date and punch_out is empty, show "---".
+                                if (!empty($row['punch_out'])) {
+                                    $punch_out = date('h:i A', strtotime($row['punch_out']));
+                                    $punch_out_display = "<span class='text-danger fw-medium'><i class='fa-solid fa-arrow-right-from-bracket text-xs'></i> $punch_out</span>";
+                                    $is_active = false;
+                                } else {
+                                    if ($row['date'] === $current_date_str) {
+                                        $punch_out_display = "<span class='text-primary fw-medium'><i class='fa-solid fa-spinner fa-spin text-xs'></i> Working...</span>";
+                                        $is_active = true;
+                                    } else {
+                                        $punch_out_display = "<span class='text-muted fw-medium'>---</span>";
+                                        $is_active = false;
+                                    }
+                                }
                                 
                                 $expected_hours = 8.25;
                                 $worked_hours = floatval($row['production_hours']);
@@ -303,7 +315,7 @@ if($emp_q) { while($r = mysqli_fetch_assoc($emp_q)) { $emps[] = $r; } }
                                 
                                 $progressColor = 'bg-warning';
                                 if ($worked_hours >= $expected_hours) $progressColor = 'bg-success';
-                                else if ($worked_hours < 4 && $punch_out != 'Active') $progressColor = 'bg-danger';
+                                else if ($worked_hours < 4 && !$is_active) $progressColor = 'bg-danger';
 
                                 $statusClass = "bg-light text-secondary";
                                 if ($row['status'] == 'On Time') $statusClass = "bg-success text-white";
@@ -345,13 +357,8 @@ if($emp_q) { while($r = mysqli_fetch_assoc($emp_q)) { $emps[] = $r; } }
                             
                             <td class="font-medium text-gray-700"><?php echo $date_formatted; ?></td>
                             <td><span class="text-success fw-medium"><i class="fa-solid fa-arrow-right-to-bracket text-xs"></i> <?php echo $punch_in; ?></span></td>
-                            <td>
-                                <?php if($punch_out === 'Active'): ?>
-                                    <span class="text-primary fw-medium"><i class="fa-solid fa-spinner fa-spin text-xs"></i> Working...</span>
-                                <?php else: ?>
-                                    <span class="text-danger fw-medium"><i class="fa-solid fa-arrow-right-from-bracket text-xs"></i> <?php echo $punch_out; ?></span>
-                                <?php endif; ?>
-                            </td>
+                            
+                            <td><?php echo $punch_out_display; ?></td>
                             
                             <td class="text-center">
                                 <span class="fw-bold text-dark"><?php echo number_format($worked_hours, 2); ?> Hrs</span>
