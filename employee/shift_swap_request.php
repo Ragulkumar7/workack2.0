@@ -10,6 +10,7 @@ if (!isset($_SESSION['user_id']) && !isset($_SESSION['id'])) {
 $user_id = $_SESSION['user_id'] ?? $_SESSION['id'];
 $message = "";
 
+
 // =========================================================
 // AJAX ENDPOINT FOR DYNAMIC CURRENT SHIFT FETCHING
 // =========================================================
@@ -77,6 +78,7 @@ if ($swap_override_row = $swap_override_res->fetch_assoc()) {
 $swap_override_stmt->close();
 // --------------------------------------------------------------
 
+
 if (isset($_SESSION['success_msg'])) {
     $message = "<div class='alert alert-success border-0 shadow-sm'>" . $_SESSION['success_msg'] . "</div>";
     unset($_SESSION['success_msg']); 
@@ -126,7 +128,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     // 4. CFO, Accounts & IT Admin Logic: Bypass TL and Manager entirely, straight to HR
+<<<<<<< HEAD
     if (in_array($user_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin', 'HR Executive'])) {
+=======
+    if (in_array($user_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin'])) {
+>>>>>>> e171cf4a600529a82640e67db58b0e48c995e538
         $tl_approval = 'Approved';
         $mgr_approval = 'Approved';
         $hr_approval = 'Pending';

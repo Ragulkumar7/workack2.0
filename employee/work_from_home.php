@@ -490,3 +490,5 @@ $display_shift = $user_shift_type . ($user_shift_timings ? " (" . $user_shift_ti
     </script>
 </body>
 </html>
+
+

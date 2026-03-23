@@ -5,7 +5,7 @@
 $path_to_root = '../'; // Assuming this file is in a subfolder like /manager/
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 1. FIX TIMEZONE
+// FIX TIMEZONE
 date_default_timezone_set('Asia/Kolkata');
 
 // Database Connection
@@ -24,11 +24,48 @@ if (!isset($_SESSION['user_id'])) {
 
 $current_user_id = $_SESSION['user_id'];
 
+// =========================================================================
+// 🚀 ENTERPRISE AUTO-PATCHER (Ensures columns exist before inserting)
+// =========================================================================
+$check_exp = $conn->query("SHOW COLUMNS FROM `hiring_requests` LIKE 'experience_required'");
+if ($check_exp && $check_exp->num_rows == 0) {
+    @$conn->query("ALTER TABLE `hiring_requests` ADD COLUMN `experience_required` VARCHAR(100) DEFAULT 'Fresher' AFTER `vacancy_count`");
+}
+$check_skills = $conn->query("SHOW COLUMNS FROM `hiring_requests` LIKE 'key_skills'");
+if ($check_skills && $check_skills->num_rows == 0) {
+    @$conn->query("ALTER TABLE `hiring_requests` ADD COLUMN `key_skills` TEXT DEFAULT NULL AFTER `experience_required`");
+}
+$check_desc = $conn->query("SHOW COLUMNS FROM `hiring_requests` LIKE 'job_description'");
+if ($check_desc && $check_desc->num_rows == 0) {
+    @$conn->query("ALTER TABLE `hiring_requests` ADD COLUMN `job_description` TEXT DEFAULT NULL AFTER `key_skills`");
+}
+
+// --- FETCH MANAGER'S DEPARTMENT DYNAMICALLY ---
+$mgr_dept = "General"; // Fallback
+$dept_query = "SELECT department FROM employee_profiles WHERE user_id = ?";
+$dept_stmt = $conn->prepare($dept_query);
+if ($dept_stmt) {
+    $dept_stmt->bind_param("i", $current_user_id);
+    $dept_stmt->execute();
+    $dept_res = $dept_stmt->get_result();
+    if ($dept_row = $dept_res->fetch_assoc()) {
+        $mgr_dept = !empty($dept_row['department']) ? $dept_row['department'] : "General";
+    }
+    $dept_stmt->close();
+}
+
 // -------------------------------------------------------------------------
-// 2. HANDLE FORM SUBMISSION
+// 2. HANDLE FORM SUBMISSION (WITH ANTI-DUPLICATE PRG)
 // -------------------------------------------------------------------------
+// Retrieve flash messages to show after redirect
 $msg = "";
 $msg_type = "";
+if (isset($_SESSION['req_msg'])) {
+    $msg = $_SESSION['req_msg'];
+    $msg_type = $_SESSION['req_msg_type'];
+    unset($_SESSION['req_msg']);
+    unset($_SESSION['req_msg_type']);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_requisition'])) {
     // Sanitize Inputs
@@ -40,27 +77,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_requisition'])
     $skills = mysqli_real_escape_string($conn, $_POST['skills']);
     $description = mysqli_real_escape_string($conn, $_POST['description']);
 
-    // Insert Query
-    $sql = "INSERT INTO hiring_requests (manager_id, job_title, department, vacancy_count, experience_required, skills_required, job_description, priority, status) 
+    // Prevent identical duplicate submissions within a short timeframe (double clicks)
+    $check_dup = $conn->prepare("SELECT id FROM hiring_requests WHERE manager_id = ? AND job_title = ? AND status = 'Pending' AND created_at >= NOW() - INTERVAL 5 MINUTE");
+    $check_dup->bind_param("is", $current_user_id, $job_title);
+    $check_dup->execute();
+    if ($check_dup->get_result()->num_rows > 0) {
+        $_SESSION['req_msg'] = "You have already submitted a request for this role recently.";
+        $_SESSION['req_msg_type'] = "error";
+        header("Location: " . $_SERVER['PHP_SELF']);
+        exit();
+    }
+    $check_dup->close();
+
+    // 🚨 FIXED: Corrected 'skills_required' to 'key_skills' to match ATS board expectations
+    $sql = "INSERT INTO hiring_requests (manager_id, job_title, department, vacancy_count, experience_required, key_skills, job_description, priority, status) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Pending')";
     
     $stmt = $conn->prepare($sql);
     $stmt->bind_param("ississss", $current_user_id, $job_title, $department, $vacancy_count, $experience, $skills, $description, $priority);
     
     if ($stmt->execute()) {
-        $msg = "Hiring request submitted successfully to HR!";
-        $msg_type = "success";
+        $_SESSION['req_msg'] = "Hiring request submitted successfully to HR!";
+        $_SESSION['req_msg_type'] = "success";
     } else {
-        $msg = "Error submitting request: " . $conn->error;
-        $msg_type = "error";
+        $_SESSION['req_msg'] = "Error submitting request: " . $conn->error;
+        $_SESSION['req_msg_type'] = "error";
     }
     $stmt->close();
+    
+    // Redirect to prevent form resubmission on page refresh
+    header("Location: " . $_SERVER['PHP_SELF']);
+    exit();
 }
 
 // -------------------------------------------------------------------------
-// 3. FETCH RECENT REQUESTS (For History View)
+// 3. FETCH RECENT REQUESTS (SMART GROUPING TO HIDE EXISTING DUPLICATES)
 // -------------------------------------------------------------------------
-$history_sql = "SELECT * FROM hiring_requests WHERE manager_id = ? ORDER BY created_at DESC LIMIT 5";
+// This query automatically collapses identical requests made on the same day, prioritizing the most recent status.
+$history_sql = "
+    SELECT t1.* FROM hiring_requests t1
+    INNER JOIN (
+        SELECT job_title, MAX(id) as max_id 
+        FROM hiring_requests 
+        WHERE manager_id = ? 
+        GROUP BY job_title, DATE(created_at)
+    ) t2 ON t1.id = t2.max_id
+    ORDER BY t1.created_at DESC 
+    LIMIT 5
+";
 $h_stmt = $conn->prepare($history_sql);
 $h_stmt->bind_param("i", $current_user_id);
 $h_stmt->execute();
@@ -82,7 +146,38 @@ $history_result = $h_stmt->get_result();
         body { background-color: #f8fafc; font-family: 'Inter', sans-serif; color: #1e293b; }
         
         /* Sidebar Adjustment */
-        #mainContent { margin-left: 95px; transition: margin-left 0.3s; min-height: 100vh; display: flex; flex-direction: column; }
+       /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
         
         .card { background: white; border-radius: 12px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
         .form-control { width: 100%; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; transition: all 0.2s; }
@@ -91,11 +186,12 @@ $history_result = $h_stmt->get_result();
         .btn-primary:hover { background-color: #0d9488; }
         
         /* Status Badges */
-        .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
-        .badge-Pending { background: #fff7ed; color: #c2410c; }
-        .badge-Approved { background: #f0fdf4; color: #15803d; }
-        .badge-Rejected { background: #fef2f2; color: #b91c1c; }
-        .badge-In { background: #eff6ff; color: #1d4ed8; } /* In Progress */
+        .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; display: inline-block; white-space: nowrap;}
+        .badge-Pending { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+        .badge-Approved { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+        .badge-Rejected { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        .badge-In { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; } /* For 'In Progress' */
+        .badge-Fulfilled { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
     </style>
 </head>
 <body>
@@ -104,12 +200,12 @@ $history_result = $h_stmt->get_result();
     if(file_exists($path_to_root . 'sidebars.php')) include $path_to_root . 'sidebars.php';
     ?>
 
-    <div id="mainContent">
+    <main id="mainContent" class="main-content">
         <?php 
         if(file_exists($path_to_root . 'header.php')) include $path_to_root . 'header.php';
         ?>
 
-        <main class="p-8 w-full">
+        <main class="p-4 md:p-8 w-full">
             
             <div class="flex justify-between items-center mb-8">
                 <div>
@@ -144,14 +240,7 @@ $history_result = $h_stmt->get_result();
                                 </div>
                                 <div>
                                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Department <span class="text-red-500">*</span></label>
-                                    <select name="department" class="form-control" required>
-                                        <option value="">Select Department</option>
-                                        <option value="Engineering">Engineering Dept</option>
-                                        <option value="Sales">Sales & Marketing</option>
-                                        <option value="HR">Human Resources</option>
-                                        <option value="Accounts">Accounts & Finance</option>
-                                        <option value="Support">Customer Support</option>
-                                    </select>
+                                    <input type="text" name="department" class="form-control bg-slate-50 text-slate-600 font-semibold cursor-not-allowed" value="<?php echo htmlspecialchars($mgr_dept); ?>" readonly required title="Auto-fetched from your profile">
                                 </div>
                             </div>
 
@@ -214,14 +303,16 @@ $history_result = $h_stmt->get_result();
                         <h3 class="font-bold text-slate-800 mb-4 text-sm uppercase">Recent Requests</h3>
                         <div class="space-y-4">
                             <?php if ($history_result && $history_result->num_rows > 0): ?>
-                                <?php while($row = $history_result->fetch_assoc()): ?>
+                                <?php while($row = $history_result->fetch_assoc()): 
+                                    $status_class_suffix = explode(' ', $row['status'])[0]; // e.g. "In Progress" -> "In"
+                                ?>
                                     <div class="border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                                        <div class="flex justify-between items-start">
-                                            <div>
-                                                <p class="font-bold text-sm text-slate-700"><?php echo htmlspecialchars($row['job_title']); ?></p>
+                                        <div class="flex justify-between items-start gap-2">
+                                            <div class="min-w-0">
+                                                <p class="font-bold text-sm text-slate-700 truncate" title="<?php echo htmlspecialchars($row['job_title']); ?>"><?php echo htmlspecialchars($row['job_title']); ?></p>
                                                 <p class="text-xs text-gray-500"><?php echo date("d M Y", strtotime($row['created_at'])); ?> • <?php echo $row['vacancy_count']; ?> Positions</p>
                                             </div>
-                                            <span class="badge badge-<?php echo substr($row['status'], 0, 3); ?>"><?php echo $row['status']; ?></span>
+                                            <span class="badge badge-<?php echo htmlspecialchars($status_class_suffix); ?> shrink-0"><?php echo htmlspecialchars($row['status']); ?></span>
                                         </div>
                                     </div>
                                 <?php endwhile; ?>

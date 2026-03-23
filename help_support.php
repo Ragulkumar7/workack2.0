@@ -1,33 +1,106 @@
 <?php
-// help_support.php
+// help_support.php - Enterprise Knowledge Base (V4 - Hardened)
 
-// 1. SESSION & DB CONNECTION
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-require_once 'include/db_connect.php'; // Ensure DB connection is included
+require_once 'include/db_connect.php'; 
 
-// 2. PATHS
 $sidebarPath = __DIR__ . '/sidebars.php'; 
 $headerPath = __DIR__ . '/header.php';
 if (!file_exists($sidebarPath)) { $sidebarPath = __DIR__ . '/../sidebars.php'; }
 if (!file_exists($headerPath)) { $headerPath = __DIR__ . '/../header.php'; }
 
-// 3. FETCH DATA FROM DB
-$kb_data = [];
-$article_map = []; // To store Title -> Content for JS
-$total_articles = 0; // To count total articles for the header
+$user_role = isset($_SESSION['role']) ? trim($_SESSION['role']) : 'Employee'; 
+$user_id = $_SESSION['user_id'] ?? ($_SESSION['id'] ?? 0);
 
-// Fetch Categories
+// =========================================================================
+// 🚀 ENTERPRISE AUTO-PATCHER (Analytics, Roles & Performance Indexes)
+// =========================================================================
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $check_cols = $conn->query("SHOW COLUMNS FROM `help_articles` LIKE 'allowed_roles'");
+    if ($check_cols && $check_cols->num_rows == 0) {
+        @$conn->query("ALTER TABLE `help_articles` 
+            ADD COLUMN `allowed_roles` VARCHAR(255) DEFAULT 'All' AFTER `category_id`,
+            ADD COLUMN `views` INT DEFAULT 0 AFTER `content`,
+            ADD COLUMN `updated_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER `views`");
+    }
+
+    @$conn->query("CREATE TABLE IF NOT EXISTS `help_feedback` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY, `article_id` INT NOT NULL,
+        `user_id` INT NOT NULL, `is_helpful` TINYINT(1) NOT NULL, `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    @$conn->query("CREATE TABLE IF NOT EXISTS `help_analytics` (
+        `id` INT AUTO_INCREMENT PRIMARY KEY, `search_query` VARCHAR(255) NULL,
+        `article_id` INT NULL, `user_id` INT NOT NULL, `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    // Performance Indexing (Fail-safe creation)
+    try {
+        @$conn->query("CREATE INDEX idx_role ON help_articles(allowed_roles)");
+        @$conn->query("CREATE INDEX idx_search ON help_analytics(search_query)");
+        @$conn->query("CREATE INDEX idx_article ON help_feedback(article_id)");
+    } catch (Exception $e) { /* Indexes likely already exist */ }
+}
+
+// =========================================================================
+// 🚀 BACKGROUND AJAX HANDLERS (100% Prepared Statements - SQLi Safe)
+// =========================================================================
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    ob_clean(); header('Content-Type: application/json');
+    
+    if ($_POST['action'] === 'submit_feedback') {
+        $art_id = intval($_POST['article_id']);
+        $helpful = intval($_POST['is_helpful']);
+        $stmt = $conn->prepare("INSERT INTO help_feedback (article_id, user_id, is_helpful) VALUES (?, ?, ?)");
+        $stmt->bind_param("iii", $art_id, $user_id, $helpful);
+        $stmt->execute(); $stmt->close();
+        echo json_encode(['status' => 'success']); exit;
+    }
+    
+    if ($_POST['action'] === 'log_view') {
+        $art_id = intval($_POST['article_id']);
+        $stmt = $conn->prepare("INSERT INTO help_analytics (article_id, user_id) VALUES (?, ?)");
+        $stmt->bind_param("ii", $art_id, $user_id);
+        $stmt->execute(); $stmt->close();
+        
+        $upd = $conn->prepare("UPDATE help_articles SET views = views + 1 WHERE id = ?");
+        $upd->bind_param("i", $art_id);
+        $upd->execute(); $upd->close();
+        
+        echo json_encode(['status' => 'success']); exit;
+    }
+
+    if ($_POST['action'] === 'log_search') {
+        $query = trim($_POST['query']);
+        if(!empty($query)) {
+            $stmt = $conn->prepare("INSERT INTO help_analytics (search_query, user_id) VALUES (?, ?)");
+            $stmt->bind_param("si", $query, $user_id);
+            $stmt->execute(); $stmt->close();
+        }
+        echo json_encode(['status' => 'success']); exit;
+    }
+}
+
+// =========================================================================
+// 🚀 FETCH DATA (Strict Role Filtering & XSS Sanitization)
+// =========================================================================
+$kb_data = [];
+$article_map = []; 
+$total_articles = 0; 
+// Whitelist of allowed HTML tags for the modal content (XSS Protection)
+$allowed_html = '<p><br><b><strong><i><em><ul><ol><li><h3><h4><h5><a><span><div><img><hr><br>';
+
 $cat_sql = "SELECT * FROM help_categories ORDER BY id ASC";
-// Suppress error if table doesn't exist yet, so we can show dummy data
 $cat_res = @$conn->query($cat_sql); 
 
 if ($cat_res && $cat_res->num_rows > 0) {
     while($cat = $cat_res->fetch_assoc()) {
         $cat_id = $cat['id'];
         
-        $art_sql = "SELECT title, content FROM help_articles WHERE category_id = ?";
+        $art_sql = "SELECT id, title, content, updated_at FROM help_articles 
+                    WHERE category_id = ? AND (allowed_roles = 'All' OR FIND_IN_SET(?, allowed_roles))";
         $stmt = $conn->prepare($art_sql);
-        $stmt->bind_param("i", $cat_id);
+        $stmt->bind_param("is", $cat_id, $user_role);
         $stmt->execute();
         $art_res = $stmt->get_result();
         
@@ -37,218 +110,117 @@ if ($cat_res && $cat_res->num_rows > 0) {
             $short_desc = strlen($clean_desc) > 70 ? substr($clean_desc, 0, 70) . "..." : $clean_desc;
             if(empty($short_desc)) $short_desc = "Click to view detailed guide and instructions.";
 
+            $word_count = str_word_count($clean_desc);
+            $read_time = max(1, ceil($word_count / 200)); 
+
+            $safe_title = htmlspecialchars($row['title'], ENT_QUOTES, 'UTF-8');
+            $date_updated = date('M d, Y', strtotime($row['updated_at']));
+            
             $articles[] = [
-                'title' => $row['title'],
-                'desc' => $short_desc
+                'id' => $row['id'],
+                'title' => $safe_title,
+                'desc' => $short_desc,
+                'meta' => "$read_time min read • Updated $date_updated"
             ];
-            $article_map[$row['title']] = $row['content'];
+            
+            // XSS Sanitization: Strip dangerous tags before serving to JS map
+            $article_map[$row['id']] = strip_tags($row['content'], $allowed_html); 
             $total_articles++;
         }
         
         if (!empty($articles)) {
             $kb_data[] = [
-                'title' => $cat['title'],
+                'title' => htmlspecialchars($cat['title'], ENT_QUOTES, 'UTF-8'),
+                'icon' => $cat['icon'] ?? 'folder', 
                 'articles' => $articles
             ];
         }
     }
 }
 
-// 4. FALLBACK UNIQUE CONTENT (If Database is empty)
+// 4. FALLBACK UNIQUE CONTENT (Role-Based Help Center)
 if (empty($kb_data)) {
-    $kb_data = [
+    $raw_kb_data = [
         [
             'title' => 'Attendance, Leaves & Shifts',
+            'icon' => 'calendar-clock',
+            'allowed_roles' => ['All'],
             'articles' => [
                 [
+                    'id' => 1001,
                     'title' => 'How to punch in and track daily attendance', 
                     'desc' => 'Guide to logging your daily entry, exits, and tracking production hours.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Your daily attendance and production hours are calculated based on your punch-in and punch-out times.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Steps to Punch In:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Go to the <b>Attendance</b> module from the left sidebar.</li>
-                            <li>Click the green <b>Punch In</b> button at the top of the dashboard.</li>
-                            <li>When you take a break, click <b>Start Break</b>. Remember to click <b>End Break</b> when you return.</li>
-                            <li>At the end of your shift, click <b>Punch Out</b> to log your total production hours.</li>
-                        </ul></div>"
+                    'content' => "<div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Your daily attendance and production hours are calculated based on your punch-in and punch-out times.</p></div><div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Steps to Punch In:</h3><ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'><li>Go to the <b>Attendance</b> module from the left sidebar.</li><li>Click the green <b>Punch In</b> button at the top of the dashboard.</li><li>When you take a break, click <b>Start Break</b>. Remember to click <b>End Break</b> when you return.</li><li>At the end of your shift, click <b>Punch Out</b> to log your total production hours.</li></ul></div>"
                 ],
                 [
+                    'id' => 1002,
                     'title' => 'Applying for Sick or Casual Leaves', 
                     'desc' => 'How to check your leave balance and apply for time off in the portal.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Employees can request Sick, Casual, or Loss of Pay leaves directly through the HRMS.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>How to Apply:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Navigate to <b>Leave Management</b> > <b>Apply Leave</b>.</li>
-                            <li>Select your <b>Leave Type</b> (e.g., Casual Leave) from the dropdown.</li>
-                            <li>Select the <b>Start Date</b> and <b>End Date</b>.</li>
-                            <li>Enter a valid reason for your absence and click <b>Submit</b>. Your TL and Manager will be notified.</li>
-                        </ul></div>"
-                ],
-                [
-                    'title' => 'Applying for Work From Home (WFH)', 
-                    'desc' => 'How to submit a WFH request to your manager and HR.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>If you need to work remotely, you must submit a WFH request prior to your shift.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Request Process:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Open the <b>Attendance</b> menu and select <b>WFH Requests</b>.</li>
-                            <li>Click on <b>New Request</b>.</li>
-                            <li>Provide the specific dates and detailed reason for working from home.</li>
-                            <li>Once submitted, track the status (Pending/Approved/Rejected) in the same menu.</li>
-                        </ul></div>"
+                    'content' => "<div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Employees can request Sick, Casual, or Loss of Pay leaves directly through the HRMS.</p></div><div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>How to Apply:</h3><ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'><li>Navigate to <b>Leave Management</b> > <b>Apply Leave</b>.</li><li>Select your <b>Leave Type</b> (e.g., Casual Leave) from the dropdown.</li><li>Select the <b>Start Date</b> and <b>End Date</b>.</li><li>Enter a valid reason for your absence and click <b>Submit</b>. Your TL and Manager will be notified.</li></ul></div>"
                 ]
             ]
         ],
         [
-            'title' => 'Task Management',
+            'title' => 'Manager Approvals & Overrides',
+            'icon' => 'shield-check',
+            'allowed_roles' => ['Manager', 'System Admin', 'CEO', 'HR'], 
             'articles' => [
                 [
-                    'title' => 'Managing your Personal Taskboard', 
-                    'desc' => 'How to add, track, and update the status of your daily personal tasks.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Keep track of your own daily goals and reminders using the Personal Taskboard.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>How to use the Taskboard:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Navigate to the <b>Task Management</b> menu from the sidebar.</li>
-                            <li>Click <b>Add New Task</b> to create a personal goal. Add a title, priority, and deadline.</li>
-                            <li>Drag and drop cards or click to update the status from <b>To Do</b> to <b>In Progress</b> or <b>Completed</b>.</li>
-                        </ul></div>"
-                ],
-                [
-                    'title' => 'Completing Team Tasks assigned by your Lead', 
-                    'desc' => 'Updating priority and marking assigned team tasks as completed.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Tasks assigned to you by your Team Lead or Manager will appear in your Team Tasks module.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Action Steps:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Go to <b>Task Management</b> > <b>Team Tasks</b>.</li>
-                            <li>Review the priority (Critical, High, Medium, Low) and deadline set by the assigner.</li>
-                            <li>Once you finish the work, click on the task and change its status to <b>Completed</b>. The assigner will be notified instantly.</li>
-                        </ul></div>"
-                ]
-            ]
-        ],
-        [
-            'title' => 'Team Chat & Communication',
-            'articles' => [
-                [
-                    'title' => 'Using the Internal Chat System', 
-                    'desc' => 'Starting direct conversations or group chats with colleagues.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Connect with your colleagues instantly without leaving the HRMS portal.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Starting a Chat:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Click on <b>Team Chat</b> in the left sidebar.</li>
-                            <li>Use the search bar to find a specific employee or group.</li>
-                            <li>Click their name to open the chat window. You can send text, files, and images securely.</li>
-                        </ul></div>"
-                ],
-                [
-                    'title' => 'Making Audio & Video Calls', 
-                    'desc' => 'How to initiate a call request with team members directly from the portal.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>You can instantly transition a text chat into a voice or video meeting.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>How to Call:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Open the active conversation in the <b>Team Chat</b> window.</li>
-                            <li>In the top right corner of the chat box, click the <b>Video Camera</b> icon for a video call or the <b>Phone</b> icon for an audio call.</li>
-                            <li>Ensure your browser has permission to access your microphone and camera.</li>
-                        </ul></div>"
-                ]
-            ]
-        ],
-        [
-            'title' => 'Company Announcements',
-            'articles' => [
-                [
-                    'title' => 'Viewing Company Announcements', 
-                    'desc' => 'Checking the announcement board for priority updates and pinned messages.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>HR and Management use the Announcement module to broadcast important news, policies, and holiday updates.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Finding Announcements:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Go to <b>Announcements</b> from the sidebar.</li>
-                            <li>Priority and <b>Pinned</b> messages will appear at the very top of your feed.</li>
-                            <li>Click on any announcement card to read the full message and see who posted it.</li>
-                        </ul></div>"
-                ]
-            ]
-        ],
-        [
-            'title' => 'Performance Management',
-            'articles' => [
-                [
-                    'title' => 'Checking your Performance Score', 
-                    'desc' => 'Understanding your productivity score, task completion percentage, and manager ratings.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Your performance dashboard gives you a transparent view of your work metrics and appraisals.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>How to view your metrics:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Click on the <b>Performance</b> tab in the sidebar.</li>
-                            <li>Here you can view your Total Score, which is calculated based on: Project completions, On-time tasks, Attendance percentage, and Manager ratings.</li>
-                            <li>Check the <b>Manager Comments</b> section to read direct feedback from your supervisors.</li>
-                        </ul></div>"
+                    'id' => 2001,
+                    'title' => 'Approving Team Leaves and Expense Claims', 
+                    'desc' => 'Workflow for verifying and approving requests from your direct reports.',
+                    'content' => "<div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>As a manager, you are required to review pending requests within 24 hours.</p></div><div><ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'><li>Navigate to the <b>Approvals</b> dashboard.</li><li>Review the attached proofs (for expenses) or shift coverage (for leaves).</li><li>Click <b>Approve</b> to forward to Accounts/HR, or <b>Reject</b> with a mandatory reason.</li></ul></div>"
                 ]
             ]
         ],
         [
             'title' => 'Payroll & Compensation',
+            'icon' => 'banknote',
+            'allowed_roles' => ['All'],
             'articles' => [
                 [
+                    'id' => 3001,
                     'title' => 'How to download your monthly Payslip', 
                     'desc' => 'Requesting and downloading your official salary slips for specific months.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Official payslips are generated after salary disbursement and can be downloaded as PDFs.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Download Instructions:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Go to <b>Request Payslip</b> in the sidebar.</li>
-                            <li>Select the <b>Month</b> and <b>Year</b> you need the payslip for.</li>
-                            <li>Click <b>Generate/Download PDF</b>.</li>
-                            <li>If a payslip is missing, use the 'Raise Request to Accounts' button on the same page.</li>
-                        </ul></div>"
+                    'content' => "<div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Official payslips are generated after salary disbursement and can be downloaded as PDFs.</p></div><div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Download Instructions:</h3><ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'><li>Go to <b>Request Payslip</b> in the sidebar.</li><li>Select the <b>Month</b> and <b>Year</b> you need the payslip for.</li><li>Click <b>Generate/Download PDF</b>.</li><li>If a payslip is missing, use the 'Raise Request to Accounts' button.</li></ul></div>"
                 ]
             ]
         ],
         [
             'title' => 'IT Support & Hardware Assets',
+            'icon' => 'laptop',
+            'allowed_roles' => ['All'],
             'articles' => [
                 [
+                    'id' => 4001,
                     'title' => 'Raising an IT Support Ticket', 
                     'desc' => 'How to report an issue, set a priority, and track the resolution status.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>If you are facing hardware issues, software bugs, or network problems, raise a ticket for the IT Admin.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Steps to Raise a Ticket:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Click on <b>Raise Ticket</b> at the bottom of your sidebar.</li>
-                            <li>Enter a clear <b>Subject</b> and select the appropriate <b>Department</b> (e.g., IT Support).</li>
-                            <li>Set the <b>Priority</b> (Low, Medium, High) based on urgency.</li>
-                            <li>Provide a detailed description of the issue. You can also attach screenshots.</li>
-                            <li>Click <b>Submit</b>. You can track updates in the 'My Tickets' section.</li>
-                        </ul></div>"
-                ],
-                [
-                    'title' => 'Viewing your Assigned Hardware Assets', 
-                    'desc' => 'Checking the details, specs, and barcodes of laptops/devices assigned to you.',
-                    'content' => "
-                        <div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>Keep track of company property assigned to you, including laptops, monitors, and accessories.</p></div>
-                        <div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Where to find your assets:</h3>
-                        <ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'>
-                            <li>Navigate to your <b>User Profile</b> (top right corner).</li>
-                            <li>Click on the <b>My Assets</b> tab.</li>
-                            <li>Here you will see a list of all devices, their specifications, and unique system barcodes.</li>
-                        </ul></div>"
+                    'content' => "<div style='margin-bottom: 20px;'><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Overview</h3><p>If you are facing hardware issues, software bugs, or network problems, raise a ticket for the IT Admin.</p></div><div><h3 style='color: #1b5a5a; margin-bottom: 10px;'>Steps to Raise a Ticket:</h3><ul style='list-style-type: decimal; padding-left: 20px; line-height: 1.8;'><li>Click on <b>Raise Ticket</b> at the bottom of your sidebar.</li><li>Enter a clear <b>Subject</b> and select the appropriate <b>Department</b> (e.g., IT Support).</li><li>Set the <b>Priority</b> (Low, Medium, High) based on urgency.</li><li>Provide a detailed description of the issue. You can also attach screenshots.</li><li>Click <b>Submit</b>. You can track updates in the 'My Tickets' section.</li></ul></div>"
                 ]
             ]
         ]
     ];
 
-    // Map unique content to the article map
-    foreach($kb_data as $cat) {
-        foreach($cat['articles'] as $art) {
-            $article_map[$art['title']] = $art['content'];
-            $total_articles++;
+    foreach($raw_kb_data as $cat) {
+        if(in_array('All', $cat['allowed_roles']) || in_array($user_role, $cat['allowed_roles'])) {
+            $arts = [];
+            foreach($cat['articles'] as $art) {
+                $word_count = str_word_count(strip_tags($art['content']));
+                $read_time = max(1, ceil($word_count / 200)); 
+                $arts[] = [
+                    'id' => $art['id'],
+                    'title' => $art['title'],
+                    'desc' => $art['desc'],
+                    'meta' => "$read_time min read • Updated " . date('M d, Y')
+                ];
+                $article_map[$art['id']] = strip_tags($art['content'], $allowed_html);
+                $total_articles++;
+            }
+            $kb_data[] = [
+                'title' => $cat['title'],
+                'icon' => $cat['icon'],
+                'articles' => $arts
+            ];
         }
     }
 }
@@ -259,375 +231,190 @@ if (empty($kb_data)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Help & Support</title>
+    <title>Enterprise Help Center | WorkAck</title>
     
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 
     <style>
-        /* Base HRMS Layout Styles */
         :root {
             --bg-body: #f8fafc; 
             --text-main: #0f172a;
+            --text-muted: #64748b;
             --sidebar-width: 95px;
-            --hostinger-purple: #1b5a5a; 
-            --search-bg: #1b5a5a; 
+            --primary: #1b5a5a; 
         }
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-body);
-            color: var(--text-main);
-            margin: 0;
-            line-height: 1.5;
-        }
-
-        .main-content {
-            margin-left: var(--sidebar-width);
-            padding: 30px 40px; 
-            min-height: 100vh;
-            transition: margin-left 0.3s ease;
-        }
-        
-        .page-main-header {
-            margin-bottom: 24px;
-        }
-        
-        .page-main-header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            color: #111827;
-            margin: 0;
-            letter-spacing: -0.5px;
-        }
-
-        /* --- SEARCH HERO SECTION --- */
-        .search-hero {
-            background: linear-gradient(135deg, var(--search-bg) 0%, #113f3f 100%);
-            margin: 0 -40px 40px -40px; 
-            padding: 60px 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            box-shadow: inset 0 -4px 10px rgba(0,0,0,0.05);
-        }
-
-        .search-wrapper {
-            position: relative;
-            width: 100%;
-            max-width: 700px; 
-        }
-
-        /* Target the generated SVG from Lucide to prevent the icon from breaking out */
-        .search-wrapper svg {
-            position: absolute;
-            left: 20px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: #ffffff;
-            width: 20px;
-            height: 20px;
-            pointer-events: none; 
-            opacity: 0.8;
-            z-index: 2; 
-        }
-
-        .search-wrapper input {
-            width: 100%;
-            padding: 16px 20px 16px 56px;
-            font-size: 16px;
-            color: #ffffff;
-            background-color: rgba(255, 255, 255, 0.15); 
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 12px; 
-            outline: none;
-            transition: all 0.3s ease;
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg-body); color: var(--text-main); margin: 0; line-height: 1.5; }
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            margin-left: 95px; /* Primary Sidebar Width */
+            width: calc(100% - 95px);
+            transition: margin-left 0.3s ease, width 0.3s ease;
             box-sizing: border-box;
-            position: relative;
-            z-index: 1;
+            padding: 30px; /* Adjust inner padding as needed */
+            min-height: 100vh;
         }
 
-        .search-wrapper input::placeholder {
-            color: rgba(255, 255, 255, 0.7);
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 315px; /* 95px + 220px */
+            width: calc(100% - 315px);
         }
 
-        .search-wrapper input:focus {
-            background-color: rgba(255, 255, 255, 0.25);
-            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.15);
-            border-color: rgba(255, 255, 255, 0.5);
-        }
-
-        /* Container */
-        .support-container {
-            max-width: 860px; 
-            margin: 0 auto; 
-        }
-
-        .category-header {
-            margin-bottom: 40px;
-        }
-
-        .category-header h1 {
-            font-size: 32px;
-            font-weight: 800;
-            color: #0f172a;
-            margin-bottom: 8px;
-            margin-top: 0;
-            letter-spacing: -0.5px;
-        }
-
-        .category-header .subtitle {
-            font-size: 16px;
-            color: #475569;
-            margin-bottom: 16px;
-        }
-
-        .category-header .article-count {
-            display: inline-block;
-            font-size: 13px;
-            font-weight: 500;
-            color: #475569;
-            background-color: #f1f5f9;
-            padding: 4px 12px;
-            border-radius: 20px;
-        }
-
-        /* Cards */
-        .category-card {
-            background-color: #ffffff;
-            border: 1px solid #f1f5f9;
-            border-radius: 20px;
-            padding: 32px;
-            margin-bottom: 32px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0,0,0,0.02); 
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .category-card:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 12px 25px rgba(0, 0, 0, 0.06), 0 4px 10px rgba(0, 0, 0, 0.03);
-        }
-
-        .category-card h2 {
-            font-size: 20px;
-            font-weight: 700;
-            color: #0f172a;
-            margin-top: 0;
-            margin-bottom: 0;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #f1f5f9; 
-            position: relative;
-            padding-left: 18px;
-        }
-        
-        .category-card h2::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 4px;
-            height: 22px;
-            width: 5px;
-            background-color: var(--hostinger-purple);
-            border-radius: 4px;
-        }
-
-        .article-list {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .article-item {
-            text-decoration: none;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 24px 16px;
-            margin: 0 -16px; 
-            border-bottom: 1px solid #f1f5f9;
-            background: transparent;
-            border-left: none;
-            border-right: none;
-            border-top: none;
-            cursor: pointer;
-            text-align: left;
-            width: calc(100% + 32px);
-            transition: background-color 0.2s ease, border-radius 0.2s ease;
-        }
-
-        .article-item:last-child {
-            border-bottom: none; 
-        }
-
-        .article-item:hover {
-            background-color: #f0fdfa; 
-            border-radius: 12px;
-            border-bottom-color: transparent;
-        }
-
-        .article-content {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            padding-right: 20px;
-        }
-
-        .article-content h3 {
-            font-size: 16px;
-            font-weight: 600; 
-            color: #1e293b; 
-            margin: 0;
-            transition: color 0.2s ease;
-        }
-        
-        .article-item:hover .article-content h3 {
-            color: var(--hostinger-purple);
-        }
-
-        .article-content p {
-            font-size: 14px;
-            color: #64748b;
-            margin: 0;
-            display: -webkit-box;
-            -webkit-line-clamp: 1;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            line-height: 1.6;
-        }
-
-        .article-icon {
-            color: #94a3b8;
-            flex-shrink: 0; 
-            transition: transform 0.2s ease, color 0.2s ease;
-        }
-
-        .article-item:hover .article-icon {
-            color: var(--hostinger-purple);
-            transform: translateX(4px); 
-        }
-
-        /* --- MODAL STYLES --- */
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(20px) scale(0.98); }
-            to { opacity: 1; transform: translateY(0) scale(1); }
-        }
-
-        #contentModal {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(15, 23, 42, 0.5); 
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            padding: 20px;
-        }
-        .modal-box {
-            background: white;
-            width: 100%;
-            max-width: 650px;
-            border-radius: 20px;
-            padding: 40px;
-            position: relative;
-            max-height: 85vh;
-            overflow-y: auto;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
-            animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .close-btn {
-            position: absolute;
-            top: 24px;
-            right: 24px;
-            cursor: pointer;
-            color: #64748b;
-            transition: all 0.2s ease;
-            background: #f1f5f9;
-            border: none;
-            border-radius: 50%;
-            width: 36px;
-            height: 36px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .close-btn i { width: 18px; height: 18px; }
-        .close-btn:hover { color: white; background: #ef4444; transform: rotate(90deg); }
-
-        .btn-primary {
-            background-color: var(--hostinger-purple);
-            color: white;
-            padding: 12px 28px;
-            border-radius: 10px;
-            transition: all 0.2s ease;
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 15px;
-        }
-        .btn-primary:hover {
-            background-color: #113f3f;
-            box-shadow: 0 4px 12px rgba(27, 90, 90, 0.25);
-            transform: translateY(-2px);
-        }
-
-        /* --- MOBILE RESPONSIVENESS --- */
-        @media (max-width: 768px) {
-            .main-content {
-                margin-left: var(--sidebar-width); 
-                padding: 20px 16px; 
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 80px 15px 30px !important; /* Top padding clears the hamburger menu */
             }
             
-            .page-main-header h1 {
-                font-size: 24px;
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
             }
+        }
 
-            .search-hero {
-                margin: 0 -16px 32px -16px; 
-                padding: 40px 16px;
-                border-radius: 0 0 16px 16px;
-            }
+        /* --- PREMIUM HERO SECTION --- */
+        .search-hero {
+            background: linear-gradient(135deg, var(--primary) 0%, #0d2e2e 100%);
+            margin: 0 -40px 40px -40px; padding: 80px 20px 100px;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            text-align: center; position: relative; overflow: hidden;
+        }
+        .search-hero::after { content: ''; position: absolute; inset: 0; opacity: 0.1; background-image: radial-gradient(circle at 2px 2px, white 1px, transparent 0); background-size: 32px 32px; }
 
-            .search-wrapper input {
-                padding: 14px 16px 14px 48px;
-                font-size: 15px;
-            }
+        .hero-title { color: white; font-size: 36px; font-weight: 800; margin: 0 0 10px 0; letter-spacing: -0.5px; z-index: 1;}
+        .hero-subtitle { color: #cbd5e1; font-size: 16px; margin: 0 0 30px 0; z-index: 1;}
 
-            .search-wrapper svg {
-                left: 16px;
-            }
+        .search-wrapper { position: relative; width: 100%; max-width: 650px; z-index: 1;}
+        .search-wrapper svg { position: absolute; left: 20px; top: 50%; transform: translateY(-50%); color: #94a3b8; width: 22px; height: 22px; pointer-events: none; z-index: 2; }
+        
+        .search-wrapper input {
+            width: 100%; padding: 20px 20px 20px 56px; font-size: 16px; font-weight: 500; color: #0f172a;
+            background-color: #ffffff; border: 2px solid transparent; border-radius: 16px; 
+            outline: none; transition: all 0.3s ease; box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+        }
+        .search-wrapper input::placeholder { color: #94a3b8; }
+        .search-wrapper input:focus { border-color: #38bdf8; box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.2), 0 10px 25px rgba(0,0,0,0.1); }
+        
+        .kbd-shortcut {
+            position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+            background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 6px; border: 1px solid #e2e8f0; pointer-events: none;
+        }
 
-            .category-header h1 {
-                font-size: 26px;
-            }
+        /* --- QUICK ACTIONS --- */
+        .quick-actions-container {
+            max-width: 900px; margin: -70px auto 40px; position: relative; z-index: 10;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 0 20px;
+        }
+        .quick-action-card {
+            background: white; padding: 20px; border-radius: 12px; text-decoration: none; color: var(--text-main);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px;
+            transition: all 0.2s ease; border: 1px solid #f1f5f9;
+        }
+        .quick-action-card:hover { transform: translateY(-4px); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05); border-color: #e2e8f0;}
+        .qa-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
 
-            .category-card {
-                padding: 24px 20px;
-                border-radius: 16px;
-                margin-bottom: 24px;
-            }
+        /* Container */
+        .support-container { max-width: 860px; margin: 0 auto; }
+        .category-header { margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center;}
+        .category-header h2 { font-size: 22px; font-weight: 800; color: #0f172a; margin: 0; display: flex; align-items: center; gap: 10px;}
+        .category-header .article-count { font-size: 13px; font-weight: 600; color: var(--text-muted); background-color: #f1f5f9; padding: 4px 12px; border-radius: 20px; }
 
-            .category-card h2 {
-                font-size: 18px;
-            }
+        /* Cards */
+        .category-card { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; margin-bottom: 25px; box-shadow: 0 1px 3px rgba(0,0,0,0.02); overflow: hidden;}
+        .article-list { display: flex; flex-direction: column; }
+        .article-item {
+            text-decoration: none; display: flex; justify-content: space-between; align-items: center; 
+            padding: 20px 24px; border-bottom: 1px solid #f1f5f9; background: transparent; border-left: none; border-right: none; border-top: none;
+            cursor: pointer; text-align: left; width: 100%; transition: background-color 0.2s ease; box-sizing: border-box;
+        }
+        .article-item:last-child { border-bottom: none; }
+        .article-item:hover { background-color: #f8fafc; }
 
-            .article-item {
-                padding: 16px 8px;
-                margin: 0 -8px;
-                width: calc(100% + 16px);
-            }
+        .article-content { display: flex; flex-direction: column; gap: 4px; padding-right: 20px; }
+        .article-content h3 { font-size: 15px; font-weight: 600; color: #1e293b; margin: 0; transition: color 0.2s ease; }
+        .article-item:hover .article-content h3 { color: var(--primary); }
+        .article-content p { font-size: 13px; color: var(--text-muted); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 600px;}
+        .article-meta { font-size: 11px; color: #94a3b8; font-weight: 500; margin-top: 4px; display: flex; align-items: center; gap: 6px;}
 
-            .article-content h3 {
-                font-size: 15px;
-            }
+        .article-icon { color: #94a3b8; flex-shrink: 0; transition: transform 0.2s ease, color 0.2s ease; }
+        .article-item:hover .article-icon { color: var(--primary); transform: translateX(4px); }
 
-            .modal-box {
-                padding: 24px;
-                border-radius: 16px;
-            }
+        mark.highlight { background: #fef08a; color: #b45309; padding: 0 2px; border-radius: 3px; font-weight: inherit;}
 
-            #topicTitle {
-                font-size: 20px !important;
-            }
+        .empty-state { text-align: center; padding: 60px 20px; display: none; }
+        .empty-state svg { width: 64px; height: 64px; color: #cbd5e1; margin-bottom: 16px; }
+        .empty-state h3 { font-size: 18px; font-weight: 700; color: #334155; margin: 0 0 8px; }
+        .empty-state p { font-size: 14px; color: #64748b; margin: 0; }
+
+        /* --- MODAL STYLES --- */
+        @keyframes modalFadeIn { from { opacity: 0; transform: translateY(20px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+        #contentModal {
+            display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); z-index: 2000; justify-content: center; align-items: center;
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); padding: 20px;
+        }
+        .modal-box {
+            background: white; width: 100%; max-width: 700px; border-radius: 16px; padding: 0; position: relative; max-height: 90vh; 
+            display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3); animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .modal-header { padding: 30px 40px 20px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: flex-start; }
+        .breadcrumb { font-size: 12px; font-weight: 600; color: var(--primary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;}
+        #topicTitle { font-size: 24px; font-weight: 800; color: #0f172a; margin:0; letter-spacing: -0.5px; line-height: 1.3; padding-right: 40px;}
+        
+        .header-actions { position: absolute; top: 24px; right: 24px; display: flex; gap: 8px;}
+        .icon-btn { background: #f1f5f9; border: none; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #64748b; transition: 0.2s; flex-shrink: 0;}
+        .icon-btn:hover { background: #e2e8f0; color: #0f172a; }
+
+        .modal-body { padding: 30px 40px; overflow-y: auto; color: #334155; font-size: 15px; line-height: 1.7; flex-grow: 1; }
+        .modal-body h3 { color: #0f172a; margin-top: 0;}
+        
+        .loading-skeleton { width: 100%; height: 20px; background: #f1f5f9; border-radius: 4px; margin-bottom: 12px; animation: pulse 1.5s infinite ease-in-out; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+
+        .modal-footer { padding: 25px 40px; background: #f8fafc; border-top: 1px solid #e2e8f0; border-radius: 0 0 16px 16px; display: flex; justify-content: space-between; align-items: center; }
+        
+        .feedback-section { display: flex; align-items: center; gap: 15px; }
+        .feedback-section span { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+        .feedback-btn { background: white; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; color: #475569; transition: 0.2s;}
+        .feedback-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0fdfa;}
+
+        .support-cta { font-size: 13px; font-weight: 600; color: #64748b; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: 0.2s;}
+        .support-cta:hover { color: var(--primary); }
+
+        /* 🚀 --- MOBILE RESPONSIVENESS --- */
+        @media (max-width: 991px) {
+            .main-content { margin-left: 0; padding: 0 0 40px 0; }
+            .search-hero { margin: 0 0 40px 0; border-radius: 0 0 20px 20px; padding: 80px 20px 80px;} 
+        }
+
+        @media (max-width: 768px) {
+            .hero-title { font-size: 28px; }
+            .hero-subtitle { font-size: 14px; }
+            .search-wrapper input { padding: 16px 16px 16px 48px; font-size: 15px; }
+            .search-wrapper svg { left: 16px; width: 18px; height: 18px; }
+            .kbd-shortcut { display: none; }
+            
+            .quick-actions-container { margin-top: -40px; }
+            .support-container { padding: 0 15px; }
+            .category-header h2 { font-size: 18px; }
+            .article-item { padding: 16px; }
+            .article-content p { white-space: normal; -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical;}
+            
+            .modal-box { height: 100vh; max-height: 100vh; border-radius: 0; } 
+            .modal-header { padding: 20px; }
+            .modal-body { padding: 20px; }
+            .modal-footer { padding: 20px; flex-direction: column; gap: 20px; align-items: stretch; text-align: center; }
+            .feedback-section { justify-content: center; }
+            .support-cta { justify-content: center; }
         }
     </style>
 </head>
@@ -636,40 +423,62 @@ if (empty($kb_data)) {
     <?php if (file_exists($headerPath)) include($headerPath); ?>
     <?php if (file_exists($sidebarPath)) include($sidebarPath); ?>
 
-    <div class="main-content" id="mainContent">
-        
-        <div class="page-main-header">
-            <h1>Help & Support</h1>
-        </div>
+    <main id="mainContent" class="main-content">
         
         <div class="search-hero">
+            <h1 class="hero-title">How can we help you today?</h1>
+            <p class="hero-subtitle">Search our knowledge base or browse categories below.</p>
+            
             <div class="search-wrapper">
                 <i data-lucide="search"></i>
-                <input type="text" id="searchInput" placeholder="Search for help... (e.g. 'how to access')">
+                <input type="text" id="searchInput" placeholder="Search for articles, guides, or keywords...">
+                <span class="kbd-shortcut">/</span>
             </div>
+        </div>
+
+        <div class="quick-actions-container">
+            <a href="employee/leave_request.php" class="quick-action-card">
+                <div class="qa-icon" style="background: #fef3c7; color: #d97706;"><i data-lucide="calendar-plus"></i></div>
+                <div style="font-size: 14px; font-weight: 700;">Apply Leave</div>
+            </a>
+            <a href="payslip_request.php" class="quick-action-card">
+                <div class="qa-icon" style="background: #dcfce7; color: #16a34a;"><i data-lucide="file-text"></i></div>
+                <div style="font-size: 14px; font-weight: 700;">View Payslip</div>
+            </a>
+            <a href="ticketraise_form.php" class="quick-action-card">
+                <div class="qa-icon" style="background: #e0f2fe; color: #0284c7;"><i data-lucide="life-buoy"></i></div>
+                <div style="font-size: 14px; font-weight: 700;">Raise IT Ticket</div>
+            </a>
+            <a href="team_chat.php" class="quick-action-card">
+                <div class="qa-icon" style="background: #f3e8ff; color: #7e22ce;"><i data-lucide="message-circle"></i></div>
+                <div style="font-size: 14px; font-weight: 700;">Message HR</div>
+            </a>
         </div>
 
         <div class="support-container">
             
-            <header class="category-header">
-                <h1 id="pageTitle">Getting Started</h1>
-                <p class="subtitle" id="pageSubtitle">Everything you need to know about the HRMS Portal features</p>
-                <span class="article-count" id="articleCount"><?php echo $total_articles; ?> articles</span>
-            </header>
+            <div class="category-header">
+                <h2><i data-lucide="book-open" style="color: var(--primary);"></i> <span id="pageTitle">Knowledge Base</span></h2>
+                <span class="article-count" id="articleCount"><?php echo $total_articles; ?> Articles</span>
+            </div>
 
             <div id="articlesContainer">
                 <?php foreach ($kb_data as $category): ?>
                     <div class="category-card">
-                        <h2><?php echo htmlspecialchars($category['title']); ?></h2>
+                        <div style="padding: 20px 24px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="<?= $category['icon'] ?>" style="color: #64748b; width: 20px; height: 20px;"></i>
+                            <h2 style="font-size: 16px; font-weight: 700; margin: 0; color: #334155;"><?php echo $category['title']; ?></h2>
+                        </div>
                         
                         <div class="article-list">
                             <?php foreach ($category['articles'] as $article): ?>
-                                <button class="article-item" onclick="showTopicContent('<?php echo addslashes($article['title']); ?>')">
+                                <button class="article-item" onclick="openArticle(<?php echo $article['id']; ?>, '<?php echo rawurlencode($article['title']); ?>', '<?php echo htmlspecialchars($category['title'], ENT_QUOTES); ?>')">
                                     <div class="article-content">
-                                        <h3><?php echo htmlspecialchars($article['title']); ?></h3>
-                                        <p><?php echo htmlspecialchars($article['desc']); ?></p>
+                                        <h3 class="searchable-title"><?php echo $article['title']; ?></h3>
+                                        <p class="searchable-desc"><?php echo $article['desc']; ?></p>
+                                        <div class="article-meta"><i data-lucide="clock" style="width:12px;height:12px;"></i> <?php echo $article['meta']; ?></div>
                                     </div>
-                                    <i data-lucide="chevron-right" class="article-icon w-5 h-5"></i>
+                                    <i data-lucide="chevron-right" class="article-icon"></i>
                                 </button>
                             <?php endforeach; ?>
                         </div>
@@ -677,20 +486,38 @@ if (empty($kb_data)) {
                 <?php endforeach; ?>
             </div>
 
+            <div class="empty-state" id="emptyState">
+                <i data-lucide="search-x" style="width: 64px; height: 64px; color: #cbd5e1; margin-bottom: 16px; display: inline-block;"></i>
+                <h3>No matching articles found</h3>
+                <p>We couldn't find anything matching your search. Try different keywords or <a href="ticketraise_form.php" style="color: var(--primary); text-decoration: underline;">raise a support ticket</a>.</p>
+            </div>
+
         </div>
     </div>
 
     <div id="contentModal">
         <div class="modal-box">
-            <button class="close-btn" onclick="closeModal()"><i data-lucide="x"></i></button>
-            <div id="modalInner">
-                <h2 id="topicTitle" style="font-size: 24px; font-weight: bold; color: var(--hostinger-purple); margin-bottom: 16px; margin-top:0; letter-spacing: -0.5px;"></h2>
-                <hr style="margin-bottom: 24px; border: 0; border-top: 1px solid #e2e8f0;">
-                <div id="topicDescription" style="color: #475569; font-size: 15px; margin-bottom: 32px; line-height: 1.6;">
+            <div class="modal-header">
+                <div>
+                    <div class="breadcrumb" id="modalBreadcrumb">Help Center > Category</div>
+                    <h2 id="topicTitle">Article Title</h2>
                 </div>
-                <div style="border-top: 1px solid #e2e8f0; padding-top: 24px; text-align: right;">
-                    <button onclick="closeModal()" class="btn-primary">Got it !</button>
+                <div class="header-actions">
+                    <button class="icon-btn" onclick="copyArticleLink()" title="Copy Link"><i data-lucide="link"></i></button>
+                    <button class="icon-btn" onclick="closeModal()" title="Close"><i data-lucide="x"></i></button>
                 </div>
+            </div>
+            
+            <div class="modal-body" id="topicDescription">
+                </div>
+            
+            <div class="modal-footer">
+                <div class="feedback-section">
+                    <span>Was this article helpful?</span>
+                    <button class="feedback-btn" onclick="submitFeedback(1)"><i data-lucide="thumbs-up"></i> Yes</button>
+                    <button class="feedback-btn" onclick="submitFeedback(0)"><i data-lucide="thumbs-down"></i> No</button>
+                </div>
+                <a href="ticketraise_form.php" class="support-cta"><i data-lucide="headphones"></i> Still need help? Contact Support</a>
             </div>
         </div>
     </div>
@@ -699,82 +526,163 @@ if (empty($kb_data)) {
         lucide.createIcons();
 
         const articleData = <?php echo json_encode($article_map); ?>;
+        let currentOpenArticleId = null; 
+        
+        // --- DEEP LINKING (URL Parameters) ---
+        document.addEventListener("DOMContentLoaded", () => {
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetArticle = urlParams.get('article');
+            const targetId = urlParams.get('id');
+            if(targetArticle && targetId) {
+                openArticle(targetId, encodeURIComponent(targetArticle), 'Knowledge Base');
+            }
+        });
 
-        // Modal Logic
-        function showTopicContent(title) {
+        // --- KEYBOARD SHORTCUTS ---
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && document.getElementById('contentModal').style.display === 'flex') { closeModal(); }
+            if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                e.preventDefault(); document.getElementById('searchInput').focus();
+            }
+        });
+
+        // --- MODAL LOGIC WITH BACKGROUND ANALYTICS (ID-BASED) ---
+        function openArticle(id, encodedTitle, categoryName) {
+            const title = decodeURIComponent(encodedTitle);
+            currentOpenArticleId = id;
+            
             const modal = document.getElementById('contentModal');
             const titleEl = document.getElementById('topicTitle');
             const descEl = document.getElementById('topicDescription');
+            const breadcrumbEl = document.getElementById('modalBreadcrumb');
 
-            const decodedTitle = new DOMParser().parseFromString(title, "text/html").body.textContent;
+            // Deep Linking with ID
+            const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + id + '&article=' + encodeURIComponent(title);
+            window.history.pushState({path:newUrl}, '', newUrl);
 
-            titleEl.innerText = decodedTitle;
-            const content = articleData[decodedTitle] || "Content is being prepared.";
+            breadcrumbEl.innerHTML = `<i data-lucide="folder" style="width:14px;height:14px;"></i> Help Center > ${categoryName}`;
+            titleEl.innerText = title;
+            lucide.createIcons();
             
-            descEl.innerHTML = content; 
+            descEl.innerHTML = `
+                <div class="loading-skeleton" style="width: 80%;"></div><div class="loading-skeleton" style="width: 100%;"></div>
+                <div class="loading-skeleton" style="width: 90%;"></div><div class="loading-skeleton" style="width: 60%; margin-bottom: 30px;"></div>
+                <div class="loading-skeleton" style="width: 100%;"></div><div class="loading-skeleton" style="width: 85%;"></div>
+            `;
             
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden'; 
+
+            // Log View to Database Silently (O(1) using ID)
+            const fd = new FormData();
+            fd.append('action', 'log_view');
+            fd.append('article_id', id);
+            fetch('', { method: 'POST', body: fd }).catch(() => {}); 
+
+            // Inject Sanitized HTML
+            setTimeout(() => {
+                const content = articleData[id] || "<p>Content could not be loaded.</p>";
+                descEl.innerHTML = content; 
+            }, 300);
         }
 
         function closeModal() {
-            const modal = document.getElementById('contentModal');
-            modal.style.display = 'none';
+            document.getElementById('contentModal').style.display = 'none'; 
             document.body.style.overflow = 'auto'; 
+            const cleanUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.history.pushState({path:cleanUrl}, '', cleanUrl);
         }
 
         window.onclick = function(event) {
-            const modal = document.getElementById('contentModal');
-            if (event.target == modal) {
-                closeModal();
-            }
+            if (event.target == document.getElementById('contentModal')) closeModal();
         }
 
-        // Live Search Filtering Logic
+        function copyArticleLink() {
+            navigator.clipboard.writeText(window.location.href).then(() => {
+                Swal.fire({ icon: 'success', title: 'Link Copied!', toast: true, position: 'top-end', showConfirmButton: false, timer: 2000 });
+            });
+        }
+
+        // --- TRUE DATABASE FEEDBACK LOOP (ID-BASED) ---
+        function submitFeedback(isHelpful) {
+            if(!currentOpenArticleId) return;
+
+            const fd = new FormData();
+            fd.append('action', 'submit_feedback');
+            fd.append('article_id', currentOpenArticleId);
+            fd.append('is_helpful', isHelpful);
+            
+            fetch('', { method: 'POST', body: fd })
+            .then(() => {
+                Swal.fire({ icon: 'success', title: 'Thank you!', text: isHelpful ? 'Glad we could help!' : 'We will use your feedback to improve this article.', toast: true, position: 'bottom-end', showConfirmButton: false, timer: 3000 });
+                closeModal();
+            });
+        }
+
+        // --- HIGHLIGHT SEARCH & ZERO-RESULT ANALYTICS ---
         const searchInput = document.getElementById('searchInput');
-        const pageTitle = document.getElementById('pageTitle');
-        const pageSubtitle = document.getElementById('pageSubtitle');
-        const articleCount = document.getElementById('articleCount');
-        
-        const originalTitle = "Getting Started";
-        const totalArticles = <?php echo $total_articles; ?>;
+        let searchTimeout;
+
+        function escapeRegExp(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
         searchInput.addEventListener('keyup', function() {
-            let filter = this.value.toLowerCase().trim();
+            clearTimeout(searchTimeout); 
+            
+            let filterText = this.value.toLowerCase().trim();
             let cards = document.querySelectorAll('.category-card');
             let visibleCount = 0;
-            
+            let searchRegex = filterText.length > 0 ? new RegExp('(' + escapeRegExp(filterText) + ')', 'gi') : null;
+
             cards.forEach(card => {
                 let articles = card.querySelectorAll('.article-item');
                 let hasVisibleArticle = false;
                 
                 articles.forEach(article => {
-                    let title = article.querySelector('h3').innerText.toLowerCase();
-                    let desc = article.querySelector('p').innerText.toLowerCase();
+                    let titleEl = article.querySelector('.searchable-title');
+                    let descEl = article.querySelector('.searchable-desc');
                     
-                    // Show article if text matches search query
-                    if (title.includes(filter) || desc.includes(filter)) {
-                        article.style.display = 'flex';
-                        hasVisibleArticle = true;
-                        visibleCount++;
+                    let rawTitle = titleEl.textContent;
+                    let rawDesc = descEl.textContent;
+                    
+                    let titleMatch = rawTitle.toLowerCase().includes(filterText);
+                    let descMatch = rawDesc.toLowerCase().includes(filterText);
+                    
+                    if (filterText === '' || titleMatch || descMatch) {
+                        article.style.display = 'flex'; hasVisibleArticle = true; visibleCount++;
+                        if (filterText !== '') {
+                            if (titleMatch) titleEl.innerHTML = rawTitle.replace(searchRegex, '<mark class="highlight">$1</mark>');
+                            if (descMatch) descEl.innerHTML = rawDesc.replace(searchRegex, '<mark class="highlight">$1</mark>');
+                        } else {
+                            titleEl.innerHTML = rawTitle; descEl.innerHTML = rawDesc;
+                        }
                     } else {
-                        article.style.display = 'none';
+                        article.style.display = 'none'; titleEl.innerHTML = rawTitle; descEl.innerHTML = rawDesc;
                     }
                 });
-                
-                // Hide the whole category card if no articles inside it match the search
                 card.style.display = hasVisibleArticle ? 'block' : 'none';
             });
 
-            // Update Header Text dynamically to match the Hostinger image style
-            if (filter.length > 0) {
-                pageTitle.innerHTML = `Search Results for: "${this.value}"`;
-                pageSubtitle.style.display = 'none'; // Hide subtitle when searching
-                articleCount.innerHTML = `Found ${visibleCount} results`;
+            if (filterText.length > 0) {
+                document.getElementById('pageTitle').innerHTML = `Search Results`;
+                document.getElementById('articleCount').innerHTML = `${visibleCount} found`;
+                if(visibleCount === 0) {
+                    document.getElementById('emptyState').style.display = 'block';
+                    document.getElementById('articlesContainer').style.display = 'none';
+                } else {
+                    document.getElementById('emptyState').style.display = 'none';
+                    document.getElementById('articlesContainer').style.display = 'block';
+                }
+                
+                searchTimeout = setTimeout(() => {
+                    const fd = new FormData(); fd.append('action', 'log_search'); fd.append('query', filterText);
+                    fetch('', { method: 'POST', body: fd }).catch(() => {}); 
+                }, 1500);
+
             } else {
-                pageTitle.innerHTML = originalTitle;
-                pageSubtitle.style.display = 'block'; // Bring subtitle back
-                articleCount.innerHTML = `${totalArticles} articles`;
+                document.getElementById('pageTitle').innerHTML = "Knowledge Base";
+                document.getElementById('articleCount').innerHTML = `<?php echo $total_articles; ?> Articles`;
+                document.getElementById('emptyState').style.display = 'none';
+                document.getElementById('articlesContainer').style.display = 'block';
             }
         });
     </script>

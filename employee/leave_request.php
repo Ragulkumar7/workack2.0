@@ -61,14 +61,28 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['submit_leave'])) {
             $tl_status = 'Approved';
         }
         
-        // 2. Managers and HR Executives bypass both TL and Manager approval phases
-        if (in_array($user_role, ['Manager', 'Project Manager', 'General Manager', 'HR', 'HR Executive'])) {
+        // 2. Managers bypass both TL and Manager approval phases
+        if (in_array($user_role, ['Manager', 'Project Manager', 'General Manager', 'Sales Manager'])) {
             $tl_status = 'Approved';
             $manager_status = 'Approved';
         }
 
-        // 3. Top-Level Management Auto-Approval (Instant Approval)
-        if (in_array($user_role, ['Admin', 'System Admin', 'CFO', 'CEO'])) {
+        // 3. IT & Sales Executive Logic: Bypass TL, goes to Manager/Admin, then HR
+        if (in_array($user_role, ['IT Executive', 'Sales Executive'])) {
+            $tl_status = 'Approved';
+            $manager_status = 'Pending';
+            $hr_status = 'Pending';
+        }
+
+        // 4. CFO, Accounts & IT Admin Logic: Bypass TL and Manager entirely, straight to HR
+        if (in_array($user_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin'])) {
+            $tl_status = 'Approved';
+            $manager_status = 'Approved';
+            $hr_status = 'Pending';
+        }
+
+        // 5. Top-Level Management Auto-Approval (Instant Approval)
+        if (in_array($user_role, ['Admin', 'System Admin', 'CEO'])) {
             $tl_status = 'Approved';
             $manager_status = 'Approved';
             $hr_status = 'Approved';
@@ -137,7 +151,6 @@ while ($row = mysqli_fetch_assoc($result_stats)) {
 
 $total_used = array_sum($used);
 $total_remaining = max(0, $total_entitled - $total_used);
-
 
 // --- 4. FETCH LEAVE HISTORY ---
 $history_sql = "
@@ -348,7 +361,7 @@ if (!file_exists($sidebarPath)) {
                 <div class="input-group">
                     <i data-lucide="activity" style="width:16px;"></i>
                     <select id="filterStatus" onchange="filterTable()">
-                        <option value="">All Statuses</option>
+                        <option value="">All Status</option>
                         <option value="Approved">Approved</option>
                         <option value="Pending">Pending</option>
                         <option value="Rejected">Rejected</option>
@@ -378,28 +391,27 @@ if (!file_exists($sidebarPath)) {
                                 $h = $row['hr_status'] ?? 'Pending';
                                 $db_stat = $row['status'];
 
-                                // Determine which nodes to SHOW dynamically
-                                $show_t_node = true;
-                                $show_m_node = true;
-
                                 // DYNAMIC UI FIX: Override display logic for old/legacy rows based on current user role
                                 if (in_array($user_role, ['Team Lead', 'TL'])) { 
                                     $t = 'Approved'; 
-                                    $show_t_node = false; // Hide TL circle
                                 }
-                                if (in_array($user_role, ['Manager', 'Project Manager', 'General Manager', 'HR', 'HR Executive'])) { 
+                                if (in_array($user_role, ['Manager', 'Project Manager', 'General Manager', 'Sales Manager'])) { 
                                     $t = 'Approved'; 
                                     $m = 'Approved'; 
-                                    $show_t_node = false; // Hide TL circle
-                                    $show_m_node = false; // Hide Manager circle
                                 }
-                                if (in_array($user_role, ['Admin', 'System Admin', 'CFO', 'CEO'])) { 
+                                // Executives skip TL on the UI tracking bubbles
+                                if (in_array($user_role, ['IT Executive', 'Sales Executive'])) {
+                                    $t = 'Approved';
+                                }
+                                if (in_array($user_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin'])) {
+                                    $t = 'Approved';
+                                    $m = 'Approved';
+                                }
+                                if (in_array($user_role, ['Admin', 'System Admin', 'CEO'])) {
                                     $t = 'Approved'; 
                                     $m = 'Approved'; 
                                     $h = 'Approved'; 
                                     $db_stat = 'Approved';
-                                    $show_t_node = false; // Hide TL circle
-                                    $show_m_node = false; // Hide Manager circle
                                 }
 
                                 // Calculate real overall status
@@ -420,13 +432,28 @@ if (!file_exists($sidebarPath)) {
                                 $mgr_node = ($m === 'Approved') ? 'node-approved' : (($m === 'Rejected') ? 'node-rejected' : 'node-pending');
                                 $hr_node = ($h === 'Approved') ? 'node-approved' : (($h === 'Rejected') ? 'node-rejected' : 'node-pending');
 
+                                // Dynamic UI Adjustments for Manager Bubble based on Role
+                                if ($user_role === 'IT Executive') {
+                                    $mgr_bubble_letter = 'A';
+                                    $mgr_tooltip_title = 'IT Admin';
+                                    $await_mgr_text = 'Awaiting IT Admin';
+                                } elseif ($user_role === 'Sales Executive') {
+                                    $mgr_bubble_letter = 'M';
+                                    $mgr_tooltip_title = 'Sales Mgr';
+                                    $await_mgr_text = 'Awaiting Sales Manager';
+                                } else {
+                                    $mgr_bubble_letter = 'M';
+                                    $mgr_tooltip_title = 'Mgr';
+                                    $await_mgr_text = 'Awaiting Manager';
+                                }
+
                                 // STRICT AWAITING LOGIC (Shows exact next step without displaying skipped steps)
                                 $awaiting = '';
                                 if ($real_status === 'Pending') {
-                                    if ($t === 'Pending' && $show_t_node) {
+                                    if ($t === 'Pending') {
                                         $awaiting = 'Awaiting Team Lead';
-                                    } elseif ($m === 'Pending' && $show_m_node) {
-                                        $awaiting = 'Awaiting Manager';
+                                    } elseif ($m === 'Pending') {
+                                        $awaiting = $await_mgr_text;
                                     } elseif ($h === 'Pending') {
                                         $awaiting = 'Awaiting HR Approval';
                                     } else {
@@ -448,19 +475,25 @@ if (!file_exists($sidebarPath)) {
                                 <?php echo htmlspecialchars($row['reason']); ?>
                             </td>
                             <td>
-                                <div class="chain-wrapper" title="TL: <?php echo $t; ?> | Mgr: <?php echo $m; ?> | HR: <?php echo $h; ?>">
-                                    <?php if($show_t_node): ?>
-                                    <div class="chain-node <?php echo $tl_node; ?>">T</div>
-                                    <div class="chain-line"></div>
-                                    <?php endif; ?>
-                                    
-                                    <?php if($show_m_node): ?>
-                                    <div class="chain-node <?php echo $mgr_node; ?>">M</div>
-                                    <div class="chain-line"></div>
-                                    <?php endif; ?>
-                                    
-                                    <div class="chain-node <?php echo $hr_node; ?>">H</div>
-                                </div>
+                                <?php if (in_array($user_role, ['IT Executive', 'Sales Executive'])): ?>
+                                    <div class="chain-wrapper" title="<?php echo $mgr_tooltip_title; ?>: <?php echo $m; ?> | HR: <?php echo $h; ?>">
+                                        <div class="chain-node <?php echo $mgr_node; ?>"><?php echo $mgr_bubble_letter; ?></div>
+                                        <div class="chain-line"></div>
+                                        <div class="chain-node <?php echo $hr_node; ?>">H</div>
+                                    </div>
+                                <?php elseif (in_array($user_role, ['CFO', 'Accounts', 'Accountant', 'IT Admin'])): ?>
+                                    <div class="chain-wrapper" title="HR: <?php echo $h; ?>">
+                                        <div class="chain-node <?php echo $hr_node; ?>">H</div>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="chain-wrapper" title="TL: <?php echo $t; ?> | Mgr: <?php echo $m; ?> | HR: <?php echo $h; ?>">
+                                        <div class="chain-node <?php echo $tl_node; ?>">T</div>
+                                        <div class="chain-line"></div>
+                                        <div class="chain-node <?php echo $mgr_node; ?>">M</div>
+                                        <div class="chain-line"></div>
+                                        <div class="chain-node <?php echo $hr_node; ?>">H</div>
+                                    </div>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <div class="status-badge-container">

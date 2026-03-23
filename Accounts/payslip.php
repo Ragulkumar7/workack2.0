@@ -11,6 +11,36 @@ include '../header.php';
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* ==========================================================
+           UNIVERSAL RESPONSIVE LAYOUT 
+           ========================================================== */
+        .main-content, #mainContent {
+            
+            transition: margin-left 0.3s ease, width 0.3s ease;
+            box-sizing: border-box;
+            min-height: 100vh;
+        }
+
+        /* Desktop: Shifts content right when secondary sub-menu opens */
+        .main-content.main-shifted, #mainContent.main-shifted {
+            margin-left: 215px; /* 95px + 220px */
+            width: calc(100% - 215px);
+        }
+
+        /* Mobile & Tablet Adjustments */
+        @media (max-width: 991px) {
+            .main-content, #mainContent {
+                margin-left: 0 !important;
+                width: 100% !important;
+                padding: 20px 15px 30px !important; /* Top padding clears the hamburger menu */
+            }
+            
+            /* Prevent shifting on mobile (menu floats over content instead) */
+            .main-content.main-shifted, #mainContent.main-shifted {
+                margin-left: 0 !important;
+                width: 100% !important;
+            }
+        }
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
@@ -80,6 +110,7 @@ include '../header.php';
     </script>
 </head>
 <body class="p-8">
+    <main id="mainContent" class="main-content">
 
     <div class="max-w-7xl mx-auto space-y-6">
         
@@ -104,6 +135,7 @@ include '../header.php';
                 </div>
             </div>
         </div>
+</main>
 
         <div id="previewSection" class="hidden bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
             <div id="payslipPrintArea" class="payslip-container text-sm">
