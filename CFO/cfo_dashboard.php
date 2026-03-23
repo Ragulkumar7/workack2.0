@@ -768,7 +768,7 @@ include '../header.php';
                 </div>
             </div>
 
-            <div class="card h-[380px]">
+<div class="card h-[380px]">
                 <div class="card-body flex flex-col min-h-0">
                     <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-2 shrink-0">
                         <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
@@ -779,6 +779,12 @@ include '../header.php';
                             $color_palette = ['bg-teal-500', 'bg-indigo-500', 'bg-rose-500', 'bg-orange-500'];
                             $c_idx = 0;
                             foreach($all_today_meetings as $meet):
+                                
+                                // ADDED LOGIC: Check if the link is a direct team chat ID. If yes, skip this duplicate row.
+                                if (!empty($meet['meet_link']) && strpos(trim($meet['meet_link']), '.') === false && $meet['meet_link'] !== 'Online') {
+                                    continue; 
+                                }
+
                                 $is_past = (strtotime($meet['meet_time']) < time() && $meet['meet_date'] == $today) ? 'opacity-50' : '';
                                 $dot_color = (strtotime($meet['meet_time']) < time() && $meet['meet_date'] == $today) ? 'bg-slate-300' : $color_palette[$c_idx % 4];
                                 $c_idx++;

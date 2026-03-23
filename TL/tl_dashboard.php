@@ -1057,7 +1057,15 @@ session_write_close();
                                     $dot_color = $color_palette[$c_idx % 4];
                                     $c_idx++;
                             ?>
-                            <div class="meeting-row-wrapper">
+                            <?php 
+// Check if the link is an internal teamchat room ID (no dot). If yes, skip rendering this duplicate row.
+$is_team_chat_duplicate = false;
+if (!empty($meet['meet_link']) && strpos(trim($meet['meet_link']), '.') === false) {
+    $is_team_chat_duplicate = true;
+}
+if (!$is_team_chat_duplicate): 
+?>
+<div class="meeting-row-wrapper">
                                 <div class="meeting-dot <?php echo $dot_color; ?>"></div>
                                 <div class="meeting-flex-container gap-4">
                                     <div class="meeting-time-label">
@@ -1069,21 +1077,18 @@ session_write_close();
                                         <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department'] ?? 'Team Meeting'); ?></p>
                                         <?php if(!empty($meet['meet_link'])): 
                                             $actual_link = trim($meet['meet_link']);
-                                            if (strpos($actual_link, '.') !== false) {
-                                                if (!preg_match("~^(?:f|ht)tps?://~i", $actual_link) && strpos($actual_link, '/') !== 0) {
-                                                    $actual_link = "https://" . $actual_link;
-                                                }
-                                            } else {
-                                                $actual_link = $path_to_root . "team_chat.php?room_id=" . urlencode($actual_link);
+                                            if (!preg_match("~^(?:f|ht)tps?://~i", $actual_link) && strpos($actual_link, '/') !== 0) {
+                                                $actual_link = "https://" . $actual_link;
                                             }
                                         ?>
-                                            <a href="<?php echo htmlspecialchars($actual_link); ?>" <?php echo (strpos($actual_link, 'team_chat.php') === false) ? 'target="_blank"' : ''; ?> class="text-[10px] text-indigo-600 font-bold mt-1 inline-block hover:underline">
+                                            <a href="<?php echo htmlspecialchars($actual_link); ?>" target="_blank" class="text-[10px] text-indigo-600 font-bold mt-1 inline-block hover:underline">
                                                 <i class="fa-solid fa-video"></i> Join Meeting
                                             </a>
                                         <?php endif; ?>
                                     </div>
                                 </div>
                             </div>
+<?php endif; ?>
                             <?php endforeach; } else { echo "<div class='text-center py-8 text-slate-400'><i class='fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50'></i><p class='text-xs font-medium'>No meetings scheduled.</p></div>"; } ?>
                         </div>
                     </div>

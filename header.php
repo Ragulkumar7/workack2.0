@@ -34,11 +34,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['header_action']) && $
     }
 }
 
-// --- 3. DYNAMIC PATH ---
-$script_path = $_SERVER['SCRIPT_NAME']; 
-$path_parts = explode('/', trim($script_path, '/'));
-$folder_depth = count($path_parts) - 2; 
-$base_path = ($folder_depth > 0) ? str_repeat('../', $folder_depth) : './';
+// --- 3. BULLETPROOF DYNAMIC BASE URL (Fixes 404 Logout Errors) ---
+// This safely calculates the exact absolute URL to the root of your application
+$protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https://" : "http://";
+$host = $_SERVER['HTTP_HOST'];
+$doc_root = rtrim(str_replace('\\', '/', $_SERVER['DOCUMENT_ROOT']), '/');
+$header_dir = str_replace('\\', '/', __DIR__);
+
+// Remove Document Root from the Absolute Path to get the Web Path
+$web_path = str_replace($doc_root, '', $header_dir);
+$base_url = rtrim($protocol . $host . $web_path, '/') . '/';
 
 // --- 4. GET LOGGED-IN USER DATA & PROFILE IMAGE ---
 $current_user_id = $_SESSION['user_id'] ?? 0;
@@ -60,7 +65,7 @@ if (isset($conn) && $current_user_id > 0) {
             $display_name = explode(' ', trim($full_name))[0]; 
         }
         if (!empty($p_row['profile_img']) && $p_row['profile_img'] !== 'default_user.png') {
-            $profile_img = (strpos($p_row['profile_img'], 'http') === 0) ? $p_row['profile_img'] : $base_path . 'assets/profiles/' . $p_row['profile_img'];
+            $profile_img = (strpos($p_row['profile_img'], 'http') === 0) ? $p_row['profile_img'] : $base_url . 'assets/profiles/' . $p_row['profile_img'];
         } else {
             $profile_img = "https://ui-avatars.com/api/?name=" . urlencode($full_name) . "&background=1e293b&color=fff&bold=true";
         }
@@ -106,26 +111,25 @@ if (isset($conn) && $current_user_id > 0) {
     }
 
     // =========================================================================
-    // B. ULTRA-FAST BULK SYNC ENGINE (Loads in Split Seconds without PHP Loops)
+    // B. ULTRA-FAST BULK SYNC ENGINE
     // =========================================================================
-    if (!isset($_SESSION['last_notif_sync']) || (time() - $_SESSION['last_notif_sync']) > 5) { // 5-second fast sync
+    if (!isset($_SESSION['last_notif_sync']) || (time() - $_SESSION['last_notif_sync']) > 5) {
         $uid_safe = (int)$current_user_id;
 
         function syncSafe($conn, $table, $sql) {
             try {
                 $chk = $conn->query("SHOW TABLES LIKE '$table'");
                 if($chk && $chk->num_rows > 0) $conn->query($sql); 
-            } catch (Exception $e) { /* Silently catch if table structure differs slightly */ }
+            } catch (Exception $e) { /* Silently catch */ }
         }
 
-        // 1. ANNOUNCEMENTS (Declared / Active)
         syncSafe($conn, 'announcements', "
             INSERT INTO notifications (target_role, title, message, type, link, source_type, source_id, created_at) 
             SELECT IF(target_audience IN ('All', 'All Employees', ''), 'All', target_audience), 
                    CONCAT('📢 ', IFNULL(category, 'Announcement')), 
                    IFNULL(title, 'New Update'), 
                    'announcement', 
-                   '../view_announcements.php', 
+                   'view_announcements.php', 
                    'ann', 
                    id, 
                    IFNULL(created_at, CURRENT_TIMESTAMP)
@@ -134,28 +138,25 @@ if (isset($conn) && $current_user_id > 0) {
               AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = a.id AND n.source_type = 'ann')
         ");
 
-        // 2. WFH APPROVED (Only Approved)
         syncSafe($conn, 'wfh_requests', "
             INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) 
-            SELECT user_id, '🏠 WFH Approved', 'Your WFH request was Approved', 'success', '../work_from_home.php', 'wfh_emp_Approved', id, CURRENT_TIMESTAMP 
+            SELECT user_id, '🏠 WFH Approved', 'Your WFH request was Approved', 'success', 'employee/work_from_home.php', 'wfh_emp_Approved', id, CURRENT_TIMESTAMP 
             FROM wfh_requests w 
             WHERE user_id = $uid_safe AND status = 'Approved' 
               AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = w.id AND n.source_type = 'wfh_emp_Approved')
         ");
 
-        // 3. LEAVES APPROVED (Only Approved)
         syncSafe($conn, 'leave_requests', "
             INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) 
-            SELECT user_id, '✈️ Leave Approved', CONCAT('Your ', IFNULL(leave_type, 'Leave'), ' was Approved'), 'success', '../leave_request.php', 'lv_emp_Approved', id, CURRENT_TIMESTAMP 
+            SELECT user_id, '✈️ Leave Approved', CONCAT('Your ', IFNULL(leave_type, 'Leave'), ' was Approved'), 'success', 'employee/leave_request.php', 'lv_emp_Approved', id, CURRENT_TIMESTAMP 
             FROM leave_requests l 
             WHERE user_id = $uid_safe AND status = 'Approved' 
               AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = l.id AND n.source_type = 'lv_emp_Approved')
         ");
 
-        // 4. PAYSLIP APPROVED (Only Approved)
         syncSafe($conn, 'payslip_requests', "
             INSERT INTO notifications (user_id, title, message, type, link, source_type, source_id, created_at) 
-            SELECT user_id, '📄 Payslip Ready', 'Your requested payslip is Approved.', 'success', '../payslip_request.php', 'pay_emp_Approved', id, CURRENT_TIMESTAMP 
+            SELECT user_id, '📄 Payslip Ready', 'Your requested payslip is Approved.', 'success', 'payslip_request.php', 'pay_emp_Approved', id, CURRENT_TIMESTAMP 
             FROM payslip_requests p 
             WHERE user_id = $uid_safe AND status = 'Approved' 
               AND NOT EXISTS (SELECT 1 FROM notifications n WHERE n.source_id = p.id AND n.source_type = 'pay_emp_Approved')
@@ -165,7 +166,7 @@ if (isset($conn) && $current_user_id > 0) {
     }
 
     // =========================================================================
-    // C. FETCH UNREAD COUNT & FEED FOR CURRENT USER (STRICT ROLE MATCHING)
+    // C. FETCH UNREAD COUNT & FEED FOR CURRENT USER
     // =========================================================================
     
     $roles_array = ['All', 'All Employees'];
@@ -276,7 +277,7 @@ if (!function_exists('time_elapsed_string')) {
 <header id="mainHeader">
   <div class="flex items-center gap-3">
     
-    <a href="<?php echo $base_path; ?>settings.php" class="hidden md:inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition-all mr-2">
+    <a href="<?php echo $base_url; ?>settings.php" class="hidden md:inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-white hover:bg-gray-50 border border-gray-200 rounded-lg transition-all mr-2">
       <i data-lucide="user" class="w-4 h-4 text-gray-500"></i>
       <span>View Profile</span>
     </a>
@@ -314,7 +315,6 @@ if (!function_exists('time_elapsed_string')) {
                 </div>
             <?php else: ?>
                 <?php foreach ($notifications as $notif): 
-                    // STYLING TO MATCH THE IMAGE
                     $type = strtolower($notif['type']);
                     
                     // Default Icon Style
@@ -330,17 +330,26 @@ if (!function_exists('time_elapsed_string')) {
                         $bg = 'bg-orange-50'; $text = 'text-orange-500'; $icon = 'clock'; 
                     }
                     elseif ($type == 'announcement') { 
-                        // EXACT MATCH TO IMAGE: Light purple background, purple outline megaphone
                         $bg = 'bg-[#f5efff]'; $text = 'text-[#b08df8]'; $icon = 'megaphone'; 
                     }
                     elseif ($type == 'task') { 
                         $bg = 'bg-indigo-50'; $text = 'text-indigo-500'; $icon = 'clipboard-list'; 
                     }
                     
-                    // Unread styling logic
                     $is_read_styling = $notif['actual_read_status'] == 1 ? 'opacity-80' : 'bg-slate-50/50';
+                    
+                   // Clean relative DB links and force absolute URLs
+$clean_link = str_replace('../', '', $notif['link'] ?? '#');
+
+// SMART ROUTER: Fix missing 'employee/' folder for specific files
+$employee_files = ['work_from_home.php', 'leave_request.php'];
+if (in_array($clean_link, $employee_files)) {
+    $clean_link = 'employee/' . $clean_link;
+}
+
+if ($clean_link !== '#') $clean_link = $base_url . $clean_link;
                 ?>
-                <a href="<?php echo htmlspecialchars($notif['link'] ?? '#'); ?>" class="flex gap-4 items-start p-5 border-b border-gray-100 hover:bg-gray-50 transition-colors <?php echo $is_read_styling; ?>">
+                <a href="<?php echo htmlspecialchars($clean_link); ?>" class="flex gap-4 items-start p-5 border-b border-gray-100 hover:bg-gray-50 transition-colors <?php echo $is_read_styling; ?>">
                     <div class="w-10 h-10 shrink-0 <?php echo $bg; ?> rounded-full flex items-center justify-center <?php echo $text; ?>">
                         <i data-lucide="<?php echo $icon; ?>" class="w-5 h-5"></i>
                     </div>
@@ -374,14 +383,14 @@ if (!function_exists('time_elapsed_string')) {
         </div>
         
         <div class="py-1.5">
-          <a href="<?php echo $base_path; ?>settings.php" class="flex items-center gap-3 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors font-medium">
+          <a href="<?php echo $base_url; ?>settings.php" class="flex items-center gap-3 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors font-medium">
             <i data-lucide="settings" class="w-4 h-4 text-gray-400"></i>
             Account Settings
           </a>
         </div>
 
         <div class="border-t border-gray-100 py-1.5">
-          <a href="<?php echo $base_path; ?>logout.php" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors font-bold">
+          <a href="<?php echo $base_url; ?>logout.php" class="flex items-center gap-3 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors font-bold">
             <i data-lucide="log-out" class="w-4 h-4"></i>
             Secure Logout
           </a>

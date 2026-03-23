@@ -219,6 +219,7 @@ $sections = [
         'items' => [
             ['name' => 'Request Payslip', 'path' => $base . 'payslip_request.php', 'icon' => 'file-text', 'allowed' => ['System Admin', 'HR', 'Manager', 'Team Lead', 'Employee', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'Sales Manager', 'Sales Executive']],
             ['name' => 'Employee Salary', 'path' => $base . 'Accounts/employee_salary.php', 'icon' => 'banknote', 'allowed' => ['Accounts', 'HR', 'CEO']],
+            ['name' => 'Advance Requests', 'path' => $base . 'Accounts/accounts_advances.php', 'icon' => 'hand-coins', 'allowed' => ['Accounts', 'System Admin', 'CEO']],
             ['name' => 'Payslips', 'path' => $base . 'Accounts/payslip_management.php', 'icon' => 'file-text', 'allowed' => ['Accounts', 'CEO']],
             ['name' => 'Invoices', 'path' => $base . 'Accounts/new_invoice.php', 'icon' => 'file-text', 'allowed' => ['Accounts', 'CEO']],
             ['name' => 'Purchase Orders', 'path' => $base . 'Accounts/purchase_order.php', 'icon' => 'shopping-cart', 'allowed' => ['Accounts', 'CEO']],
@@ -244,6 +245,7 @@ $sections = [
     [
         'label' => 'IT & Admin',
         'items' => [
+            ['name' => 'HR Tickets', 'path' => $base . 'HR/hr_tickets.php', 'icon' => 'life-buoy', 'allowed' => ['HR', 'HR Admin', 'System Admin', 'CEO']],
             ['name' => 'Raise Ticket', 'path' => $base . 'ticketraise_form.php', 'icon' => 'plus-circle', 'allowed' => ['Manager', 'System Admin', 'HR', 'Employee', 'Team Lead', 'Accounts', 'HR Executive', 'CFO', 'Sales Manager', 'Sales Executive']],
             ['name' => 'Manage Tickets', 'path' => $base . 'ITadmin/manage_tickets.php', 'icon' => 'clipboard-list', 'allowed' => ['IT Admin']],
             ['name' => 'Ticket Actions', 'path' => $base . 'IT_Executive/it_exec_ticket_action.php', 'icon' => 'file-check-2', 'allowed' => ['IT Executive']],
@@ -258,6 +260,7 @@ $sections = [
     [
         'label' => 'Support',
         'items' => [
+            
             ['name' => 'Team Chat', 'path' => $base . 'team_chat.php', 'icon' => 'message-circle', 'allowed' => ['Manager', 'System Admin', 'Team Lead', 'Employee', 'Accounts', 'IT Admin', 'IT Executive', 'HR Executive', 'CFO', 'HR', 'Sales Manager', 'Sales Executive', 'CEO']],
             ['name' => 'Announcements', 'path' => $base . 'announcement.php', 'icon' => 'megaphone', 'allowed' => ['Manager', 'System Admin', 'HR Executive', 'HR', 'CEO']],
             ['name' => 'Announcements', 'path' => $base . 'view_announcements.php', 'icon' => 'megaphone', 'allowed' => ['Accounts', 'Employee', 'Team Lead', 'IT Admin', 'IT Executive', 'CFO','Sales Manager','Sales Executive']],

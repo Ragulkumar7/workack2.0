@@ -1036,51 +1036,57 @@ $pending_tasks_count = $conn->query("SELECT COUNT(*) as cnt FROM personal_taskbo
                 </div>
             </div>
 
-            <div class="card h-[350px]">
-                <div class="p-6 flex flex-col h-full">
-                    <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
-                        <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
-                        <button class="text-[10px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Upcoming</button>
+<div class="card h-[350px]">
+    <div class="p-6 flex flex-col h-full">
+        <div class="flex justify-between items-center mb-4 border-b border-gray-100 pb-3 shrink-0">
+            <h3 class="font-bold text-slate-800 text-lg">Meetings</h3>
+            <button class="text-[10px] text-gray-500 bg-slate-100 px-2 py-1 rounded font-bold uppercase tracking-widest">Upcoming</button>
+        </div>
+        <div class="meeting-timeline space-y-6 pt-2 custom-scroll overflow-y-auto flex-grow pr-2">
+            <?php if(!empty($all_today_meetings)) {
+                $color_palette = ['bg-teal-500', 'bg-indigo-500', 'bg-rose-500', 'bg-orange-500'];
+                $c_idx = 0;
+                foreach($all_today_meetings as $meet): 
+                    
+                    // ADDED LOGIC: Check if the link is a direct team chat ID. If yes, skip this duplicate row.
+                    if (!empty($meet['meet_link']) && strpos(trim($meet['meet_link']), '.') === false) {
+                        continue; 
+                    }
+
+                    $dot_color = $color_palette[$c_idx % 4];
+                    $c_idx++;
+            ?>
+            <div class="meeting-row-wrapper">
+                <div class="meeting-dot <?php echo $dot_color; ?>"></div>
+                <div class="meeting-flex-container gap-4">
+                    <div class="meeting-time-label">
+                        <span class="block text-[10px] text-teal-600 mb-0.5"><?php echo ($meet['meet_date'] == $today) ? 'Today' : date("d M", strtotime($meet['meet_date'])); ?></span>
+                        <?php echo date("h:i A", strtotime($meet['meet_time'])); ?>
                     </div>
-                    <div class="meeting-timeline space-y-6 pt-2 custom-scroll overflow-y-auto flex-grow pr-2">
-                        <?php if(!empty($all_today_meetings)) {
-                            $color_palette = ['bg-teal-500', 'bg-indigo-500', 'bg-rose-500', 'bg-orange-500'];
-                            $c_idx = 0;
-                            foreach($all_today_meetings as $meet): 
-                                $dot_color = $color_palette[$c_idx % 4];
-                                $c_idx++;
+                    <div class="meeting-content-box shadow-sm py-2 px-3">
+                        <p class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
+                        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department'] ?? 'Team Meeting'); ?></p>
+                        <?php if(!empty($meet['meet_link'])): 
+                            $actual_link = trim($meet['meet_link']);
+                            if (strpos($actual_link, '.') !== false) {
+                                if (!preg_match("~^(?:f|ht)tps?://~i", $actual_link) && strpos($actual_link, '/') !== 0) {
+                                    $actual_link = "https://" . $actual_link;
+                                }
+                            } else {
+                                $actual_link = $path_to_root . "team_chat.php?room_id=" . urlencode($actual_link);
+                            }
                         ?>
-                        <div class="meeting-row-wrapper">
-                            <div class="meeting-dot <?php echo $dot_color; ?>"></div>
-                            <div class="meeting-flex-container gap-4">
-                                <div class="meeting-time-label">
-                                    <span class="block text-[10px] text-teal-600 mb-0.5"><?php echo ($meet['meet_date'] == $today) ? 'Today' : date("d M", strtotime($meet['meet_date'])); ?></span>
-                                    <?php echo date("h:i A", strtotime($meet['meet_time'])); ?>
-                                </div>
-                                <div class="meeting-content-box shadow-sm py-2 px-3">
-                                    <p class="text-[13px] font-bold text-slate-800"><?php echo htmlspecialchars($meet['title']); ?></p>
-                                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5"><?php echo htmlspecialchars($meet['department'] ?? 'Team Meeting'); ?></p>
-                                    <?php if(!empty($meet['meet_link'])): 
-                                        $actual_link = trim($meet['meet_link']);
-                                        if (strpos($actual_link, '.') !== false) {
-                                            if (!preg_match("~^(?:f|ht)tps?://~i", $actual_link) && strpos($actual_link, '/') !== 0) {
-                                                $actual_link = "https://" . $actual_link;
-                                            }
-                                        } else {
-                                            $actual_link = $path_to_root . "team_chat.php?room_id=" . urlencode($actual_link);
-                                        }
-                                    ?>
-                                        <a href="<?php echo htmlspecialchars($actual_link); ?>" <?php echo (strpos($actual_link, 'team_chat.php') === false) ? 'target="_blank"' : ''; ?> class="text-[10px] text-indigo-600 font-bold mt-1 inline-block hover:underline">
-                                            <i class="fa-solid fa-video"></i> Join Meeting
-                                        </a>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        </div>
-                        <?php endforeach; } else { echo "<div class='text-center py-8 text-slate-400'><i class='fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50'></i><p class='text-xs font-medium'>No meetings scheduled.</p></div>"; } ?>
+                            <a href="<?php echo htmlspecialchars($actual_link); ?>" <?php echo (strpos($actual_link, 'team_chat.php') === false) ? 'target="_blank"' : ''; ?> class="text-[10px] text-indigo-600 font-bold mt-1 inline-block hover:underline">
+                                <i class="fa-solid fa-video"></i> Join Meeting
+                            </a>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
+            <?php endforeach; } else { echo "<div class='text-center py-8 text-slate-400'><i class='fa-regular fa-calendar-xmark text-3xl mb-2 opacity-50'></i><p class='text-xs font-medium'>No meetings scheduled.</p></div>"; } ?>
+        </div>
+    </div>
+</div>
 
             <div class="card border-red-200 h-[350px]">
                 <div class="p-6 flex flex-col h-full">

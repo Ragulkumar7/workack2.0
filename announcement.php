@@ -313,7 +313,7 @@ $meet_res = $conn->query($meet_sql);
             </div>
         </div>
 
-        <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+        <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden mb-8">
             <div class="p-4 border-b border-slate-100 flex items-center gap-2">
                 <i class="fa-solid fa-handshake text-amber-600"></i>
                 <h2 class="font-bold text-slate-700">Scheduled Meetings</h2>
@@ -425,17 +425,24 @@ $meet_res = $conn->query($meet_sql);
                 <div><label class="text-xs font-bold uppercase">Time</label><input type="time" name="meeting_time" required class="w-full border p-2 rounded-lg text-sm"></div>
                 <div class="col-span-2">
                     <label class="text-xs font-bold uppercase">Filter Department</label>
-                    <select onchange="filterAttendees(this.value)" class="w-full border p-2 rounded-lg mt-1 text-sm">
+                    <select id="deptFilter" onchange="filterAttendees(this.value)" class="w-full border p-2 rounded-lg mt-1 text-sm">
                         <option value="All">All Departments</option>
                         <?php foreach($teams_array as $team): ?>
                             <option value="<?php echo htmlspecialchars($team); ?>"><?php echo htmlspecialchars($team); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <div class="col-span-2">
-                    <label class="text-xs font-bold uppercase">Select Attendees</label>
-                    <div id="empList" class="border rounded-lg p-2 h-32 overflow-y-auto bg-slate-50"></div>
+                
+                <div class="col-span-2" id="attendeesBox" style="display: none;">
+                    <div class="flex justify-between items-center mb-1">
+                        <label class="text-xs font-bold uppercase">Select Attendees</label>
+                        <label class="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded cursor-pointer hover:bg-teal-100 flex items-center gap-1 border border-teal-200 transition">
+                            <input type="checkbox" id="selectAllBtn" onchange="toggleSelectAll(this)" class="w-3 h-3 cursor-pointer accent-teal-600"> Select All
+                        </label>
+                    </div>
+                    <div id="empList" class="border rounded-lg p-2 h-32 overflow-y-auto bg-slate-50 space-y-0.5"></div>
                 </div>
+                
                 <div class="col-span-2"><label class="text-xs font-bold uppercase">Agenda</label><textarea name="meeting_description" rows="2" class="w-full border p-2 rounded-lg text-sm"></textarea></div>
             </div>
             <div class="flex justify-end gap-2">
@@ -468,22 +475,41 @@ $meet_res = $conn->query($meet_sql);
         function toggleMeetingModal(show) {
             const m = document.getElementById('meetingModal');
             show ? m.classList.add('modal-active') : m.classList.remove('modal-active');
-            if(show) filterAttendees('All');
+            if(show) {
+                // Reset select filter to All when opening
+                document.getElementById('deptFilter').value = 'All';
+                filterAttendees('All');
+            }
         }
         
         function filterAttendees(dept) {
             const container = document.getElementById('empList');
-            container.innerHTML = '';
+            const attendeesBox = document.getElementById('attendeesBox');
+            const selectAllBtn = document.getElementById('selectAllBtn');
             
-            employees.filter(e => dept === 'All' || e.department === dept).forEach(e => {
-                // FIXED: Do NOT auto-check checkboxes when filtering departments
-                // Just display the filtered employees
-                container.innerHTML += `<label class="flex items-center gap-2 p-1 cursor-pointer"><input type="checkbox" name="attendees[]" value="${e.username}" class="dept-${e.department.replace(/\s+/g, '-')}"> <span class="text-xs">${e.username} (${e.role})</span></label>`;
-            });
+            container.innerHTML = '';
+            // Reset Select All button when switching departments
+            if(selectAllBtn) selectAllBtn.checked = false;
+            
+            if(dept === 'All') {
+                // Hide attendees section completely if "All" is selected
+                attendeesBox.style.display = 'none';
+            } else {
+                // Show attendees section and populate filtered list
+                attendeesBox.style.display = 'block';
+                employees.filter(e => e.department === dept).forEach(e => {
+                    container.innerHTML += `<label class="flex items-center gap-2 p-1.5 cursor-pointer hover:bg-slate-100 rounded transition"><input type="checkbox" name="attendees[]" value="${e.username}" class="attendee-checkbox w-4 h-4 text-teal-600 rounded cursor-pointer accent-teal-600"> <span class="text-xs font-medium text-slate-700">${e.username} <span class="text-[9px] text-gray-400">(${e.role})</span></span></label>`;
+                });
+            }
         }
 
-        // Feature removed as requested (auto-select teammates when TL is checked)
-        // Checkboxes will only be checked if explicitly clicked by the user
+        // Logic for the Select All button
+        function toggleSelectAll(source) {
+            const checkboxes = document.querySelectorAll('.attendee-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = source.checked;
+            });
+        }
         
         function openModal(id, mode = 'add', data = null) {
             document.getElementById(id).classList.remove('hidden');

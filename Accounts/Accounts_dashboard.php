@@ -777,6 +777,12 @@ include '../header.php';
                             $color_palette = ['bg-teal-500', 'bg-indigo-500', 'bg-rose-500', 'bg-orange-500'];
                             $c_idx = 0;
                             foreach($all_today_meetings as $meet):
+
+                                // ADDED LOGIC: Check if the link is a direct team chat ID. If yes, skip this duplicate row.
+                                if (!empty($meet['meet_link']) && strpos(trim($meet['meet_link']), '.') === false) {
+                                    continue; 
+                                }
+
                                 $is_past = (strtotime($meet['meet_time']) < time() && $meet['meet_date'] == $today) ? 'opacity-50' : '';
                                 $dot_color = (strtotime($meet['meet_time']) < time() && $meet['meet_date'] == $today) ? 'bg-slate-300' : $color_palette[$c_idx % 4];
                                 $c_idx++;
